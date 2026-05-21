@@ -16,7 +16,25 @@ from pathlib import Path
 from harness.rebuild.target import TargetDescriptor
 
 def _stripify(node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
-    raise NotImplementedError
+    """Replace the body of *node* with a single ``raise NotImplementedError``.
+
+    The function/method is mutated in place: every statement in its body is
+    discarded except a leading docstring (if present), which is retained so the
+    skeleton keeps its documentation. A ``raise NotImplementedError(...)`` is
+    appended as the final (and possibly only) statement, turning the definition
+    into a callable stub that errors when invoked.
+
+    Returns ``None``; the mutation happens on *node* itself.
+    """
+    new_body: list[ast.stmt] = []
+    if node.body:
+        first = node.body[0]
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+            new_body.append(first)
+    raise_stmt = ast.Raise(exc=ast.Call(func=ast.Name(id='NotImplementedError', ctx=ast.Load()), args=[], keywords=[]), cause=None)
+    new_body.append(raise_stmt)
+    node.body = new_body
+    ast.fix_missing_locations(node)
 
 def strip_source(source: str) -> str:
     """Return a skeleton of ``source``: every function/method body removed.
