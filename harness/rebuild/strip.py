@@ -45,7 +45,16 @@ def strip_source(source: str) -> str:
     are retained. Output is ``ast.unparse``'d, so it is normalized (comments
     dropped) but byte-stable for downstream merges.
     """
-    raise NotImplementedError
+    tree = ast.parse(source)
+
+    def _process(body: list[ast.stmt]) -> None:
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                _stripify(node)
+            elif isinstance(node, ast.ClassDef):
+                _process(node.body)
+    _process(tree.body)
+    return ast.unparse(tree)
 
 def materialize_skeleton(descriptor: TargetDescriptor) -> dict:
     """Write the skeleton + verbatim tests/seeds; stash originals out-of-repo.
