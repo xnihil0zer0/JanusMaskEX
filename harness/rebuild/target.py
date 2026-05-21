@@ -6,7 +6,8 @@ as the behavioral spec (copied verbatim), any seed/scaffolding files (package
 reconstructed replicant lands.
 """
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
 
 @dataclass
@@ -55,7 +56,17 @@ class TargetDescriptor:
     python_exe: str | None = None
 
     def __post_init__(self) -> None:
-        raise NotImplementedError
+        """Normalize the path fields to absolute, resolved ``Path`` objects.
+
+        Accepts ``str`` or ``Path`` for ``source_root``, ``output_dir`` and
+        ``stash_dir``; each is coerced to a ``Path`` and ``.resolve()``d so the
+        stored value is absolute and free of ``..`` segments. The remaining
+        fields keep their declared values / defaults untouched.
+        """
+        self.source_root = Path(self.source_root).resolve()
+        self.output_dir = Path(self.output_dir).resolve()
+        self.stash_dir = Path(self.stash_dir).resolve()
+    'Everything the engine needs to rebuild a project clean-room.'
 
 def mathlib_descriptor(output_dir: Path, stash_dir: Path, source_root: Path) -> TargetDescriptor:
     """Build the descriptor for the shipped samples/mathlib smoke target."""
@@ -64,3 +75,4 @@ def mathlib_descriptor(output_dir: Path, stash_dir: Path, source_root: Path) -> 
 def janusmask_module_descriptor(name: str, modules: list[str], test_files: list[str], output_dir: Path, stash_dir: Path, source_root: Path, seed_files: list[str] | None=None, unit_test_selector: str='') -> TargetDescriptor:
     """Build a descriptor for rebuilding JanusMask's own leaf module(s) into JR."""
     raise NotImplementedError
+'TargetDescriptor: declarative spec of a project the rebuild engine rebuilds.'
