@@ -20,4 +20,28 @@ def check_true_depth(task_id: str, tasks_dir: Path, max_depth: int=3) -> bool:
     Returns:
         False if lineage depth > max_depth, True otherwise
     """
-    raise NotImplementedError
+    visited: set[str] = set()
+    current = task_id
+    depth = 0
+    while current is not None:
+        if current in visited:
+            logger.warning('Circular parent reference detected at task %s', current)
+            return False
+        visited.add(current)
+        path = tasks_dir / f'{current}.json'
+        if not path.is_file():
+            path = tasks_dir / 'processed' / f'{current}.json'
+        if not path.is_file():
+            logger.warning('Task file not found for %s in %s', current, tasks_dir)
+            return False
+        try:
+            data = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning('Failed to load task file for %s: %s', current, exc)
+            return False
+        depth += 1
+        if depth > max_depth:
+            return False
+        parent = data.get('parent_task')
+        current = parent if parent else None
+    return True
