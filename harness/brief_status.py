@@ -101,7 +101,38 @@ def compute_autowork_eligibility(repo_root: Path, state_dir: Path, now=None, max
     return {'eligible': eligible, 'eligible_count': len(eligible), 'blocked': blocked, 'allowlist_present': allowlist_present}
 
 def compute_autowork_backlog(repo_root: Path, state_dir: Path, now=None, max_age_sec: int=604800) -> dict:
-    raise NotImplementedError
+    """Cross autowork eligibility with planning state to find the backlog.
+
+    A brief belongs to the backlog when it is *eligible* (per
+    :func:`compute_autowork_eligibility`) and still has *unfinished work* -- that
+    is, its planning state (per :func:`compute_brief_status`) is anything other
+    than ``"complete"``. An eligible ``"unplanned"`` brief still needs planning,
+    so it counts as having unfinished work even though it has no plan tasks yet.
+
+    ``now`` and ``max_age_sec`` are forwarded to the eligibility computation so
+    the freshness gate behaves identically here.
+
+    Returns a dict with:
+      - ``eligible_with_work``: list of slugs that are both eligible and not yet
+        complete.
+      - ``eligible_with_work_count``: the length of that list.
+      - ``detail``: a per-eligible-brief list of dicts carrying ``slug``,
+        ``brief``, ``state``, ``remaining``, ``total``, ``accepted`` and
+        ``has_unfinished_work``.
+    """
+    repo_root = Path(repo_root)
+    state_dir = Path(state_dir)
+    eligibility = compute_autowork_eligibility(repo_root, state_dir, now=now, max_age_sec=max_age_sec)
+    status_by_slug = {row['slug']: row for row in compute_brief_status(repo_root, state_dir)}
+    eligible_with_work: list = []
+    detail: list = []
+    for slug in eligibility['eligible']:
+        row = status_by_slug.get(slug, {})
+        has_unfinished_work = row.get('state') != 'complete'
+        detail.append({'slug': slug, 'brief': row.get('brief'), 'state': row.get('state'), 'remaining': row.get('remaining', []), 'total': row.get('total', 0), 'accepted': row.get('accepted', 0), 'has_unfinished_work': has_unfinished_work})
+        if has_unfinished_work:
+            eligible_with_work.append(slug)
+    return {'eligible_with_work': eligible_with_work, 'eligible_with_work_count': len(eligible_with_work), 'detail': detail}
 
 def _load_accepted_task_ids(progress_path: Path) -> set:
     """Return the set of task_ids that have an ``accepted``-phase event."""
