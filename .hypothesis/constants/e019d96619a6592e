@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMask/harness/diff_fuzzer.py
+# hypothesis_version: 6.151.9
+
+[-1000000.0, 1e-09, 5.0, 1000000.0, -10000, -1000, 100, 1000, 2000, 10000, '\n    pass\n', ',', 'Any', 'Dict', 'L', 'List', 'N', 'None', 'NoneType', 'Optional', 'P', 'Set', 'Tuple', 'Union', 'Z', '[({', '])}', 'a', 'args', 'b', 'batch_execution', 'bool', 'both_nan', 'both_none', 'both_timed_out', 'bytes', 'code_a', 'code_b', 'constraints', 'def\\s+(\\w+)\\s*\\(', 'default', 'dict', 'dict_match', 'enabled', 'equal', 'eval', 'exception_mismatch', 'exception_vs_return', 'float', 'float_close', 'float_tolerance', 'function_signature', 'fuzzing', 'int', 'kwargs', 'list', 'meta_task_type', 'repr_match', 'same_exception', 'seed', 'sequence_match', 'set', 'set_match', 'solution', 'str', 'tuple', 'values_match', 'worker_pool_size']

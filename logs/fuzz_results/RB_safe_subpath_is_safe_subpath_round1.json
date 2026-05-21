@@ -1,0 +1,11 @@
+{
+  "task_id": "RB_safe_subpath_is_safe_subpath",
+  "round": "round1",
+  "equivalent": true,
+  "total_inputs": 2000,
+  "matching_inputs": 2000,
+  "failure_count": 0,
+  "error": null,
+  "skipped_reason": null,
+  "failures": []
+}

@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMask/harness/__init__.py
+# hypothesis_version: 6.151.9
+
+[5.0, 10.0, 1800.0, 604800, '0.1.0']

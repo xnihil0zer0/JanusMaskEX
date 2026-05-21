@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMask/harness/sandbox_smoke.py
+# hypothesis_version: 6.151.9
+
+[5.0, '-S', '-c', '.git', '/usr/bin:/bin', 'C', 'LANG', 'PATH', 'PYTHONPATH', 'pyproject.toml', 'smoke_import', 'utf-8']

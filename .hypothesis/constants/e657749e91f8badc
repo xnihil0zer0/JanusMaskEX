@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMask/harness/rebuild/oracle.py
+# hypothesis_version: 6.151.9
+
+['--config', '--original', '--target', '--unit', '__main__', 'divergent', 'equivalent', 'error', 'utf-8']

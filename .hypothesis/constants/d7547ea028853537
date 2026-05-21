@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMask/harness/planner/taxonomies.py
+# hypothesis_version: 6.151.9
+
+['bypass_fuzzer', 'cli_tooling', 'config_schema', 'data_model', 'docs_writing', 'harness_plumbing', 'harness_self_fix', 'hooks_integration', 'io_adapter', 'mcp_plumbing', 'mcp_server_change', 'orchestration', 'planner_tooling', 'refactor', 'sandbox_infra', 'skip_smoke_gates', 'state_machine', 'test_', 'test_acceptance', 'test_e2e', 'test_integration', 'test_unit', 'validation']

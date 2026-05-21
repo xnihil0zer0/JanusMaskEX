@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMask/harness/ast_retry.py
+# hypothesis_version: 6.151.9
+
+['max_ast_retries', 'synthesis']

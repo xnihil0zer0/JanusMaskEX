@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMask/harness/embedded_test_runner.py
+# hypothesis_version: 6.151.9
+
+[10.0, '--collect-only', '--no-header', '-S', '-m', '-q', '-x', '/usr/bin:/bin', 'C', 'LANG', 'PATH', 'PYTHONPATH', 'Test', 'pytest', 'run_embedded_tests', 'test_', 'utf-8']
