@@ -1,0 +1,92 @@
+{
+  "task_id": "RB_JanusMask_check_true_depth",
+  "round": "round1",
+  "equivalent": false,
+  "total_inputs": 2000,
+  "matching_inputs": 12,
+  "failure_count": 20,
+  "error": null,
+  "skipped_reason": null,
+  "failures": [
+    {
+      "args": "['', 0, 0]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['\u00cb\u7184\u786f@\u01313\ud869\udd09\ud853\udcf4\u0112', 0, 0]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['\ud81d\udd67\u00d0', 0, 0]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['\u0147\u00c9O\ud84d\udf4e\ud84d\ude82\u0145\ud840\udd54\u0127m\u487d', 0, 0]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['\u00e2\u00f0\u00e0', 0, 0]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['\u00e2\u00f0\u00e0', 782, -4992]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['0_', 0, 0]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['\ud876\udc81\u012b\ud86b\uddcdN#\\\\\ud86f\udfd1\ud873\ude2b\u013d#7', 0, 0]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['\ud876\udc81\u012b\ud86b\uddcdN#\\\\\ud86f\udfd1\ud873\ude2b\u013d#7', -15, -4606]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['\ud876\udc81\u012b\ud86b\uddcdN#\\\\\ud86f\udfd1\ud873\ude2b\u013d#7', 0, -4606]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['\u0145X\"\u00e1V', 0, 0]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['.json.processing', 0, 0]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['.json.processing', -276, -4936]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['.json.processing', 0, -4936]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['', 150, 0]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['', 150, -6211]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['\u00ff\u00c6\\xa0\u0106\u00d1\u00be\ud876\udf08\u0144\u00bc\u01272', 0, 0]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['S\u0149\u0132:', 0, 0]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['\u00d8\ub644a\u00dd\u8dc6\ud84c\udec8\ud84c\udfb9\u011bY\u00d5dH\u01186', 0, 0]",
+      "reason": "exception_vs_return"
+    },
+    {
+      "args": "['\u00d8\ub644a\u00dd\u8dc6\ud84c\udec8\ud84c\udfb9\u011bY\u00d5dH\u01186', 697, -1150]",
+      "reason": "exception_vs_return"
+    }
+  ]
+}
