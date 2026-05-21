@@ -67,10 +67,11 @@ class TargetDescriptor:
         self.output_dir = Path(self.output_dir).resolve()
         self.stash_dir = Path(self.stash_dir).resolve()
     'Everything the engine needs to rebuild a project clean-room.'
+from harness.rebuild.target import TargetDescriptor
 
 def mathlib_descriptor(output_dir: Path, stash_dir: Path, source_root: Path) -> TargetDescriptor:
     """Build the descriptor for the shipped samples/mathlib smoke target."""
-    raise NotImplementedError
+    return TargetDescriptor(name='mathlib', source_root=source_root, modules=['mathlib.py'], test_files=['test_mathlib.py'], output_dir=output_dir, stash_dir=stash_dir, seed_files=[], unit_test_selector='test_mathlib.py -k {unit}')
 
 def janusmask_module_descriptor(name: str, modules: list[str], test_files: list[str], output_dir: Path, stash_dir: Path, source_root: Path, seed_files: list[str] | None=None, unit_test_selector: str='') -> TargetDescriptor:
     """Build a descriptor for rebuilding JanusMask's own leaf module(s) into JR."""
