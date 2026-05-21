@@ -51,7 +51,54 @@ def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
     return rows
 
 def compute_autowork_eligibility(repo_root: Path, state_dir: Path, now=None, max_age_sec: int=604800) -> dict:
-    raise NotImplementedError
+    """Decide which briefs autowork may act on, and why the rest are blocked.
+
+    A brief is *eligible* only when both gates pass:
+      - the auto-promote allowlist file
+        (``state_dir/control/autowork/auto_promote.allowlist``, one slug per
+        line) exists and lists the brief's slug, and
+      - the brief is fresh -- ``now - mtime`` does not exceed ``max_age_sec``.
+
+    When the allowlist file is absent every brief is blocked with reason
+    ``"allowlist_missing"``; a slug not named in an existing allowlist is blocked
+    with ``"not_allowlisted"``; an allowlisted but aged brief is blocked with
+    ``"stale"``. ``now`` defaults to the wall clock when not supplied.
+
+    Returns a dict with ``eligible`` (list of slugs), ``eligible_count``,
+    ``blocked`` (list of ``{"slug", "reason"}`` dicts) and ``allowlist_present``.
+    """
+    import time
+    repo_root = Path(repo_root)
+    state_dir = Path(state_dir)
+    if now is None:
+        now = time.time()
+    allowlist_path = state_dir / 'control' / 'autowork' / 'auto_promote.allowlist'
+    allowlist_present = allowlist_path.is_file()
+    allowed: set = set()
+    if allowlist_present:
+        try:
+            text = allowlist_path.read_text(encoding='utf-8')
+        except OSError:
+            text = ''
+        for line in text.splitlines():
+            line = line.strip()
+            if line:
+                allowed.add(line)
+    eligible: list = []
+    blocked: list = []
+    for row in compute_brief_status(repo_root, state_dir):
+        slug = row['slug']
+        if not allowlist_present:
+            blocked.append({'slug': slug, 'reason': 'allowlist_missing'})
+            continue
+        if slug not in allowed:
+            blocked.append({'slug': slug, 'reason': 'not_allowlisted'})
+            continue
+        if now - row['mtime'] > max_age_sec:
+            blocked.append({'slug': slug, 'reason': 'stale'})
+            continue
+        eligible.append(slug)
+    return {'eligible': eligible, 'eligible_count': len(eligible), 'blocked': blocked, 'allowlist_present': allowlist_present}
 
 def compute_autowork_backlog(repo_root: Path, state_dir: Path, now=None, max_age_sec: int=604800) -> dict:
     raise NotImplementedError
