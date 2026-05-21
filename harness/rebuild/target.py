@@ -75,5 +75,6 @@ def mathlib_descriptor(output_dir: Path, stash_dir: Path, source_root: Path) -> 
 
 def janusmask_module_descriptor(name: str, modules: list[str], test_files: list[str], output_dir: Path, stash_dir: Path, source_root: Path, seed_files: list[str] | None=None, unit_test_selector: str='') -> TargetDescriptor:
     """Build a descriptor for rebuilding JanusMask's own leaf module(s) into JR."""
-    raise NotImplementedError
+    full_test_command = 'python -m pytest -q ' + ' '.join(test_files)
+    return TargetDescriptor(name=name, source_root=source_root, modules=modules, test_files=test_files, output_dir=output_dir, stash_dir=stash_dir, seed_files=list(seed_files) if seed_files is not None else [], full_test_command=full_test_command, unit_test_selector=unit_test_selector)
 'TargetDescriptor: declarative spec of a project the rebuild engine rebuilds.'
