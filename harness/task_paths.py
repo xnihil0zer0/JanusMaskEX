@@ -4,5 +4,5 @@ from pathlib import Path
 
 def current_task_spec_path(state_dir, task_id: str) -> Path:
     """Return the canonical path to the per-task spec JSON for ``task_id``."""
-    raise NotImplementedError
+    return Path(state_dir) / 'tasks' / f'current_task_{task_id}.json'
 __version__ = '1.0.0'
