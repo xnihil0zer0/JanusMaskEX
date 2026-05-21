@@ -62,4 +62,24 @@ def materialize_skeleton(descriptor: TargetDescriptor) -> dict:
     Returns ``{'stash': {module_rel: stash_abs_path, ...},
     'modules': [...], 'output_dir': str}``.
     """
-    raise NotImplementedError
+    source_root = Path(descriptor.source_root)
+    output_dir = Path(descriptor.output_dir)
+    stash_dir = Path(descriptor.stash_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stash_dir.mkdir(parents=True, exist_ok=True)
+    stash: dict[str, str] = {}
+    for module_rel in descriptor.modules:
+        raw = (source_root / module_rel).read_bytes()
+        original = raw.decode('utf-8')
+        dst_path = output_dir / module_rel
+        dst_path.parent.mkdir(parents=True, exist_ok=True)
+        dst_path.write_text(strip_source(original), encoding='utf-8')
+        flat_name = '__'.join(Path(module_rel).parts) + '.orig'
+        stash_path = stash_dir / flat_name
+        stash_path.write_bytes(raw)
+        stash[module_rel] = str(stash_path)
+    for rel in list(descriptor.test_files) + list(descriptor.seed_files):
+        dst_path = output_dir / rel
+        dst_path.parent.mkdir(parents=True, exist_ok=True)
+        dst_path.write_bytes((source_root / rel).read_bytes())
+    return {'stash': stash, 'modules': list(descriptor.modules), 'output_dir': str(output_dir)}
