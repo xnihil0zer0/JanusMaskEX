@@ -30,7 +30,14 @@ def is_safe_subpath(candidate: str, root: str) -> bool:
     Returns:
         bool: True if candidate is a safe descendant of root, False otherwise
     """
-    raise NotImplementedError
+    try:
+        candidate_resolved = Path(candidate).resolve()
+        root_resolved = Path(root).resolve()
+        candidate_resolved.relative_to(root_resolved)
+        return True
+    except Exception:
+        return False
+from pathlib import Path
 if __name__ == '__main__':
     import pytest
     import sys
