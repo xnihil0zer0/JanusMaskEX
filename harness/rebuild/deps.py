@@ -142,7 +142,21 @@ def _from_setup_cfg(root: Path) -> list[str]:
 
 def _from_setup_py(root: Path) -> list[str]:
     """Best-effort: a literal ``install_requires=[...]`` string list (AST)."""
-    raise NotImplementedError
+    path = root / 'setup.py'
+    if not path.is_file():
+        return []
+    try:
+        tree = ast.parse(path.read_text(encoding='utf-8', errors='replace'))
+    except (SyntaxError, ValueError, OSError):
+        return []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.keyword) and node.arg == 'install_requires' and isinstance(node.value, ast.List):
+            deps: list[str] = []
+            for elt in node.value.elts:
+                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                    deps.append(elt.value)
+            return deps
+    return []
 
 def _project_py_files(root: Path) -> list[Path]:
     """Rel paths of the project's own ``.py`` files (skipping vendor/build dirs)."""
