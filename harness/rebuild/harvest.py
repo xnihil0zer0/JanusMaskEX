@@ -254,7 +254,18 @@ def _has_untyped_params(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     value-divergence (the #34 ``longest([[]])`` reject), so such a unit must route
     to the tests-only path rather than the merged==original fuzz oracle.
     """
-    raise NotImplementedError
+    args = node.args
+    params = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+    if args.vararg is not None:
+        params.append(args.vararg)
+    if args.kwarg is not None:
+        params.append(args.kwarg)
+    for param in params:
+        if param.arg in ('self', 'cls'):
+            continue
+        if param.annotation is None:
+            return True
+    return False
 
 def _unit_calls(node: ast.AST, sibling_names: set[str], own_name: str) -> set[str]:
     calls = set()
