@@ -44,14 +44,7 @@ def _stem_map(modules: list[str]) -> dict[str, str]:
     dotted path and the leaf are registered so ``import casing`` and
     ``from pkg.sub import x`` both resolve.
     """
-    out: dict[str, str] = {}
-    for rel in modules:
-        stem = rel[:-3] if rel.endswith('.py') else rel
-        dotted = stem.replace('/', '.')
-        out[dotted] = rel
-        leaf = dotted.rsplit('.', 1)[-1]
-        out.setdefault(leaf, rel)
-    return out
+    raise NotImplementedError
 
 def relative_base(importing_rel: str, level: int) -> list[str] | None:
     """Return the absolute dotted prefix a relative import resolves against.
@@ -64,7 +57,12 @@ def relative_base(importing_rel: str, level: int) -> list[str] | None:
     invalid relative import). Callers append the imported module/name to build the
     absolute dotted target, then resolve it via :func:`_stem_map`.
     """
-    raise NotImplementedError
+    dotted = importing_rel[:-3].replace('/', '.') if importing_rel.endswith('.py') else importing_rel.replace('/', '.')
+    pkg_parts = dotted.split('.')[:-1]
+    keep = len(pkg_parts) - (level - 1)
+    if keep < 0:
+        return None
+    return pkg_parts[:keep]
 
 def _import_from_targets(importing_rel: str, node: ast.ImportFrom) -> list[str]:
     """Absolute dotted module name(s) an ``ImportFrom`` (absolute OR relative) names.
