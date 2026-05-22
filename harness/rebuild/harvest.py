@@ -42,7 +42,14 @@ _IMPURE_BUILTINS = frozenset({'open', 'input'})
 
 def _is_impure(node: ast.AST) -> bool:
     """True iff ``node``'s body references nondeterministic / IO-bound names."""
-    raise NotImplementedError
+    for child in ast.walk(node):
+        if isinstance(child, ast.Attribute):
+            value = child.value
+            if isinstance(value, ast.Name) and value.id in _IMPURE_MODULES:
+                return True
+        elif isinstance(child, ast.Name) and child.id in _IMPURE_BUILTINS:
+            return True
+    return False
 _MUTATING_METHODS = frozenset({'append', 'insert', 'extend', 'remove', 'pop', 'clear', 'sort', 'reverse', 'update', 'add', 'discard', 'setdefault', 'popitem', 'intersection_update', 'difference_update', 'symmetric_difference_update'})
 
 def _module_global_names(tree: ast.Module) -> set[str]:
