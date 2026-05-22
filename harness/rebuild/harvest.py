@@ -363,7 +363,83 @@ def unit_cross_calls(source: str, module_aliases: dict[str, str], importing_rel:
     to inject cross-module sibling signatures so a caller can be reconstructed
     against an already-real callee in another module.
     """
-    raise NotImplementedError
+    tree = ast.parse(source)
+
+    def _relative_module(module: str | None, level: int) -> str | None:
+        """Absolute dotted module name a relative import resolves to (importlib
+        semantics), or None when ``importing_rel`` is unknown / the level
+        ascends beyond the top-level package."""
+        if importing_rel is None:
+            return None
+        package_parts = importing_rel.split('/')[:-1]
+        cut = len(package_parts) - (level - 1)
+        if cut < 0:
+            return None
+        base = package_parts[:cut]
+        if module:
+            base = base + module.split('.')
+        return '.'.join(base) if base else None
+    alias_modules: dict[str, str] = {}
+    from_names: dict[str, tuple[str, str]] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                rel = module_aliases.get(alias.name)
+                if rel is not None:
+                    alias_modules[alias.asname or alias.name] = rel
+        elif isinstance(node, ast.ImportFrom):
+            level = node.level or 0
+            if node.module is None:
+                for alias in node.names:
+                    sub = _relative_module(alias.name, level)
+                    rel = module_aliases.get(sub) if sub is not None else None
+                    if rel is not None:
+                        alias_modules[alias.asname or alias.name] = rel
+                continue
+            import_module = _relative_module(node.module, level) if level > 0 else node.module
+            rel = module_aliases.get(import_module) if import_module is not None else None
+            if rel is None:
+                continue
+            for alias in node.names:
+                from_names[alias.asname or alias.name] = (rel, alias.name)
+
+    def _dotted(expr: ast.expr) -> str | None:
+        """Reconstruct a pure ``a.b.c`` Name/Attribute chain as a dotted string."""
+        parts: list[str] = []
+        while isinstance(expr, ast.Attribute):
+            parts.append(expr.attr)
+            expr = expr.value
+        if isinstance(expr, ast.Name):
+            parts.append(expr.id)
+            return '.'.join(reversed(parts))
+        return None
+
+    def _callees(unit: ast.AST) -> set[tuple[str, str]]:
+        found: set[tuple[str, str]] = set()
+        for child in ast.walk(unit):
+            if isinstance(child, ast.Attribute):
+                base = _dotted(child.value)
+                if base is not None and base in alias_modules:
+                    found.add((alias_modules[base], child.attr))
+            elif isinstance(child, ast.Name):
+                target = from_names.get(child.id)
+                if target is not None:
+                    found.add(target)
+        return found
+    result: dict[str, set[tuple[str, str]]] = {}
+
+    def _record(node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        callees = _callees(node)
+        if callees:
+            result.setdefault(node.name, set()).update(callees)
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            _record(node)
+        elif isinstance(node, ast.ClassDef):
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    _record(item)
+    return result
 
 def order_units(units: list[Unit]) -> list[Unit]:
     """Return units in dependency order (callees before callers).
