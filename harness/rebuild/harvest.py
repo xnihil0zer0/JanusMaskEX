@@ -126,7 +126,11 @@ def _mutates_module_globals(node: ast.AST, module_globals: set[str]) -> bool:
     return False
 
 def _signature_line(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
-    raise NotImplementedError
+    """Render the ``def`` header line (no body) for a function node."""
+    prefix = 'async def' if isinstance(node, ast.AsyncFunctionDef) else 'def'
+    args = ast.unparse(node.args)
+    returns = f' -> {ast.unparse(node.returns)}' if node.returns is not None else ''
+    return f'{prefix} {node.name}({args}){returns}:'
 
 def _has_relative_import(tree: ast.Module) -> bool:
     """True iff the module uses a relative import (``from .x import y``).
