@@ -314,7 +314,22 @@ def module_has_top_level_external_import(module_source: str, external_modules) -
     (``node.level``) are skipped. Returns False when ``external_modules`` is
     falsy or the source is unparseable.
     """
-    raise NotImplementedError
+    if not external_modules:
+        return False
+    try:
+        tree = ast.parse(module_source)
+    except (SyntaxError, ValueError):
+        return False
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            if any((alias.name.split('.')[0] in external_modules for alias in node.names)):
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                continue
+            if node.module and node.module.split('.')[0] in external_modules:
+                return True
+    return False
 'Reconstructed leaf unit: harness.rebuild.deps._include_target.'
 'Reconstructed leaf unit: harness.rebuild.deps._from_requirements.'
 'Reconstructed leaf unit: harness.rebuild.deps._from_ast (+ verbatim siblings).'
