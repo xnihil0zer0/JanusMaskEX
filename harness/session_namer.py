@@ -48,7 +48,11 @@ def get_latest_submission(sessions_dir: Path, agent: str, round_number: int, tas
     Returns:
         Path to the most recently modified submission file, or None if not found
     """
-    raise NotImplementedError
+    pattern = f'{agent}_round{round_number}_{task_id}*_submission.json'
+    matches = list(sessions_dir.glob(pattern))
+    if not matches:
+        return None
+    return max(matches, key=lambda p: p.stat().st_mtime)
 
 def get_latest_feedback(sessions_dir: Path, agent: str, task_id: str) -> Path | None:
     """
