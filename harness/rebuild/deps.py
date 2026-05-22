@@ -100,7 +100,27 @@ def _from_requirements(root: Path) -> tuple[list[str], list[str]]:
 
 def _from_pyproject(root: Path) -> list[str]:
     """``[project].dependencies`` + ``[tool.poetry.dependencies]`` keys (no 'python')."""
-    raise NotImplementedError
+    path = root / 'pyproject.toml'
+    if not path.is_file():
+        return []
+    try:
+        data = tomllib.loads(path.read_text(encoding='utf-8', errors='replace'))
+    except (tomllib.TOMLDecodeError, OSError):
+        return []
+    deps: list[str] = []
+    project = data.get('project')
+    if isinstance(project, dict):
+        for dep in project.get('dependencies') or []:
+            if isinstance(dep, str):
+                deps.append(dep)
+    tool = data.get('tool')
+    if isinstance(tool, dict):
+        poetry = tool.get('poetry')
+        if isinstance(poetry, dict):
+            poetry_deps = poetry.get('dependencies')
+            if isinstance(poetry_deps, dict):
+                deps.extend((name for name in poetry_deps if name != 'python'))
+    return deps
 
 def _from_setup_cfg(root: Path) -> list[str]:
     """``[options] install_requires`` (one dependency per line)."""
