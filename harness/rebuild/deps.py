@@ -240,7 +240,7 @@ def _references(node: ast.AST, names: set[str]) -> bool:
     via the ``ast.Name`` at the root of the attribute chain, which ``ast.walk``
     visits directly.
     """
-    raise NotImplementedError
+    return any((isinstance(sub, ast.Name) and sub.id in names for sub in ast.walk(node)))
 
 def external_units(module_source: str, external_modules) -> set[str]:
     """Names of top-level functions/methods that depend on an external package.
