@@ -282,7 +282,7 @@ def _is_test_function(name: str) -> bool:
     wastes reconstruction attempts and would clobber the in-module pin. They are
     preserved verbatim in the skeleton instead of being harvested as units.
     """
-    raise NotImplementedError
+    return name.startswith('test_')
 
 def _is_pytest_class(name: str, method_defs: list) -> bool:
     """A ``Test``-prefixed class holding ``test*`` methods (a pytest test class).
