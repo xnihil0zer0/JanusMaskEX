@@ -40,7 +40,17 @@ def _pip_args(output_dir, requirements_files, deps) -> list[str]:
     the file actually exists. Each ``deps`` entry is appended as a bare package
     argument.
     """
-    raise NotImplementedError
+    args: list[str] = []
+    base = Path(output_dir).resolve()
+    for entry in requirements_files or []:
+        path = Path(entry)
+        if not path.is_absolute():
+            path = base / path
+        if path.exists():
+            args.extend(['-r', str(path)])
+    for dep in deps or []:
+        args.append(str(dep))
+    return args
 
 def provision_venv(output_dir, requirements_files=None, deps=None, *, base_python=None) -> Path:
     """Provision ``<out>/.venv`` and install the replicant's external deps.
