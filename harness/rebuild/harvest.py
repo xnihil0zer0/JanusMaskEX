@@ -8,8 +8,10 @@ real sibling bodies.
 """
 from __future__ import annotations
 import ast
-from dataclasses import dataclass, field
-from harness.rebuild.deps import external_units, module_has_top_level_external_import
+from dataclasses import dataclass
+from dataclasses import field
+from harness.rebuild.deps import external_units
+from harness.rebuild.deps import module_has_top_level_external_import
 
 @dataclass
 class Unit:
@@ -138,7 +140,12 @@ def _has_untyped_params(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     raise NotImplementedError
 
 def _unit_calls(node: ast.AST, sibling_names: set[str], own_name: str) -> set[str]:
-    raise NotImplementedError
+    calls = set()
+    for child in ast.walk(node):
+        if isinstance(child, ast.Name):
+            if child.id in sibling_names and child.id != own_name:
+                calls.add(child.id)
+    return calls
 
 def _is_test_function(name: str) -> bool:
     """A module-level pytest test function (collected by the ``test_`` prefix).
@@ -201,4 +208,27 @@ def order_units(units: list[Unit]) -> list[Unit]:
     Deterministic: ties and cycles fall back to source order, so the result is
     stable across runs.
     """
-    raise NotImplementedError
+    by_name: dict[str, Unit] = {}
+    for unit in units:
+        by_name.setdefault(unit.name, unit)
+    source_index = {id(unit): i for i, unit in enumerate(units)}
+    deps: dict[int, set[int]] = {}
+    for unit in units:
+        callees: set[int] = set()
+        for name in unit.calls:
+            target = by_name.get(name)
+            if target is not None and target is not unit:
+                callees.add(id(target))
+        deps[id(unit)] = callees
+    emitted: set[int] = set()
+    remaining = list(units)
+    ordered: list[Unit] = []
+    while remaining:
+        ready = [u for u in remaining if deps[id(u)] <= emitted]
+        pool = ready if ready else remaining
+        nxt = min(pool, key=lambda u: source_index[id(u)])
+        ordered.append(nxt)
+        emitted.add(id(nxt))
+        remaining.remove(nxt)
+    return ordered
+'Dependency ordering for harvested intra-module units.'
