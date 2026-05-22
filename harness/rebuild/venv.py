@@ -22,7 +22,7 @@ _SENTINEL = '.jm_provisioned'
 
 def venv_dir(output_dir) -> Path:
     """The replicant's ``.venv`` directory: ``Path(output_dir).resolve()/'.venv'``."""
-    raise NotImplementedError
+    return Path(output_dir).resolve() / '.venv'
 
 def venv_python(output_dir) -> Path:
     """The venv's POSIX interpreter: ``<out>/.venv/bin/python``."""
