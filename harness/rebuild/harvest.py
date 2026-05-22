@@ -189,7 +189,15 @@ def _is_self_mutating(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     gate. ``__post_init__`` is always caught; the general rule covers other
     self-mutating, value-less methods (setters, in-place updates).
     """
-    raise NotImplementedError
+    if node.name == '__post_init__':
+        return True
+    stores_self = False
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Return) and sub.value is not None:
+            return False
+        if isinstance(sub, ast.Attribute) and isinstance(sub.ctx, ast.Store) and isinstance(sub.value, ast.Name) and (sub.value.id == 'self'):
+            stores_self = True
+    return stores_self
 _FUZZABLE_NAMES = frozenset({'None', 'NoneType', 'bool', 'int', 'float', 'str', 'bytes', 'Any'})
 _FUZZABLE_CONTAINERS = frozenset({'list', 'List', 'set', 'Set', 'tuple', 'Tuple', 'dict', 'Dict', 'Optional', 'Union'})
 
