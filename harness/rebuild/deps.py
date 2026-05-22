@@ -188,7 +188,27 @@ def _from_ast(root: Path) -> list[str]:
     the stdlib (``sys.stdlib_module_names``) and the project's own top-level
     package/module names. Relative imports are intra-project and ignored.
     """
-    raise NotImplementedError
+    py_files = _project_py_files(root)
+    intra = _intra_project_names(root, py_files)
+    stdlib = set(sys.stdlib_module_names)
+    found: set[str] = set()
+    for rel in py_files:
+        path = root / rel
+        try:
+            tree = ast.parse(path.read_text(encoding='utf-8', errors='replace'))
+        except (SyntaxError, ValueError, OSError):
+            continue
+        for node in tree.body:
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    found.add(alias.name.split('.')[0])
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    continue
+                if node.module:
+                    found.add(node.module.split('.')[0])
+    external = found - stdlib - intra
+    return sorted(external)
 
 def discover_dependencies(source_root) -> tuple[list[str], list[str]]:
     """Discover ``(dependencies, requirements_files)`` for ``source_root``.
@@ -245,3 +265,4 @@ def module_has_top_level_external_import(module_source: str, external_modules) -
     raise NotImplementedError
 'Reconstructed leaf unit: harness.rebuild.deps._include_target.'
 'Reconstructed leaf unit: harness.rebuild.deps._from_requirements.'
+'Reconstructed leaf unit: harness.rebuild.deps._from_ast (+ verbatim siblings).'
