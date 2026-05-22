@@ -121,7 +121,25 @@ def module_import_graph(source_root: Path, modules: list[str]) -> dict[str, set[
     lazily-imported cross-module dependency still orders/taints correctly. A
     module never depends on itself.
     """
-    raise NotImplementedError
+    stem = _stem_map(modules)
+    graph: dict[str, set[str]] = {rel: set() for rel in modules}
+    for rel in modules:
+        try:
+            source = (source_root / rel).read_text(encoding='utf-8')
+            tree = ast.parse(source)
+        except (OSError, SyntaxError, ValueError):
+            continue
+        targets: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                targets.extend((alias.name for alias in node.names))
+            elif isinstance(node, ast.ImportFrom):
+                targets.extend(_import_from_targets(rel, node))
+        for dotted in targets:
+            dep = stem.get(dotted)
+            if dep is not None and dep != rel:
+                graph[rel].add(dep)
+    return graph
 
 def order_modules(source_root: Path, modules: list[str]) -> list[str]:
     """Order ``modules`` so an imported (callee) module precedes its importer.
