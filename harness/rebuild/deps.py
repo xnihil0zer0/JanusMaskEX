@@ -35,7 +35,10 @@ def _norm_name(dep: str) -> str:
     extras bracket, marker, or URL ``@``), then lowercases and collapses every
     run of ``-`` / ``_`` / ``.`` to a single ``-``.
     """
-    raise NotImplementedError
+    match = re.match('\\s*([A-Za-z0-9][A-Za-z0-9._-]*)', dep)
+    if not match:
+        return ''
+    return re.sub('[-_.]+', '-', match.group(1)).lower()
 
 def _dedup(deps: list[str]) -> list[str]:
     """De-duplicate by PEP 503 normalized name, preserving the first-seen line."""
