@@ -30,7 +30,7 @@ def venv_python(output_dir) -> Path:
 
 def venv_ready(output_dir) -> bool:
     """True iff the provisioned interpreter exists under ``output_dir``."""
-    raise NotImplementedError
+    return venv_python(output_dir).exists()
 
 def _pip_args(output_dir, requirements_files, deps) -> list[str]:
     """Build the pip-install argument list for ``provision_venv``.
