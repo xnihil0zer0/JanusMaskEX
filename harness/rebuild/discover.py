@@ -104,7 +104,14 @@ def _import_from_targets(importing_rel: str, node: ast.ImportFrom) -> list[str]:
     absolute package, then each ``from . import <name>`` submodule (or the single
     ``from .x`` module) is returned. Empty when a relative import is out of bounds.
     """
-    raise NotImplementedError
+    if not node.level:
+        return [node.module] if node.module else []
+    base = relative_base(importing_rel, node.level)
+    if base is None:
+        return []
+    if node.module:
+        return ['.'.join(base + node.module.split('.'))]
+    return ['.'.join(base + [alias.name]) for alias in node.names]
 
 def module_import_graph(source_root: Path, modules: list[str]) -> dict[str, set[str]]:
     """Return ``{module_rel: set(intra-project module_rels it imports)}``.
