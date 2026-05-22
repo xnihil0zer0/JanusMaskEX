@@ -21,14 +21,17 @@ _SEED_NAMES = {'__init__.py', 'conftest.py'}
 _SKIP_DIRS = {'__pycache__', '.git', '.hg', 'state', 'build', 'dist', '.eggs', 'node_modules'}
 
 def _is_test_file(name: str) -> bool:
-    """Return True if ``name`` is a pytest spec file (``test_*.py`` / ``*_test.py``).
-
-    Such files are discovered as test specs, not as rebuild target modules.
-    """
-    return name.endswith('.py') and (name.startswith('test_') or name.endswith('_test.py'))
+    raise NotImplementedError
 
 def _skip_dir(rel_parts: tuple[str, ...]) -> bool:
-    raise NotImplementedError
+    """Return True if any path component marks a directory to skip during scan.
+
+    A component is skip-worthy when it names a known non-source directory
+    (``_SKIP_DIRS``: ``__pycache__``, ``state``, build artifacts, VCS dirs) or a
+    hidden directory (a name starting with ``.``). Used to prune subtrees while
+    discovering rebuild target modules.
+    """
+    return any((part in _SKIP_DIRS or part.startswith('.') for part in rel_parts))
 
 def discover_modules(source_root: Path) -> tuple[list[str], list[str], list[str]]:
     """Scan ``source_root`` and return ``(modules, test_files, seed_files)``.
@@ -107,3 +110,4 @@ def build_descriptor(source_root: Path, *, output_dir: Path, stash_dir: Path, na
     replicant can provision its own ``.venv`` and run standalone).
     """
     raise NotImplementedError
+'Reconstructed unit: ``harness.rebuild.discover._skip_dir``.'
