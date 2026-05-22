@@ -49,7 +49,34 @@ def _parse_frontmatter(text: str) -> Tuple[dict, str]:
     raise NotImplementedError
 
 def _parse_markdown_sections(text: str) -> dict:
-    raise NotImplementedError
+    """Parse a markdown brief into a mapping of required-section key -> content.
+
+    Only level-1 (``#``) headings whose normalized text matches a member of
+    ``REQUIRED_SECTIONS`` start a new section. Heading text is normalized by
+    stripping, lowercasing, and replacing hyphens/spaces with underscores (so
+    ``# Non-Goals`` -> ``non_goals``). Any other line -- including deeper
+    headings such as ``## Extra`` -- becomes content of the currently open
+    section. Content appearing before the first required heading, or under a
+    level-1 heading that is not a required section, is dropped.
+    """
+    sections: dict = {}
+    current = None
+    buffer: list = []
+    for line in text.splitlines():
+        match = re.match('^#\\s+(.+)$', line)
+        if match:
+            heading = match.group(1).strip().lower().replace('-', '_').replace(' ', '_')
+            if heading in REQUIRED_SECTIONS:
+                if current is not None:
+                    sections[current] = '\n'.join(buffer).strip()
+                current = heading
+                buffer = []
+                continue
+        if current is not None:
+            buffer.append(line)
+    if current is not None:
+        sections[current] = '\n'.join(buffer).strip()
+    return sections
 
 def load_brief(path: Path | str, max_bytes: int=256 * 1024) -> PlanningBrief:
     raise NotImplementedError
