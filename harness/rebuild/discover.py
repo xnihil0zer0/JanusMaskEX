@@ -24,12 +24,12 @@ def _is_test_file(name: str) -> bool:
     raise NotImplementedError
 
 def _skip_dir(rel_parts: tuple[str, ...]) -> bool:
-    """Return True if any path component marks a directory to skip during scan.
+    """Return True if a directory at ``rel_parts`` should be excluded from scanning.
 
-    A component is skip-worthy when it names a known non-source directory
-    (``_SKIP_DIRS``: ``__pycache__``, ``state``, build artifacts, VCS dirs) or a
-    hidden directory (a name starting with ``.``). Used to prune subtrees while
-    discovering rebuild target modules.
+    A directory is skipped when ANY of its relative path components is a hidden
+    directory (leading dot) or one of the known noise directories in
+    ``_SKIP_DIRS`` (``__pycache__``, ``state``, VCS dirs, build artifacts, ...).
+    The repository root has empty ``rel_parts`` and is therefore never skipped.
     """
     return any((part in _SKIP_DIRS or part.startswith('.') for part in rel_parts))
 
@@ -110,4 +110,3 @@ def build_descriptor(source_root: Path, *, output_dir: Path, stash_dir: Path, na
     replicant can provision its own ``.venv`` and run standalone).
     """
     raise NotImplementedError
-'Reconstructed unit: ``harness.rebuild.discover._skip_dir``.'
