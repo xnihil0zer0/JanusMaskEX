@@ -21,7 +21,12 @@ _SEED_NAMES = {'__init__.py', 'conftest.py'}
 _SKIP_DIRS = {'__pycache__', '.git', '.hg', 'state', 'build', 'dist', '.eggs', 'node_modules'}
 
 def _is_test_file(name: str) -> bool:
-    raise NotImplementedError
+    """Return True if ``name`` is a pytest spec file basename.
+
+    Test files are ``test_*.py`` or ``*_test.py``. Seed scaffolding such as
+    ``conftest.py`` and package ``__init__.py`` is NOT a test file.
+    """
+    return name.endswith('.py') and (name.startswith('test_') or name.endswith('_test.py'))
 
 def _skip_dir(rel_parts: tuple[str, ...]) -> bool:
     raise NotImplementedError
