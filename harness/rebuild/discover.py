@@ -46,7 +46,22 @@ def discover_modules(source_root: Path) -> tuple[list[str], list[str], list[str]
     ``conftest.py``) are NOT rebuild targets; everything else is a module.
     Hidden dirs, ``__pycache__``, ``state``, and build artifacts are skipped.
     """
-    raise NotImplementedError
+    modules: list[str] = []
+    test_files: list[str] = []
+    seed_files: list[str] = []
+    for path in source_root.rglob('*.py'):
+        rel = path.relative_to(source_root)
+        if _skip_dir(rel.parts[:-1]):
+            continue
+        rel_posix = rel.as_posix()
+        name = path.name
+        if _is_test_file(name):
+            test_files.append(rel_posix)
+        elif name in _SEED_NAMES:
+            seed_files.append(rel_posix)
+        else:
+            modules.append(rel_posix)
+    return (sorted(modules), sorted(test_files), sorted(seed_files))
 
 def _stem_map(modules: list[str]) -> dict[str, str]:
     """Map an import name -> module rel path for intra-project resolution.
@@ -120,3 +135,4 @@ def build_descriptor(source_root: Path, *, output_dir: Path, stash_dir: Path, na
     """
     raise NotImplementedError
 'Reconstruction of ``harness.rebuild.discover._skip_dir``.\n\n``_SKIP_DIRS`` is the module-level constant the function relies on; it is\nreproduced here verbatim so this file is self-contained and importable on its\nown while the function body stays faithful to the original (which reads the\nmodule global).\n'
+'Reconstruction of ``harness.rebuild.discover.discover_modules``.\n\n``_SEED_NAMES`` and ``_SKIP_DIRS`` are the module-level constants the function\nand its sibling ``_skip_dir`` rely on; they are reproduced here verbatim so this\nfile is self-contained and importable on its own while the function body stays\nfaithful to the original (which reads the module globals).\n'
