@@ -24,14 +24,7 @@ def _is_test_file(name: str) -> bool:
     raise NotImplementedError
 
 def _skip_dir(rel_parts: tuple[str, ...]) -> bool:
-    """Return True if a directory at ``rel_parts`` should be excluded from scanning.
-
-    A directory is skipped when ANY of its relative path components is a hidden
-    directory (leading dot) or one of the known noise directories in
-    ``_SKIP_DIRS`` (``__pycache__``, ``state``, VCS dirs, build artifacts, ...).
-    The repository root has empty ``rel_parts`` and is therefore never skipped.
-    """
-    return any((part in _SKIP_DIRS or part.startswith('.') for part in rel_parts))
+    raise NotImplementedError
 
 def discover_modules(source_root: Path) -> tuple[list[str], list[str], list[str]]:
     """Scan ``source_root`` and return ``(modules, test_files, seed_files)``.
@@ -51,7 +44,14 @@ def _stem_map(modules: list[str]) -> dict[str, str]:
     dotted path and the leaf are registered so ``import casing`` and
     ``from pkg.sub import x`` both resolve.
     """
-    raise NotImplementedError
+    stems: dict[str, str] = {}
+    for rel in modules:
+        stem = rel[:-3] if rel.endswith('.py') else rel
+        dotted = stem.replace('/', '.')
+        stems[dotted] = rel
+        leaf = dotted.rsplit('.', 1)[-1]
+        stems.setdefault(leaf, rel)
+    return stems
 
 def relative_base(importing_rel: str, level: int) -> list[str] | None:
     """Return the absolute dotted prefix a relative import resolves against.
