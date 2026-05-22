@@ -19,8 +19,7 @@ def generate_submission_filename(agent: str, round_number: int, task_id: str, ti
     raise NotImplementedError
 
 def generate_feedback_filename(agent: str, round_number: int, task_id: str, timestamp_str: str | None=None) -> str:
-    """
-    Generate a feedback filename.
+    """Generate a feedback filename.
 
     Args:
         agent: Agent identifier
@@ -33,7 +32,11 @@ def generate_feedback_filename(agent: str, round_number: int, task_id: str, time
         {task_id}_round{round_number}_{agent}_{timestamp_str}_feedback.json
         (omits timestamp component if None)
     """
-    raise NotImplementedError
+    parts = [f'{task_id}_round{round_number}_{agent}']
+    if timestamp_str:
+        parts.append(timestamp_str)
+    parts.append('feedback.json')
+    return '_'.join(parts)
 
 def get_latest_submission(sessions_dir: Path, agent: str, round_number: int, task_id: str) -> Path | None:
     """
