@@ -124,7 +124,21 @@ def _from_pyproject(root: Path) -> list[str]:
 
 def _from_setup_cfg(root: Path) -> list[str]:
     """``[options] install_requires`` (one dependency per line)."""
-    raise NotImplementedError
+    path = root / 'setup.cfg'
+    if not path.is_file():
+        return []
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(path, encoding='utf-8')
+    except (configparser.Error, OSError):
+        return []
+    raw = parser.get('options', 'install_requires', fallback='')
+    deps: list[str] = []
+    for line in raw.splitlines():
+        dep = line.strip()
+        if dep:
+            deps.append(dep)
+    return deps
 
 def _from_setup_py(root: Path) -> list[str]:
     """Best-effort: a literal ``install_requires=[...]`` string list (AST)."""
