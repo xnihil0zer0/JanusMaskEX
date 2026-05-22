@@ -17,7 +17,8 @@ def pathology_score(banner_count: int, descendant_count: int, max_depth: int) ->
     Returns:
         A float pathology score, bounded above at 1.0.
     """
-    raise NotImplementedError
+    score = 0.1 * banner_count + 0.05 * descendant_count + 0.15 * max_depth
+    return min(1.0, score)
 
 def test_zero_inputs():
     """Zero inputs should return 0.0."""
