@@ -2,22 +2,22 @@
 
 def format_auto_commit_message(task_id: str) -> str:
     """Return a deterministic commit message for auto-committed task output.
-    
+
     Template:
     Integrate validated code for {task_id}
-    
+
     Auto-committed via orchestrator after passing dual-agent
     AST generation, differential fuzzing, and cross-examination.
-    
+
     Pure string formatting; never raises.
-    
+
     Args:
         task_id: The task identifier to include in the commit message.
-    
+
     Returns:
         A deterministic multi-line commit message string.
     """
-    raise NotImplementedError
+    return f'Integrate validated code for {task_id}\n\nAuto-committed via orchestrator after passing dual-agent\nAST generation, differential fuzzing, and cross-examination.'
 if __name__ == '__main__':
     import pytest
     pytest.main(['-v', __file__])
