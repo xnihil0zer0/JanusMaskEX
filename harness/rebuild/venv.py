@@ -63,4 +63,14 @@ def provision_venv(output_dir, requirements_files=None, deps=None, *, base_pytho
     after a successful install so a later call is a fast no-op. Returns
     :func:`venv_python` for ``output_dir``.
     """
-    raise NotImplementedError
+    directory = venv_dir(output_dir)
+    interpreter = venv_python(output_dir)
+    if not interpreter.exists():
+        subprocess.run([base_python or sys.executable, '-m', 'venv', str(directory)], check=True)
+    sentinel = directory / _SENTINEL
+    args = _pip_args(output_dir, requirements_files, deps)
+    if args and (not sentinel.exists()):
+        subprocess.run([str(interpreter), '-m', 'pip', 'install', *args], check=True)
+        sentinel.touch()
+    return venv_python(output_dir)
+"VENV: provision a replicant's OWN ``.venv`` + install its external deps."
