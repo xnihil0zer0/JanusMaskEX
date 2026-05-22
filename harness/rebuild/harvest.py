@@ -54,7 +54,22 @@ _MUTATING_METHODS = frozenset({'append', 'insert', 'extend', 'remove', 'pop', 'c
 
 def _module_global_names(tree: ast.Module) -> set[str]:
     """Names bound at MODULE top level (the module's mutable global state)."""
-    raise NotImplementedError
+    names: set[str] = set()
+    targets: list[ast.expr] = []
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Assign):
+            targets.extend(stmt.targets)
+        elif isinstance(stmt, (ast.AnnAssign, ast.AugAssign)):
+            targets.append(stmt.target)
+    while targets:
+        target = targets.pop()
+        if isinstance(target, ast.Name):
+            names.add(target.id)
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            targets.extend(target.elts)
+        elif isinstance(target, ast.Starred):
+            targets.append(target.value)
+    return names
 
 def _mutates_module_globals(node: ast.AST, module_globals: set[str]) -> bool:
     """True iff ``node`` mutates module-level global state as a side effect.
