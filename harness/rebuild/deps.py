@@ -170,7 +170,16 @@ def _project_py_files(root: Path) -> list[Path]:
 
 def _intra_project_names(root: Path, py_files: list[Path]) -> set[str]:
     """Top-level package/module names owned by the project (+ ``source_root.name``)."""
-    raise NotImplementedError
+    names: set[str] = {root.name}
+    for rel in py_files:
+        parts = rel.parts
+        if not parts:
+            continue
+        if len(parts) == 1:
+            names.add(rel.stem)
+        else:
+            names.add(parts[0])
+    return names
 
 def _from_ast(root: Path) -> list[str]:
     """Fallback: external top-level import names across the project's modules.
