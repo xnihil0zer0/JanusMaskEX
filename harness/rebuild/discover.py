@@ -181,6 +181,32 @@ def build_descriptor(source_root: Path, *, output_dir: Path, stash_dir: Path, na
     :func:`harness.rebuild.deps.discover_dependencies` unless supplied (so the
     replicant can provision its own ``.venv`` and run standalone).
     """
-    raise NotImplementedError
+    source_root = Path(source_root).resolve()
+    if modules is None or test_files is None or seed_files is None:
+        scanned_modules, scanned_tests, scanned_seeds = discover_modules(source_root)
+        if modules is None:
+            modules = scanned_modules
+        if test_files is None:
+            test_files = scanned_tests
+        if seed_files is None:
+            seed_files = scanned_seeds
+    modules = order_modules(source_root, modules)
+    if dependencies is None or requirements_files is None:
+        scanned_deps, scanned_reqs = discover_dependencies(source_root)
+        if dependencies is None:
+            dependencies = scanned_deps
+        if requirements_files is None:
+            requirements_files = scanned_reqs
+    if name is None:
+        name = source_root.name
+    if test_files:
+        joined = ' '.join(test_files)
+        full_test_command = 'python -m pytest -q ' + joined
+        unit_test_selector = joined + ' -k {unit}'
+    else:
+        full_test_command = 'python -m pytest -q'
+        unit_test_selector = ''
+    return TargetDescriptor(name=name, source_root=source_root, modules=modules, test_files=test_files, output_dir=output_dir, stash_dir=stash_dir, seed_files=seed_files, full_test_command=full_test_command, unit_test_selector=unit_test_selector, dependencies=dependencies, requirements_files=requirements_files)
 'Reconstruction of ``harness.rebuild.discover._skip_dir``.\n\n``_SKIP_DIRS`` is the module-level constant the function relies on; it is\nreproduced here verbatim so this file is self-contained and importable on its\nown while the function body stays faithful to the original (which reads the\nmodule global).\n'
 'Reconstruction of ``harness.rebuild.discover.discover_modules``.\n\n``_SEED_NAMES`` and ``_SKIP_DIRS`` are the module-level constants the function\nand its sibling ``_skip_dir`` rely on; they are reproduced here verbatim so this\nfile is self-contained and importable on its own while the function body stays\nfaithful to the original (which reads the module globals).\n'
+'Reconstruction of ``harness.rebuild.discover.build_descriptor``.\n\nSelf-contained: the already-reconstructed sibling functions (``discover_modules``\nand ``order_modules``) are included VERBATIM, along with the small private\nhelpers and module-level constants they read (``_SEED_NAMES`` / ``_SKIP_DIRS`` /\n``_is_test_file`` / ``_skip_dir`` / ``_stem_map`` / ``relative_base`` /\n``_import_from_targets`` / ``module_import_graph``), so this module is importable\nand exercisable on its own while the bodies stay faithful to the original (which\nreads the module globals). The target function is defined below them.\n'
