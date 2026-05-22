@@ -282,7 +282,7 @@ def _is_test_function(name: str) -> bool:
     wastes reconstruction attempts and would clobber the in-module pin. They are
     preserved verbatim in the skeleton instead of being harvested as units.
     """
-    return name.startswith('test_')
+    raise NotImplementedError
 
 def _is_pytest_class(name: str, method_defs: list) -> bool:
     """A ``Test``-prefixed class holding ``test*`` methods (a pytest test class).
@@ -291,7 +291,9 @@ def _is_pytest_class(name: str, method_defs: list) -> bool:
     class that merely starts with ``Test`` (e.g. ``TestAuthorError(Exception)``,
     which has no ``test*`` methods).
     """
-    raise NotImplementedError
+    if not name.startswith('Test'):
+        return False
+    return any((m.name.startswith('test') for m in method_defs))
 
 def harvest_module(module_rel: str, source: str, *, include_methods: bool=False, external_modules: set[str] | frozenset[str] | None=None) -> list[Unit]:
     """Parse ``source`` and return its reconstructible function units.
