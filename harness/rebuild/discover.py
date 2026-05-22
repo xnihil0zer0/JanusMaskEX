@@ -57,13 +57,11 @@ def relative_base(importing_rel: str, level: int) -> list[str] | None:
     invalid relative import). Callers append the imported module/name to build the
     absolute dotted target, then resolve it via :func:`_stem_map`.
     """
-    stem = importing_rel[:-3] if importing_rel.endswith('.py') else importing_rel
-    parts = stem.split('/')
-    package = parts[:-1]
-    drop = level - 1
-    if drop > len(package):
+    package_parts = importing_rel.split('/')[:-1]
+    cut = len(package_parts) - (level - 1)
+    if cut < 0:
         return None
-    return package[:len(package) - drop]
+    return package_parts[:cut]
 
 def _import_from_targets(importing_rel: str, node: ast.ImportFrom) -> list[str]:
     """Absolute dotted module name(s) an ``ImportFrom`` (absolute OR relative) names.
