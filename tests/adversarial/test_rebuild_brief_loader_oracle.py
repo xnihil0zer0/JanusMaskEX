@@ -111,21 +111,21 @@ def test_planningbrief_is_frozen(tmp_path):
 
 
 # ----- BriefValidationError -----
-def test_briefvalidationerror_carries_missing_and_empty(tmp_path):
+def test_briefvalidationerror_init_carries_missing_and_empty(tmp_path):
     e = BriefValidationError("msg", missing=["title"], empty=["scope"])
     assert e.missing == ["title"]
     assert e.empty == ["scope"]
     assert str(e) == "msg"
 
 
-def test_briefvalidationerror_defaults_to_empty_lists(tmp_path):
+def test_briefvalidationerror_init_defaults_to_empty_lists(tmp_path):
     e = BriefValidationError("msg")
     assert e.missing == []
     assert e.empty == []
 
 
 # ----- BriefTooLargeError -----
-def test_brieftoolargeerror_carries_actual_bytes(tmp_path):
+def test_brieftoolargeerror_init_carries_actual_bytes(tmp_path):
     e = BriefTooLargeError("too big", actual_bytes=999)
     assert e.actual_bytes == 999
     assert str(e) == "too big"
@@ -138,23 +138,23 @@ import yaml as _yaml
 from harness.planner.brief_loader import UniqueKeyLoader
 
 
-def test_construct_mapping_accepts_unique_keys(tmp_path):
+def test_uniquekeyloader_construct_mapping_accepts_unique_keys(tmp_path):
     assert _yaml.load("a: 1\nb: 2\n", Loader=UniqueKeyLoader) == {"a": 1, "b": 2}
 
 
-def test_construct_mapping_rejects_duplicate_keys(tmp_path):
+def test_uniquekeyloader_construct_mapping_rejects_duplicate_keys(tmp_path):
     with pytest.raises(_yaml.constructor.ConstructorError):
         _yaml.load("a: 1\na: 2\n", Loader=UniqueKeyLoader)
 
 
-def test_init_briefvalidationerror_stores_lists_and_message(tmp_path):
+def test_briefvalidationerror_init_stores_lists_and_message(tmp_path):
     e = BriefValidationError("boom", missing=["title"], empty=["scope"])
     assert e.missing == ["title"] and e.empty == ["scope"] and str(e) == "boom"
     d = BriefValidationError("only msg")
     assert d.missing == [] and d.empty == []
 
 
-def test_init_brieftoolargeerror_stores_actual_bytes(tmp_path):
+def test_brieftoolargeerror_init_stores_actual_bytes(tmp_path):
     e = BriefTooLargeError("too big", actual_bytes=512)
     assert e.actual_bytes == 512 and str(e) == "too big"
 
