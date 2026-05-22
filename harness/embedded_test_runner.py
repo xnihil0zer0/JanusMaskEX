@@ -49,7 +49,16 @@ def should_run_embedded_tests(module_src: str) -> bool:
     errors on the accept path, so hitting this branch means the module
     is syntactically invalid and pytest collection would trivially fail.
     """
-    raise NotImplementedError
+    try:
+        tree = ast.parse(module_src)
+    except SyntaxError:
+        return False
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name.startswith('test_'):
+            return True
+        if isinstance(node, ast.ClassDef) and node.name.startswith('Test'):
+            return True
+    return False
 
 def _pytest_site_dir() -> str:
     """Resolve pytest's parent site-packages directory.
