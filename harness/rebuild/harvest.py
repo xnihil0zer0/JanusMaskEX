@@ -228,7 +228,21 @@ def _has_unfuzzable_params(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool
     unit routes to the tests-only path, where the authored oracle constructs real
     inputs. ``self``/``cls`` are exempt; an UN-typed param is handled by ``untyped``.
     """
-    raise NotImplementedError
+    args = node.args
+    params = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+    if args.vararg is not None:
+        params.append(args.vararg)
+    if args.kwarg is not None:
+        params.append(args.kwarg)
+    for param in params:
+        if param.arg in ('self', 'cls'):
+            continue
+        annotation = param.annotation
+        if annotation is None:
+            continue
+        if not _is_fuzzable_annotation(annotation):
+            return True
+    return False
 
 def _has_untyped_params(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     """True iff any value-bearing parameter lacks a type annotation.
