@@ -1,20 +1,29 @@
 import re
-from typing import List, Tuple
+from typing import List
+from typing import Tuple
 
 def strip_decomposition_suffixes(task_id: str) -> str:
     """Remove all trailing decomposition-related suffixes from task_id.
-    
+
     Suffixes to strip: -reviewed, -compose, -boundary, -empty_input, -type_error, -general, -single_element
     Strips repeatedly until no suffix matches. Pure string operation; no I/O.
     Never raises.
-    
+
     Args:
         task_id: The task ID string to normalize
-        
+
     Returns:
         The task_id with all trailing decomposition suffixes removed
     """
-    raise NotImplementedError
+    result = task_id
+    while True:
+        for suffix in _DECOMPOSITION_SUFFIXES:
+            if result.endswith(suffix):
+                result = result[:-len(suffix)]
+                break
+        else:
+            break
+    return result
 
 class TestStripDecompositionSuffixes:
     """Test suite for strip_decomposition_suffixes function."""
@@ -94,6 +103,7 @@ class TestStripDecompositionSuffixes:
         task_id = 'TASK-999-general-type_error-boundary'
         expected = 'TASK-999'
         assert strip_decomposition_suffixes(task_id) == expected
+_DECOMPOSITION_SUFFIXES = ('-reviewed', '-compose', '-boundary', '-empty_input', '-type_error', '-general', '-single_element')
 if __name__ == '__main__':
     import pytest
     pytest.main([__file__, '-v'])
