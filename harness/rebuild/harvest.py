@@ -87,7 +87,43 @@ def _mutates_module_globals(node: ast.AST, module_globals: set[str]) -> bool:
     name, or an in-place subscript/attribute store or mutating method call on a
     module global.
     """
-    raise NotImplementedError
+    mutating_methods = frozenset({'append', 'insert', 'extend', 'remove', 'pop', 'clear', 'sort', 'reverse', 'update', 'add', 'discard', 'setdefault', 'popitem', 'intersection_update', 'difference_update', 'symmetric_difference_update'})
+    global_decls: set[str] = set()
+    for child in ast.walk(node):
+        if isinstance(child, ast.Global):
+            global_decls.update(child.names)
+
+    def _root_name(expr: ast.expr) -> str | None:
+        while isinstance(expr, (ast.Attribute, ast.Subscript)):
+            expr = expr.value
+        return expr.id if isinstance(expr, ast.Name) else None
+
+    def _leaf_targets(targets: list[ast.expr]):
+        stack = list(targets)
+        while stack:
+            target = stack.pop()
+            if isinstance(target, (ast.Tuple, ast.List)):
+                stack.extend(target.elts)
+            elif isinstance(target, ast.Starred):
+                stack.append(target.value)
+            else:
+                yield target
+    for child in ast.walk(node):
+        if isinstance(child, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+            targets = child.targets if isinstance(child, ast.Assign) else [child.target]
+            for target in _leaf_targets(targets):
+                if isinstance(target, ast.Name):
+                    if target.id in global_decls:
+                        return True
+                elif isinstance(target, (ast.Subscript, ast.Attribute)):
+                    if _root_name(target) in module_globals:
+                        return True
+        elif isinstance(child, ast.Call):
+            func = child.func
+            if isinstance(func, ast.Attribute) and func.attr in mutating_methods:
+                if isinstance(func.value, ast.Name) and func.value.id in module_globals:
+                    return True
+    return False
 
 def _signature_line(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     raise NotImplementedError
