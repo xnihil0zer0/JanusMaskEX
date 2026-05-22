@@ -107,7 +107,53 @@ def _parse_markdown_sections(text: str) -> dict:
     return sections
 
 def load_brief(path: Path | str, max_bytes: int=256 * 1024) -> PlanningBrief:
-    raise NotImplementedError
+    """Load, validate and parse a planning brief from ``path``.
+
+    The file is read as bytes, rejected with :class:`BriefTooLargeError` if it
+    exceeds ``max_bytes``, and decoded as UTF-8 (a decode failure becomes a
+    :class:`BriefValidationError`). Optional YAML front-matter and the markdown
+    ``#`` sections supply the required fields; any required section that is
+    absent or empty raises :class:`BriefValidationError` carrying the offending
+    names. The returned :class:`PlanningBrief` records the raw text, source path
+    and a SHA-256 of the file contents.
+    """
+    path = Path(path)
+    raw_bytes = path.read_bytes()
+    actual_bytes = len(raw_bytes)
+    if actual_bytes > max_bytes:
+        raise BriefTooLargeError(f'Brief is {actual_bytes} bytes, exceeds limit of {max_bytes}', actual_bytes=actual_bytes)
+    try:
+        text = raw_bytes.decode('utf-8')
+    except UnicodeDecodeError as exc:
+        raise BriefValidationError(f'Brief is not valid UTF-8: {exc}')
+    sha256 = hashlib.sha256(raw_bytes).hexdigest()
+    frontmatter, body = _parse_frontmatter(text)
+    sections = _parse_markdown_sections(body)
+    combined: dict = {}
+    for key in REQUIRED_SECTIONS:
+        if key in frontmatter:
+            combined[key] = frontmatter[key]
+    combined.update(sections)
+    missing: List[str] = []
+    empty: List[str] = []
+    values: dict = {}
+    for key in ('title', 'scope', 'non_goals', 'inputs', 'deliverables'):
+        if key not in combined:
+            missing.append(key)
+            continue
+        raw_value = combined[key]
+        value = '' if raw_value is None else raw_value if isinstance(raw_value, str) else str(raw_value)
+        if not value.strip():
+            empty.append(key)
+        values[key] = value
+    if missing or empty:
+        parts = []
+        if missing:
+            parts.append(f'missing sections: {missing}')
+        if empty:
+            parts.append(f'empty sections: {empty}')
+        raise BriefValidationError('; '.join(parts), missing=missing, empty=empty)
+    return PlanningBrief(title=values['title'], scope=values['scope'], non_goals=values['non_goals'], inputs=values['inputs'], deliverables=values['deliverables'], raw_text=text, source_path=str(path), sha256=sha256)
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Load and validate a planning brief')
     parser.add_argument('file', type=Path, help='Path to the brief file')
