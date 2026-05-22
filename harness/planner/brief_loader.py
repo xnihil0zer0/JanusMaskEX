@@ -49,7 +49,29 @@ class UniqueKeyLoader(yaml.SafeLoader):
 REQUIRED_SECTIONS = {'title', 'scope', 'non_goals', 'inputs', 'deliverables'}
 
 def _parse_frontmatter(text: str) -> Tuple[dict, str]:
-    raise NotImplementedError
+    """Split optional YAML front-matter from the markdown body.
+
+    If ``text`` opens with a ``---`` fence, the YAML between that fence and the
+    next ``---`` line is parsed with :class:`UniqueKeyLoader` (which rejects
+    duplicate keys) and returned together with the remaining body. Otherwise an
+    empty mapping and the original text are returned unchanged. A YAML error
+    (e.g. a duplicate key) is surfaced as :class:`BriefValidationError`.
+    """
+    if not text.startswith('---'):
+        return ({}, text)
+    match = re.match('^---\\n(.*?)\\n---\\n?(.*)$', text, re.DOTALL)
+    if match is None:
+        return ({}, text)
+    frontmatter_text, body = (match.group(1), match.group(2))
+    try:
+        data = yaml.load(frontmatter_text, Loader=UniqueKeyLoader)
+    except yaml.YAMLError as exc:
+        raise BriefValidationError(f'Invalid YAML frontmatter: {exc}')
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        raise BriefValidationError('Frontmatter must be a YAML mapping')
+    return (data, body)
 
 def _parse_markdown_sections(text: str) -> dict:
     raise NotImplementedError
