@@ -54,7 +54,10 @@ def _dedup(deps: list[str]) -> list[str]:
 
 def _include_target(line: str) -> str | None:
     """Return the FILE of a ``-r FILE`` / ``--requirement FILE`` line, else None."""
-    raise NotImplementedError
+    match = re.match('\\s*(?:-r|--requirement)(?:\\s+|\\s*=\\s*)(.+)', line)
+    if not match:
+        return None
+    return match.group(1).strip().strip('\'"') or None
 
 def _from_requirements(root: Path) -> tuple[list[str], list[str]]:
     """Parse ``requirements*.txt`` / ``requirements.lock`` at ``root``.
@@ -148,3 +151,4 @@ def module_has_top_level_external_import(module_source: str, external_modules) -
     falsy or the source is unparseable.
     """
     raise NotImplementedError
+'Reconstructed leaf unit: harness.rebuild.deps._include_target.'
