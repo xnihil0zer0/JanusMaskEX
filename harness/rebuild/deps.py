@@ -39,7 +39,15 @@ def _norm_name(dep: str) -> str:
 
 def _dedup(deps: list[str]) -> list[str]:
     """De-duplicate by PEP 503 normalized name, preserving the first-seen line."""
-    raise NotImplementedError
+    seen: set[str] = set()
+    result: list[str] = []
+    for dep in deps:
+        key = _norm_name(dep)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(dep)
+    return result
 
 def _include_target(line: str) -> str | None:
     """Return the FILE of a ``-r FILE`` / ``--requirement FILE`` line, else None."""
