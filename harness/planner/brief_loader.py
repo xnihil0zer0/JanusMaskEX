@@ -19,7 +19,8 @@ class BriefValidationError(Exception):
 class BriefTooLargeError(Exception):
 
     def __init__(self, message: str, actual_bytes: int):
-        raise NotImplementedError
+        super().__init__(message)
+        self.actual_bytes = actual_bytes
 
 @dataclass(frozen=True)
 class PlanningBrief:
