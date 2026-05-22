@@ -160,7 +160,13 @@ def _from_setup_py(root: Path) -> list[str]:
 
 def _project_py_files(root: Path) -> list[Path]:
     """Rel paths of the project's own ``.py`` files (skipping vendor/build dirs)."""
-    raise NotImplementedError
+    result: list[Path] = []
+    for path in sorted(root.rglob('*.py')):
+        rel = path.relative_to(root)
+        if any((part in _SKIP_DIRS for part in rel.parts)):
+            continue
+        result.append(rel)
+    return result
 
 def _intra_project_names(root: Path, py_files: list[Path]) -> set[str]:
     """Top-level package/module names owned by the project (+ ``source_root.name``)."""
