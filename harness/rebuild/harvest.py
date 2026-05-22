@@ -141,7 +141,7 @@ def _has_relative_import(tree: ast.Module) -> bool:
     to the tests-only path (run inside the real package), mirroring the ``impure``
     precedent -- a conservative false oracle-skip only costs the redundant oracle.
     """
-    raise NotImplementedError
+    return any((isinstance(node, ast.ImportFrom) and (node.level or 0) > 0 for node in ast.walk(tree)))
 
 def _class_is_stateful(node: ast.ClassDef) -> bool:
     """True iff a class shares instance state across methods (reconstruct as ONE).
