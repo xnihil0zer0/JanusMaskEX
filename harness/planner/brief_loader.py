@@ -5,13 +5,16 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from typing import List
+from typing import Tuple
 import yaml
 
 class BriefValidationError(Exception):
 
     def __init__(self, message: str, missing: List[str]=None, empty: List[str]=None):
-        raise NotImplementedError
+        super().__init__(message)
+        self.missing = missing if missing is not None else []
+        self.empty = empty if empty is not None else []
 
 class BriefTooLargeError(Exception):
 
