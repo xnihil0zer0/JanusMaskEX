@@ -74,7 +74,37 @@ def _parse_frontmatter(text: str) -> Tuple[dict, str]:
     return (data, body)
 
 def _parse_markdown_sections(text: str) -> dict:
-    raise NotImplementedError
+    """Collect the body of each required ``#`` heading from markdown ``text``.
+
+    Lines are scanned top to bottom. A line that is a markdown heading
+    (``#``/``##``/...) whose normalised name is in :data:`REQUIRED_SECTIONS`
+    opens a new section; everything until the next such heading becomes that
+    section's content. Headings whose name is not required (and any preamble
+    before the first required heading) are not section starts -- a non-required
+    heading encountered inside an open section is kept verbatim as content,
+    while content before the first required heading is dropped. Returns a
+    mapping of required section name to its stripped content; sections never
+    started are simply absent.
+    """
+    heading_re = re.compile('^#+\\s+(.+?)\\s*$')
+    sections: dict = {}
+    current_key = None
+    buffer: list = []
+    for line in text.split('\n'):
+        match = heading_re.match(line)
+        key = None
+        if match is not None:
+            key = match.group(1).strip().lower().replace('-', '_').replace(' ', '_')
+        if key is not None and key in REQUIRED_SECTIONS:
+            if current_key is not None:
+                sections[current_key] = '\n'.join(buffer).strip()
+            current_key = key
+            buffer = []
+        elif current_key is not None:
+            buffer.append(line)
+    if current_key is not None:
+        sections[current_key] = '\n'.join(buffer).strip()
+    return sections
 
 def load_brief(path: Path | str, max_bytes: int=256 * 1024) -> PlanningBrief:
     raise NotImplementedError
