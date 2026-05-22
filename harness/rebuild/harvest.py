@@ -154,7 +154,27 @@ def _class_is_stateful(node: ast.ClassDef) -> bool:
     to CLASS-granular reconstruction (all methods in one blind submission, gated
     by the class's tests). A stateless class keeps per-method recon (#34).
     """
-    raise NotImplementedError
+
+    def _self_attrs(method: ast.AST, ctx: type) -> set:
+        attrs = set()
+        for sub in ast.walk(method):
+            if isinstance(sub, ast.Attribute) and isinstance(sub.ctx, ctx) and isinstance(sub.value, ast.Name) and (sub.value.id == 'self'):
+                attrs.add(sub.attr)
+        return attrs
+    init = None
+    others = []
+    for item in node.body:
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if item.name == '__init__':
+                init = item
+            else:
+                others.append(item)
+    if init is None:
+        return False
+    stored = _self_attrs(init, ast.Store)
+    if not stored:
+        return False
+    return any((_self_attrs(method, ast.Load) & stored for method in others))
 
 def _is_self_mutating(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     """True iff a method only mutates ``self`` with no meaningful fuzz domain.
