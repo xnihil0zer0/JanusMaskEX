@@ -66,7 +66,11 @@ def get_latest_feedback(sessions_dir: Path, agent: str, task_id: str) -> Path | 
     Returns:
         Path to the most recently modified feedback file, or None if not found
     """
-    raise NotImplementedError
+    pattern = f'{task_id}_round*_{agent}*_feedback.json'
+    matches = list(sessions_dir.glob(pattern))
+    if not matches:
+        return None
+    return max(matches, key=lambda p: p.stat().st_mtime)
 
 def feedback_glob_pattern(agent: str, task_id: str | None) -> str:
     """Glob pattern matching all rounds' feedback files for this (task, agent).
