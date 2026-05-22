@@ -221,7 +221,17 @@ def discover_dependencies(source_root) -> tuple[list[str], list[str]]:
     lists every requirements manifest found as a rel POSIX path, regardless of
     which source supplied the dependencies.
     """
-    raise NotImplementedError
+    root = Path(source_root)
+    deps, requirements_files = _from_requirements(root)
+    if not deps:
+        deps = _from_pyproject(root)
+    if not deps:
+        deps = _from_setup_cfg(root)
+    if not deps:
+        deps = _from_setup_py(root)
+    if not deps:
+        deps = _from_ast(root)
+    return (_dedup(deps), requirements_files)
 
 def _references(node: ast.AST, names: set[str]) -> bool:
     """True iff ``node``'s subtree references any name in ``names``.
@@ -266,3 +276,4 @@ def module_has_top_level_external_import(module_source: str, external_modules) -
 'Reconstructed leaf unit: harness.rebuild.deps._include_target.'
 'Reconstructed leaf unit: harness.rebuild.deps._from_requirements.'
 'Reconstructed leaf unit: harness.rebuild.deps._from_ast (+ verbatim siblings).'
+'Reconstruction of ``harness.rebuild.deps.discover_dependencies``.\n\nSelf-contained: the verbatim already-reconstructed sibling functions are\nincluded unchanged, along with the small private helpers they call, so this\nmodule is importable and exercisable on its own. The target function is\ndefined below them.\n'
