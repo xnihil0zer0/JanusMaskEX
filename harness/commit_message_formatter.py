@@ -2,22 +2,22 @@
 
 def format_auto_commit_message(task_id: str) -> str:
     """Return a deterministic commit message for auto-committed task output.
-
+    
     Template:
     Integrate validated code for {task_id}
-
+    
     Auto-committed via orchestrator after passing dual-agent
     AST generation, differential fuzzing, and cross-examination.
-
+    
     Pure string formatting; never raises.
-
+    
     Args:
         task_id: The task identifier to include in the commit message.
-
+    
     Returns:
         A deterministic multi-line commit message string.
     """
-    return f'Integrate validated code for {task_id}\n\nAuto-committed via orchestrator after passing dual-agent\nAST generation, differential fuzzing, and cross-examination.'
+    raise NotImplementedError
 if __name__ == '__main__':
     import pytest
     pytest.main(['-v', __file__])
@@ -27,36 +27,66 @@ class TestFormatAutoCommitMessage:
 
     def test_basic_task_id(self):
         """Test with a standard task ID."""
-        raise NotImplementedError
+        result = format_auto_commit_message('COMMIT-MSG-FMT-001')
+        assert isinstance(result, str)
+        assert len(result) > 0
 
     def test_message_contains_task_id(self):
         """Test that the message contains the provided task_id."""
-        raise NotImplementedError
+        task_id = 'GIT-COMMIT-001'
+        result = format_auto_commit_message(task_id)
+        assert task_id in result
 
     def test_message_contains_auto_commit_text(self):
         """Test that the message contains auto-commit context text."""
-        raise NotImplementedError
+        result = format_auto_commit_message('TEST-001')
+        assert 'Auto-committed via orchestrator' in result
 
     def test_message_contains_dual_agent_text(self):
         """Test that the message contains dual-agent validation text."""
-        raise NotImplementedError
+        result = format_auto_commit_message('TEST-001')
+        assert 'dual-agent' in result
+        assert 'AST generation' in result
+        assert 'differential fuzzing' in result
+        assert 'cross-examination' in result
 
     def test_empty_task_id(self):
         """Test with empty task_id string."""
-        raise NotImplementedError
+        result = format_auto_commit_message('')
+        assert isinstance(result, str)
+        assert 'Integrate validated code for' in result
+        assert len(result) > 0
 
     def test_deterministic_same_input_same_output(self):
         """Test that the same input always produces the same output."""
-        raise NotImplementedError
+        task_id = 'PS-001-reviewed'
+        result1 = format_auto_commit_message(task_id)
+        result2 = format_auto_commit_message(task_id)
+        result3 = format_auto_commit_message(task_id)
+        assert result1 == result2
+        assert result2 == result3
 
     def test_multiline_format_is_valid(self):
         """Test that the returned message has the correct multiline structure."""
-        raise NotImplementedError
+        result = format_auto_commit_message('TEST-001')
+        lines = result.split('\n')
+        assert len(lines) >= 4
+        assert 'Integrate validated code for' in lines[0]
+        assert lines[1] == ''
+        body = '\n'.join(lines[2:])
+        assert 'Auto-committed via orchestrator' in body
 
     def test_pure_no_side_effects(self):
         """Test that function is pure (no global state modifications)."""
-        raise NotImplementedError
+        task_id = 'PURE-TEST-001'
+        for i in range(3):
+            result = format_auto_commit_message(task_id)
+            assert 'Integrate validated code for PURE-TEST-001' in result
 
     def test_special_characters_preserved(self):
         """Test that special characters in task_id are preserved as-is."""
-        raise NotImplementedError
+        test_cases = ['TASK-001-with-dashes', 'TASK.001.with.dots', 'TASK/001/with/slashes', 'TASK_001_with_underscores']
+        for task_id in test_cases:
+            result = format_auto_commit_message(task_id)
+            assert task_id in result
+            assert result.startswith(f'Integrate validated code for {task_id}')
