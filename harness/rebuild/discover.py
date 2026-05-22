@@ -29,7 +29,14 @@ def _is_test_file(name: str) -> bool:
     return name.endswith('.py') and (name.startswith('test_') or name.endswith('_test.py'))
 
 def _skip_dir(rel_parts: tuple[str, ...]) -> bool:
-    raise NotImplementedError
+    """Return True if any path component marks a directory to skip while scanning.
+
+    A directory is skipped when any of its relative path components is a hidden
+    dir (leading ``.``, e.g. ``.git`` / ``.venv``) or a known non-source dir in
+    ``_SKIP_DIRS`` (``__pycache__``, ``state``, build artifacts, ...). Ordinary
+    source packages such as ``mypkg`` are not skipped.
+    """
+    return any((part in _SKIP_DIRS or part.startswith('.') for part in rel_parts))
 
 def discover_modules(source_root: Path) -> tuple[list[str], list[str], list[str]]:
     """Scan ``source_root`` and return ``(modules, test_files, seed_files)``.
@@ -112,3 +119,4 @@ def build_descriptor(source_root: Path, *, output_dir: Path, stash_dir: Path, na
     replicant can provision its own ``.venv`` and run standalone).
     """
     raise NotImplementedError
+'Reconstruction of ``harness.rebuild.discover._skip_dir``.\n\n``_SKIP_DIRS`` is the module-level constant the function relies on; it is\nreproduced here verbatim so this file is self-contained and importable on its\nown while the function body stays faithful to the original (which reads the\nmodule global).\n'
