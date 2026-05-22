@@ -235,3 +235,60 @@ def test_references_detects_name_in_subtree(tmp_path):
     node = ast.parse("def f():\n    return pkg.thing()\n").body[0]
     assert _references(node, {"pkg"}) is True
     assert _references(node, {"other"}) is False
+
+
+# === C9.17 (session #43): pins for the three oracle-USABLE privates that the
+# merged==original fuzz alone could NOT land clean-room. Their docstrings
+# UNDER-SPECIFY behaviour the fuzz oracle nonetheless checks, so every blind
+# reconstruction diverged (e.g. _norm_name's PEP 503 rule that the leading token
+# must START with an alphanumeric -- never stated in the docstring). The pin gives
+# the agent the exact behaviour; the fuzz oracle then confirms equivalence.
+from harness.rebuild.deps import _norm_name, _dedup, _include_target
+
+
+def test_norm_name_strips_leading_token_and_lowercases():
+    # leading whitespace + version operator + extras are dropped; result lowercased
+    assert _norm_name("  Flask==2.0") == "flask"
+    assert _norm_name("django>=3") == "django"
+    assert _norm_name("pkg[extra]>=1") == "pkg"
+    assert _norm_name("requests") == "requests"
+
+
+def test_norm_name_collapses_separators_to_dash():
+    # runs of - _ . collapse to a single -
+    assert _norm_name("foo-bar_baz.qux") == "foo-bar-baz-qux"
+    assert _norm_name("Foo.Bar") == "foo-bar"
+    assert _norm_name("a.b.c") == "a-b-c"
+
+
+def test_norm_name_requires_alphanumeric_first_char():
+    # PEP 503: the name token must START with an alphanumeric; a leading
+    # separator/marker/URL means there is no name -> ''
+    assert _norm_name(".foo") == ""
+    assert _norm_name("-x") == ""
+    assert _norm_name("___") == ""
+    assert _norm_name("@git+https://x") == ""
+    assert _norm_name("") == ""
+    # a leading DIGIT is alphanumeric, so it is kept
+    assert _norm_name("42pkg") == "42pkg"
+
+
+def test_dedup_keeps_first_seen_line_by_normalized_name():
+    # dedups by PEP 503 normalized name but preserves the ORIGINAL first-seen line;
+    # entries whose normalized name is empty are dropped entirely.
+    assert _dedup(
+        ["Flask==2.0", "flask", "Django", ".bad", "", "requests"]
+    ) == ["Flask==2.0", "Django", "requests"]
+
+
+def test_include_target_extracts_requirement_file():
+    # -r / --requirement, separated by whitespace OR '='; surrounding quotes stripped
+    assert _include_target("-r reqs.txt") == "reqs.txt"
+    assert _include_target("--requirement=base.txt") == "base.txt"
+    assert _include_target('-r "q.txt"') == "q.txt"
+    assert _include_target("--requirement  spaced.txt") == "spaced.txt"
+
+
+def test_include_target_returns_none_without_separator_or_flag():
+    assert _include_target("-rfile.txt") is None  # no separator
+    assert _include_target("not a line") is None

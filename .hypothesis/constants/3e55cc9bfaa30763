@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMask/harness/git_integration.py
+# hypothesis_version: 6.151.9
+
+[300, '#', '# JANUSMASK_REGION:', '*', ',', '--', '--cached', '--only', '--quiet', '--show-toplevel', '-m', '.', '.py', 'HEAD', 'JANUSMASK_DELETE:', '__main__', '__name__', 'add', 'assign', 'assign_tuple', 'code', 'col_offset', 'commit', 'committed', 'decorator_list', 'diff', 'error', 'file', 'git', 'import', 'import_from', 'kind', 'marker', 'name', 'no output file', 'output', 'region', 'rev-parse', 'sha', 'symbol', 'target', 'utf-8']

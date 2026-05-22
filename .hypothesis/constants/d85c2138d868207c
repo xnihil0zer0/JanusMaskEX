@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMask/harness/rebuild/oracle.py
+# hypothesis_version: 6.151.9
+
+['--config', '--original', '--str-ascii', '--target', '--unit', '__main__', 'divergent', 'equivalent', 'error', 'fuzz_str_ascii', 'rebuild', 'store_true', 'str_ascii', 'utf-8']
