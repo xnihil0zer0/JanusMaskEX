@@ -150,7 +150,24 @@ def order_modules(source_root: Path, modules: list[str]) -> list[str]:
     error). Unit-level call dependencies are resolved separately by the loop, so
     a module-level cycle does not block reconstruction.
     """
-    raise NotImplementedError
+    graph = module_import_graph(source_root, modules)
+    ordered: list[str] = []
+    done: set[str] = set()
+    on_path: set[str] = set()
+
+    def visit(rel: str) -> None:
+        if rel in done:
+            return
+        on_path.add(rel)
+        for dep in modules:
+            if dep in graph[rel] and dep not in on_path:
+                visit(dep)
+        on_path.discard(rel)
+        done.add(rel)
+        ordered.append(rel)
+    for rel in modules:
+        visit(rel)
+    return ordered
 
 def build_descriptor(source_root: Path, *, output_dir: Path, stash_dir: Path, name: str | None=None, modules: list[str] | None=None, test_files: list[str] | None=None, seed_files: list[str] | None=None, dependencies: list[str] | None=None, requirements_files: list[str] | None=None) -> TargetDescriptor:
     """Build a working ``TargetDescriptor`` from a bare dir (fields auto-inferred).
