@@ -34,7 +34,7 @@ class PlanningBrief:
     sha256: str
 
     def to_agent_prompt(self) -> str:
-        raise NotImplementedError
+        return f'Title: {self.title}\n\nScope:\n{self.scope}\n\nNon-Goals:\n{self.non_goals}\n\nInputs:\n{self.inputs}\n\nDeliverables:\n{self.deliverables}\n'
 
 class UniqueKeyLoader(yaml.SafeLoader):
 
