@@ -261,7 +261,49 @@ def external_units(module_source: str, external_modules) -> set[str]:
     is falsy or the source is unparseable. Names are returned as their short
     name (``node.name``).
     """
-    raise NotImplementedError
+    if not external_modules:
+        return set()
+    try:
+        tree = ast.parse(module_source)
+    except (SyntaxError, ValueError):
+        return set()
+    bound: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split('.')[0] in external_modules:
+                    bound.add(alias.asname or alias.name.split('.')[0])
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                continue
+            if node.module and node.module.split('.')[0] in external_modules:
+                for alias in node.names:
+                    bound.add(alias.asname or alias.name)
+
+    def _has_local_external_import(unit: ast.AST) -> bool:
+        for sub in ast.walk(unit):
+            if isinstance(sub, ast.Import):
+                if any((alias.name.split('.')[0] in external_modules for alias in sub.names)):
+                    return True
+            elif isinstance(sub, ast.ImportFrom):
+                if sub.level:
+                    continue
+                if sub.module and sub.module.split('.')[0] in external_modules:
+                    return True
+        return False
+    result: set[str] = set()
+
+    def _consider(unit: ast.AST) -> None:
+        if bound and _references(unit, bound) or _has_local_external_import(unit):
+            result.add(unit.name)
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            _consider(node)
+        elif isinstance(node, ast.ClassDef):
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    _consider(item)
+    return result
 
 def module_has_top_level_external_import(module_source: str, external_modules) -> bool:
     """True iff the module's TOP LEVEL imports an external package.
@@ -277,3 +319,4 @@ def module_has_top_level_external_import(module_source: str, external_modules) -
 'Reconstructed leaf unit: harness.rebuild.deps._from_requirements.'
 'Reconstructed leaf unit: harness.rebuild.deps._from_ast (+ verbatim siblings).'
 'Reconstruction of ``harness.rebuild.deps.discover_dependencies``.\n\nSelf-contained: the verbatim already-reconstructed sibling functions are\nincluded unchanged, along with the small private helpers they call, so this\nmodule is importable and exercisable on its own. The target function is\ndefined below them.\n'
+'Reconstruction of ``harness.rebuild.deps.external_units``.\n\nSelf-contained: the verbatim already-reconstructed sibling function\n(``_references``) is included unchanged, and the target function is defined\nbelow it.\n'
