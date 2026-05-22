@@ -39,7 +39,13 @@ class PlanningBrief:
 class UniqueKeyLoader(yaml.SafeLoader):
 
     def construct_mapping(self, node, deep=False):
-        raise NotImplementedError
+        mapping = set()
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key in mapping:
+                raise yaml.constructor.ConstructorError('while constructing a mapping', node.start_mark, 'found duplicate key %r' % (key,), key_node.start_mark)
+            mapping.add(key)
+        return super().construct_mapping(node, deep)
 REQUIRED_SECTIONS = {'title', 'scope', 'non_goals', 'inputs', 'deliverables'}
 
 def _parse_frontmatter(text: str) -> Tuple[dict, str]:
