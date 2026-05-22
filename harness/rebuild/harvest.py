@@ -203,7 +203,20 @@ _FUZZABLE_CONTAINERS = frozenset({'list', 'List', 'set', 'Set', 'tuple', 'Tuple'
 
 def _is_fuzzable_annotation(node: ast.expr | None) -> bool:
     """True iff ``node`` is built only from fuzzer-synthesizable primitives/containers."""
-    raise NotImplementedError
+    if node is None:
+        return False
+    if isinstance(node, ast.Constant):
+        return node.value is None
+    if isinstance(node, ast.Name):
+        return node.id in _FUZZABLE_NAMES or node.id in _FUZZABLE_CONTAINERS
+    if isinstance(node, ast.Subscript):
+        head = node.value
+        if not (isinstance(head, ast.Name) and head.id in _FUZZABLE_CONTAINERS):
+            return False
+        sl = node.slice
+        elts = sl.elts if isinstance(sl, ast.Tuple) else [sl]
+        return all((_is_fuzzable_annotation(elt) for elt in elts))
+    return False
 
 def _has_unfuzzable_params(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     """True iff a value-bearing param is TYPED with a type the fuzzer can't synthesize.
