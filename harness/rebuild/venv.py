@@ -26,7 +26,7 @@ def venv_dir(output_dir) -> Path:
 
 def venv_python(output_dir) -> Path:
     """The venv's POSIX interpreter: ``<out>/.venv/bin/python``."""
-    raise NotImplementedError
+    return venv_dir(output_dir) / 'bin' / 'python'
 
 def venv_ready(output_dir) -> bool:
     """True iff the provisioned interpreter exists under ``output_dir``."""
