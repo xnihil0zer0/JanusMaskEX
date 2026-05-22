@@ -44,14 +44,14 @@ def _stem_map(modules: list[str]) -> dict[str, str]:
     dotted path and the leaf are registered so ``import casing`` and
     ``from pkg.sub import x`` both resolve.
     """
-    stems: dict[str, str] = {}
+    mapping: dict[str, str] = {}
     for rel in modules:
         stem = rel[:-3] if rel.endswith('.py') else rel
         dotted = stem.replace('/', '.')
-        stems[dotted] = rel
-        leaf = dotted.rsplit('.', 1)[-1]
-        stems.setdefault(leaf, rel)
-    return stems
+        leaf = stem.rsplit('/', 1)[-1]
+        mapping[dotted] = rel
+        mapping.setdefault(leaf, rel)
+    return mapping
 
 def relative_base(importing_rel: str, level: int) -> list[str] | None:
     """Return the absolute dotted prefix a relative import resolves against.
