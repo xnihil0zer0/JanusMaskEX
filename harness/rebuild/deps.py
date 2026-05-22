@@ -67,7 +67,36 @@ def _from_requirements(root: Path) -> tuple[list[str], list[str]]:
     ``-r``/``--requirement`` includes (followed recursively, relative to
     ``root``). Each manifest actually read is recorded as a rel POSIX path.
     """
-    raise NotImplementedError
+    deps: list[str] = []
+    files: list[str] = []
+    seen: set[Path] = set()
+
+    def _read(path: Path) -> None:
+        resolved = path.resolve()
+        if resolved in seen or not path.is_file():
+            return
+        seen.add(resolved)
+        files.append(path.relative_to(root).as_posix())
+        for raw in path.read_text(encoding='utf-8', errors='replace').splitlines():
+            line = raw.strip()
+            if not line or line.startswith('#'):
+                continue
+            line = re.split('\\s+#', line, maxsplit=1)[0].strip()
+            if not line:
+                continue
+            if line.startswith('-'):
+                target = _include_target(line)
+                if target is not None:
+                    _read(root / target)
+                continue
+            deps.append(line)
+    manifests = sorted(root.glob('requirements*.txt'))
+    lock = root / 'requirements.lock'
+    if lock.is_file():
+        manifests.append(lock)
+    for manifest in manifests:
+        _read(manifest)
+    return (deps, files)
 
 def _from_pyproject(root: Path) -> list[str]:
     """``[project].dependencies`` + ``[tool.poetry.dependencies]`` keys (no 'python')."""
@@ -152,3 +181,4 @@ def module_has_top_level_external_import(module_source: str, external_modules) -
     """
     raise NotImplementedError
 'Reconstructed leaf unit: harness.rebuild.deps._include_target.'
+'Reconstructed leaf unit: harness.rebuild.deps._from_requirements.'
