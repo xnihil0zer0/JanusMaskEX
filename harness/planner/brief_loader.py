@@ -5,7 +5,8 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from typing import List
+from typing import Tuple
 import yaml
 
 class BriefValidationError(Exception):
@@ -30,7 +31,7 @@ class PlanningBrief:
     sha256: str
 
     def to_agent_prompt(self) -> str:
-        raise NotImplementedError
+        return f'Title: {self.title}\n\nScope:\n{self.scope}\n\nNon-Goals:\n{self.non_goals}\n\nInputs:\n{self.inputs}\n\nDeliverables:\n{self.deliverables}\n'
 
 class UniqueKeyLoader(yaml.SafeLoader):
 
