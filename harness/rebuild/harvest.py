@@ -313,7 +313,41 @@ def harvest_module(module_rel: str, source: str, *, include_methods: bool=False,
     :func:`harness.rebuild.task.build_unit_task`) to the oracle-skip +
     fuzzer-bypass + venv-scoped-tests path, mirroring the ``impure`` precedent.
     """
-    raise NotImplementedError
+    tree = ast.parse(source)
+    module_globals = _module_global_names(tree)
+    rel_import = _has_relative_import(tree)
+    module_needs_deps = module_has_top_level_external_import(source, external_modules)
+    units: list[Unit] = []
+
+    def _make_unit(node: ast.FunctionDef | ast.AsyncFunctionDef, cls: str | None) -> Unit:
+        sibling_names = {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        qualname = f'{module_rel}:{cls}.{node.name}' if cls is not None else f'{module_rel}:{node.name}'
+        return Unit(module=module_rel, name=node.name, qualname=qualname, signature=_signature_line(node), docstring=ast.get_docstring(node), decorators=[ast.unparse(dec) for dec in node.decorator_list], calls=_unit_calls(node, sibling_names, node.name), cls=cls, impure=_is_impure(node) or _mutates_module_globals(node, module_globals), needs_deps=module_needs_deps or node.name in external_units(source, external_modules), untyped=_has_untyped_params(node), unfuzzable=_has_unfuzzable_params(node), rel_import=rel_import, self_mutating=cls is not None and _is_self_mutating(node))
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if _is_test_function(node.name):
+                continue
+            units.append(_make_unit(node, None))
+        elif isinstance(node, ast.ClassDef) and include_methods:
+            method_defs = [m for m in node.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))]
+            if _is_pytest_class(node.name, method_defs):
+                continue
+            if _class_is_stateful(node):
+                class_doc = ast.get_docstring(node)
+                bases = [ast.unparse(base) for base in node.bases]
+                bases += [f'{kw.arg}={ast.unparse(kw.value)}' for kw in node.keywords]
+                signature = f'class {node.name}({', '.join(bases)}):' if bases else f'class {node.name}:'
+                skeleton = [signature]
+                if class_doc is not None:
+                    skeleton.append(f'    """{class_doc}"""')
+                for method in method_defs:
+                    skeleton.append('    ' + _signature_line(method))
+                    skeleton.append('        raise NotImplementedError')
+                units.append(Unit(module=module_rel, name=node.name, qualname=f'{module_rel}:{node.name}', signature=signature, docstring=class_doc, decorators=[ast.unparse(dec) for dec in node.decorator_list], cls=node.name, needs_deps=module_needs_deps, rel_import=rel_import, whole_class=True, methods=[method.name for method in method_defs], class_skeleton='\n'.join(skeleton)))
+            else:
+                for method in method_defs:
+                    units.append(_make_unit(method, node.name))
+    return units
 
 def unit_cross_calls(source: str, module_aliases: dict[str, str], importing_rel: str | None=None) -> dict[str, set[tuple[str, str]]]:
     """Map each unit's short name -> the cross-module callees it references.
