@@ -20,7 +20,32 @@ class HooksConfig:
     shadow_min_clean_runs: int = HOOKS_DEFAULT_MIN_CLEAN_RUNS
 
     def __post_init__(self):
-        raise NotImplementedError
+        """Validate per-field values right after dataclass construction.
+
+        The hooks flag gates real enforcement behaviour, so a malformed
+        ``mode`` or an unrecognised verb is rejected up front with
+        :class:`ConfigError` rather than being allowed to silently roll the
+        flag forward. ``mode`` must be one of :data:`HOOKS_VALID_MODES`;
+        ``enforce_verbs`` must be a list whose entries are all drawn from
+        :data:`HOOKS_ALLOWED_VERBS`; ``shadow_dir`` must be a string; and,
+        following the module's count idiom, ``shadow_min_clean_runs`` is
+        type-checked by excluding ``bool`` and requiring ``int``, then floored
+        at ``>= 0``.
+        """
+        if self.mode not in HOOKS_VALID_MODES:
+            raise ConfigError(f'hooks.mode must be one of {sorted(HOOKS_VALID_MODES)}, got {self.mode!r}')
+        if not isinstance(self.enforce_verbs, list):
+            raise ConfigError(f'hooks.enforce_verbs must be a list, got {type(self.enforce_verbs).__name__}')
+        for verb in self.enforce_verbs:
+            if verb not in HOOKS_ALLOWED_VERBS:
+                raise ConfigError(f'hooks.enforce_verbs contains unknown verb {verb!r}; allowed: {sorted(HOOKS_ALLOWED_VERBS)}')
+        if not isinstance(self.shadow_dir, str):
+            raise ConfigError(f'hooks.shadow_dir must be a string, got {type(self.shadow_dir).__name__}')
+        runs = self.shadow_min_clean_runs
+        if isinstance(runs, bool) or not isinstance(runs, int):
+            raise ConfigError(f'hooks.shadow_min_clean_runs must be a non-negative int, got {type(runs).__name__}')
+        if runs < 0:
+            raise ConfigError(f'hooks.shadow_min_clean_runs must be >= 0, got {runs!r}')
 
 def get_hooks_config(cfg: dict) -> HooksConfig:
     """Read the hooks block out of the top-level config dict.
