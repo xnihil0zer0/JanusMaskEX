@@ -46,6 +46,7 @@ class HooksConfig:
             raise ConfigError(f'hooks.shadow_min_clean_runs must be a non-negative int, got {type(runs).__name__}')
         if runs < 0:
             raise ConfigError(f'hooks.shadow_min_clean_runs must be >= 0, got {runs!r}')
+from harness.config_loader import HooksConfig
 
 def get_hooks_config(cfg: dict) -> HooksConfig:
     """Read the hooks block out of the top-level config dict.
@@ -54,7 +55,14 @@ def get_hooks_config(cfg: dict) -> HooksConfig:
     The reader is strict about unknown keys so a typo doesn't silently roll
     the flag forward.
     """
-    raise NotImplementedError
+    block = cfg.get('hooks') or {}
+    if not isinstance(block, dict):
+        raise ConfigError(f'hooks: must be a mapping, got {type(block).__name__}')
+    allowed = {f.name for f in fields(HooksConfig)}
+    unknown = set(block) - allowed
+    if unknown:
+        raise ConfigError(f'hooks: unknown key(s) {sorted(unknown)}; allowed: {sorted(allowed)}')
+    return HooksConfig(**block)
 
 @dataclass
 class BatchExecutionConfig:
@@ -100,3 +108,5 @@ class BatchExecutionConfig:
 
 def get_batch_execution_config(cfg: dict) -> BatchExecutionConfig:
     raise NotImplementedError
+from dataclasses import fields
+from harness.config_loader import ConfigError
