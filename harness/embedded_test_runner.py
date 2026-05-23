@@ -88,4 +88,29 @@ def run_embedded_tests(module_name: str, module_src: str, *, timeout: float=10.0
         short error string: ``embedded tests collect failed: ...``,
         ``embedded tests failed: ...``, or ``embedded tests timed out``.
     """
-    raise NotImplementedError
+    if not should_run_embedded_tests(module_src):
+        return None
+    if not _MODULE_NAME_RE.match(module_name):
+        raise ValueError(f'module_name is not a valid identifier: {module_name!r}')
+    env = dict(_WORKER_SCRUB_ENV)
+    env['PYTHONPATH'] = _pytest_site_dir()
+    with tempfile.TemporaryDirectory() as td:
+        candidate = os.path.join(td, f'{module_name}.py')
+        pathlib.Path(candidate).write_text(module_src, encoding='utf-8')
+        base_cmd = [sys.executable, '-S', '-m', 'pytest']
+        try:
+            collect = subprocess.run([*base_cmd, '--collect-only', candidate], env=env, cwd=td, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return 'embedded tests timed out'
+        if collect.returncode != 0:
+            detail = collect.stderr.strip() or collect.stdout.strip()
+            return f'embedded tests collect failed: {detail}'
+        try:
+            run = subprocess.run([*base_cmd, candidate], env=env, cwd=td, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return 'embedded tests timed out'
+        if run.returncode != 0:
+            detail = run.stderr.strip() or run.stdout.strip()
+            return f'embedded tests failed: {detail}'
+    return None
+'Embedded pytest runner for bypass-eligible candidate modules (DD6-cat2).\n\nReconstruction of :func:`run_embedded_tests` plus its verbatim sibling\nhelpers ``_pytest_site_dir`` and ``should_run_embedded_tests``.\n'
