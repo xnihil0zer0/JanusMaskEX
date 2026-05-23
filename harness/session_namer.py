@@ -52,7 +52,12 @@ def get_latest_submission(sessions_dir: Path, agent: str, round_number: int, tas
     Returns:
         Path to the most recently modified submission file, or None if not found
     """
-    raise NotImplementedError
+    sessions_dir = Path(sessions_dir)
+    pattern = f'{agent}_round{round_number}_{task_id}*_submission.json'
+    matches = list(sessions_dir.glob(pattern))
+    if not matches:
+        return None
+    return max(matches, key=lambda p: p.stat().st_mtime)
 
 def get_latest_feedback(sessions_dir: Path, agent: str, task_id: str) -> Path | None:
     """
@@ -79,3 +84,4 @@ def feedback_glob_pattern(agent: str, task_id: str | None) -> str:
     contract lives in exactly one module.
     """
     return f'{task_id or '*'}_round*_{agent}_feedback.json'
+'Session namer helper: locate the most recent submission file.'
