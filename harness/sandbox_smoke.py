@@ -47,7 +47,18 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
         containing the subprocess stderr (or stdout if stderr is empty).
         On timeout, returns ``sandbox import timed out``.
     """
-    raise NotImplementedError
+    with tempfile.TemporaryDirectory() as td:
+        candidate = os.path.join(td, f'{module_name}.py')
+        pathlib.Path(candidate).write_text(module_src, encoding='utf-8')
+        env = {**_WORKER_SCRUB_ENV, 'PYTHONPATH': td}
+        try:
+            proc = subprocess.run([sys.executable, '-S', '-c', f'import {module_name}'], cwd=td, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return 'sandbox import timed out'
+    if proc.returncode == 0:
+        return None
+    detail = proc.stderr.strip() or proc.stdout.strip()
+    return f'sandbox import failed: {detail}'
 
 def _discover_project_root() -> pathlib.Path | None:
     """Locate the JanusMask project root by walking up from this module.
@@ -64,3 +75,4 @@ def _discover_project_root() -> pathlib.Path | None:
             return parent
     return None
 import os
+"Sandboxed import-smoke for accepted canary output (DD6).\n\nMotivation\n----------\nThe three W64 canary defects documented in\n``brief_hooks_silent_canary_signals.md`` shipped because the orchestrator's\n``BYPASS_FUZZER_TYPES`` accept path does no runtime validation beyond\n``ast_enforcer.validate_code``. In particular, ``harness/task_id_normalizer.py``\ncontained a top-level ``import pytest`` that imports cleanly in the\norchestrator's own environment (pytest is installed there) but would crash\nany worker trying to import the module with a stripped PYTHONPATH.\n\n:func:`smoke_import` reproduces the worker env-scrub documented in\n``state/impl_progress.jsonl`` 2026-04-19T15:13:53Z (B3 blocker #11). It\nreturns ``None`` on clean import, or a short error string prefixed with\n``sandbox import failed:`` if the subprocess failed.\n\nThe scrubbed env is intentionally minimal: only the tempdir (which holds\nthe candidate module) is on ``PYTHONPATH``. That means legitimate\n``from harness.<x> import <y>`` imports WILL fail the smoke -- caller must\neither inline the dependency into the candidate, or accept that canary\nhelpers are stdlib-only by contract (matches current ``BYPASS_FUZZER_TYPES``\nintent).\n"
