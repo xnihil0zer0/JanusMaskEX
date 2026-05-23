@@ -82,4 +82,4 @@ def feedback_glob_pattern(agent: str, task_id: str | None) -> str:
     Used by cross_examiner.clear_feedback_files; kept here so the filename
     contract lives in exactly one module.
     """
-    raise NotImplementedError
+    return f'{task_id or '*'}_round*_{agent}_feedback.json'
