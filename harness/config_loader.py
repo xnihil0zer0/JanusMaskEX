@@ -105,8 +105,23 @@ class BatchExecutionConfig:
                 raise ConfigError(f'batch_execution.rlimit_nproc must be a positive int or None, got {type(rlimit).__name__}')
             if rlimit < 1:
                 raise ConfigError(f'batch_execution.rlimit_nproc must be >= 1, got {rlimit!r}')
+from harness.config_loader import BatchExecutionConfig
 
 def get_batch_execution_config(cfg: dict) -> BatchExecutionConfig:
-    raise NotImplementedError
+    """Read the batch_execution block out of the top-level config dict.
+
+    Missing or empty ``batch_execution:`` blocks return safe defaults. The
+    reader is strict about unknown keys so a typo doesn't silently change a
+    resource knob. Per-field range/type validation is handled by
+    :meth:`BatchExecutionConfig.__post_init__`.
+    """
+    block = cfg.get('batch_execution') or {}
+    if not isinstance(block, dict):
+        raise ConfigError(f'batch_execution: must be a mapping, got {type(block).__name__}')
+    allowed = {f.name for f in fields(BatchExecutionConfig)}
+    unknown = set(block) - allowed
+    if unknown:
+        raise ConfigError(f'batch_execution: unknown key(s) {sorted(unknown)}; allowed: {sorted(allowed)}')
+    return BatchExecutionConfig(**block)
 from dataclasses import fields
 from harness.config_loader import ConfigError
