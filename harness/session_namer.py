@@ -35,7 +35,9 @@ def generate_feedback_filename(agent: str, round_number: int, task_id: str, time
         {task_id}_round{round_number}_{agent}_{timestamp_str}_feedback.json
         (omits timestamp component if None)
     """
-    raise NotImplementedError
+    if timestamp_str:
+        return f'{task_id}_round{round_number}_{agent}_{timestamp_str}_feedback.json'
+    return f'{task_id}_round{round_number}_{agent}_feedback.json'
 
 def get_latest_submission(sessions_dir: Path, agent: str, round_number: int, task_id: str) -> Path | None:
     """
