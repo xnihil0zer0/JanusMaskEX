@@ -67,7 +67,10 @@ def _pytest_site_dir() -> str:
     gives the ``pytest`` package directory; its parent is the
     site-packages directory to expose on PYTHONPATH.
     """
-    raise NotImplementedError
+    spec = importlib.util.find_spec('pytest')
+    if spec is None or not spec.submodule_search_locations:
+        raise RuntimeError('pytest not importable from orchestrator env')
+    return os.path.dirname(spec.submodule_search_locations[0])
 
 def run_embedded_tests(module_name: str, module_src: str, *, timeout: float=10.0) -> str | None:
     """Run pytest against ``module_src`` under a scrubbed subprocess.
