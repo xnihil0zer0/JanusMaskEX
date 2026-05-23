@@ -50,5 +50,17 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
     raise NotImplementedError
 
 def _discover_project_root() -> pathlib.Path | None:
-    raise NotImplementedError
+    """Locate the JanusMask project root by walking up from this module.
+
+    The project root is the nearest ancestor directory that holds the
+    ``harness`` package (mirroring ``harness.paths.PROJECT_ROOT``, which is
+    defined as ``HARNESS_DIR.parent``). Walks upward from this file's resolved
+    location and returns the first such ancestor, or ``None`` when the module
+    lives outside any recognizable project tree.
+    """
+    here = pathlib.Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / 'harness' / '__init__.py').is_file():
+            return parent
+    return None
 import os
