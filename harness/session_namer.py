@@ -16,7 +16,9 @@ def generate_submission_filename(agent: str, round_number: int, task_id: str, ti
         {agent}_round{round_number}_{task_id}_{timestamp_str}_submission.json
         (omits timestamp component if None)
     """
-    raise NotImplementedError
+    if timestamp_str:
+        return f'{agent}_round{round_number}_{task_id}_{timestamp_str}_submission.json'
+    return f'{agent}_round{round_number}_{task_id}_submission.json'
 
 def generate_feedback_filename(agent: str, round_number: int, task_id: str, timestamp_str: str | None=None) -> str:
     """
