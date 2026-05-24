@@ -25,19 +25,10 @@ def read_input(stream=None) -> dict[str, Any]:
     raise NotImplementedError
 
 def _normalise_decision(decision: str) -> str:
-    """Collapse a CLI decision token onto the harness ``allow``/``deny`` pair.
-
-    Claude emits ``allow``/``block``/``ask``; Gemini emits
-    ``allow``/``deny``/``block``/``ask``. ``allow`` passes through unchanged;
-    every other recognised token (``deny``, ``block``, ``ask``) denotes a
-    refusal and is normalised to ``deny``. Any unrecognised token raises
-    ``ValueError``.
-    """
-    if decision == 'allow':
-        return 'allow'
-    if decision in ('deny', 'block', 'ask'):
-        return 'deny'
-    raise ValueError(f'unknown decision: {decision!r}')
+    token = (decision or '').strip().lower()
+    if token not in DECISIONS:
+        raise ValueError(f'unknown decision {decision!r}; expected one of {sorted(DECISIONS)}')
+    return token
 
 def decision_payload(decision: str, *, reason: str='', additional_context: str='', tool_input: dict | None=None) -> dict[str, Any]:
     """Build a neutral decision envelope.
@@ -50,3 +41,4 @@ def decision_payload(decision: str, *, reason: str='', additional_context: str='
 
 def write_decision(payload: dict[str, Any], stream=None) -> None:
     raise NotImplementedError
+'Reconstruction of ``harness.hooks._common._normalise_decision``.\n\nBoth Claude Code and Gemini CLI emit decision tokens; the harness collapses\nthem onto the unified ``allow``/``deny`` vocabulary. Any other token raises.\n'
