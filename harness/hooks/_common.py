@@ -25,7 +25,19 @@ def read_input(stream=None) -> dict[str, Any]:
     raise NotImplementedError
 
 def _normalise_decision(decision: str) -> str:
-    raise NotImplementedError
+    """Collapse a CLI decision token onto the harness ``allow``/``deny`` pair.
+
+    Claude emits ``allow``/``block``/``ask``; Gemini emits
+    ``allow``/``deny``/``block``/``ask``. ``allow`` passes through unchanged;
+    every other recognised token (``deny``, ``block``, ``ask``) denotes a
+    refusal and is normalised to ``deny``. Any unrecognised token raises
+    ``ValueError``.
+    """
+    if decision == 'allow':
+        return 'allow'
+    if decision in ('deny', 'block', 'ask'):
+        return 'deny'
+    raise ValueError(f'unknown decision: {decision!r}')
 
 def decision_payload(decision: str, *, reason: str='', additional_context: str='', tool_input: dict | None=None) -> dict[str, Any]:
     """Build a neutral decision envelope.
