@@ -41,4 +41,4 @@ def decision_payload(decision: str, *, reason: str='', additional_context: str='
 
 def write_decision(payload: dict[str, Any], stream=None) -> None:
     raise NotImplementedError
-'Reconstruction of ``harness.hooks._common._normalise_decision``.\n\nBoth Claude Code and Gemini CLI emit decision tokens; the harness collapses\nthem onto the unified ``allow``/``deny`` vocabulary. Any other token raises.\n'
+"Reconstruction of ``harness.hooks._common._normalise_decision``.\n\nBoth Claude Code and Gemini CLI emit decision tokens; the harness collapses\nthem onto the unified ``allow``/``deny`` vocabulary. Any other token raises.\n\nThis file defines only ``_normalise_decision``. The function resolves the\nmodule-level ``DECISIONS`` frozenset of accepted tokens (``{'allow', 'deny'}``)\nfrom its host module ``harness.hooks._common`` at call time, exactly as the\noriginal does.\n"
