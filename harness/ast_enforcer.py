@@ -310,26 +310,51 @@ def _dump_annotation(node: ast.expr) -> str:
 
 def validate_return_type(code: str, declared_return: ast.expr | None, func_name: str) -> list[Violation]:
     """Validate that *code*'s ``FunctionDef.returns`` matches *declared_return*.
-
-    Parameters
-    ----------
-    code:
-        Full source of the implementation.
-    declared_return:
-        Return-annotation AST from the brief's function_signature, as produced
-        by ``harness.diff_fuzzer.extract_return_annotation``. ``None`` means
-        the brief did not declare a return type, in which case validation is
-        skipped (returning ``[]``).
-    func_name:
-        Name of the function to locate in *code*.
-
-    Returns
-    -------
-    list[Violation]
-        Empty on match / skip. A single ``return_type_mismatch`` error on
-        mismatch, unannotated impl, function-not-found, or unparsable source.
-    """
-    raise NotImplementedError
+    
+        Parameters
+        ----------
+        code:
+            Full source of the implementation.
+        declared_return:
+            Return-annotation AST from the brief's function_signature, as produced
+            by ``harness.diff_fuzzer.extract_return_annotation``. ``None`` means
+            the brief did not declare a return type, in which case validation is
+            skipped (returning ``[]``).
+        func_name:
+            Name of the function to locate in *code*.
+    
+        Returns
+        -------
+        list[Violation]
+            Empty on match / skip. A single ``return_type_mismatch`` error on
+            mismatch, unannotated impl, function-not-found, or unparsable source.
+        """
+    if declared_return is None:
+        return []
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        return [Violation(rule='return_type_mismatch', severity='error', line=exc.lineno or 0, message=f'cannot validate return type for {func_name!r}: SyntaxError: {exc.msg}')]
+    target: ast.FunctionDef | ast.AsyncFunctionDef | None = None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == func_name:
+            target = node
+            break
+    if target is None:
+        return [Violation(rule='return_type_mismatch', severity='error', line=0, message=f'function {func_name!r} not found in code')]
+    impl_returns = target.returns
+    if impl_returns is None:
+        declared_src = ast.unparse(declared_return)
+        return [Violation(rule='return_type_mismatch', severity='error', line=target.lineno, message=f"function {func_name!r} has no return annotation; brief declared '-> {declared_src}'")]
+    norm_declared = _normalize_annotation(declared_return)
+    norm_impl = _normalize_annotation(impl_returns)
+    if norm_declared is None or norm_impl is None:
+        return [Violation(rule='return_type_mismatch', severity='error', line=target.lineno, message=f'could not normalise return annotations for {func_name!r}')]
+    if _dump_annotation(norm_declared) != _dump_annotation(norm_impl):
+        if _bare_alias_matches_subscripted(norm_declared, norm_impl):
+            return []
+        return [Violation(rule='return_type_mismatch', severity='error', line=target.lineno, message=f"return-type mismatch for {func_name!r}: brief '-> {ast.unparse(declared_return)}' vs impl '-> {ast.unparse(impl_returns)}'")]
+    return []
 
 def _bare_alias_matches_subscripted(a: ast.expr, b: ast.expr) -> bool:
     """Return True if one side is a bare collection alias and the other is a
@@ -489,3 +514,13 @@ except ImportError:
     _SIDE_EFFECT_NAMES = frozenset({'print', 'open'})
     _SIDE_EFFECT_ATTRS = frozenset({('sys', 'stdout', 'write')})
 import sys
+try:
+    from harness.ast_enforcer import Violation, _resolve_string_annotation, _AnnotationNormalizer, _TYPING_ALIAS_EQUIVALENTS
+except ImportError:
+
+    @dataclass
+    class Violation:
+        rule: str
+        severity: str
+        line: int
+        message: str
