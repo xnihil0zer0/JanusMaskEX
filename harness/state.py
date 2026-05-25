@@ -32,7 +32,16 @@ def _ensure_paths(state_dir: Path) -> None:
     state_dir.mkdir(parents=True, exist_ok=True)
 
 def _read_state_from_disk(state_path: Path) -> dict[str, Any]:
-    raise NotImplementedError
+    try:
+        with open(state_path, 'r') as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError('STATE.json root is not a JSON object')
+        return data
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise StateCorruptError(f'Corrupt state file at {state_path}: {exc}') from exc
+    except FileNotFoundError as exc:
+        raise StateMissingError(f'State file not found at {state_path}') from exc
 
 def _write_state_to_disk(state_path: Path, state: dict[str, Any]) -> None:
     raise NotImplementedError
@@ -75,3 +84,5 @@ def get_phase(state_dir: Path | None=None) -> str:
 
 def get_agent_status(state_dir: Path | None=None, *, agent: str) -> str:
     raise NotImplementedError
+from harness.state import StateCorruptError
+from harness.state import StateMissingError
