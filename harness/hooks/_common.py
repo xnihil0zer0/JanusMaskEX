@@ -22,7 +22,18 @@ class HookInputError(ValueError):
 
 def read_input(stream=None) -> dict[str, Any]:
     """Read and parse the hook envelope from stdin (or provided stream)."""
-    raise NotImplementedError
+    if stream is None:
+        stream = sys.stdin
+    content = stream.read()
+    if not content or content.isspace():
+        return {}
+    try:
+        data = json.loads(content)
+    except ValueError as e:
+        raise HookInputError('JSON malformed') from e
+    if not isinstance(data, dict):
+        raise HookInputError(f'Expected JSON object, got {type(data).__name__}')
+    return data
 
 def _normalise_decision(decision: str) -> str:
     token = (decision or '').strip().lower()
@@ -32,13 +43,23 @@ def _normalise_decision(decision: str) -> str:
 
 def decision_payload(decision: str, *, reason: str='', additional_context: str='', tool_input: dict | None=None) -> dict[str, Any]:
     """Build a neutral decision envelope.
-
-    Event-specific hookSpecificOutput shapes are built by the `claude/` and
-    `gemini/` entrypoints; this helper stays decision-only so both sides can
-    wrap it.
-    """
-    raise NotImplementedError
+    
+        Event-specific hookSpecificOutput shapes are built by the `claude/` and
+        `gemini/` entrypoints; this helper stays decision-only so both sides can
+        wrap it.
+        """
+    decision_val = _normalise_decision(decision)
+    payload: dict[str, Any] = {'decision': decision_val}
+    if reason:
+        payload['reason'] = reason
+    if additional_context:
+        payload['additionalContext'] = additional_context
+    if tool_input is not None:
+        payload['tool_input'] = tool_input
+    return payload
 
 def write_decision(payload: dict[str, Any], stream=None) -> None:
-    raise NotImplementedError
+    stream = stream if stream is not None else sys.stdout
+    stream.write(json.dumps(payload))
+    stream.flush()
 "Reconstruction of ``harness.hooks._common._normalise_decision``.\n\nBoth Claude Code and Gemini CLI emit decision tokens; the harness collapses\nthem onto the unified ``allow``/``deny`` vocabulary. Any other token raises.\n\nThis file defines only ``_normalise_decision``. The function resolves the\nmodule-level ``DECISIONS`` frozenset of accepted tokens (``{'allow', 'deny'}``)\nfrom its host module ``harness.hooks._common`` at call time, exactly as the\noriginal does.\n"
