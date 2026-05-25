@@ -436,8 +436,18 @@ class _DocstringRemover:
         if not body:
             return body
         first = body[0]
-        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
-            return body[1:] or [ast.Pass()]
+        is_docstring = False
+        if isinstance(first, ast.Expr):
+            val = first.value
+            if isinstance(val, ast.Constant) and isinstance(val.value, str):
+                is_docstring = True
+            elif isinstance(val, ast.Str):
+                is_docstring = True
+        if is_docstring:
+            if len(body) == 1:
+                return [ast.Pass()]
+            else:
+                return body[1:]
         return body
 
     def visit_Module(self, node: ast.Module) -> ast.Module:
