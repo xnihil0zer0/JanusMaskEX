@@ -58,7 +58,7 @@ def _inbox_dir(session_id: str | None=None, *, agent: str | None=None) -> pathli
     return _work_dir(session_id, agent=agent) / 'inbox'
 
 def _outbox_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path:
-    raise NotImplementedError
+    return _work_dir(session_id, agent=agent) / 'outbox'
 
 def _ledger_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path:
     return _work_dir(session_id, agent=agent) / 'ledger'
