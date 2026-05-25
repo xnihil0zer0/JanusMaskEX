@@ -135,9 +135,25 @@ def decide_submission(ctx: 'DeciderContext', content: str, events: list[dict[str
         return ctx.allow_with_warnings(warnings)
     ctx.journal('submission', 'allow')
     return harness.hooks._common.decision_payload('allow')
+from harness.hooks._decide_common import DeciderContext
 
 def decide_plan_draft(ctx: DeciderContext, content: str, events: list[dict[str, Any]]) -> dict[str, Any]:
-    raise NotImplementedError
+    if harness.hooks._ledger.has_verb(events, 'plan_draft', outcome='allow'):
+        reason = 'plan_draft already submitted (single-shot per round).'
+        ctx.journal('plan_draft', 'deny', detail={'reason': reason})
+        return harness.hooks._common.decision_payload('deny', reason=reason)
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError as exc:
+        reason = f'plan_draft content must be valid JSON: {exc}'
+        ctx.journal('plan_draft', 'invalid', detail={'reason': reason})
+        return harness.hooks._common.decision_payload('deny', reason=reason)
+    violations = rpc_submit_plan_draft.validate(parsed)
+    if violations:
+        payload = rpc_submit_plan_draft.rejected_payload(violations, max_show=MAX_VIOLATIONS)
+        ctx.journal('plan_draft', 'deny', detail={'violation_count': len(violations)})
+        return harness.hooks._common.decision_payload('deny', reason=format_plan_reason(payload))
+    return harness.hooks._common.decision_payload('allow')
 
 def decide_reconciliation(ctx: DeciderContext, content: str, events: list[dict[str, Any]]) -> dict[str, Any]:
     raise NotImplementedError
@@ -163,3 +179,4 @@ import harness.hooks._common
 import harness.hooks._state_gates
 from harness.hooks._decide_common import format_ast_reason
 from harness.hooks.rpc import submit_code as rpc_submit_code
+from harness.hooks.rpc import submit_plan_draft as rpc_submit_plan_draft
