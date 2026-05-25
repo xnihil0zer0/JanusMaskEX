@@ -344,27 +344,34 @@ def _bare_alias_matches_subscripted(a: ast.expr, b: ast.expr) -> bool:
     ``List[str]``) do NOT match here — they hit the earlier dump-inequality
     branch and surface as violations.
     """
-    he = sys.modules.get('harness.ast_enforcer')
-    equivs = getattr(he, '_TYPING_ALIAS_EQUIVALENTS', None) if he else None
-    if equivs is None:
-        equivs = globals().get('_TYPING_ALIAS_EQUIVALENTS', {})
-    aliases = set(equivs.values())
-
-    def head_name(n: ast.expr) -> str | None:
-        if isinstance(n, ast.Name):
-            return n.id
-        if isinstance(n, ast.Subscript) and isinstance(n.value, ast.Name):
-            return n.value.id
-        return None
-    a_head = head_name(a)
-    b_head = head_name(b)
-    if a_head is None or b_head is None or a_head != b_head:
+    import sys
+    g = globals()
+    normalize_fn = g.get('_normalize_annotation')
+    alias_equivs = g.get('_TYPING_ALIAS_EQUIVALENTS')
+    if normalize_fn is None or alias_equivs is None:
+        try:
+            import harness.ast_enforcer as target_mod
+        except ImportError:
+            target_mod = sys.modules.get('harness.ast_enforcer')
+        if target_mod is not None:
+            normalize_fn = getattr(target_mod, '_normalize_annotation', None)
+            alias_equivs = getattr(target_mod, '_TYPING_ALIAS_EQUIVALENTS', None)
+    if normalize_fn is None or alias_equivs is None:
         return False
-    if a_head not in aliases:
+    norm_a = normalize_fn(a)
+    norm_b = normalize_fn(b)
+    if norm_a is None or norm_b is None:
         return False
-    a_bare = isinstance(a, ast.Name)
-    b_bare = isinstance(b, ast.Name)
-    return a_bare != b_bare
+    collection_aliases = set(alias_equivs.values())
+    if isinstance(norm_a, ast.Name) and isinstance(norm_b, ast.Subscript):
+        if norm_a.id in collection_aliases:
+            if isinstance(norm_b.value, ast.Name) and norm_b.value.id == norm_a.id:
+                return True
+    if isinstance(norm_b, ast.Name) and isinstance(norm_a, ast.Subscript):
+        if norm_b.id in collection_aliases:
+            if isinstance(norm_a.value, ast.Name) and norm_a.value.id == norm_b.id:
+                return True
+    return False
 
 class _DocstringRemover(ast.NodeTransformer):
     """Remove docstrings from module, class, and function bodies."""
@@ -480,4 +487,3 @@ except ImportError:
     _NONDETERMINISTIC_CALLS = frozenset({('time', 'time'), ('datetime', 'now'), ('os', 'urandom')})
     _SIDE_EFFECT_NAMES = frozenset({'print', 'open'})
     _SIDE_EFFECT_ATTRS = frozenset({('sys', 'stdout', 'write')})
-import sys
