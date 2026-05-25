@@ -541,9 +541,7 @@ class _ImportSorter:
 
     def _import_sort_key(self, node: ast.stmt) -> str:
         if isinstance(node, ast.Import):
-            if node.names:
-                return node.names[0].name
-            return ''
+            return node.names[0].name if node.names else ''
         if isinstance(node, ast.ImportFrom):
             return node.module or ''
         return ''
