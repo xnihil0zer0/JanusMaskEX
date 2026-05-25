@@ -215,7 +215,7 @@ def _check_declared_return_type(code: str, declared_signature: str) -> list[Viol
 
 def _extract_func_name_from_signature(signature_src: str) -> str | None:
     """Return the function name declared in a brief signature, or None.
-
+    
     Mirrors the parsing strategy of
     :func:`harness.diff_fuzzer.extract_return_annotation` -- accepts both
     full-form (``def foo(...) -> T: ...``) and header-only (``def foo(...)``)
@@ -228,7 +228,7 @@ def _extract_func_name_from_signature(signature_src: str) -> str | None:
         try:
             tree = ast.parse(candidate)
             break
-        except SyntaxError:
+        except (SyntaxError, TypeError, ValueError):
             tree = None
             continue
     if tree is None:
