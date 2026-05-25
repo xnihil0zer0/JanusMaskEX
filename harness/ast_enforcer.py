@@ -826,7 +826,12 @@ def ast_to_canonical(tree: ast.Module) -> str:
 
 def are_structurally_equivalent(code_a: str, code_b: str) -> bool:
     """Return True if two code samples produce identical normalized ASTs."""
-    raise NotImplementedError
+    try:
+        canonical_a = ast_to_canonical(normalize_ast(code_a))
+        canonical_b = ast_to_canonical(normalize_ast(code_b))
+    except SyntaxError:
+        return False
+    return canonical_a == canonical_b
 AnnotationNormalizer = _AnnotationNormalizer
 DocstringRemover = _DocstringRemover
 RedundantPassRemover = _RedundantPassRemover
