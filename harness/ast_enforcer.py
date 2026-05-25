@@ -480,7 +480,7 @@ class _DocstringRemover:
         self.generic_visit(node)
         return node
 
-class _RedundantPassRemover:
+class _RedundantPassRemover(ast.NodeTransformer):
     """Remove 'pass' statements from bodies that contain other statements."""
 
     def _clean_body(self, body: list[ast.stmt]) -> list[ast.stmt]:
@@ -495,7 +495,14 @@ class _RedundantPassRemover:
         return [ast.Pass()]
 
     def generic_visit(self, node: ast.AST) -> ast.AST:
-        raise NotImplementedError
+        for field, value in ast.iter_fields(node):
+            if isinstance(value, list):
+                setattr(node, field, self._clean_body(value))
+        if isinstance(self, ast.NodeTransformer):
+            return super().generic_visit(node)
+        if not hasattr(self, 'visit'):
+            self.visit = lambda n: ast.NodeTransformer.visit(self, n)
+        return ast.NodeTransformer.generic_visit(self, node)
 
 class _ImportSorter(ast.NodeTransformer):
     """Sort import statements alphabetically within their contiguous groups."""
