@@ -45,7 +45,12 @@ def expected_inbox_files(mode: str) -> tuple[str, ...]:
     return harness.hooks._env._expected_inbox_files(mode)
 
 def inbox_ready(mode: str, session_id: str | None=None) -> bool:
-    raise NotImplementedError
+    """True iff at least one expected inbox file exists for `mode`.
+
+    Unknown modes return False so the caller can surface a loud stop
+    reason rather than silently continuing with an unstaged worker.
+    """
+    return harness.hooks._env._inbox_ready(mode, session_id, agent='gemini')
 
 def ensure_workdir_skeleton(session_id: str | None=None) -> None:
     raise NotImplementedError
