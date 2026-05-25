@@ -30,7 +30,7 @@ _DEFAULT_WORKDIR_PREFIX = f'workdirs/{_AGENT}'
 INBOX_EXPECTATIONS = _shared._INBOX_EXPECTATIONS
 
 def work_dir(session_id: str | None=None) -> pathlib.Path:
-    raise NotImplementedError
+    return harness.hooks._env._work_dir(session_id=session_id, agent='gemini')
 
 def inbox_dir(session_id: str | None=None) -> pathlib.Path:
     raise NotImplementedError
@@ -49,3 +49,4 @@ def inbox_ready(mode: str, session_id: str | None=None) -> bool:
 
 def ensure_workdir_skeleton(session_id: str | None=None) -> None:
     raise NotImplementedError
+import harness.hooks._env
