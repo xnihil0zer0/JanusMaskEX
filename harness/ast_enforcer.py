@@ -589,115 +589,177 @@ class _VariableNormalizer(ast.NodeTransformer):
 
     def _collect_protected_names(self, module: ast.Module) -> None:
         """Collect names that should not be renamed."""
-        self.protected_names = set()
-        import builtins
-        self.protected_names.update(dir(builtins))
-        for child in ast.walk(module):
-            if isinstance(child, ast.Import):
-                for alias in child.names:
+        self.protected_names = set(dir(builtins))
+        self.protected_names.update(['__file__', '__name__', '__doc__', '__package__', '__loader__', '__spec__', '__annotations__', '__builtins__'])
+        for node in ast.walk(module):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                self.protected_names.add(node.name)
+        for node in ast.walk(module):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
                     if alias.asname is not None:
                         self.protected_names.add(alias.asname)
                     else:
                         self.protected_names.add(alias.name.split('.')[0])
-            elif isinstance(child, ast.ImportFrom):
-                for alias in child.names:
+            elif isinstance(node, ast.ImportFrom):
+                for alias in node.names:
                     if alias.asname is not None:
                         self.protected_names.add(alias.asname)
                     else:
                         self.protected_names.add(alias.name)
-        for child in ast.walk(module):
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                self.protected_names.add(child.name)
-        self.protected_names.update(_get_bound_names_at_scope(module.body))
+
+        def collect_module_scope_names(node: ast.AST) -> None:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                self.protected_names.add(node.name)
+                return
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                self.protected_names.add(node.id)
+            if isinstance(node, ast.ExceptHandler) and node.name is not None:
+                self.protected_names.add(node.name)
+            if hasattr(node, 'name') and isinstance(node, ast.MatchAs) and (node.name is not None):
+                self.protected_names.add(node.name)
+            for child in ast.iter_child_nodes(node):
+                collect_module_scope_names(child)
+        collect_module_scope_names(module)
+        for node in ast.walk(module):
+            if isinstance(node, ast.Global):
+                for name in node.names:
+                    self.protected_names.add(name)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
-        self.generic_visit(node)
         self._normalize_function_locals(node)
+        self.generic_visit(node)
         return node
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
-        self.generic_visit(node)
         self._normalize_function_locals(node)
+        self.generic_visit(node)
         return node
 
     def _normalize_function_locals(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         """Rename local variables inside a function body."""
-        params = set()
-        for arg in node.args.posonlyargs:
-            params.add(arg.arg)
-        for arg in node.args.args:
-            params.add(arg.arg)
-        if node.args.vararg:
-            params.add(node.args.vararg.arg)
-        for arg in node.args.kwonlyargs:
-            params.add(arg.arg)
-        if node.args.kwarg:
-            params.add(node.args.kwarg.arg)
-        global_nonlocal_names = set()
+        F_parameters = set()
+        for arg in node.args.posonlyargs + node.args.args + node.args.kwonlyargs:
+            F_parameters.add(arg.arg)
+        if node.args.vararg is not None:
+            F_parameters.add(node.args.vararg.arg)
+        if node.args.kwarg is not None:
+            F_parameters.add(node.args.kwarg.arg)
+        bound = set()
 
-        class DeclCollector(ast.NodeVisitor):
-
-            def visit_FunctionDef(self, n: ast.FunctionDef) -> None:
-                pass
-
-            def visit_AsyncFunctionDef(self, n: ast.AsyncFunctionDef) -> None:
-                pass
-
-            def visit_ClassDef(self, n: ast.ClassDef) -> None:
-                pass
-
-            def visit_Global(self, n: ast.Global) -> None:
-                global_nonlocal_names.update(n.names)
-
-            def visit_Nonlocal(self, n: ast.Nonlocal) -> None:
-                global_nonlocal_names.update(n.names)
-        decl_collector = DeclCollector()
+        def visit(n: ast.AST):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                return
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+                bound.add(n.id)
+            if isinstance(n, ast.ExceptHandler) and n.name is not None:
+                bound.add(n.name)
+            if isinstance(n, ast.comprehension):
+                for child in ast.walk(n.target):
+                    if isinstance(child, ast.Name):
+                        bound.add(child.id)
+            if hasattr(n, 'name') and isinstance(n, ast.MatchAs) and (n.name is not None):
+                bound.add(n.name)
+            for child in ast.iter_child_nodes(n):
+                visit(child)
         for stmt in node.body:
-            decl_collector.visit(stmt)
-        bound_names = _get_bound_names_at_scope(node.body)
-        local_vars = bound_names - params - global_nonlocal_names - self.protected_names
+            visit(stmt)
+        locals_to_rename = bound - self.protected_names - F_parameters
         ordered_locals = []
-        seen_locals = set()
+        seen = set()
 
-        class AppearanceCollector(ast.NodeVisitor):
-
-            def visit_Name(self, n: ast.Name) -> None:
-                if n.id in local_vars and n.id not in seen_locals:
-                    seen_locals.add(n.id)
+        def find_appearances(n: ast.AST):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                return
+            if isinstance(n, ast.Name):
+                if n.id in locals_to_rename and n.id not in seen:
+                    seen.add(n.id)
                     ordered_locals.append(n.id)
-                self.generic_visit(n)
-        collector = AppearanceCollector()
+            if isinstance(n, ast.ExceptHandler) and n.name is not None:
+                if n.name in locals_to_rename and n.name not in seen:
+                    seen.add(n.name)
+                    ordered_locals.append(n.name)
+            if hasattr(n, 'name') and isinstance(n, ast.MatchAs) and (n.name is not None):
+                if n.name in locals_to_rename and n.name not in seen:
+                    seen.add(n.name)
+                    ordered_locals.append(n.name)
+            for child in ast.iter_child_nodes(n):
+                find_appearances(child)
         for stmt in node.body:
-            collector.visit(stmt)
-        rename_map = {name: f'v{i}' for i, name in enumerate(ordered_locals)}
-        _apply_rename(node, rename_map, self.protected_names)
+            find_appearances(stmt)
+        rename_map = {}
+        for idx, name in enumerate(ordered_locals):
+            rename_map[name] = f'v{idx}'
 
-def _get_bound_names_at_scope(body: list[ast.stmt]) -> set[str]:
-    bound = set()
+        def rename_nodes(n: ast.AST, shadowed: set[str]):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                nested_params = set()
+                for arg in n.args.posonlyargs + n.args.args + n.args.kwonlyargs:
+                    nested_params.add(arg.arg)
+                if n.args.vararg is not None:
+                    nested_params.add(n.args.vararg.arg)
+                if n.args.kwarg is not None:
+                    nested_params.add(n.args.kwarg.arg)
+                nested_bound = set()
 
-    class ScopeWalker(ast.NodeVisitor):
+                def visit_nested(n2: ast.AST):
+                    if isinstance(n2, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                        return
+                    if isinstance(n2, ast.Name) and isinstance(n2.ctx, ast.Store):
+                        nested_bound.add(n2.id)
+                    if isinstance(n2, ast.ExceptHandler) and n2.name is not None:
+                        nested_bound.add(n2.name)
+                    if isinstance(n2, ast.comprehension):
+                        for child in ast.walk(n2.target):
+                            if isinstance(child, ast.Name):
+                                nested_bound.add(child.id)
+                    if hasattr(n2, 'name') and isinstance(n2, ast.MatchAs) and (n2.name is not None):
+                        nested_bound.add(n2.name)
+                    for child in ast.iter_child_nodes(n2):
+                        visit_nested(child)
+                for stmt in n.body:
+                    visit_nested(stmt)
+                new_shadowed = shadowed | nested_params | nested_bound
+                for child in ast.iter_child_nodes(n):
+                    rename_nodes(child, new_shadowed)
+                return
+            if isinstance(n, ast.ClassDef):
+                class_bound = set()
 
-        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-            pass
-
-        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-            pass
-
-        def visit_ClassDef(self, node: ast.ClassDef) -> None:
-            pass
-
-        def visit_Name(self, node: ast.Name) -> None:
-            if isinstance(node.ctx, ast.Store):
-                bound.add(node.id)
-
-        def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
-            if node.name:
-                bound.add(node.name)
-            self.generic_visit(node)
-    walker = ScopeWalker()
-    for stmt in body:
-        walker.visit(stmt)
-    return bound
+                def visit_class(n2: ast.AST):
+                    if isinstance(n2, (ast.FunctionDef, ast.AsyncFunctionDef, class_bound.add(n2.name))):
+                        return
+                    if isinstance(n2, ast.Name) and isinstance(n2.ctx, ast.Store):
+                        class_bound.add(n2.id)
+                    if isinstance(n2, ast.ExceptHandler) and n2.name is not None:
+                        class_bound.add(n2.name)
+                    if isinstance(n2, ast.comprehension):
+                        for child in ast.walk(n2.target):
+                            if isinstance(child, ast.Name):
+                                class_bound.add(child.id)
+                    if hasattr(n2, 'name') and isinstance(n2, ast.MatchAs) and (n2.name is not None):
+                        class_bound.add(n2.name)
+                    for child in ast.iter_child_nodes(n2):
+                        visit_class(child)
+                for stmt in n.body:
+                    visit_class(stmt)
+                new_shadowed = shadowed | class_bound
+                for child in ast.iter_child_nodes(n):
+                    rename_nodes(child, new_shadowed)
+                return
+            if isinstance(n, ast.Name):
+                if n.id in rename_map and n.id not in shadowed:
+                    _apply_rename(n, rename_map, set())
+            if isinstance(n, ast.ExceptHandler) and n.name is not None:
+                if n.name in rename_map and n.name not in shadowed:
+                    n.name = rename_map[n.name]
+            if hasattr(n, 'name') and isinstance(n, ast.MatchAs) and (n.name is not None):
+                if n.name in rename_map and n.name not in shadowed:
+                    n.name = rename_map[n.name]
+            for child in ast.iter_child_nodes(n):
+                rename_nodes(child, shadowed)
+        for stmt in node.body:
+            rename_nodes(stmt, set())
 
 def _apply_rename(node: ast.AST, rename_map: dict[str, str], protected: set[str]) -> None:
     """Rename Name nodes within *node* according to *rename_map*."""
@@ -775,3 +837,4 @@ except ImportError:
         severity: str
         line: int
         message: str
+import builtins
