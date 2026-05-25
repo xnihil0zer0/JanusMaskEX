@@ -17,12 +17,13 @@ import datetime
 import json
 import pathlib
 import sys
-from typing import Any, Iterable
+from typing import Any
+from typing import Iterable
 from harness._journal import write_jsonl_row
 from . import _paths
 
 def _now_iso() -> str:
-    raise NotImplementedError
+    return datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 def ledger_path(session_id: str, agent: str | None=None) -> pathlib.Path:
     raise NotImplementedError
