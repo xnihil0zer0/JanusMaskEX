@@ -178,7 +178,19 @@ def refactor_event(spec_author: str, task_id: str, meta_task_type: str, state_di
     return event
 
 def ambiguous_spec_event(spec_author: str, task_id: str, meta_task_type: str, state_dir: Path | None=None) -> dict[str, Any]:
-    raise NotImplementedError
+    delta = {'attempts': 1, 'failures': 1}
+    lock_path, record_path = _prepare_and_append('ambiguous_spec', 'spec_authorship', spec_author, meta_task_type, task_id, delta, state_dir)
+    if state_dir is None:
+        state_dir = harness.state._default_state_dir()
+    with open(lock_path, 'a') as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        record = _read_track_record_from_disk(record_path)
+        cell = record['spec_authorship'][spec_author][meta_task_type]
+        cell['failures'] += 1
+        cell['attempts'] += 1
+        _write_track_record_to_disk(record_path, record)
+        event = harness.track_record_events.append_track_event(event_type='ambiguous_spec', book='spec_authorship', agent=spec_author, type=meta_task_type, task_id=task_id, delta=delta, state_dir=state_dir, _skip_lock=True)
+    return event
 
 def fuzz_round1_fail_event(coder: str, task_id: str, synthesis_target_type: str, state_dir: Path | None=None) -> dict[str, Any]:
     raise NotImplementedError
@@ -225,3 +237,6 @@ from harness.track_record import init_track_record
 from harness.track_record import InvalidAgentError
 from harness.track_record import VALID_AGENTS
 import harness.track_record_events
+from harness.track_record import TrackRecordCorruptError
+from harness.track_record import _track_record_file
+from harness.track_record import _lock_file
