@@ -65,7 +65,17 @@ class DeciderContext:
     allow_with_warnings: Callable[[list[dict[str, Any]]], dict[str, Any]]
 
 def format_ast_reason(payload: dict[str, Any]) -> str:
-    raise NotImplementedError
+    header = payload.get('error') or payload.get('message') or 'AST validation failed.'
+    violations = payload.get('violations')
+    if not violations:
+        return header
+    lines = [header]
+    for violation in violations:
+        line = violation.get('line')
+        rule = violation.get('rule')
+        message = violation.get('message')
+        lines.append(f'- L{line}: [{rule}] {message}')
+    return '\n'.join(lines)
 
 def format_plan_reason(payload: dict[str, Any]) -> str:
     """Renders a human-readable validation summary from a plan_draft rejection payload:
