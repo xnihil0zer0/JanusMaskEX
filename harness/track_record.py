@@ -125,16 +125,6 @@ for _name, _module in list(sys.modules.items()):
         _module.test_read_track_record_from_disk_auto = test_read_track_record_from_disk_auto
 import harness.state
 import harness.taxonomy
-try:
-    from harness.track_record import VALID_AGENTS, InvalidAgentError, init_track_record
-except ImportError:
-
-    class TrackRecordError(Exception):
-        pass
-
-    class InvalidAgentError(TrackRecordError):
-        pass
-    VALID_AGENTS = frozenset({'claude', 'gemini', 'antigravity'})
-
-    def init_track_record(state_dir: Path | None=None) -> dict:
-        return {}
+from harness.track_record import init_track_record
+from harness.track_record import InvalidAgentError
+from harness.track_record import VALID_AGENTS
