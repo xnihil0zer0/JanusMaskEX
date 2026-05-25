@@ -26,6 +26,9 @@ import ast
 import os
 import re
 import traceback
+import sys
+import types
+import time
 from typing import Any
 from typing import Callable
 from hypothesis import HealthCheck
@@ -56,19 +59,103 @@ def _strategy_for_annotation(annotation: str) -> st.SearchStrategy[Any] | None:
     return None
 
 def _discover_validators(module_src: str) -> list[str]:
-    raise NotImplementedError
+    try:
+        tree = ast.parse(module_src)
+    except SyntaxError:
+        return []
+    names = []
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef):
+            if _VALIDATOR_PREFIX_RE.match(node.name):
+                names.append(node.name)
+    return names
 
 def _build_strategies(sig: dict[str, str]) -> dict[str, st.SearchStrategy[Any]] | None:
-    raise NotImplementedError
+    strategies = {}
+    for param_name, annotation in sig.items():
+        strat = _strategy_for_annotation(annotation)
+        if strat is None:
+            return None
+        strategies[param_name] = strat
+    return strategies
 
 def _exec_module(module_name: str, module_src: str) -> dict[str, Any] | None:
-    raise NotImplementedError
+    original_module = sys.modules.get(module_name)
+    try:
+        code = compile(module_src, f'<module {module_name}>', 'exec')
+    except (SyntaxError, ValueError):
+        return None
+    mod = types.ModuleType(module_name)
+    mod.__file__ = f'<module {module_name}>'
+    if '.' in module_name:
+        mod.__package__ = module_name.rsplit('.', 1)[0]
+    else:
+        mod.__package__ = ''
+    sys.modules[module_name] = mod
+    try:
+        exec(code, mod.__dict__)
+    except BaseException:
+        return None
+    finally:
+        if original_module is not None:
+            sys.modules[module_name] = original_module
+        else:
+            sys.modules.pop(module_name, None)
+    return mod.__dict__
 
 def _meta_for(fn: Callable[..., Any]) -> dict[str, Any]:
-    raise NotImplementedError
+    meta = getattr(fn, '_narrow_fuzz_meta', {})
+    if isinstance(meta, dict):
+        return meta
+    return {}
 
 def _fuzz_one(fn: Callable[..., Any], name: str, strategies: dict[str, st.SearchStrategy[Any]], timeout: float) -> str | None:
-    raise NotImplementedError
+
+    def bind_arguments(func: Callable[..., Any], kwargs: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+        try:
+            sig = inspect.signature(func)
+        except Exception:
+            return ([], kwargs)
+        args = []
+        bound_kwargs = {}
+        for p_name, param in sig.parameters.items():
+            if param.kind == inspect.Parameter.POSITIONAL_ONLY:
+                if p_name in kwargs:
+                    args.append(kwargs[p_name])
+            elif param.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD:
+                if p_name in kwargs:
+                    args.append(kwargs[p_name])
+            elif param.kind == inspect.Parameter.KEYWORD_ONLY:
+                if p_name in kwargs:
+                    bound_kwargs[p_name] = kwargs[p_name]
+            elif param.kind == inspect.Parameter.VAR_KEYWORD:
+                for k, v in kwargs.items():
+                    if k not in sig.parameters:
+                        bound_kwargs[k] = v
+        return (args, bound_kwargs)
+    if not strategies:
+        try:
+            fn()
+        except Exception as e:
+            tb_str = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
+            return f'Fuzzing function {name} failed with {type(e).__name__}.\nTraceback:\n{tb_str}'
+        return None
+
+    def test_target(**kwargs):
+        args, b_kwargs = bind_arguments(fn, kwargs)
+        fn(*args, **b_kwargs)
+    test_target.__name__ = name
+    test_target.__qualname__ = name
+    deadline_val = int(timeout * 1000) if timeout else None
+    decorated = given(**strategies)(settings(max_examples=200, deadline=deadline_val, database=None, suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much])(test_target))
+    try:
+        decorated()
+    except Exception as e:
+        tb_str = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
+        notes = getattr(e, '__notes__', [])
+        notes_str = '\n'.join(notes)
+        return f'Fuzzing function {name} failed with {type(e).__name__}.\nTraceback:\n{tb_str}\nNotes:\n{notes_str}'
+    return None
 
 def fuzz(module_name: str, module_src: str, *, timeout: float=5.0) -> str | None:
     """Narrow-fuzz the candidate's validator-like functions.
@@ -76,11 +163,33 @@ def fuzz(module_name: str, module_src: str, *, timeout: float=5.0) -> str | None
     See module docstring for design contract; brief §4.1, §11.2, §13
     are the binding spec.
     """
-    raise NotImplementedError
-import sys
-for name, module in list(sys.modules.items()):
-    if 'test_narrow_fuzz_validation_adversarial' in name:
-
-        def test_strategy_for_annotation_dummy():
-            assert True
-        module.test_strategy_for_annotation_dummy = test_strategy_for_annotation_dummy
+    if should_run_embedded_tests(module_src) and (not _RUN_ALWAYS):
+        return None
+    validator_names = _discover_validators(module_src)
+    if not validator_names:
+        return None
+    ns = _exec_module(module_name, module_src)
+    if ns is None:
+        return None
+    for name in validator_names:
+        fn = ns.get(name)
+        if not fn or not callable(fn):
+            continue
+        meta = _meta_for(fn)
+        if meta.get('skip'):
+            continue
+        val_timeout = meta.get('timeout', timeout)
+        try:
+            sig = extract_function_signature(module_src, name)
+        except Exception:
+            continue
+        if sig is None:
+            continue
+        strategies = _build_strategies(sig)
+        if strategies is None:
+            continue
+        err = _fuzz_one(fn, name, strategies, val_timeout)
+        if err is not None:
+            return err
+    return None
+import inspect
