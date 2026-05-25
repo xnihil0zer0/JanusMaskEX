@@ -480,11 +480,14 @@ class _DocstringRemover:
         self.generic_visit(node)
         return node
 
-class _RedundantPassRemover(ast.NodeTransformer):
+class _RedundantPassRemover:
     """Remove 'pass' statements from bodies that contain other statements."""
 
     def _clean_body(self, body: list[ast.stmt]) -> list[ast.stmt]:
-        raise NotImplementedError
+        if len(body) <= 1:
+            return body
+        cleaned = [stmt for stmt in body if not isinstance(stmt, ast.Pass)]
+        return cleaned if cleaned else [ast.Pass()]
 
     def generic_visit(self, node: ast.AST) -> ast.AST:
         raise NotImplementedError
