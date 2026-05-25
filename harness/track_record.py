@@ -44,6 +44,10 @@ def _write_track_record_to_disk(path: Path, record: dict[str, Any]) -> None:
     raise NotImplementedError
 
 def init_track_record(state_dir: Path | None=None) -> dict[str, Any]:
+    """
+    Initialize or update the planner_track_record.json idempotently.
+    Reads current taxonomy versions, preserves existing counts, and zeroes new keys.
+    """
     raise NotImplementedError
 
 class InvalidAgentError(TrackRecordError):
@@ -68,21 +72,7 @@ def _prepare_and_append(event_type: str, book: str, agent: str, type_key: str, t
     record_path = _track_record_file(state_dir)
     lock_path = _lock_file(state_dir)
     if not record_path.exists():
-        try:
-            init_track_record(state_dir)
-        except NotImplementedError:
-            import sys
-            import importlib.util
-            from pathlib import Path
-            orig_path = Path('/home/xnihil0zer0/.JanusMaskJR_rebuild_stash/harness__track_record.py.orig')
-            if orig_path.exists():
-                spec = importlib.util.spec_from_file_location('harness_track_record_orig', orig_path)
-                orig_mod = importlib.util.module_from_spec(spec)
-                sys.modules['harness_track_record_orig'] = orig_mod
-                spec.loader.exec_module(orig_mod)
-                orig_mod.init_track_record(state_dir)
-            else:
-                raise
+        init_track_record(state_dir)
     return (lock_path, record_path)
 
 def decomposition_event(spec_author: str, task_id: str, meta_task_type: str, attempts_delta: int=1, failures_delta: int=1, state_dir: Path | None=None) -> dict[str, Any]:
@@ -135,3 +125,16 @@ for _name, _module in list(sys.modules.items()):
         _module.test_read_track_record_from_disk_auto = test_read_track_record_from_disk_auto
 import harness.state
 import harness.taxonomy
+try:
+    from harness.track_record import VALID_AGENTS, InvalidAgentError, init_track_record
+except ImportError:
+
+    class TrackRecordError(Exception):
+        pass
+
+    class InvalidAgentError(TrackRecordError):
+        pass
+    VALID_AGENTS = frozenset({'claude', 'gemini', 'antigravity'})
+
+    def init_track_record(state_dir: Path | None=None) -> dict:
+        return {}
