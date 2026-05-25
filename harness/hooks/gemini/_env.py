@@ -42,7 +42,7 @@ def ledger_dir(session_id: str | None=None) -> pathlib.Path:
     return harness.hooks._env._ledger_dir(session_id=session_id, agent='gemini')
 
 def expected_inbox_files(mode: str) -> tuple[str, ...]:
-    raise NotImplementedError
+    return harness.hooks._env._expected_inbox_files(mode)
 
 def inbox_ready(mode: str, session_id: str | None=None) -> bool:
     raise NotImplementedError
