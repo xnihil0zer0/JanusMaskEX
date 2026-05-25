@@ -65,7 +65,10 @@ def round_number() -> int:
 
 def safe_under_state(candidate: str) -> bool:
     """True iff `candidate` resolves inside the state dir."""
-    raise NotImplementedError
+    try:
+        return is_safe_subpath(str(candidate), str(state_dir()))
+    except Exception:
+        return False
 
 def safe_under_project(candidate: str) -> bool:
     """True iff `candidate` resolves inside the project root."""
