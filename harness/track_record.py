@@ -243,7 +243,30 @@ def track_record_tiebreaker(meta_task_type: str, diff_item: Any) -> str:
     Returns "claude" or "gemini". Ties default to "claude". Raises
     TrackRecordUnavailable if planner_track_record.json is missing or corrupt.
     """
-    raise NotImplementedError
+    state_dir = harness.state._default_state_dir()
+    path = _track_record_file(state_dir)
+    try:
+        record = _read_track_record_from_disk(path)
+    except FileNotFoundError as exc:
+        raise TrackRecordUnavailable(f'Track record file not found at {path}') from exc
+    except TrackRecordCorruptError as exc:
+        raise TrackRecordUnavailable(f'Track record is corrupt: {exc}') from exc
+    try:
+        spec_authorship = record.get('spec_authorship', {})
+        claude_cell = spec_authorship.get('claude', {}).get(meta_task_type, {})
+        claude_attempts = claude_cell.get('attempts', 0)
+        claude_failures = claude_cell.get('failures', 0)
+        gemini_cell = spec_authorship.get('gemini', {}).get(meta_task_type, {})
+        gemini_attempts = gemini_cell.get('attempts', 0)
+        gemini_failures = gemini_cell.get('failures', 0)
+    except Exception as exc:
+        raise TrackRecordUnavailable(f'Track record schema error: {exc}') from exc
+    claude_rate = claude_failures / claude_attempts if claude_attempts > 0 else 0.0
+    gemini_rate = gemini_failures / gemini_attempts if gemini_attempts > 0 else 0.0
+    if claude_rate <= gemini_rate:
+        return 'claude'
+    else:
+        return 'gemini'
 import sys
 try:
     from harness.track_record import TrackRecordCorruptError
