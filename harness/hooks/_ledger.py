@@ -65,6 +65,5 @@ def count_verb(events: Iterable[dict[str, Any]], verb: str, *, outcome: str='all
     return count
 
 def has_verb(events: Iterable[dict[str, Any]], verb: str, *, outcome: str='allow') -> bool:
-    """Check if at least one event in events carries the requested verb and outcome."""
-    return count_verb(events, verb, outcome=outcome) > 0
+    raise NotImplementedError
 import harness.hooks._paths
