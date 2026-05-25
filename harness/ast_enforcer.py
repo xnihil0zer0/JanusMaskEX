@@ -436,22 +436,8 @@ class _DocstringRemover:
         if not body:
             return body
         first = body[0]
-        is_string = False
-        if isinstance(first, ast.Expr):
-            val = first.value
-            if isinstance(val, ast.Constant) and isinstance(val.value, str):
-                is_string = True
-            elif hasattr(ast, 'Str') and isinstance(val, getattr(ast, 'Str')) and isinstance(val.s, str):
-                is_string = True
-        if is_string:
-            if len(body) == 1:
-                pass_node = ast.Pass()
-                for attr in ('lineno', 'col_offset', 'end_lineno', 'end_col_offset'):
-                    if hasattr(first, attr):
-                        setattr(pass_node, attr, getattr(first, attr))
-                return [pass_node]
-            else:
-                return body[1:]
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+            return body[1:] or [ast.Pass()]
         return body
 
     def visit_Module(self, node: ast.Module) -> ast.Module:
