@@ -73,6 +73,7 @@ def require_approval_for(phase: str, config: dict[str, Any]) -> bool:
 
 def _read_decision(path: Path) -> Optional[dict]:
     """Return decision dict if present + parseable; None on absent/corrupt."""
+    logger = logging.getLogger('janusmask.control_gate')
     if not path.exists():
         return None
     try:
