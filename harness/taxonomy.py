@@ -37,5 +37,9 @@ def validate_meta_task_type(value: str) -> None:
 
 def validate_synthesis_target_type(value: str) -> None:
     """Validate that the given string is a known synthesis-target type."""
-    raise NotImplementedError
+    valid_keys = synthesis_target_keys()
+    if value not in valid_keys:
+        raise UnknownTaxonomyKeyError(f"Unknown synthesis-target type '{value}'. Valid keys: {', '.join(sorted(valid_keys))}")
 from harness.taxonomy import _load_taxonomy_file
+from harness.taxonomy import load_synthesis_target_taxonomy
+from harness.taxonomy import UnknownTaxonomyKeyError
