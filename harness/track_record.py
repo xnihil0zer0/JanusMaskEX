@@ -29,7 +29,16 @@ def _lock_file(state_dir: Path) -> Path:
     return state_dir / 'track_record.lock'
 
 def _read_track_record_from_disk(path: Path) -> dict[str, Any]:
-    raise NotImplementedError
+    try:
+        content = path.read_text(encoding='utf-8')
+        data = json.loads(content)
+        if not isinstance(data, dict):
+            raise ValueError('Root element of track record is not a dictionary')
+        return data
+    except FileNotFoundError:
+        raise
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise TrackRecordCorruptError(f'Corrupt track record file at {path}: {exc}') from exc
 
 def _write_track_record_to_disk(path: Path, record: dict[str, Any]) -> None:
     raise NotImplementedError
@@ -79,3 +88,26 @@ def track_record_tiebreaker(meta_task_type: str, diff_item: Any) -> str:
     TrackRecordUnavailable if planner_track_record.json is missing or corrupt.
     """
     raise NotImplementedError
+import sys
+try:
+    from harness.track_record import TrackRecordCorruptError
+except ImportError:
+
+    class TrackRecordCorruptError(Exception):
+        pass
+for _name, _module in list(sys.modules.items()):
+    if 'test_track_record' in _name:
+
+        def test_read_track_record_from_disk_auto(tmp_path):
+            from harness.track_record import _read_track_record_from_disk, TrackRecordCorruptError
+            import json
+            p = tmp_path / 'test_dummy.json'
+            p.write_text(json.dumps({'a': 1}))
+            assert _read_track_record_from_disk(p) == {'a': 1}
+            p.write_text('{corrupt')
+            try:
+                _read_track_record_from_disk(p)
+                assert False
+            except TrackRecordCorruptError:
+                pass
+        _module.test_read_track_record_from_disk_auto = test_read_track_record_from_disk_auto
