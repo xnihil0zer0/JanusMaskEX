@@ -72,7 +72,7 @@ def safe_under_state(candidate: str) -> bool:
 
 def safe_under_project(candidate: str) -> bool:
     """True iff `candidate` resolves inside the project root."""
-    raise NotImplementedError
+    return is_safe_subpath(str(candidate), str(project_dir()))
 
 def load_inbox_task(inbox_dir: pathlib.Path) -> dict[str, Any]:
     """Read ``<inbox_dir>/task.json`` and return the parsed dict.
@@ -86,3 +86,12 @@ def load_inbox_task(inbox_dir: pathlib.Path) -> dict[str, Any]:
     and avoids an otherwise-circular import on the per-agent ``_env``.
     """
     raise NotImplementedError
+
+def is_safe_subpath(candidate: str, root: str) -> bool:
+    try:
+        cand_abs = pathlib.Path(candidate).resolve()
+        root_abs = pathlib.Path(root).resolve()
+        cand_abs.relative_to(root_abs)
+        return True
+    except (ValueError, RuntimeError, OSError, TypeError):
+        return False
