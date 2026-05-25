@@ -90,7 +90,8 @@ def plan_submitted(session_id: str, agent: str | None=None) -> bool:
     return harness.hooks._ledger.has_verb(events, 'plan_draft', outcome='allow')
 
 def reconciliation_submitted(session_id: str, agent: str | None=None) -> bool:
-    raise NotImplementedError
+    events = harness.hooks._ledger.read_events(session_id, agent)
+    return harness.hooks._ledger.has_verb(events, 'reconciliation', outcome='allow')
 
 def submissions_remaining(session_id: str, agent: str | None=None) -> int:
     raise NotImplementedError
