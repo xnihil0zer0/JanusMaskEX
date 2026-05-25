@@ -579,7 +579,8 @@ class _VariableNormalizer(ast.NodeTransformer):
     """
 
     def __init__(self) -> None:
-        self.protected = set(dir(builtins))
+        super().__init__()
+        self.protected_names: set[str] = set()
 
     def visit_Module(self, node: ast.Module) -> ast.Module:
         self._collect_protected_names(node)
@@ -588,51 +589,115 @@ class _VariableNormalizer(ast.NodeTransformer):
 
     def _collect_protected_names(self, module: ast.Module) -> None:
         """Collect names that should not be renamed."""
-        self.protected = set(dir(builtins))
-        for node in ast.walk(module):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    name = alias.asname if alias.asname else alias.name.split('.')[0]
-                    self.protected.add(name)
-            elif isinstance(node, ast.ImportFrom):
-                for alias in node.names:
-                    name = alias.asname if alias.asname else alias.name
-                    self.protected.add(name)
-        for node in ast.walk(module):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                self.protected.add(node.name)
-        for node in ast.walk(module):
-            if isinstance(node, ast.Global):
-                self.protected.update(node.names)
-        self.protected.update(find_global_bindings(module.body))
+        self.protected_names = set()
+        import builtins
+        self.protected_names.update(dir(builtins))
+        for child in ast.walk(module):
+            if isinstance(child, ast.Import):
+                for alias in child.names:
+                    if alias.asname is not None:
+                        self.protected_names.add(alias.asname)
+                    else:
+                        self.protected_names.add(alias.name.split('.')[0])
+            elif isinstance(child, ast.ImportFrom):
+                for alias in child.names:
+                    if alias.asname is not None:
+                        self.protected_names.add(alias.asname)
+                    else:
+                        self.protected_names.add(alias.name)
+        for child in ast.walk(module):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                self.protected_names.add(child.name)
+        self.protected_names.update(_get_bound_names_at_scope(module.body))
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
-        self._normalize_function_locals(node)
         self.generic_visit(node)
+        self._normalize_function_locals(node)
         return node
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
-        self._normalize_function_locals(node)
         self.generic_visit(node)
+        self._normalize_function_locals(node)
         return node
 
     def _normalize_function_locals(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         """Rename local variables inside a function body."""
-        L = find_local_bindings(node.body)
-        params = get_parameter_names(node)
-        globals_set, nonlocals_set = get_explicit_scope_declarations(node.body)
-        to_rename = L - params - globals_set - nonlocals_set - self.protected
-        order = find_first_appearances(node.body, to_rename)
-        rename_map = {name: f'v{i}' for i, name in enumerate(order)}
-        shadowed_nodes = find_shadowed_names(node.body, rename_map)
-        original_ids = []
-        for i, s_node in enumerate(shadowed_nodes):
-            original_ids.append((s_node, s_node.id))
-            s_node.id = f'__shadowed_{s_node.id}_{i}__'
+        params = set()
+        for arg in node.args.posonlyargs:
+            params.add(arg.arg)
+        for arg in node.args.args:
+            params.add(arg.arg)
+        if node.args.vararg:
+            params.add(node.args.vararg.arg)
+        for arg in node.args.kwonlyargs:
+            params.add(arg.arg)
+        if node.args.kwarg:
+            params.add(node.args.kwarg.arg)
+        global_nonlocal_names = set()
+
+        class DeclCollector(ast.NodeVisitor):
+
+            def visit_FunctionDef(self, n: ast.FunctionDef) -> None:
+                pass
+
+            def visit_AsyncFunctionDef(self, n: ast.AsyncFunctionDef) -> None:
+                pass
+
+            def visit_ClassDef(self, n: ast.ClassDef) -> None:
+                pass
+
+            def visit_Global(self, n: ast.Global) -> None:
+                global_nonlocal_names.update(n.names)
+
+            def visit_Nonlocal(self, n: ast.Nonlocal) -> None:
+                global_nonlocal_names.update(n.names)
+        decl_collector = DeclCollector()
         for stmt in node.body:
-            _apply_rename(stmt, rename_map, self.protected)
-        for s_node, orig_id in original_ids:
-            s_node.id = orig_id
+            decl_collector.visit(stmt)
+        bound_names = _get_bound_names_at_scope(node.body)
+        local_vars = bound_names - params - global_nonlocal_names - self.protected_names
+        ordered_locals = []
+        seen_locals = set()
+
+        class AppearanceCollector(ast.NodeVisitor):
+
+            def visit_Name(self, n: ast.Name) -> None:
+                if n.id in local_vars and n.id not in seen_locals:
+                    seen_locals.add(n.id)
+                    ordered_locals.append(n.id)
+                self.generic_visit(n)
+        collector = AppearanceCollector()
+        for stmt in node.body:
+            collector.visit(stmt)
+        rename_map = {name: f'v{i}' for i, name in enumerate(ordered_locals)}
+        _apply_rename(node, rename_map, self.protected_names)
+
+def _get_bound_names_at_scope(body: list[ast.stmt]) -> set[str]:
+    bound = set()
+
+    class ScopeWalker(ast.NodeVisitor):
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            pass
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            pass
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            pass
+
+        def visit_Name(self, node: ast.Name) -> None:
+            if isinstance(node.ctx, ast.Store):
+                bound.add(node.id)
+
+        def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+            if node.name:
+                bound.add(node.name)
+            self.generic_visit(node)
+    walker = ScopeWalker()
+    for stmt in body:
+        walker.visit(stmt)
+    return bound
 
 def _apply_rename(node: ast.AST, rename_map: dict[str, str], protected: set[str]) -> None:
     """Rename Name nodes within *node* according to *rename_map*."""
@@ -710,178 +775,3 @@ except ImportError:
         severity: str
         line: int
         message: str
-import builtins
-
-def get_names_from_target(target):
-    names = set()
-    if isinstance(target, ast.Name):
-        if isinstance(target.ctx, ast.Store):
-            names.add(target.id)
-    elif isinstance(target, (ast.Tuple, ast.List)):
-        for elt in target.elts:
-            names.update(get_names_from_target(elt))
-    elif isinstance(target, ast.Starred):
-        names.update(get_names_from_target(target.value))
-    return names
-
-def find_global_bindings(nodes):
-    bound = set()
-    for node in nodes:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            continue
-        for child in ast.iter_child_nodes(node):
-            bound.update(find_global_bindings([child]))
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                bound.update(get_names_from_target(target))
-        elif isinstance(node, ast.AnnAssign):
-            bound.update(get_names_from_target(node.target))
-        elif isinstance(node, ast.AugAssign):
-            bound.update(get_names_from_target(node.target))
-        elif isinstance(node, ast.For):
-            bound.update(get_names_from_target(node.target))
-        elif isinstance(node, ast.With):
-            for item in node.items:
-                if item.optional_vars:
-                    bound.update(get_names_from_target(item.optional_vars))
-        elif isinstance(node, ast.ExceptHandler):
-            if node.name:
-                bound.add(node.name)
-        elif isinstance(node, ast.NamedExpr):
-            bound.update(get_names_from_target(node.target))
-    return bound
-
-def find_local_bindings(nodes):
-    bound = set()
-    for node in nodes:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            bound.add(node.name)
-            continue
-        for child in ast.iter_child_nodes(node):
-            bound.update(find_local_bindings([child]))
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                bound.update(get_names_from_target(target))
-        elif isinstance(node, ast.AnnAssign):
-            bound.update(get_names_from_target(node.target))
-        elif isinstance(node, ast.AugAssign):
-            bound.update(get_names_from_target(node.target))
-        elif isinstance(node, ast.For):
-            bound.update(get_names_from_target(node.target))
-        elif isinstance(node, ast.With):
-            for item in node.items:
-                if item.optional_vars:
-                    bound.update(get_names_from_target(item.optional_vars))
-        elif isinstance(node, ast.ExceptHandler):
-            if node.name:
-                bound.add(node.name)
-        elif isinstance(node, ast.NamedExpr):
-            bound.update(get_names_from_target(node.target))
-    return bound
-
-def get_parameter_names(func_node):
-    params = set()
-    for arg in func_node.args.posonlyargs:
-        params.add(arg.arg)
-    for arg in func_node.args.args:
-        params.add(arg.arg)
-    if func_node.args.vararg:
-        params.add(func_node.args.vararg.arg)
-    for arg in func_node.args.kwonlyargs:
-        params.add(arg.arg)
-    if func_node.args.kwarg:
-        params.add(func_node.args.kwarg.arg)
-    return params
-
-def get_explicit_scope_declarations(nodes):
-    globals_set = set()
-    nonlocals_set = set()
-    for node in nodes:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            continue
-        for child in ast.iter_child_nodes(node):
-            g, nl = get_explicit_scope_declarations([child])
-            globals_set.update(g)
-            nonlocals_set.update(nl)
-        if isinstance(node, ast.Global):
-            globals_set.update(node.names)
-        elif isinstance(node, ast.Nonlocal):
-            nonlocals_set.update(node.names)
-    return (globals_set, nonlocals_set)
-
-def find_first_appearances(nodes, to_rename, shadowed=None):
-    if shadowed is None:
-        shadowed = set()
-    order = []
-    seen = set()
-
-    def visit(n, current_shadowed):
-        if isinstance(n, list):
-            for item in n:
-                visit(item, current_shadowed)
-            return
-        if isinstance(n, ast.Name):
-            name = n.id
-            if name in to_rename and name not in current_shadowed:
-                if name not in seen:
-                    seen.add(name)
-                    order.append(name)
-            return
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            nested_shadowed = current_shadowed.copy()
-            nested_shadowed.update(get_parameter_names(n))
-            nested_shadowed.update(find_local_bindings(n.body))
-            for child in ast.iter_child_nodes(n):
-                if child is n.decorator_list:
-                    visit(child, current_shadowed)
-                else:
-                    visit(child, nested_shadowed)
-            return
-        if isinstance(n, ast.ClassDef):
-            nested_shadowed = current_shadowed.copy()
-            nested_shadowed.update(find_local_bindings(n.body))
-            for child in ast.iter_child_nodes(n):
-                if child is n.decorator_list:
-                    visit(child, current_shadowed)
-                else:
-                    visit(child, nested_shadowed)
-            return
-        for child in ast.iter_child_nodes(n):
-            visit(child, current_shadowed)
-    visit(nodes, shadowed)
-    return order
-
-def find_shadowed_names(n, rename_map, current_shadowed=None):
-    if current_shadowed is None:
-        current_shadowed = set()
-    shadowed_nodes = []
-    if isinstance(n, list):
-        for item in n:
-            shadowed_nodes.extend(find_shadowed_names(item, rename_map, current_shadowed))
-        return shadowed_nodes
-    if isinstance(n, ast.Name):
-        if n.id in rename_map and n.id in current_shadowed:
-            shadowed_nodes.append(n)
-        return shadowed_nodes
-    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
-        nested_shadowed = current_shadowed.copy()
-        nested_shadowed.update(get_parameter_names(n))
-        nested_shadowed.update(find_local_bindings(n.body))
-        for child in ast.iter_child_nodes(n):
-            if child is n.decorator_list:
-                shadowed_nodes.extend(find_shadowed_names(child, rename_map, current_shadowed))
-            else:
-                shadowed_nodes.extend(find_shadowed_names(child, rename_map, nested_shadowed))
-        return shadowed_nodes
-    if isinstance(n, ast.ClassDef):
-        nested_shadowed = current_shadowed.copy()
-        nested_shadowed.update(find_local_bindings(n.body))
-        for child in ast.iter_child_nodes(n):
-            if child is n.decorator_list:
-                shadowed_nodes.extend(find_shadowed_names(child, rename_map, current_shadowed))
-            else:
-                shadowed_nodes.extend(find_shadowed_names(child, rename_map, nested_shadowed))
-        return shadowed_nodes
-    for child in ast.iter_child_nodes(n):
-        shadowed_nodes.extend(find_shadowed_names(child, rename_map, current_shadowed))
-    return shadowed_nodes
