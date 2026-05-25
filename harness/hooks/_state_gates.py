@@ -94,7 +94,7 @@ def reconciliation_submitted(session_id: str, agent: str | None=None) -> bool:
     return harness.hooks._ledger.has_verb(events, 'reconciliation', outcome='allow')
 
 def submissions_remaining(session_id: str, agent: str | None=None) -> int:
-    raise NotImplementedError
+    return max(0, MAX_SUBMISSIONS - submissions_count(session_id, agent))
 
 def clarifications_remaining(session_id: str, agent: str | None=None) -> int:
     raise NotImplementedError
