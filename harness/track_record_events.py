@@ -1,12 +1,15 @@
 """Append-only event log writer for JanusMask."""
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 from harness._journal import write_jsonl_row
 from harness.state import _default_state_dir
-from harness.taxonomy import validate_meta_task_type, validate_synthesis_target_type, UnknownTaxonomyKeyError
+from harness.taxonomy import validate_meta_task_type
+from harness.taxonomy import validate_synthesis_target_type
+from harness.taxonomy import UnknownTaxonomyKeyError
 try:
     import ulid
     HAS_ULID = True
@@ -25,7 +28,7 @@ class EventLogCorruptError(Exception):
     pass
 
 def _event_log_file(state_dir: Path) -> Path:
-    raise NotImplementedError
+    return state_dir / 'track_record_events.jsonl'
 
 def _lock_file(state_dir: Path) -> Path:
     raise NotImplementedError
