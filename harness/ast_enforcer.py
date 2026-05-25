@@ -486,8 +486,13 @@ class _RedundantPassRemover:
     def _clean_body(self, body: list[ast.stmt]) -> list[ast.stmt]:
         if len(body) <= 1:
             return body
-        cleaned = [stmt for stmt in body if not isinstance(stmt, ast.Pass)]
-        return cleaned if cleaned else [ast.Pass()]
+        non_passes = [stmt for stmt in body if not isinstance(stmt, ast.Pass)]
+        if non_passes:
+            return non_passes
+        for stmt in body:
+            if isinstance(stmt, ast.Pass):
+                return [stmt]
+        return [ast.Pass()]
 
     def generic_visit(self, node: ast.AST) -> ast.AST:
         raise NotImplementedError
