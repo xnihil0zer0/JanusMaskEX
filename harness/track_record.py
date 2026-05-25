@@ -193,13 +193,49 @@ def ambiguous_spec_event(spec_author: str, task_id: str, meta_task_type: str, st
     return event
 
 def fuzz_round1_fail_event(coder: str, task_id: str, synthesis_target_type: str, state_dir: Path | None=None) -> dict[str, Any]:
-    raise NotImplementedError
+    delta = {'attempts': 1, 'failures': 1}
+    lock_path, record_path = _prepare_and_append('fuzz_round1_fail', 'synthesis', coder, synthesis_target_type, task_id, delta, state_dir)
+    if state_dir is None:
+        state_dir = harness.state._default_state_dir()
+    with open(lock_path, 'a') as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        record = _read_track_record_from_disk(record_path)
+        cell = record['synthesis'][coder][synthesis_target_type]
+        cell['failures'] += 1
+        cell['attempts'] += 1
+        _write_track_record_to_disk(record_path, record)
+        event = harness.track_record_events.append_track_event(event_type='fuzz_round1_fail', book='synthesis', agent=coder, type=synthesis_target_type, task_id=task_id, delta=delta, state_dir=state_dir, _skip_lock=True)
+    return event
 
 def ast_rejection_event(coder: str, task_id: str, synthesis_target_type: str, state_dir: Path | None=None) -> dict[str, Any]:
-    raise NotImplementedError
+    delta = {'attempts': 1, 'failures': 1}
+    lock_path, record_path = _prepare_and_append('ast_rejection', 'synthesis', coder, synthesis_target_type, task_id, delta, state_dir)
+    if state_dir is None:
+        state_dir = harness.state._default_state_dir()
+    with open(lock_path, 'a') as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        record = _read_track_record_from_disk(record_path)
+        cell = record['synthesis'][coder][synthesis_target_type]
+        cell['failures'] += 1
+        cell['attempts'] += 1
+        _write_track_record_to_disk(record_path, record)
+        event = harness.track_record_events.append_track_event(event_type='ast_rejection', book='synthesis', agent=coder, type=synthesis_target_type, task_id=task_id, delta=delta, state_dir=state_dir, _skip_lock=True)
+    return event
 
 def clean_success_event(book: str, agent: str, type_key: str, task_id: str, state_dir: Path | None=None) -> dict[str, Any]:
-    raise NotImplementedError
+    delta = {'attempts': 1, 'failures': 0}
+    lock_path, record_path = _prepare_and_append('clean_success', book, agent, type_key, task_id, delta, state_dir)
+    if state_dir is None:
+        state_dir = harness.state._default_state_dir()
+    with open(lock_path, 'a') as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        record = _read_track_record_from_disk(record_path)
+        cell = record[book][agent][type_key]
+        cell['failures'] += 0
+        cell['attempts'] += 1
+        _write_track_record_to_disk(record_path, record)
+        event = harness.track_record_events.append_track_event(event_type='clean_success', book=book, agent=agent, type=type_key, task_id=task_id, delta=delta, state_dir=state_dir, _skip_lock=True)
+    return event
 
 def track_record_tiebreaker(meta_task_type: str, diff_item: Any) -> str:
     """Pick the agent with the lower spec_authorship failure rate for meta_task_type.
@@ -207,7 +243,30 @@ def track_record_tiebreaker(meta_task_type: str, diff_item: Any) -> str:
     Returns "claude" or "gemini". Ties default to "claude". Raises
     TrackRecordUnavailable if planner_track_record.json is missing or corrupt.
     """
-    raise NotImplementedError
+    state_dir = harness.state._default_state_dir()
+    path = _track_record_file(state_dir)
+    try:
+        record = _read_track_record_from_disk(path)
+    except FileNotFoundError as exc:
+        raise TrackRecordUnavailable(f'Track record file not found at {path}') from exc
+    except TrackRecordCorruptError as exc:
+        raise TrackRecordUnavailable(f'Track record is corrupt: {exc}') from exc
+    try:
+        spec_authorship = record.get('spec_authorship', {})
+        claude_cell = spec_authorship.get('claude', {}).get(meta_task_type, {})
+        claude_attempts = claude_cell.get('attempts', 0)
+        claude_failures = claude_cell.get('failures', 0)
+        gemini_cell = spec_authorship.get('gemini', {}).get(meta_task_type, {})
+        gemini_attempts = gemini_cell.get('attempts', 0)
+        gemini_failures = gemini_cell.get('failures', 0)
+    except Exception as exc:
+        raise TrackRecordUnavailable(f'Track record schema error: {exc}') from exc
+    claude_rate = claude_failures / claude_attempts if claude_attempts > 0 else 0.0
+    gemini_rate = gemini_failures / gemini_attempts if gemini_attempts > 0 else 0.0
+    if claude_rate <= gemini_rate:
+        return 'claude'
+    else:
+        return 'gemini'
 import sys
 try:
     from harness.track_record import TrackRecordCorruptError
@@ -237,6 +296,8 @@ from harness.track_record import init_track_record
 from harness.track_record import InvalidAgentError
 from harness.track_record import VALID_AGENTS
 import harness.track_record_events
+import harness
 from harness.track_record import TrackRecordCorruptError
+from harness.track_record import TrackRecordUnavailable
 from harness.track_record import _track_record_file
 from harness.track_record import _lock_file
