@@ -35,7 +35,18 @@ def read_state_besteffort() -> dict[str, Any]:
     return {}
 
 def current_round(state: dict[str, Any] | None=None) -> int:
-    raise NotImplementedError
+    env_round = harness.hooks._paths.round_number()
+    if env_round != -1:
+        return env_round
+    if state is None:
+        state = read_state_besteffort()
+    val = state.get('round')
+    if val is not None:
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            pass
+    return -1
 
 def current_phase(state: dict[str, Any] | None=None) -> str:
     raise NotImplementedError
@@ -60,3 +71,4 @@ def submissions_remaining(session_id: str, agent: str | None=None) -> int:
 
 def clarifications_remaining(session_id: str, agent: str | None=None) -> int:
     raise NotImplementedError
+import harness.hooks._paths
