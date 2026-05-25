@@ -271,7 +271,12 @@ class _AnnotationNormalizer(ast.NodeTransformer):
 
 def _resolve_string_annotation(node: ast.expr) -> ast.expr | None:
     """Unwrap ``Constant(value=<str>)`` PEP-563 forward references."""
-    raise NotImplementedError
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        try:
+            return ast.parse(node.value, mode='eval').body
+        except (SyntaxError, ValueError):
+            return None
+    return node
 
 def _normalize_annotation(node: ast.expr) -> ast.expr | None:
     """Apply string-unwrap + typing-alias normalisation. Returns None on failure."""
