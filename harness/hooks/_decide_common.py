@@ -156,7 +156,28 @@ def decide_plan_draft(ctx: DeciderContext, content: str, events: list[dict[str, 
     return harness.hooks._common.decision_payload('allow')
 
 def decide_reconciliation(ctx: DeciderContext, content: str, events: list[dict[str, Any]]) -> dict[str, Any]:
-    raise NotImplementedError
+    if harness.hooks._ledger.has_verb(events, 'reconciliation', outcome='allow'):
+        reason = 'reconciliation already submitted (single-shot per round).'
+        ctx.journal('reconciliation', 'deny', detail={'reason': reason})
+        return harness.hooks._common.decision_payload('deny', reason=reason)
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError as exc:
+        reason = f'reconciliation content must be valid JSON: {exc}'
+        ctx.journal('reconciliation', 'invalid', detail={'reason': reason})
+        return harness.hooks._common.decision_payload('deny', reason=reason)
+    state_dir = harness.hooks._paths.state_dir()
+    valid_ids = rpc_submit_reconciliation.load_valid_diff_ids(state_dir)
+    if not isinstance(parsed, dict):
+        parsed = {}
+    responses = parsed.get('responses')
+    if not isinstance(responses, list):
+        responses = []
+    validation_error = rpc_submit_reconciliation.validate_responses(responses, valid_ids=valid_ids)
+    if validation_error:
+        ctx.journal('reconciliation', 'deny', detail={'reason': validation_error})
+        return harness.hooks._common.decision_payload('deny', reason=validation_error)
+    return harness.hooks._common.decision_payload('allow')
 
 def decide_error_report(ctx: DeciderContext, content: str) -> dict[str, Any]:
     raise NotImplementedError
@@ -180,3 +201,10 @@ import harness.hooks._state_gates
 from harness.hooks._decide_common import format_ast_reason
 from harness.hooks.rpc import submit_code as rpc_submit_code
 from harness.hooks.rpc import submit_plan_draft as rpc_submit_plan_draft
+import pathlib
+from typing import Iterable
+from harness.hooks.rpc import submit_reconciliation as rpc_submit_reconciliation
+try:
+    from harness.hooks._decide_common import DeciderContext
+except ImportError:
+    from typing import Any as DeciderContext
