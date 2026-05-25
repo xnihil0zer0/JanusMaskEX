@@ -20,7 +20,7 @@ def load_meta_task_taxonomy(path: Path | None=None) -> dict:
 
 def load_synthesis_target_taxonomy(path: Path | None=None) -> dict:
     """Load and validate the synthesis-target taxonomy JSON file."""
-    raise NotImplementedError
+    return _load_taxonomy_file('synthesis_target_taxonomy.json', path)
 
 def meta_task_keys() -> frozenset[str]:
     """Return a frozenset of valid meta-task keys."""
