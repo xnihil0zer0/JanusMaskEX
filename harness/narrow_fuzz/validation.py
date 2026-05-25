@@ -118,20 +118,29 @@ def _fuzz_one(fn: Callable[..., Any], name: str, strategies: dict[str, st.Search
             return ([], kwargs)
         args = []
         bound_kwargs = {}
-        for p_name, param in sig.parameters.items():
+        for name_param, param in sig.parameters.items():
             if param.kind == inspect.Parameter.POSITIONAL_ONLY:
-                if p_name in kwargs:
-                    args.append(kwargs[p_name])
+                if name_param in kwargs:
+                    args.append(kwargs[name_param])
+                elif param.default is not inspect.Parameter.empty:
+                    args.append(param.default)
             elif param.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD:
-                if p_name in kwargs:
-                    args.append(kwargs[p_name])
+                if name_param in kwargs:
+                    bound_kwargs[name_param] = kwargs[name_param]
             elif param.kind == inspect.Parameter.KEYWORD_ONLY:
-                if p_name in kwargs:
-                    bound_kwargs[p_name] = kwargs[p_name]
+                if name_param in kwargs:
+                    bound_kwargs[name_param] = kwargs[name_param]
             elif param.kind == inspect.Parameter.VAR_KEYWORD:
                 for k, v in kwargs.items():
                     if k not in sig.parameters:
                         bound_kwargs[k] = v
+            elif param.kind == inspect.Parameter.VAR_POSITIONAL:
+                if name_param in kwargs:
+                    val = kwargs[name_param]
+                    if isinstance(val, (list, tuple)):
+                        args.extend(val)
+                    else:
+                        args.append(val)
         return (args, bound_kwargs)
     if not strategies:
         try:
