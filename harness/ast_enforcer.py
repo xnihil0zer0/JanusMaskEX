@@ -476,7 +476,9 @@ class _DocstringRemover:
         return res
 
     def visit_ClassDef(self, node: ast.ClassDef) -> ast.ClassDef:
-        raise NotImplementedError
+        node.body = self._strip_docstring(node.body)
+        self.generic_visit(node)
+        return node
 
 class _RedundantPassRemover(ast.NodeTransformer):
     """Remove 'pass' statements from bodies that contain other statements."""
