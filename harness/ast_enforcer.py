@@ -822,7 +822,7 @@ def normalize_ast(code: str) -> ast.Module:
 
 def ast_to_canonical(tree: ast.Module) -> str:
     """Convert a normalized AST back to canonical source code."""
-    raise NotImplementedError
+    return ast.unparse(tree)
 
 def are_structurally_equivalent(code_a: str, code_b: str) -> bool:
     """Return True if two code samples produce identical normalized ASTs."""
