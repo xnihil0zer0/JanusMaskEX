@@ -33,7 +33,7 @@ def work_dir(session_id: str | None=None) -> pathlib.Path:
     return harness.hooks._env._work_dir(session_id=session_id, agent='gemini')
 
 def inbox_dir(session_id: str | None=None) -> pathlib.Path:
-    raise NotImplementedError
+    return harness.hooks._env._inbox_dir(session_id=session_id, agent='gemini')
 
 def outbox_dir(session_id: str | None=None) -> pathlib.Path:
     raise NotImplementedError
