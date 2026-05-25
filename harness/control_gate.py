@@ -87,14 +87,48 @@ def _read_decision(path: Path) -> Optional[dict]:
 
 def await_decision(state_dir: Path, task_id: str, phase: str, config: dict[str, Any], *, emit_pending: Optional[Callable]=None, emit_timeout: Optional[Callable]=None, poll_interval: float=_DECISION_POLL_INTERVAL, timeout: Optional[float]=None) -> str:
     """Block until ``state/control/decisions/{task_id}.json`` exists.
-
-    Returns the decision string ('approve' / 'reject' / 'retry') or
-    ``'timeout'`` after ``timeout`` seconds. Returns ``'auto'`` immediately
-    when the task's phase is not in ``config['control']['require_approval']``
-    — this is the default no-op path that keeps the orchestrator
-    bit-identical when the operator has not opted in.
-    """
-    raise NotImplementedError
+    
+        Returns the decision string ('approve' / 'reject' / 'retry') or
+        ``'timeout'`` after ``timeout`` seconds. Returns ``'auto'`` immediately
+        when the task's phase is not in ``config['control']['require_approval']``
+        — this is the default no-op path that keeps the orchestrator
+        bit-identical when the operator has not opted in.
+        """
+    if not require_approval_for(phase, config):
+        return 'auto'
+    if timeout is None:
+        timeout = _control_section(config).get('approval_timeout_sec')
+    if timeout is None:
+        timeout = DEFAULT_APPROVAL_TIMEOUT
+    if emit_pending:
+        try:
+            emit_pending(task_id, phase)
+        except Exception:
+            pass
+    path1 = decisions_dir(state_dir, config) / f'{task_id}.json'
+    path2 = state_dir / 'control' / 'decisions' / f'{task_id}.json'
+    start_time = time.time()
+    while True:
+        target_path = None
+        if path1.exists():
+            target_path = path1
+        elif path2.exists():
+            target_path = path2
+        if target_path is not None:
+            data = _read_decision(target_path)
+            if data is not None:
+                return data['decision'].lower()
+            else:
+                return 'auto'
+        elapsed = time.time() - start_time
+        if timeout is not None and elapsed >= timeout:
+            if emit_timeout:
+                try:
+                    emit_timeout(task_id, phase)
+                except Exception:
+                    pass
+            return 'timeout'
+        time.sleep(poll_interval)
 
 def record_agent_pid(state_dir: Path, agent: str, pid: int) -> None:
     """Best-effort: stamp ``STATE.json`` with ``{agent}_pid``.
