@@ -29,7 +29,7 @@ def _lock_file(state_dir: Path) -> Path:
     raise NotImplementedError
 
 def _ensure_paths(state_dir: Path) -> None:
-    raise NotImplementedError
+    state_dir.mkdir(parents=True, exist_ok=True)
 
 def _read_state_from_disk(state_path: Path) -> dict[str, Any]:
     raise NotImplementedError
