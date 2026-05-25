@@ -39,7 +39,11 @@ def pause_flag_path(state_dir: Path, config: dict[str, Any]) -> Path:
     return p
 
 def decisions_dir(state_dir: Path, config: dict[str, Any]) -> Path:
-    raise NotImplementedError
+    rel = _control_section(config).get('decisions_dir') or DEFAULT_DECISIONS_DIR
+    p = Path(rel)
+    if not p.is_absolute():
+        p = Path(state_dir).parent / rel
+    return p
 
 def check_pause(state_dir: Path, config: dict[str, Any]) -> bool:
     """Return True iff the pause flag is set to ``paused``.
