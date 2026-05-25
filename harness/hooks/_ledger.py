@@ -33,7 +33,7 @@ def ledger_path(session_id: str, agent: str | None=None) -> pathlib.Path:
 def append_hook_event(session_id: str, agent: str, verb: str, outcome: str, *, hook: str='', tool: str='', round_number: int | None=None, phase: str='', counters: dict[str, Any] | None=None, digest: str='', detail: dict[str, Any] | None=None, path: pathlib.Path | None=None) -> dict[str, Any]:
     """Append one row; returns the row dict for the caller's convenience."""
     target = path or ledger_path(session_id, agent)
-    row: dict[str, Any] = {'ts': _now_iso(), 'session_id': session_id, 'agent': agent, 'round': round_number, 'phase': phase, 'hook': hook, 'tool': tool, 'verb': verb, 'outcome': outcome, 'counters': counters or {}, 'digest': digest, 'detail': detail or {}}
+    row: dict[str, Any] = {'ts': _now_iso(), 'session_id': session_id, 'agent': agent, 'round': round_number, 'phase': phase, 'hook': hook, 'tool': tool, 'verb': verb, 'outcome': outcome, 'counters': counters if counters is not None else {}, 'digest': digest, 'detail': detail if detail is not None else {}}
     write_jsonl_row(target, row)
     return row
 
