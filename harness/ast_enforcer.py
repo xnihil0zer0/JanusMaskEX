@@ -429,7 +429,7 @@ def _bare_alias_matches_subscripted(a: ast.expr, b: ast.expr) -> bool:
                 return True
     return False
 
-class _DocstringRemover:
+class _DocstringRemover(ast.NodeTransformer):
     """Remove docstrings from module, class, and function bodies."""
 
     def _strip_docstring(self, body: list[ast.stmt]) -> list[ast.stmt]:
@@ -502,7 +502,7 @@ class _RedundantPassRemover(ast.NodeTransformer):
                     setattr(node, field, self._clean_body(val))
         return super().generic_visit(node)
 
-class _ImportSorter:
+class _ImportSorter(ast.NodeTransformer):
     """Sort import statements alphabetically within their contiguous groups."""
 
     def visit_Module(self, node: ast.Module) -> ast.Module:
@@ -778,15 +778,26 @@ def normalize_ast(code: str) -> ast.Module:
     5. Remove redundant pass statements
     6. Fix missing locations
     """
-    raise NotImplementedError
+    tree = ast.parse(code)
+    tree = _DocstringRemover().visit(tree)
+    tree = _ImportSorter().visit(tree)
+    tree = _VariableNormalizer().visit(tree)
+    tree = _RedundantPassRemover().visit(tree)
+    ast.fix_missing_locations(tree)
+    return tree
 
 def ast_to_canonical(tree: ast.Module) -> str:
     """Convert a normalized AST back to canonical source code."""
-    raise NotImplementedError
+    return ast.unparse(tree)
 
 def are_structurally_equivalent(code_a: str, code_b: str) -> bool:
     """Return True if two code samples produce identical normalized ASTs."""
-    raise NotImplementedError
+    try:
+        canonical_a = ast_to_canonical(normalize_ast(code_a))
+        canonical_b = ast_to_canonical(normalize_ast(code_b))
+    except SyntaxError:
+        return False
+    return canonical_a == canonical_b
 AnnotationNormalizer = _AnnotationNormalizer
 DocstringRemover = _DocstringRemover
 RedundantPassRemover = _RedundantPassRemover
