@@ -180,7 +180,12 @@ def decide_reconciliation(ctx: DeciderContext, content: str, events: list[dict[s
     return harness.hooks._common.decision_payload('allow')
 
 def decide_error_report(ctx: DeciderContext, content: str) -> dict[str, Any]:
-    raise NotImplementedError
+    size = len(content.encode('utf-8'))
+    if size > ERROR_MAX_BYTES:
+        reason = f'error.md exceeds 64 KB cap ({size} bytes > {ERROR_MAX_BYTES}).'
+        ctx.journal('error', 'deny', detail={'size': size})
+        return harness.hooks._common.decision_payload('deny', reason=reason)
+    return harness.hooks._common.decision_payload('allow')
 
 def decide_read_like(tool_input: dict[str, Any], allowed_roots: list[Any], *, path_keys: tuple[str, ...], tool_name_for_reason: str) -> dict[str, Any]:
     raise NotImplementedError
