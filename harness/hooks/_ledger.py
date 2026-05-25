@@ -38,7 +38,24 @@ def append_hook_event(session_id: str, agent: str, verb: str, outcome: str, *, h
     return row
 
 def read_events(session_id: str, agent: str | None=None, *, path: pathlib.Path | None=None) -> list[dict[str, Any]]:
-    raise NotImplementedError
+    target = path or ledger_path(session_id, agent)
+    target = pathlib.Path(target)
+    if not target.exists():
+        return []
+    events: list[dict[str, Any]] = []
+    try:
+        with target.open('r', encoding='utf-8') as f:
+            for line_number, line in enumerate(f, start=1):
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    events.append(json.loads(stripped))
+                except json.JSONDecodeError as e:
+                    sys.stderr.write(f'_ledger read_events JSON decode error: {e} in {target} line {line_number}\n')
+    except FileNotFoundError:
+        return []
+    return events
 
 def count_verb(events: Iterable[dict[str, Any]], verb: str, *, outcome: str='allow') -> int:
     raise NotImplementedError
