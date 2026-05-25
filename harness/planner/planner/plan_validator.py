@@ -1,0 +1,233 @@
+import json
+import os
+from dataclasses import dataclass
+from typing import Dict
+from typing import List
+from typing import Any
+from typing import Union
+from pathlib import Path
+from harness.planner.taxonomies import META_TASK_TYPES
+PRIORITY_CANONICAL = {'critical', 'high', 'medium', 'low'}
+
+@dataclass(frozen=True, order=True)
+class PlanViolation:
+    code: str
+    path: str
+    message: str
+    severity: str = 'error'
+
+def check_missing_fields(task: Dict[str, Any], path_prefix: str) -> List[PlanViolation]:
+    violations = []
+    top_level_reqs = ['task_id', 'title', 'meta_task_type', 'priority', 'dependencies', 'files_touched', 'acceptance_criteria', 'spec_author', 'estimated_complexity', 'verification_command']
+    for field in top_level_reqs:
+        if field not in task:
+            violations.append(PlanViolation('missing_field', f'{path_prefix}.{field}', f'Missing required field {field}'))
+    vcmd = task.get('verification_command')
+    if 'verification_command' in task and (not isinstance(vcmd, str) or not vcmd.strip()):
+        violations.append(PlanViolation('invalid_verification_command', f'{path_prefix}.verification_command', 'verification_command must be a non-empty string'))
+    spec = task.get('spec', {})
+    if not isinstance(spec, dict):
+        violations.append(PlanViolation('missing_field', f'{path_prefix}.spec', 'spec must be an object'))
+        spec = {}
+    spec_reqs = ['objective', 'functional_requirements', 'interfaces', 'edge_cases', 'non_goals', 'implementation_notes']
+    for field in spec_reqs:
+        if field not in spec:
+            violations.append(PlanViolation('missing_field', f'{path_prefix}.spec.{field}', f'Missing required field spec.{field}'))
+    test_spec = task.get('test_spec', {})
+    if not isinstance(test_spec, dict):
+        violations.append(PlanViolation('missing_field', f'{path_prefix}.test_spec', 'test_spec must be an object'))
+        test_spec = {}
+    test_spec_reqs = ['unit_tests', 'integration_tests', 'property_tests', 'regression_tests', 'minimum_test_count', 'test_data_requirements']
+    for field in test_spec_reqs:
+        if field not in test_spec:
+            violations.append(PlanViolation('missing_field', f'{path_prefix}.test_spec.{field}', f'Missing required field test_spec.{field}'))
+    budget = task.get('token_budget_ratio', {})
+    if not isinstance(budget, dict):
+        violations.append(PlanViolation('missing_field', f'{path_prefix}.token_budget_ratio', 'token_budget_ratio must be an object'))
+        budget = {}
+    for field in ['implementation_tokens', 'test_tokens', 'note']:
+        if field not in budget:
+            violations.append(PlanViolation('missing_field', f'{path_prefix}.token_budget_ratio.{field}', f'Missing required field token_budget_ratio.{field}'))
+    attr = task.get('attribution_metadata', {})
+    if not isinstance(attr, dict):
+        violations.append(PlanViolation('missing_field', f'{path_prefix}.attribution_metadata', 'attribution_metadata must be an object'))
+        attr = {}
+    for field in ['proposed_by', 'reconciled', 'diff_resolution']:
+        if field not in attr:
+            violations.append(PlanViolation('missing_field', f'{path_prefix}.attribution_metadata.{field}', f'Missing required field attribution_metadata.{field}'))
+    return violations
+
+def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]:
+    if isinstance(plan, (str, Path)):
+        try:
+            with open(plan, 'r', encoding='utf-8') as f:
+                plan = json.load(f)
+        except Exception as e:
+            return [PlanViolation('parse_error', 'plan', str(e))]
+    if not isinstance(plan, dict):
+        return [PlanViolation('invalid_structure', 'plan', 'Plan must be a JSON object')]
+    tasks = plan.get('tasks', [])
+    if not isinstance(tasks, list):
+        return [PlanViolation('invalid_structure', 'plan.tasks', 'tasks must be a list')]
+    violations = []
+    seen_task_ids = set()
+    graph = {}
+    for i, task in enumerate(tasks):
+        if not isinstance(task, dict):
+            violations.append(PlanViolation('invalid_structure', f'tasks[{i}]', 'Task must be an object'))
+            continue
+        task_id = task.get('task_id')
+        path_prefix = f'tasks[{i}](id={task_id})' if task_id else f'tasks[{i}]'
+        if task_id:
+            if task_id in seen_task_ids:
+                violations.append(PlanViolation('duplicate_task_id', path_prefix, f'Duplicate task_id: {task_id}'))
+            seen_task_ids.add(task_id)
+            graph[task_id] = task.get('dependencies', [])
+            if not isinstance(graph[task_id], list):
+                graph[task_id] = []
+        violations.extend(check_missing_fields(task, path_prefix))
+        meta_task_type = task.get('meta_task_type')
+        if not isinstance(meta_task_type, str) or not meta_task_type:
+            violations.append(PlanViolation('missing_meta_task_type', f'{path_prefix}.meta_task_type', 'meta_task_type must be a non-empty string from the canonical taxonomy'))
+        elif meta_task_type not in META_TASK_TYPES:
+            violations.append(PlanViolation('unknown_meta_task_type', f'{path_prefix}.meta_task_type', f'Unknown meta_task_type: {meta_task_type}'))
+        priority = task.get('priority')
+        if priority is not None:
+            if not isinstance(priority, str):
+                violations.append(PlanViolation('invalid_priority_type', f'{path_prefix}.priority', f'priority must be lowercase str from {{critical,high,medium,low}}, got {type(priority).__name__}'))
+            elif priority not in PRIORITY_CANONICAL:
+                violations.append(PlanViolation('invalid_priority_encoding', f'{path_prefix}.priority', f'priority {priority!r} not in canonical {{critical,high,medium,low}} — run scripts/impl_normalize_priority.py to fix'))
+        spec_author = task.get('spec_author')
+        attr = task.get('attribution_metadata', {})
+        if isinstance(attr, dict):
+            proposed_by = attr.get('proposed_by')
+            if spec_author is not None and proposed_by is None:
+                violations.append(PlanViolation('attribution_mismatch', path_prefix, 'spec_author is non-null but proposed_by is null'))
+        is_test = False
+        if isinstance(meta_task_type, str) and meta_task_type.startswith('test_'):
+            is_test = True
+        if not is_test:
+            budget = task.get('token_budget_ratio', {})
+            if isinstance(budget, dict):
+                impl_tokens = budget.get('implementation_tokens', 0)
+                test_tokens = budget.get('test_tokens', 0)
+                if isinstance(impl_tokens, (int, float)) and isinstance(test_tokens, (int, float)):
+                    if impl_tokens == 0:
+                        if test_tokens <= 0:
+                            violations.append(PlanViolation('test_ratio_violation', f'{path_prefix}.token_budget_ratio', 'test_tokens must be > 0 when impl_tokens == 0'))
+                    elif test_tokens < 1.5 * impl_tokens:
+                        violations.append(PlanViolation('test_ratio_violation', f'{path_prefix}.token_budget_ratio', 'test_tokens must be >= 1.5 * impl_tokens'))
+            spec = task.get('spec', {})
+            test_spec = task.get('test_spec', {})
+            if isinstance(spec, dict) and isinstance(test_spec, dict):
+                frs = spec.get('functional_requirements', [])
+                unit_tests = test_spec.get('unit_tests', [])
+                if isinstance(frs, list) and isinstance(unit_tests, list):
+                    if len(unit_tests) < len(frs):
+                        violations.append(PlanViolation('insufficient_unit_tests', f'{path_prefix}.test_spec.unit_tests', 'len(unit_tests) >= len(functional_requirements)'))
+                integration_tests = test_spec.get('integration_tests', [])
+                non_goals = spec.get('non_goals', [])
+                if isinstance(integration_tests, list) and isinstance(non_goals, list):
+                    if len(integration_tests) == 0:
+                        excused = any(('integration' in str(ng).lower() for ng in non_goals))
+                        if not excused:
+                            violations.append(PlanViolation('missing_integration_test', f'{path_prefix}.test_spec.integration_tests', 'At least one integration_test required unless excused in non_goals'))
+                edge_cases = spec.get('edge_cases', [])
+                prop_tests = test_spec.get('property_tests', [])
+                reg_tests = test_spec.get('regression_tests', [])
+                if isinstance(edge_cases, list) and isinstance(prop_tests, list) and isinstance(reg_tests, list):
+                    needed = min(2, len(edge_cases))
+                    if len(prop_tests) + len(reg_tests) < needed:
+                        violations.append(PlanViolation('missing_edge_case_tests', f'{path_prefix}.test_spec', 'At least two edge_cases must be reflected in regression_tests or property_tests'))
+                min_count = test_spec.get('minimum_test_count', 0)
+                if isinstance(frs, list) and isinstance(min_count, (int, float)):
+                    if min_count < 1.5 * len(frs):
+                        violations.append(PlanViolation('insufficient_total_tests', f'{path_prefix}.test_spec.minimum_test_count', 'minimum_test_count >= 1.5 * len(functional_requirements)'))
+    visited = set()
+    path = []
+    path_set = set()
+
+    def dfs(node):
+        if node in path_set:
+            idx = path.index(node)
+            cycle = path[idx:] + [node]
+            violations.append(PlanViolation('dependency_cycle', 'plan.tasks', f'Cycle: {' -> '.join(cycle)}'))
+            return True
+        if node in visited:
+            return False
+        visited.add(node)
+        path.append(node)
+        path_set.add(node)
+        found_cycle = False
+        for neighbor in graph.get(node, []):
+            if dfs(neighbor):
+                found_cycle = True
+        path.pop()
+        path_set.remove(node)
+        return found_cycle
+    found_cycles_nodes = set()
+
+    def dfs2(node, current_path):
+        if node in current_path:
+            idx = current_path.index(node)
+            cycle = current_path[idx:] + [node]
+            cycle_key = tuple(sorted(current_path[idx:]))
+            if cycle_key not in found_cycles_nodes:
+                found_cycles_nodes.add(cycle_key)
+                violations.append(PlanViolation('dependency_cycle', 'plan.tasks', f'Cycle: {' -> '.join(cycle)}'))
+            return
+        if node in visited:
+            return
+        current_path.append(node)
+        for neighbor in graph.get(node, []):
+            dfs2(neighbor, current_path)
+        current_path.pop()
+        visited.add(node)
+    visited.clear()
+    for node in graph:
+        if node not in visited:
+            dfs2(node, [])
+    return violations
+_SHA256_HEX_CHARS = set('0123456789abcdef')
+
+def validate_plan_wrapper(plan):
+    """Validate schema v2.1 wrapper fields (source_brief_path + source_brief_sha256).
+
+    Returns list[PlanViolation] (empty when wrapper is well-formed). Decoupled from
+    validate_plan so that wrapper-level checks can be run independently — e.g., when
+    the planner writes a plan and wants to fail fast on missing traceability metadata.
+
+    D8 addition: hard-raises ValueError when any task in plan['tasks'] is missing
+    a non-empty string verification_command, mirroring the orchestrator-side V1
+    gate at _auto_commit_accepted so bad plans cannot reach the dispatch queue.
+    Predicate matches check_missing_fields lines 22-24 exactly.
+    """
+    if isinstance(plan, (str, Path)):
+        try:
+            with open(plan, 'r', encoding='utf-8') as f:
+                plan = json.load(f)
+        except Exception as e:
+            return [PlanViolation('parse_error', 'plan', str(e))]
+    if not isinstance(plan, dict):
+        return [PlanViolation('invalid_structure', 'plan', 'Plan must be a JSON object')]
+    violations = []
+    sbp = plan.get('source_brief_path')
+    if sbp is None or sbp == '':
+        violations.append(PlanViolation('missing_wrapper_field', 'plan.source_brief_path', 'source_brief_path required for schema v2.1 traceability'))
+    elif not isinstance(sbp, str):
+        violations.append(PlanViolation('invalid_wrapper_type', 'plan.source_brief_path', f'source_brief_path must be str, got {type(sbp).__name__}'))
+    sha = plan.get('source_brief_sha256')
+    if sha is None or sha == '':
+        violations.append(PlanViolation('missing_wrapper_field', 'plan.source_brief_sha256', 'source_brief_sha256 required for schema v2.1 traceability'))
+    elif not isinstance(sha, str):
+        violations.append(PlanViolation('invalid_wrapper_type', 'plan.source_brief_sha256', f'source_brief_sha256 must be str, got {type(sha).__name__}'))
+    elif len(sha) != 64 or not all((c in _SHA256_HEX_CHARS for c in sha.lower())):
+        violations.append(PlanViolation('invalid_sha256', 'plan.source_brief_sha256', 'source_brief_sha256 must be 64-char lowercase hex digest'))
+    for i, task in enumerate(plan.get('tasks', [])):
+        if not isinstance(task, dict):
+            continue
+        vcmd = task.get('verification_command')
+        if not isinstance(vcmd, str) or not vcmd.strip():
+            tid = task.get('task_id') or f'tasks[{i}]'
+            raise ValueError(f'task {tid!r} has invalid verification_command (must be non-empty string)')
+    return violations

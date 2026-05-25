@@ -1,0 +1,5 @@
+{
+  "tasks": [
+    {"task_id": "T-1", "title": "A", "meta_task_type": "__BOGUS__"}
+  ]
+}

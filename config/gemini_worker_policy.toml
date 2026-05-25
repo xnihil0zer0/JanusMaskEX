@@ -1,0 +1,103 @@
+# JanusMask worker policy for Gemini CLI (post-hooks migration)
+# Loaded via: gemini --admin-policy config/gemini_worker_policy.toml
+#
+# Admin-policy tier (5) overrides yolo (tier 1) and project settings.
+# Hooks do the fine-grained gating; this file is the coarse backbone.
+
+# -- Allow native tools (hook-side BeforeTool gates the specifics) --
+
+[[rule]]
+toolName = "write_file"
+decision = "allow"
+priority = 999
+
+[[rule]]
+toolName = "replace"
+decision = "allow"
+priority = 999
+
+[[rule]]
+toolName = "read_file"
+decision = "allow"
+priority = 999
+
+[[rule]]
+toolName = "read_many_files"
+decision = "allow"
+priority = 999
+
+[[rule]]
+toolName = "glob"
+decision = "allow"
+priority = 999
+
+[[rule]]
+toolName = "grep_search"
+decision = "allow"
+priority = 999
+
+[[rule]]
+toolName = "list_directory"
+decision = "allow"
+priority = 999
+
+[[rule]]
+toolName = "run_shell_command"
+decision = "allow"
+priority = 999
+# Shell arg-pattern gating layered on via BeforeTool hook
+# (harness.hooks.gemini.pre_tool._decide_shell).
+
+# -- Hard denies (hooks cannot re-enable these) --
+
+[[rule]]
+toolName = "google_web_search"
+decision = "deny"
+denyMessage = "JanusMask worker: web search denied."
+priority = 999
+
+[[rule]]
+toolName = "web_fetch"
+decision = "deny"
+denyMessage = "JanusMask worker: web fetch denied."
+priority = 999
+
+[[rule]]
+toolName = "write_todos"
+decision = "deny"
+denyMessage = "JanusMask worker: todos denied."
+priority = 999
+
+[[rule]]
+toolName = "save_memory"
+decision = "deny"
+denyMessage = "JanusMask worker: save_memory denied."
+priority = 999
+
+[[rule]]
+toolName = "cli_help"
+decision = "deny"
+denyMessage = "JanusMask worker: cli_help is for the Gemini CLI wrapper, NOT JanusMask."
+priority = 999
+
+# Sub-agents are synthesis-mode-denied; planning uses the planning policy
+# file which re-enables them with sub-agent carve-outs.
+[[rule]]
+toolName = "generalist"
+decision = "deny"
+denyMessage = "JanusMask worker: sub-agents denied in synthesis."
+priority = 999
+
+[[rule]]
+toolName = "codebase_investigator"
+decision = "deny"
+denyMessage = "JanusMask worker: sub-agents denied in synthesis."
+priority = 999
+
+# Block all MCP servers — no janusmask MCP server registered post-migration.
+[[rule]]
+mcpName = "*"
+toolName = "*"
+decision = "deny"
+denyMessage = "JanusMask: no MCP servers in hook-mode."
+priority = 900

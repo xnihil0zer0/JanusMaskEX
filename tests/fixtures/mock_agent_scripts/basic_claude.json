@@ -1,0 +1,10 @@
+[
+  {
+    "response": "Hello from Claude turn 1",
+    "status": "success"
+  },
+  {
+    "response": "Hello from Claude turn 2",
+    "status": "success"
+  }
+]

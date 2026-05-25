@@ -1,0 +1,42 @@
+{
+  "tasks": [
+    {
+      "task_id": "T-001",
+      "title": "Minimal Valid Task",
+      "meta_task_type": "data_model",
+      "priority": 1,
+      "dependencies": [],
+      "files_touched": [],
+      "acceptance_criteria": [],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "true",
+      "spec": {
+        "objective": "obj",
+        "functional_requirements": ["fr1"],
+        "interfaces": {},
+        "edge_cases": [],
+        "non_goals": [],
+        "implementation_notes": "notes"
+      },
+      "test_spec": {
+        "unit_tests": ["u1"],
+        "integration_tests": ["i1"],
+        "property_tests": [],
+        "regression_tests": [],
+        "minimum_test_count": 2,
+        "test_data_requirements": ""
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 10,
+        "test_tokens": 10,
+        "note": ""
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": true,
+        "diff_resolution": "tiebreaker"
+      }
+    }
+  ]
+}

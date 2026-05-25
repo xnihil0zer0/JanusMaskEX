@@ -1,0 +1,5 @@
+{
+  "objective": "Build a simple HTTP server",
+  "constraints": ["Must use standard library only"],
+  "context": "No external dependencies allowed"
+}

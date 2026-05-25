@@ -1,0 +1,16 @@
+[
+  "single_function",
+  "stateless_class",
+  "algorithm_impl",
+  "data_structure",
+  "io_parser",
+  "cli_interface",
+  "concurrent_pool",
+  "async_pipeline",
+  "regex_matcher",
+  "protocol_codec",
+  "math_kernel",
+  "dsl_interpreter",
+  "tree_visitor",
+  "state_machine"
+]

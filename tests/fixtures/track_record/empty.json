@@ -1,0 +1,10 @@
+{
+  "spec_authorship": {
+    "claude": {},
+    "gemini": {}
+  },
+  "synthesis": {
+    "claude": {},
+    "gemini": {}
+  }
+}

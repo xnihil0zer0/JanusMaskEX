@@ -1,0 +1,164 @@
+/* JanusMask WebUI v2 — base styles. */
+*, *::before, *::after { box-sizing: border-box; }
+:root {
+  --bg: #0d1117;
+  --fg: #c9d1d9;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --err: #f85149;
+  --panel: #161b22;
+  --border: #30363d;
+}
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: var(--bg); color: var(--fg);
+  font-size: 13px;
+}
+.topbar {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.5rem 1rem; border-bottom: 1px solid var(--border);
+  background: var(--panel); position: sticky; top: 0; z-index: 50;
+}
+.topbar h1 { margin: 0; font-size: 1rem; font-weight: 600; }
+.grow { flex: 1; }
+.pill {
+  padding: 0.15rem 0.6rem; border-radius: 999px;
+  border: 1px solid var(--border); font-size: 0.8rem;
+}
+.status-running { background: rgba(63,185,80,0.15); color: var(--ok); border-color: var(--ok); }
+.status-paused  { background: rgba(210,153,34,0.15); color: var(--warn); border-color: var(--warn); }
+.status-stopped { background: rgba(139,148,158,0.15); color: var(--muted); }
+.status-unknown { color: var(--muted); }
+.btn {
+  background: transparent; border: 1px solid var(--border); color: var(--fg);
+  padding: 0.25rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem;
+}
+.btn:hover { background: var(--border); }
+.btn.primary { background: var(--accent); color: white; border-color: var(--accent); }
+.btn.danger { color: var(--err); border-color: var(--err); }
+.btn.danger:hover { background: rgba(248,81,73,0.2); }
+.layout { display: grid; grid-template-columns: 180px 1fr; min-height: calc(100vh - 50px); }
+nav#nav {
+  border-right: 1px solid var(--border); background: var(--panel);
+  display: flex; flex-direction: column;
+}
+nav#nav a {
+  padding: 0.6rem 1rem; color: var(--fg); text-decoration: none;
+  border-left: 3px solid transparent; font-size: 0.95rem;
+}
+nav#nav a:hover { background: var(--bg); }
+nav#nav a.active { border-left-color: var(--accent); background: var(--bg); color: var(--accent); }
+main#page { padding: 1rem 1.5rem; overflow: auto; }
+.card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: 0.8rem 1rem; margin-bottom: 0.8rem;
+}
+.card h3 { margin: 0 0 0.4rem 0; font-size: 0.95rem; color: var(--accent); }
+.row { display: flex; gap: 1rem; flex-wrap: wrap; }
+.col { flex: 1; min-width: 280px; }
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+th, td { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 500; }
+pre, code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+}
+pre {
+  background: var(--bg); border: 1px solid var(--border); padding: 0.6rem;
+  border-radius: 4px; overflow: auto; max-height: 60vh;
+}
+textarea {
+  width: 100%; min-height: 60vh; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px; padding: 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem;
+}
+input[type=text] {
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px; padding: 0.3rem 0.5rem;
+  font-family: inherit; width: 100%;
+}
+.muted { color: var(--muted); }
+.warn  { color: var(--warn); }
+.err   { color: var(--err); }
+.ok    { color: var(--ok); }
+.tab-row { display: flex; gap: 0.5rem; margin-bottom: 0.8rem; }
+.tab-row button { background: var(--panel); border: 1px solid var(--border); color: var(--fg);
+  padding: 0.3rem 0.8rem; border-radius: 4px; cursor: pointer; }
+.tab-row button.active { background: var(--accent); color: white; border-color: var(--accent); }
+#toasts {
+  position: fixed; bottom: 1rem; right: 1rem; display: flex; flex-direction: column; gap: 0.4rem; z-index: 100;
+}
+.toast {
+  padding: 0.5rem 0.8rem; border-radius: 4px; max-width: 28rem;
+  background: var(--panel); border: 1px solid var(--border);
+}
+.toast.err { border-color: var(--err); }
+.toast.ok  { border-color: var(--ok); }
+dialog { background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; }
+dialog::backdrop { background: rgba(0,0,0,0.7); }
+.stream-card {
+  background: var(--bg); border-left: 3px solid var(--border);
+  margin-bottom: 0.4rem; padding: 0.4rem 0.6rem; font-size: 0.8rem;
+}
+.stream-card.thinking { border-left-color: var(--muted); }
+.stream-card.assistant { border-left-color: var(--accent); }
+.stream-card.tool_use  { border-left-color: var(--warn); }
+.stream-card.tool_result { border-left-color: var(--ok); }
+.stream-card.system    { border-left-color: var(--muted); color: var(--muted); }
+.stream-card.result    { border-left-color: var(--ok); font-weight: 500; }
+details summary { cursor: pointer; padding: 0.2rem 0; }
+.dag-svg { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; }
+
+/* Autobrief Primitives */
+.autobrief-toggle {
+  display: inline-flex;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.autobrief-toggle-option {
+  padding: 0.15rem 0.6rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.autobrief-toggle-option:hover {
+  background: var(--bg);
+}
+.autobrief-toggle-option.is-selected {
+  background: var(--accent);
+  color: #ffffff;
+}
+@keyframes autobrief-spin {
+  100% { transform: rotate(360deg); }
+}
+.autobrief-spinner {
+  display: inline-block;
+  animation: autobrief-spin 1s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .autobrief-spinner {
+    animation: none;
+  }
+}
+.autobrief-details {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  padding: 0.5rem;
+  margin-top: 0.5rem;
+}
+.autobrief-details[open] {
+  background: var(--panel);
+  border-color: var(--accent);
+}
+.autobrief-elapsed {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  opacity: 0.8;
+}

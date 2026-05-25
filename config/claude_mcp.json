@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "janusmask": {
+      "command": "python3",
+      "args": ["${CLAUDE_PROJECT_DIR}/harness/mcp_server.py"],
+      "env": {
+        "JANUSMASK_AGENT": "claude",
+        "JANUSMASK_STATE_DIR": "${CLAUDE_PROJECT_DIR}/state"
+      }
+    }
+  }
+}

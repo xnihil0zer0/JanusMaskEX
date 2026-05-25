@@ -1,0 +1,120 @@
+{
+  "permissions": {
+    "defaultMode": "denyAll",
+    "deny": [
+      "Bash",
+      "Edit",
+      "WebFetch",
+      "WebSearch",
+      "NotebookEdit",
+      "TodoRead",
+      "TodoWrite",
+      "AskUserQuestion",
+      "TaskCreate",
+      "TaskGet",
+      "TaskList",
+      "TaskUpdate",
+      "TaskStop",
+      "TaskOutput",
+      "EnterPlanMode",
+      "ExitPlanMode",
+      "EnterWorktree",
+      "ExitWorktree",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "RemoteTrigger",
+      "Skill",
+      "ToolSearch",
+      "SendMessage",
+      "CompleteTask",
+      "SaveMemory",
+      "GoogleWebSearch",
+      "activate_skill",
+      "mcp__janusmask__execute"
+    ],
+    "allow": ["Read", "Glob", "Grep", "Write", "Agent"]
+  },
+  "env": {
+    "JANUSMASK_AGENT": "claude",
+    "JANUSMASK_MODE": "planning",
+    "JANUSMASK_PROJECT_DIR": "${CLAUDE_PROJECT_DIR}",
+    "JANUSMASK_STATE_DIR": "${CLAUDE_PROJECT_DIR}/state",
+    "JANUSMASK_WORK_DIR": "${CLAUDE_PROJECT_DIR}/state/workdirs/claude/${SESSION_ID}",
+    "PYTHONPATH": "${CLAUDE_PROJECT_DIR}"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m harness.hooks.claude.session_start",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m harness.hooks.claude.user_prompt_submit",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m harness.hooks.claude.pre_tool",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m harness.hooks.claude.post_tool",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m harness.hooks.claude.stop",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m harness.hooks.claude.pre_compact",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

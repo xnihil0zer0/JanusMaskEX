@@ -1,0 +1,443 @@
+"""Single-shot orchestrator worker for the autowork daemon (AW2).
+
+Spawned per-task by the autowork daemon: claims ONE task_id, runs the
+synthesis -> AST -> fuzz -> cross-exam -> auto-commit pipeline once, then
+exits.
+
+Reuses module-level helpers from ``harness.orchestrator`` (claim path,
+validation, repair, save/commit, fuzz persistence, lifecycle ledger) so
+the existing serial ``run_pipeline`` remains byte-identical and the
+worker cannot bypass any validator. Mirrors ``get_next_task``'s atomic
+rename idiom -- ``candidate.rename(candidate.with_suffix('.json.processing'))``
+inside a ``try/except FileNotFoundError`` -- so a peer worker that has
+already claimed the task simply causes this process to exit 0 with
+``{"skipped": "already_claimed"}``.
+"""
+from __future__ import annotations
+import argparse
+import json
+import os
+import sys
+import time
+import traceback
+from pathlib import Path
+from typing import Any
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+DEFAULT_CONFIG_PATH = Path('harness/config.yaml')
+
+def _emit_lifecycle_safe(state_dir: Path, **fields: Any) -> None:
+    """Best-effort ledger append; mirrors orchestrator._emit_lifecycle.
+
+    Kept local so the not_found / already_claimed exit paths do not pull
+    the full ``harness.orchestrator`` module (which transitively imports
+    yaml, the diff fuzzer, etc.). Once the claim succeeds we delegate to
+    the canonical helper via ``orch._emit_lifecycle``.
+    """
+    try:
+        from harness._journal import write_jsonl_row
+        row = {'ts': time.time(), **fields}
+        write_jsonl_row(state_dir / 'impl_progress.jsonl', row)
+    except Exception:
+        pass
+
+def _print_json_line(payload: dict[str, Any]) -> None:
+    sys.stdout.write(json.dumps(payload) + '\n')
+    sys.stdout.flush()
+
+def _consume_no_diff_marker(state_dir: Path, task_id: str) -> bool:
+    """True if _auto_commit_accepted wrote a no_diff marker (G-NODIFF).
+
+    A no_diff outcome means the brief is already satisfied (the agents produced
+    no change) -- it is genuinely DONE, not a failure. Routing it to processed/
+    instead of blocked/ stops the daemon burning its 3-attempt retry budget on a
+    deterministic no-op. Best-effort; never raises."""
+    marker = state_dir / 'output' / f'{task_id}.no_diff'
+    try:
+        if marker.exists():
+            marker.unlink()
+            return True
+    except OSError:
+        pass
+    return False
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description='JanusMask single-task orchestrator worker (AW2).')
+    parser.add_argument('--state-dir', type=Path, required=True, help='Path to the shared state directory.')
+    parser.add_argument('--task-id', type=str, required=True, help='Task identifier whose JSON lives in <state>/tasks/.')
+    parser.add_argument('--config', type=Path, default=DEFAULT_CONFIG_PATH, help='Path to harness/config.yaml.')
+    args = parser.parse_args()
+    state_dir: Path = args.state_dir
+    task_id: str = args.task_id
+    config_path: Path = args.config
+    tasks_dir = state_dir / 'tasks'
+    candidate = tasks_dir / f'{task_id}.json'
+    processing = candidate.with_suffix('.json.processing')
+    if not candidate.exists():
+        _print_json_line({'skipped': 'not_found', 'task_id': task_id})
+        return 0
+    try:
+        candidate.rename(processing)
+    except FileNotFoundError:
+        _print_json_line({'skipped': 'already_claimed', 'task_id': task_id})
+        return 0
+    exit_code = 2
+    started_emit = False
+    _stderr_buf = io.StringIO()
+    with contextlib.redirect_stderr(_stderr_buf):
+        try:
+            _emit_lifecycle_safe(state_dir, phase='autowork', task_id=task_id, event='worker_start')
+            started_emit = True
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            from harness import orchestrator as orch
+            from harness.state import init_state, locked_read_modify_write, set_agent_status, set_phase
+            from harness.planner.taxonomies import BYPASS_FUZZER_TYPES, SKIP_SMOKE_GATE_TYPES
+            from harness.sandbox_smoke import smoke_import
+            from harness.embedded_test_runner import run_embedded_tests
+            from harness.narrow_fuzz import run_narrow_fuzz
+            from harness.diff_fuzzer import fuzz_from_task
+            from harness.cross_examiner import prepare_exam_packets, write_feedback_files, clear_feedback_files
+            from harness.task_decomposer import decompose_task, enqueue_subtasks, update_parent_state
+            from harness.ast_retry import synthesize_with_retries
+            config = orch.load_config(config_path)
+            config['state_dir'] = str(state_dir)
+            state_dir.mkdir(parents=True, exist_ok=True)
+            tasks_dir.mkdir(parents=True, exist_ok=True)
+            (state_dir / 'sessions').mkdir(parents=True, exist_ok=True)
+            init_state(state_dir)
+            orch._clear_stale_submissions(state_dir, task_id)
+            with open(processing, 'r', encoding='utf-8') as fh:
+                task = json.load(fh)
+            current_task_path = current_task_spec_path(state_dir, task_id)
+            try:
+                current_task_path.write_text(json.dumps(task, indent=2))
+            except OSError:
+                pass
+            os.environ['JANUSMASK_TASK_ID'] = task_id
+            round_number = 1
+            max_ast_retries = config['synthesis'].get('max_ast_retries', 3)
+            use_retry_module = config['synthesis'].get('use_retry_module', False)
+            active_agents = config.get('synthesis', {}).get('active_agents', ['claude', 'gemini'])
+            agent_a = active_agents[0]
+            agent_b = active_agents[1] if len(active_agents) > 1 else active_agents[0]
+            synthesis_success = False
+            agent_a_code: str | None = None
+            agent_b_code: str | None = None
+            base_prompt = orch.prepare_task_prompt(task)
+
+            def _set_task_state(state: dict[str, Any]) -> dict[str, Any]:
+                state['task_id'] = task_id
+                state['round'] = round_number
+                state['phase'] = 'synthesis'
+                for agent_name in active_agents:
+                    state[f'{agent_name}_status'] = 'running'
+                state['status_updated_at_epoch'] = time.time()
+                state['fuzz_results'] = None
+                state['cross_exam_round'] = 0
+                return state
+            if use_retry_module:
+                locked_read_modify_write(_set_task_state, state_dir)
+                results: dict[str, tuple[bool, str | None]] = {}
+                if config.get('synthesis', {}).get('antigravity_mode', False):
+                    for agent_name in (agent_a, agent_b):
+                        try:
+                            ok, code, _violations = synthesize_with_retries(agent_name, base_prompt, config, state_dir, round_number, task, orch.run_agent_phase, (lambda a: lambda code, t: orch._validate_submission(code, a, t))(agent_name))
+                        except Exception:
+                            ok, code = (False, None)
+                        results[agent_name] = (ok, code)
+                else:
+                    with ThreadPoolExecutor(max_workers=2) as executor:
+                        futures = {executor.submit(synthesize_with_retries, agent_name, base_prompt, config, state_dir, round_number, task, orch.run_agent_phase, (lambda a: lambda code, t: orch._validate_submission(code, a, t))(agent_name)): agent_name for agent_name in (agent_a, agent_b)}
+                        for future in as_completed(futures):
+                            agent_name = futures[future]
+                            try:
+                                ok, code, _violations = future.result()
+                            except Exception:
+                                ok, code = (False, None)
+                            results[agent_name] = (ok, code)
+                agent_a_ok, agent_a_code = results.get(agent_a, (False, None))
+                agent_b_ok, agent_b_code = results.get(agent_b, (False, None))
+                for agent_name, code in [(agent_a, agent_a_code), (agent_b, agent_b_code)]:
+                    if code is None:
+                        set_agent_status(state_dir, agent=agent_name, status='timeout')
+                        orch._emit_lifecycle(state_dir, event='agent_status', agent=agent_name, status='timeout', task_id=task_id)
+                    else:
+                        set_agent_status(state_dir, agent=agent_name, status='submitted')
+                        orch._emit_lifecycle(state_dir, event='agent_status', agent=agent_name, status='submitted', task_id=task_id)
+                set_phase(state_dir, phase='ast_validation')
+                orch._emit_lifecycle(state_dir, event='phase_transition', phase='ast_validation', task_id=task_id, phase_transition={'to': 'ast_validation'})
+                synthesis_success = bool(agent_a_ok and agent_b_ok and agent_a_code and agent_b_code)
+            else:
+                ast_retries = 0
+                agent_a_prompt = base_prompt
+                agent_b_prompt = base_prompt
+                while ast_retries < max_ast_retries:
+                    locked_read_modify_write(_set_task_state, state_dir)
+                    agent_a_code, agent_b_code = orch.run_both_agents(agent_a_prompt, agent_b_prompt, config, state_dir, round_number, phase_name='synthesis')
+                    for agent, code in [(agent_a, agent_a_code), (agent_b, agent_b_code)]:
+                        if code is None:
+                            set_agent_status(state_dir, agent=agent, status='timeout')
+                            orch._emit_lifecycle(state_dir, event='agent_status', agent=agent, status='timeout', task_id=task_id)
+                        else:
+                            set_agent_status(state_dir, agent=agent, status='submitted')
+                            orch._emit_lifecycle(state_dir, event='agent_status', agent=agent, status='submitted', task_id=task_id)
+                    if not agent_a_code and (not agent_b_code):
+                        ast_retries += 1
+                        agent_a_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
+                        agent_b_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
+                        continue
+                    if not agent_a_code or not agent_b_code:
+                        ast_retries += 1
+                        if not agent_a_code:
+                            agent_a_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
+                        else:
+                            agent_a_prompt = base_prompt
+                        if not agent_b_code:
+                            agent_b_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
+                        else:
+                            agent_b_prompt = base_prompt
+                        continue
+                    set_phase(state_dir, phase='ast_validation')
+                    orch._emit_lifecycle(state_dir, event='phase_transition', phase='ast_validation', task_id=task_id, phase_transition={'to': 'ast_validation'})
+                    agent_a_valid, agent_a_violations = orch._validate_submission(agent_a_code, agent_a, task)
+                    agent_b_valid, agent_b_violations = orch._validate_submission(agent_b_code, agent_b, task)
+                    if not agent_a_valid:
+                        repaired = orch._try_auto_repair(agent_a_code, agent_a_violations, agent_a, task_id)
+                        if repaired is not None:
+                            revalid_ok, revalid_v = orch._validate_submission(repaired, agent_a, task)
+                            if revalid_ok:
+                                agent_a_code = repaired
+                                agent_a_valid = True
+                                agent_a_violations = revalid_v
+                    if not agent_b_valid:
+                        repaired = orch._try_auto_repair(agent_b_code, agent_b_violations, agent_b, task_id)
+                        if repaired is not None:
+                            revalid_ok, revalid_v = orch._validate_submission(repaired, agent_b, task)
+                            if revalid_ok:
+                                agent_b_code = repaired
+                                agent_b_valid = True
+                                agent_b_violations = revalid_v
+                    if not (agent_a_valid and agent_b_valid):
+                        ast_retries += 1
+                        if not agent_a_valid:
+                            error_msgs = '\n'.join((f'- {v.rule} (Line {v.line}): {v.message}' for v in agent_a_violations if v.severity == 'error'))
+                            agent_a_prompt = base_prompt + f'\n\nYour previous submission failed AST validation:\n{error_msgs}\n\nPlease fix these errors and resubmit.'
+                        else:
+                            agent_a_prompt = base_prompt
+                        if not agent_b_valid:
+                            error_msgs = '\n'.join((f'- {v.rule} (Line {v.line}): {v.message}' for v in agent_b_violations if v.severity == 'error'))
+                            agent_b_prompt = base_prompt + f'\n\nYour previous submission failed AST validation:\n{error_msgs}\n\nPlease fix these errors and resubmit.'
+                        else:
+                            agent_b_prompt = base_prompt
+                        continue
+                    synthesis_success = True
+                    break
+            if not synthesis_success:
+                set_phase(state_dir, phase='rejected')
+                orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                orch._mark_blocked(state_dir, task_id, 'synthesis_or_ast_failed')
+                orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'synthesis_or_ast_failed'})
+                exit_code = 1
+                return exit_code
+            mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
+            if mtt in BYPASS_FUZZER_TYPES:
+                if mtt not in SKIP_SMOKE_GATE_TYPES:
+                    smoke_err = smoke_import('_smoke_candidate', agent_a_code)
+                    if smoke_err is not None:
+                        set_phase(state_dir, phase='rejected')
+                        orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        orch._mark_blocked(state_dir, task_id, 'smoke_failed')
+                        orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                        _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'smoke_failed'})
+                        exit_code = 1
+                        return exit_code
+                    embedded_err = run_embedded_tests('_embedded_candidate', agent_a_code)
+                    if embedded_err is not None:
+                        set_phase(state_dir, phase='rejected')
+                        orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        orch._mark_blocked(state_dir, task_id, 'embedded_tests_failed')
+                        orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                        _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'embedded_tests_failed'})
+                        exit_code = 1
+                        return exit_code
+                    narrow_err = run_narrow_fuzz(mtt, '_narrow_fuzz_candidate', agent_a_code)
+                    if narrow_err is not None:
+                        set_phase(state_dir, phase='rejected')
+                        orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        orch._mark_blocked(state_dir, task_id, 'narrow_fuzz_failed')
+                        orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                        _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'narrow_fuzz_failed'})
+                        exit_code = 1
+                        return exit_code
+                orch._save_final_output(state_dir, task_id, agent_a_code)
+                auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
+                no_diff = (not auto_commit_ok) and _consume_no_diff_marker(state_dir, task_id)
+                if auto_commit_ok or no_diff:
+                    orch._mark_processed(state_dir, task_id)
+                else:
+                    orch._mark_blocked(state_dir, task_id, 'auto_commit_failed')
+                orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                if auto_commit_ok:
+                    set_phase(state_dir, phase='accepted')
+                    orch._emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
+                    _print_json_line({'task_id': task_id, 'outcome': 'accepted', 'path': 'bypass_fuzzer'})
+                    exit_code = 0
+                elif no_diff:
+                    set_phase(state_dir, phase='accepted')
+                    orch._emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
+                    _print_json_line({'task_id': task_id, 'outcome': 'no_diff', 'path': 'bypass_fuzzer'})
+                    exit_code = 0
+                else:
+                    set_phase(state_dir, phase='rejected')
+                    orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                    _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'auto_commit_failed'})
+                    exit_code = 1
+                return exit_code
+            set_phase(state_dir, phase='fuzzing')
+            orch._emit_lifecycle(state_dir, event='phase_transition', phase='fuzzing', task_id=task_id, phase_transition={'to': 'fuzzing'})
+            fuzz_result = fuzz_from_task(agent_a_code, agent_b_code, task, config, session_id=f'{task_id}_r1')
+            orch._persist_fuzz_results(state_dir, task_id, 'round1', fuzz_result)
+            if fuzz_result.error:
+                set_phase(state_dir, phase='rejected')
+                orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                orch._mark_blocked(state_dir, task_id, 'fuzz_error_r1')
+                orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'fuzz_error_r1'})
+                exit_code = 1
+                return exit_code
+            if fuzz_result.equivalent:
+                orch._save_final_output(state_dir, task_id, agent_a_code)
+                auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
+                no_diff = (not auto_commit_ok) and _consume_no_diff_marker(state_dir, task_id)
+                if auto_commit_ok or no_diff:
+                    orch._mark_processed(state_dir, task_id)
+                else:
+                    orch._mark_blocked(state_dir, task_id, 'auto_commit_failed_r1')
+                orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                if auto_commit_ok:
+                    set_phase(state_dir, phase='accepted')
+                    orch._emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
+                    _print_json_line({'task_id': task_id, 'outcome': 'accepted', 'path': 'round1'})
+                    exit_code = 0
+                elif no_diff:
+                    set_phase(state_dir, phase='accepted')
+                    orch._emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
+                    _print_json_line({'task_id': task_id, 'outcome': 'no_diff', 'path': 'round1'})
+                    exit_code = 0
+                else:
+                    set_phase(state_dir, phase='rejected')
+                    orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                    _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'auto_commit_failed_r1'})
+                    exit_code = 1
+                return exit_code
+            xexam_cfg = config.get('cross_examination', {}) if isinstance(config, dict) else {}
+            try:
+                max_rounds = int(xexam_cfg.get('max_rounds', 1))
+            except (TypeError, ValueError):
+                max_rounds = 1
+
+            revised_agent_a = agent_a_code
+            revised_agent_b = agent_b_code
+            latest_failures = list(fuzz_result.failures)
+            accumulated_failures = list(fuzz_result.failures)
+
+            if max_rounds >= 1:
+                task_spec = task.get('specification') or task.get('description') or ''
+                for r in range(1, max_rounds + 1):
+                    round_str = f'round{r+1}'
+                    set_phase(state_dir, phase='cross_examination')
+                    orch._emit_lifecycle(state_dir, event='phase_transition', phase='cross_examination', task_id=task_id, phase_transition={'to': 'cross_examination'})
+                    claude_packet, gemini_packet = prepare_exam_packets(revised_agent_a, revised_agent_b, task_spec, accumulated_failures)
+                    write_feedback_files(state_dir, claude_packet, gemini_packet, r + 1)
+                    r_agent_a, r_agent_b = orch.run_both_agents(claude_packet.review_prompt, gemini_packet.review_prompt, config, state_dir, r + 1, phase_name='cross_examination')
+                    clear_feedback_files(state_dir)
+                    revised_agent_a = r_agent_a or revised_agent_a
+                    revised_agent_b = r_agent_b or revised_agent_b
+                    set_phase(state_dir, phase='fuzzing')
+                    orch._emit_lifecycle(state_dir, event='phase_transition', phase='fuzzing', task_id=task_id, phase_transition={'to': 'fuzzing'})
+                    fuzz_result_n = fuzz_from_task(revised_agent_a, revised_agent_b, task, config, session_id=f'{task_id}_r{r+1}')
+                    orch._persist_fuzz_results(state_dir, task_id, round_str, fuzz_result_n)
+                    if fuzz_result_n.error:
+                        set_phase(state_dir, phase='rejected')
+                        orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        orch._mark_blocked(state_dir, task_id, f'fuzz_error_r{r+1}')
+                        orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                        _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': f'fuzz_error_r{r+1}'})
+                        exit_code = 1
+                        return exit_code
+                    if fuzz_result_n.equivalent:
+                        orch._save_final_output(state_dir, task_id, revised_agent_a)
+                        auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
+                        no_diff = (not auto_commit_ok) and _consume_no_diff_marker(state_dir, task_id)
+                        if auto_commit_ok or no_diff:
+                            orch._mark_processed(state_dir, task_id)
+                        else:
+                            orch._mark_blocked(state_dir, task_id, f'auto_commit_failed_r{r+1}')
+                        orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                        if auto_commit_ok:
+                            set_phase(state_dir, phase='accepted')
+                            orch._emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
+                            _print_json_line({'task_id': task_id, 'outcome': 'accepted', 'path': round_str})
+                            exit_code = 0
+                        elif no_diff:
+                            set_phase(state_dir, phase='accepted')
+                            orch._emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
+                            _print_json_line({'task_id': task_id, 'outcome': 'no_diff', 'path': round_str})
+                            exit_code = 0
+                        else:
+                            set_phase(state_dir, phase='rejected')
+                            orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                            _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': f'auto_commit_failed_r{r+1}'})
+                            exit_code = 1
+                        return exit_code
+                    accumulated_failures.extend(fuzz_result_n.failures)
+                    latest_failures = fuzz_result_n.failures
+            set_phase(state_dir, phase='decomposition')
+            orch._emit_lifecycle(state_dir, event='phase_transition', phase='decomposition', task_id=task_id, phase_transition={'to': 'decomposition'})
+            try:
+                cur_depth = int(task.get('depth', 0) or 0)
+            except (TypeError, ValueError):
+                cur_depth = 0
+            decomp_cfg = config.get('decomposition', {}) if isinstance(config, dict) else {}
+            max_depth = decomp_cfg.get('max_depth', 3)
+            if cur_depth >= max_depth:
+                from harness._journal import write_jsonl_row
+                try:
+                    write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'decomposition', 'task_id': task_id, 'event': 'decompose_max_depth', 'detail': f'depth {cur_depth} >= max_depth {max_depth}; terminating instead of decomposing further (SB5)', 'depth': cur_depth, 'max_depth': max_depth, 'exit': 0})
+                except OSError:
+                    pass
+                set_phase(state_dir, phase='rejected')
+                orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                orch._mark_processed(state_dir, task_id)
+                orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'decompose_max_depth', 'depth': cur_depth, 'max_depth': max_depth})
+                exit_code = 1
+                return exit_code
+            decomp_result = decompose_task(task, latest_failures, config, code_a=revised_agent_a, code_b=revised_agent_b, depth=cur_depth)
+            enqueue_subtasks(decomp_result.subtasks, state_dir)
+            subtask_ids = [s.task_id for s in decomp_result.subtasks]
+            update_parent_state(state_dir, task_id, subtask_ids)
+            orch._mark_processed(state_dir, task_id)
+            orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+            _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'decomposed', 'subtasks': subtask_ids})
+            exit_code = 1
+            return exit_code
+        except SystemExit:
+            raise
+        except Exception as exc:
+            sys.stderr.write(f'orchestrator_worker: internal error: {exc!r}\n')
+            traceback.print_exc(file=sys.stderr)
+            _print_json_line({'task_id': task_id, 'outcome': 'error', 'error': repr(exc)})
+            exit_code = 2
+            return exit_code
+        finally:
+            if started_emit:
+                stderr_tail = _stderr_buf.getvalue()[-256:].encode('unicode_escape').decode('ascii', errors='replace')
+                _emit_lifecycle_safe(state_dir, phase='autowork', task_id=task_id, event='worker_exit', exit_code=exit_code, stderr_tail=stderr_tail)
+from harness.task_paths import current_task_spec_path
+import contextlib
+import io
+if __name__ == '__main__':
+    sys.exit(main())

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>JanusMask</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>JanusMask</h1>
+    <span id="orch-status" class="pill status-unknown">orchestrator: ?</span>
+    <span id="phase-pill" class="pill">phase: ?</span>
+    <span id="task-pill" class="pill">task: —</span>
+    <span class="grow"></span>
+    <button id="orch-start"  class="btn">▶ start</button>
+    <button id="orch-pause"  class="btn">⏸ pause</button>
+    <button id="orch-resume" class="btn">▶ resume</button>
+    <button id="orch-stop"   class="btn danger">⏹ stop</button>
+    <span id="autowork-status" class="pill status-unknown">autowork: ?</span>
+    <button id="autowork-start" class="btn">▶ autowork</button>
+    <button id="autowork-pause" class="btn">⏸ pause</button>
+    <button id="autowork-stop"  class="btn danger">⏹ autowork stop</button>
+  </header>
+  <div class="layout">
+    <nav id="nav">
+      <a href="#/dashboard"  data-route="dashboard">Dashboard</a>
+      <a href="#/briefs"     data-route="briefs">Briefs</a>
+      <a href="#/plans"      data-route="plans">Plans</a>
+      <a href="#/tasks"      data-route="tasks">Tasks</a>
+      <a href="#/streams"    data-route="streams">Streams</a>
+      <a href="#/approvals"  data-route="approvals">Approvals</a>
+      <a href="#/config"     data-route="config">Config</a>
+      <a href="#/activity"   data-route="activity">Activity</a>
+      <a href="#/rebuild"    data-route="rebuild">Rebuild</a>
+    </nav>
+    <main id="page">
+      <p class="muted">loading…</p>
+    </main>
+  </div>
+  <div id="toasts" aria-live="polite"></div>
+  <dialog id="auth-dialog">
+    <form method="dialog">
+      <h2>Operator token required</h2>
+      <p>Paste the token printed on the launcher's stderr ("WebUI ready at … ?token=…").</p>
+      <input id="auth-input" type="text" placeholder="operator token" autocomplete="off" />
+      <button id="auth-save" type="submit" class="btn primary">Save</button>
+    </form>
+  </dialog>
+  <script src="/static/app.js?v=c97-envfaithful" defer></script>
+</body>
+</html>

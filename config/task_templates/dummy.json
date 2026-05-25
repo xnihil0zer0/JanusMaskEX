@@ -1,0 +1,48 @@
+{
+  "source_brief_path": "path/to/brief.md",
+  "source_brief_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "part": 1,
+  "description": "Schema v2.1 canonical template. Replace source_brief_path + source_brief_sha256 with the actual brief reference before use.",
+  "title": "Example Plan",
+  "prefix": "EXAMPLE",
+  "tasks": [
+    {
+      "task_id": "EXAMPLE-001",
+      "title": "Example task",
+      "meta_task_type": "data_model",
+      "priority": "critical",
+      "dependencies": [],
+      "files_touched": [],
+      "acceptance_criteria": [],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "true",
+      "spec": {
+        "objective": "Example objective",
+        "functional_requirements": [],
+        "interfaces": "",
+        "edge_cases": [],
+        "non_goals": [],
+        "implementation_notes": ""
+      },
+      "test_spec": {
+        "unit_tests": [],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [],
+        "minimum_test_count": 0,
+        "test_data_requirements": ""
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 0,
+        "note": ""
+      },
+      "attribution_metadata": {
+        "proposed_by": null,
+        "reconciled": false,
+        "diff_resolution": ""
+      }
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "tasks": [
+    {
+      "task_id": "T-004",
+      "meta_task_type": "feature",
+      "test_spec": {
+        "minimum_test_count": 5,
+        "unit_tests": [
+          {"name": "test_under_a"},
+          {"name": "test_under_b"},
+          {"name": "test_under_c"}
+        ]
+      }
+    },
+    {
+      "task_id": "T-005",
+      "meta_task_type": "feature",
+      "test_spec": {}
+    },
+    {
+      "task_id": "T-006",
+      "meta_task_type": "feature",
+      "test_spec": {
+        "minimum_test_count": 1,
+        "unit_tests": [
+          {"name": "test_missing_typo"}
+        ]
+      }
+    }
+  ]
+}

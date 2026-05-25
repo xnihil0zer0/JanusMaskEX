@@ -1,0 +1,149 @@
+{
+  "model": {
+    "name": "gemini-3.1-pro-preview"
+  },
+  "tools": {
+    "exclude": [
+      "run_shell_command",
+      "glob",
+      "grep_search",
+      "list_directory",
+      "read_file",
+      "read_many_files",
+      "replace",
+      "write_file",
+      "ask_user",
+      "write_todos",
+      "activate_skill",
+      "get_internal_docs",
+      "save_memory",
+      "enter_plan_mode",
+      "exit_plan_mode",
+      "complete_task",
+      "google_web_search",
+      "web_fetch",
+      "cli_help"
+    ]
+  },
+  "mcpServers": {},
+  "general": {
+    "defaultApprovalMode": "auto_edit"
+  },
+  "security": {
+    "folderTrust": {
+      "enabled": true
+    }
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "name": "janusmask-session-start",
+            "command": "python3 -m harness.hooks.gemini.session_start",
+            "timeout": 15000
+          }
+        ]
+      }
+    ],
+    "BeforeModel": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "name": "janusmask-user-prompt",
+            "command": "python3 -m harness.hooks.gemini.user_prompt_submit",
+            "timeout": 10000
+          }
+        ]
+      }
+    ],
+    "BeforeTool": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "name": "janusmask-pre-tool",
+            "command": "python3 -m harness.hooks.gemini.pre_tool",
+            "timeout": 30000
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "^(write_file|replace)$",
+        "hooks": [
+          {
+            "type": "command",
+            "name": "janusmask-post-tool",
+            "command": "python3 -m harness.hooks.gemini.post_tool",
+            "timeout": 15000
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "name": "janusmask-session-end",
+            "command": "python3 -m harness.hooks.gemini.stop",
+            "timeout": 10000
+          }
+        ]
+      }
+    ]
+  },
+  "experimental": {
+    "dynamicModelConfiguration": true
+  },
+  "modelConfigs": {
+    "modelIdResolutions": {
+      "gemini-2.5-flash": {
+        "default": "gemini-3.1-pro-preview"
+      },
+      "gemini-2.5-flash-lite": {
+        "default": "gemini-3.1-pro-preview"
+      },
+      "gemini-2.5-flash-8b": {
+        "default": "gemini-3.1-pro-preview"
+      },
+      "gemini-2.0-flash": {
+        "default": "gemini-3.1-pro-preview"
+      }
+    },
+    "modelChains": {
+      "default": [
+        {
+          "model": "gemini-3-flash-preview",
+          "actions": {
+            "terminal": "fallback",
+            "transient": "fallback"
+          }
+        },
+        {
+          "model": "gemini-2.5-pro",
+          "actions": {
+            "terminal": "fallback",
+            "transient": "fallback"
+          }
+        },
+        {
+          "model": "gemini-3.1-pro-preview",
+          "isLastResort": true,
+          "actions": {
+            "terminal": "fallback",
+            "transient": "fallback"
+          }
+        }
+      ]
+    }
+  }
+}

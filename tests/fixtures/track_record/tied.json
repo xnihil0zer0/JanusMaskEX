@@ -1,0 +1,14 @@
+{
+  "spec_authorship": {
+    "claude": {
+      "test_e2e": {"attempts": 10, "failures": 5}
+    },
+    "gemini": {
+      "test_e2e": {"attempts": 10, "failures": 5}
+    }
+  },
+  "synthesis": {
+    "claude": {},
+    "gemini": {}
+  }
+}

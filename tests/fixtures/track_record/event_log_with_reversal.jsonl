@@ -1,0 +1,2 @@
+{"ts": 1000, "event_id": "uuid-1", "agent": "claude", "event_type": "spec_authorship", "key": "test_e2e", "failures": 1}
+{"ts": 1001, "event_id": "uuid-2", "agent": "gemini", "event_type": "spec_authorship", "key": "tool_config", "failures": 0, "reversed": true, "reversal_reason": "flaky test"}

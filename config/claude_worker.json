@@ -1,0 +1,58 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash",
+      "Edit",
+      "Write",
+      "WebFetch",
+      "WebSearch",
+      "Agent",
+      "NotebookEdit",
+      "TodoRead",
+      "TodoWrite",
+      "AskUserQuestion",
+      "TaskCreate",
+      "TaskGet",
+      "TaskList",
+      "TaskUpdate",
+      "TaskStop",
+      "TaskOutput",
+      "EnterPlanMode",
+      "ExitPlanMode",
+      "EnterWorktree",
+      "ExitWorktree",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "RemoteTrigger",
+      "Skill",
+      "ToolSearch",
+      "SendMessage",
+      "CompleteTask",
+      "SaveMemory",
+      "GoogleWebSearch",
+      "mcp_masfactory_execute_masfactory_code",
+      "mcp_masfactory_run_masfactory_script",
+      "activate_skill"
+    ],
+    "allow": [
+      "mcp__janusmask__execute",
+      "Read",
+      "Glob",
+      "Grep"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PROJECT_DIR}/harness/hook_pre_tool.py"
+          }
+        ]
+      }
+    ]
+  }
+}

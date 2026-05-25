@@ -1,0 +1,14 @@
+[
+  "test_e2e",
+  "test_integration",
+  "test_unit",
+  "docs_reference",
+  "docs_user",
+  "tool_config",
+  "config_schema",
+  "analysis_script",
+  "harness_core",
+  "orchestrator_logic",
+  "benchmark_harness",
+  "chaos_injection"
+]

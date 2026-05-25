@@ -1,0 +1,118 @@
+synthesis:
+  timeout_seconds: 600
+  max_ast_retries: 3
+  max_clarification_requests: 2
+  clarification_timeout_sec: 60
+  active_agents:
+    - claude
+    - gemini
+  antigravity_mode: true
+
+fuzzing:
+  engine: hypothesis
+  function_level_inputs: 2000
+  program_level_inputs: 1000
+  timeout_per_input_ms: 5000
+  float_tolerance: 1.0e-9
+  seed: 42
+
+sandbox:
+  memory_limit_mb: 256
+  cpu_time_limit_seconds: 10
+  network: false
+  filesystem_root: /tmp/janusmask_sandbox
+
+cross_examination:
+  max_rounds: 1
+  anonymize: true
+  strip_comments: true
+  normalize_variables: true
+
+decomposition:
+  max_depth: 2
+  max_subtasks: 5
+  fresh_instances: true
+
+test_author:
+  review_pass: true
+
+agents:
+  antigravity:
+    command: agy
+    args:
+      - "-p"
+      - "--dangerously-skip-permissions"
+      - "--sandbox"
+  claude:
+    command: claude
+    args:
+      - "-p"
+      - "--model"
+      - "opus"
+      - "--output-format"
+      - "stream-json"
+      - "--include-partial-messages"
+      - "--settings"
+      - "${CONFIG_DIR}/claude_worker.json"
+      - "--mcp-config"
+      - "${CONFIG_DIR}/claude_mcp.json"
+      - "--strict-mcp-config"
+      - "--setting-sources"
+      - ""
+  gemini:
+    command: gemini
+    args:
+      - "-p"
+      - "--model"
+      - "gemini-3.1-pro-preview"
+      - "-o"
+      - "stream-json"
+      - "--admin-policy"
+      - "${CONFIG_DIR}/gemini_worker_policy.toml"
+      - "--allowed-mcp-server-names"
+      - "janusmask"
+      - "--approval-mode"
+      - "yolo"
+
+batch_execution:
+  enabled: true
+  seccomp: true
+  # rlimit_nproc is unsafe if set because it breaks Python threading on Linux (see test_nproc.py)
+  rlimit_nproc: null
+  wall_timeout_per_input_sec: 5.0
+  worker_pool_size: 1
+  batch_size_per_worker: 2000
+
+hooks:
+  # HOOK-50 flipped off → shadow for P5 shadow stage; HOOK-53 will widen to enforce once per-verb canaries pass. See tests/hooks/unit/test_hooks_config.py::test_config_yaml_mode_is_shadow_during_p5.
+  mode: "shadow"           # off | shadow | enforce
+  enforce_verbs: []         # subset of
+                            # {submit_code, submit_plan_draft, submit_reconciliation_response,
+                            #  request_clarification, report_error}
+  shadow_dir: "state/hooks/shadow/"
+  # HOOK-52: minimum consecutive clean equiv-report runs required before the
+  # P5 canary flip (per-verb enforce) is permitted. Sub-plan 06 §1.
+  shadow_min_clean_runs: 3
+
+# E4: WebUI v2 HITL control plane. Default values are no-op — the
+# orchestrator behaves bit-identically to pre-E4 when require_approval is
+# empty. See docs/runbooks/webui-frontend.md (E7).
+control:
+  require_approval: []           # phases: synthesis, accepted, rejected, decomposition
+  approval_timeout_sec: 1800     # 30 min before auto-reject
+  pause_flag_path: state/control/orchestrator.flag
+  decisions_dir: state/control/decisions
+  autobrief_timeout_sec: 180
+  autobrief_default_agent: "claude"
+  autobrief_max_rough_draft_bytes: 16384
+
+autowork:
+  enabled: false
+  parallel_cap: 4
+  poll_interval_sec: 5
+  heartbeat_sec: 1800
+  planner_timeout_sec: 180
+  planner_min_wall_sec: 10.0
+  brief_max_size_bytes: 50000
+  brief_max_age_seconds: 604800
+  conservative_missing_files: true
