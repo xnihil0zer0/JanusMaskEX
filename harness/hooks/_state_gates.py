@@ -67,7 +67,15 @@ def current_phase(state: dict[str, Any] | None=None) -> str:
     return 'synthesis'
 
 def current_task_id(state: dict[str, Any] | None=None) -> str:
-    raise NotImplementedError
+    env_task_id = os.environ.get('JANUSMASK_TASK_ID')
+    if env_task_id is not None:
+        return str(env_task_id)
+    if state is None:
+        state = read_state_besteffort()
+    val = state.get('task_id')
+    if val is not None:
+        return str(val)
+    return 'default'
 
 def submissions_count(session_id: str, agent: str | None=None) -> int:
     raise NotImplementedError
