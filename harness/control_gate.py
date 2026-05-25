@@ -73,7 +73,16 @@ def require_approval_for(phase: str, config: dict[str, Any]) -> bool:
 
 def _read_decision(path: Path) -> Optional[dict]:
     """Return decision dict if present + parseable; None on absent/corrupt."""
-    raise NotImplementedError
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(errors='replace'))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError, ValueError) as e:
+        logger.warning('decision file %s corrupt: %s', path, e)
+        return None
+    if not isinstance(data, dict) or 'decision' not in data:
+        return None
+    return data
 
 def await_decision(state_dir: Path, task_id: str, phase: str, config: dict[str, Any], *, emit_pending: Optional[Callable]=None, emit_timeout: Optional[Callable]=None, poll_interval: float=_DECISION_POLL_INTERVAL, timeout: Optional[float]=None) -> str:
     """Block until ``state/control/decisions/{task_id}.json`` exists.
