@@ -55,7 +55,7 @@ def _work_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib
     return (_paths.state_dir() / 'workdirs' / actual_agent / actual_session).resolve()
 
 def _inbox_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path:
-    raise NotImplementedError
+    return _work_dir(session_id, agent=agent) / 'inbox'
 
 def _outbox_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path:
     raise NotImplementedError
@@ -83,3 +83,5 @@ def _ensure_workdir_skeleton(session_id: str | None=None, *, agent: str | None=N
     """Create outbox/ and ledger/ if absent; inbox stays orchestrator-owned."""
     _outbox_dir(session_id, agent=agent).mkdir(parents=True, exist_ok=True)
     _ledger_dir(session_id, agent=agent).mkdir(parents=True, exist_ok=True)
+from harness.hooks import _paths
+from harness.hooks._env import _resolve_agent
