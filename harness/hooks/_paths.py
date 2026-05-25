@@ -44,7 +44,7 @@ def state_dir() -> pathlib.Path:
     return (project_dir() / 'state').resolve()
 
 def agent() -> str:
-    raise NotImplementedError
+    return os.environ.get('JANUSMASK_AGENT', 'gemini')
 
 def mode() -> str:
     raise NotImplementedError
