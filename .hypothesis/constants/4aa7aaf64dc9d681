@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/narrow_fuzz/validation.py
+# hypothesis_version: 6.152.9
+
+[5.0, 200, '1']

@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/rebuild/deps.py
+# hypothesis_version: 6.152.9
+
+['#', '\'"', '*.py', '-', '.', '.eggs', '.git', '.hg', '.mypy_cache', '.pytest_cache', '.tox', '.venv', '[-_.]+', '\\s+#', '__pycache__', 'build', 'dependencies', 'dist', 'install_requires', 'node_modules', 'options', 'poetry', 'project', 'pyproject.toml', 'python', 'replace', 'requirements*.txt', 'requirements.lock', 'setup.cfg', 'setup.py', 'state', 'tool', 'utf-8', 'venv']

@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/brief_status.py
+# hypothesis_version: 6.152.9
+
+[604800, '.json', '_', 'accepted', 'allowlist_missing', 'allowlist_present', 'autowork', 'blocked', 'brief', 'brief_', 'brief_*.md', 'complete', 'control', 'detail', 'eligible', 'eligible_count', 'eligible_with_work', 'has_plan', 'has_unfinished_work', 'impl_progress.jsonl', 'in_progress', 'mtime', 'not_allowlisted', 'phase', 'plan_', 'planned', 'reason', 'remaining', 'slug', 'stale', 'state', 'task_id', 'tasks', 'total', 'unplanned', 'utf-8']

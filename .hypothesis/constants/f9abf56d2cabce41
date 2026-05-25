@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/rpc/clarification.py
+# hypothesis_version: 6.152.9
+
+['acknowledged', 'agent_identity', 'clarification_number', 'message', 'question', 'round_number', 'session_id', 'sessions', 'status', 'timestamp', 'utf-8', 'w']

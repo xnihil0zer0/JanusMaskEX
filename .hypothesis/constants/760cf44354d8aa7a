@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/planner/adversarial_review.py
+# hypothesis_version: 6.152.9
+
+[0.5, 1800, 'Critique the plan.', 'JANUSMASK_MODE', '__critique__', '_work_dir', 'agents', 'bad_spec_author', 'category', 'claude', 'command', 'critique.json', 'critique_prompt.md', 'current_diff.json', 'dependency_cycle', 'diff_item_id', 'env', 'error', 'finding_id', 'findings', 'inflated_benchmark', 'info', 'items', 'message', 'missing_edge_case', 'other', 'outbox', 'planning', 'prompts', 'python', 'r', 'reconciliation', 'reconciliation.json', 'sessions', 'severity', 'suggested_patch', 'synthetic_failure', 'test_heavy_violation', 'utf-8', 'w', 'warn']

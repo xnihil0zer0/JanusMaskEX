@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/track_record_events.py
+# hypothesis_version: 6.152.9
+
+['%Y-%m-%dT%H:%M:%SZ', 'agent', 'ambiguous_spec', 'antigravity', 'ast_rejection', 'attempts', 'book', 'claude', 'clean_success', 'decomposition', 'delta', 'event_id', 'event_type', 'failures', 'fuzz_round1_fail', 'gemini', 'r', 'refactor', 'reversal_reason', 'reversed', 'spec_authorship', 'synthesis', 'task_id', 'timestamp', 'track_record.lock', 'type']

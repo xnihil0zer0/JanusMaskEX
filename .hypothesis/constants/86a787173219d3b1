@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/_env.py
+# hypothesis_version: 6.152.9
+
+['JANUSMASK_SESSION_ID', 'JANUSMASK_WORK_DIR', 'brief.json', 'diff_summary.json', 'inbox', 'ledger', 'nosession', 'outbox', 'planning', 'reconciliation', 'synthesis', 'task.json', 'workdirs']

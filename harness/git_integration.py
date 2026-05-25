@@ -270,9 +270,19 @@ def _ast_merge(output_code: str, target_code: str) -> str:
         """
         if depth > 5:
             return agent_class
+        base_assigned_names = set()
+        for node in target_class.body:
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                base_assigned_names.update(_bound_names(node))
+
         agent_keyed = {}
         agent_no_key = []
         for i, node in enumerate(agent_class.body):
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], (ast.Tuple, ast.List)):
+                overlay_names = set(_bound_names(node))
+                if overlay_names & base_assigned_names:
+                    continue
+
             key = _node_key(node)
             if key is not None:
                 agent_keyed[key] = node
@@ -324,9 +334,19 @@ def _ast_merge(output_code: str, target_code: str) -> str:
         if unmatched:
             logging.getLogger(__name__).warning('JANUSMASK_DELETE directive: unmatched names %s', sorted(unmatched))
     tgt_tree.body = _expand_imports(tgt_tree.body)
+    base_assigned_names = set()
+    for node in tgt_tree.body:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            base_assigned_names.update(_bound_names(node))
+
     out_nodes = {}
     out_no_key = []
     for i, node in enumerate(out_tree.body):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], (ast.Tuple, ast.List)):
+            overlay_names = set(_bound_names(node))
+            if overlay_names & base_assigned_names:
+                continue
+
         key = _node_key(node)
         if key is not None:
             out_nodes[key] = node

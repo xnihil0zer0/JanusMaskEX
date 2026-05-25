@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/planner/cli.py
+# hypothesis_version: 6.152.9
+
+['--bootstrap', '--config', '--dry-run', '--non-bootstrap', '--output-critique', '--output-plan', 'Planning CLI driver', '__main__', 'adversarial_review', 'attribution_stamp', 'auto_amend_gate', 'blind_drafts', 'bootstrap', 'brief', 'diff', 'harness.track_record', 'harness/config.yaml', 'kind', 'load_brief', 'persist_plan', 'planning', 'reconciliation', 'sha256', 'source_brief_path', 'source_brief_sha256', 'source_path', 'stage', 'state', 'store_false', 'store_true', 'tasks', 'tracker_record', 'ts', 'utf-8', 'w']

@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/claude/user_prompt_submit.py
+# hypothesis_version: 6.152.9
+
+['UserPromptSubmit', '__main__', 'additionalContext', 'allow', 'brief', 'brief.json', 'claude', 'cross_examination', 'decision', 'diff_summary', 'diff_summary.json', 'error', 'feedback.json', 'feedback_read', 'hookEventName', 'hookSpecificOutput', 'invalid', 'json_decode_error', 'label', 'mode', 'path', 'planning', 'reason', 'reconciliation', 'session_id', 'synthesis', 'task', 'task.json', 'task_read', 'utf-8']

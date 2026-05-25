@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/hook_pre_tool.py
+# hypothesis_version: 6.152.9
+
+['__main__', 'allow', 'deny', 'hook_event_name']

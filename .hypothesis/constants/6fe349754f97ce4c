@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/_state_gates.py
+# hypothesis_version: 6.152.9
+
+['JANUSMASK_MODE', 'JANUSMASK_TASK_ID', 'STATE.json', 'allow', 'called', 'clarification', 'default', 'mock_calls', 'phase', 'plan_draft', 'reconciliation', 'return_value', 'round', 'submission', 'synthesis', 'task_id', 'utf-8']

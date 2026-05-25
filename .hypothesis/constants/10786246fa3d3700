@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/state.py
+# hypothesis_version: 6.152.9
+
+['CLAUDE_STATE_DIR', 'JANUSMASK_STATE_DIR', 'accepted', 'antigravity', 'antigravity_status', 'ast_validation', 'children', 'claude', 'claude_status', 'cross_exam_round', 'cross_examination', 'decomposed', 'decomposition', 'error', 'fuzz_results', 'fuzzing', 'gemini', 'gemini_status', 'idle', 'parent_task', 'pending', 'phase', 'r', 'rejected', 'round', 'running', 'submitted', 'synthesis', 'task_id', 'timeout', 'w']

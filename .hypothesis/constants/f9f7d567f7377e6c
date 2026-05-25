@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/track_record_events.py
+# hypothesis_version: 6.152.9
+
+['ambiguous_spec', 'antigravity', 'ast_rejection', 'claude', 'clean_success', 'decomposition', 'fuzz_round1_fail', 'gemini', 'refactor', 'spec_authorship', 'synthesis', 'track_record.lock']

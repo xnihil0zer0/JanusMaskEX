@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/rebuild/task.py
+# hypothesis_version: 6.152.9
+
+['    ]', ' --str-ascii', " here>'''},", ' or ', "'", '.', '.py', '/', 'Target signature:', '_', 'constraints', 'files_touched', 'function_signature', 'fuzz_str_ascii', 'harness_plumbing', 'impure', 'meta_task_type', 'needs_deps', 'partial_edit', 'python', 'rel_import', 'self_mutating', 'specification', 'task_id', 'unfuzzable', 'untyped', 'utf-8', 'verification_command', 'whole_class', '{unit}']

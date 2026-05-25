@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/claude/session_start.py
+# hypothesis_version: 6.152.9
+
+[', ', 'SessionStart', '__main__', 'additionalContext', 'allow', 'claude', 'continue', 'deny', 'hookEventName', 'hookSpecificOutput', 'mode', 'reason', 'session_id', 'session_start', 'source', 'stopReason']

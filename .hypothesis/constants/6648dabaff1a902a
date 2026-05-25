@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/_common.py
+# hypothesis_version: 6.152.9
+
+['additionalContext', 'allow', 'decision', 'deny', 'reason', 'tool_input']

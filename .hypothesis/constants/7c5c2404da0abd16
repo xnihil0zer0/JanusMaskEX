@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/brief_status.py
+# hypothesis_version: 6.152.9
+
+[0.0, 604800, '#', '_archive', '_critique.json', 'accepted', 'allowlist_missing', 'allowlist_present', 'allowlist_slugs', 'auto_commit', 'autowork', 'blocked', 'blocked_count', 'brief_filename', 'brief_hooks_', 'brief_hooks_*.md', 'brief_mtime', 'commit_sha', 'complete', 'control', 'detail', 'dispatchable', 'eligible', 'eligible_count', 'eligible_with_work', 'event', 'has_plan', 'has_unfinished_work', 'impl_progress.jsonl', 'in_flight', 'max_age_sec', 'not_in_allowlist', 'parked', 'phase', 'plan_filename', 'planned', 'processed', 'processed_unaccepted', 'processing', 'queued', 'r', 'reason', 'remaining', 'slug', 'stale', 'state', 'task_id', 'task_ids', 'tasks', 'ts', 'unplanned', 'unstaged_task_ids', 'utf-8']

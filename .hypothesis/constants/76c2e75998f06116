@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMask/scripts/impl_normalize_priority.py
+# hypothesis_version: 6.152.9
+
+['+', '--check', '.', '?', 'Critical', 'High', 'Low', 'Medium', 'P0', 'P1', 'P2', 'P3', '__main__', 'changed', 'critical', 'dry_run', 'error', 'file', 'high', 'low', 'mapped', 'medium', 'no files matched', 'not_found', 'ok', 'parse_error', 'paths', 'priority', 'status', 'store_true', 'task_id', 'type', 'unmapped', 'unmapped_values', 'utf-8', '~']

@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/planner/attribution.py
+# hypothesis_version: 6.152.9
+
+['attribution', 'attribution_metadata', 'claude', 'convergent', 'diff_kind', 'diff_resolution', 'gemini', 'kind', 'payload', 'planning', 'proposed_by', 'reconciled', 'spec', 'spec_author', 'state', 'task_id', 'ts']

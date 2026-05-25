@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/claude/stop.py
+# hypothesis_version: 6.152.9
+
+['Stop', '__main__', 'allow', 'claude', 'deny', 'mode', 'outbox/submission.py', 'plan_draft', 'planning', 'reason', 'reconciliation', 'session_end', 'session_id', 'stop_hook_active', 'submit_code', 'synthesis']

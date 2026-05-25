@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/ast_enforcer.py
+# hypothesis_version: 6.152.9
+
+['\n    pass\n', '.', 'Dict', 'FrozenSet', 'List', 'Optional', 'Set', 'Tuple', 'Type', 'Union', '__import__', '_in_except_handler', 'bare_except', 'call', 'check', 'datetime', 'dict', 'error', 'eval', 'exec', 'frozenset', 'harness.ast_enforcer', 'incomplete_ast', 'key', 'list', 'nondeterminism', 'now', 'open', 'os', 'os_system', 'password', 'print', 'random', 'return_type_mismatch', 'run', 'secret', 'security', 'set', 'side_effect', 'stdout', 'subprocess', 'subprocess_no_check', 'syntax', 'sys', 'system', 'time', 'tuple', 'type', 'typing', 'unbounded_recursion', 'urandom', 'uuid', 'warning', 'write']

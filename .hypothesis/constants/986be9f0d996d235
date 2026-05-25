@@ -1,0 +1,4 @@
+# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/_state_gates.py
+# hypothesis_version: 6.152.9
+
+['STATE.json', 'allow', 'clarification', 'phase', 'plan_draft', 'reconciliation', 'round', 'submit_code', 'task_id', 'utf-8']
