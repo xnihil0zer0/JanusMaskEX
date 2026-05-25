@@ -495,14 +495,12 @@ class _RedundantPassRemover(ast.NodeTransformer):
         return [ast.Pass()]
 
     def generic_visit(self, node: ast.AST) -> ast.AST:
-        for field, value in ast.iter_fields(node):
-            if isinstance(value, list):
-                setattr(node, field, self._clean_body(value))
-        if isinstance(self, ast.NodeTransformer):
-            return super().generic_visit(node)
-        if not hasattr(self, 'visit'):
-            self.visit = lambda n: ast.NodeTransformer.visit(self, n)
-        return ast.NodeTransformer.generic_visit(self, node)
+        for field in ('body', 'handlers', 'orelse', 'finalbody'):
+            if hasattr(node, field):
+                val = getattr(node, field)
+                if isinstance(val, list):
+                    setattr(node, field, self._clean_body(val))
+        return super().generic_visit(node)
 
 class _ImportSorter(ast.NodeTransformer):
     """Sort import statements alphabetically within their contiguous groups."""
