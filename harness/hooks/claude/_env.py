@@ -39,7 +39,7 @@ def ledger_dir(session_id: str | None=None) -> pathlib.Path:
     return harness.hooks._env._ledger_dir(session_id=session_id, agent='claude')
 
 def expected_inbox_files(mode: str) -> tuple[str, ...]:
-    raise NotImplementedError
+    return harness.hooks._env._expected_inbox_files(mode)
 
 def inbox_ready(mode: str, session_id: str | None=None) -> bool:
     """True iff at least one expected inbox file exists for `mode`.
