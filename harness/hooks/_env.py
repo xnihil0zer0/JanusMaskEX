@@ -64,7 +64,8 @@ def _ledger_dir(session_id: str | None=None, *, agent: str | None=None) -> pathl
     return _work_dir(session_id, agent=agent) / 'ledger'
 
 def _expected_inbox_files(mode: str) -> tuple[str, ...]:
-    raise NotImplementedError
+    """Return the expected inbox files for the given mode."""
+    return _INBOX_EXPECTATIONS.get(mode, ())
 
 def _inbox_ready(mode: str, session_id: str | None=None, *, agent: str | None=None) -> bool:
     """True iff at least one expected inbox file exists for ``mode``.
