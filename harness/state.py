@@ -23,10 +23,10 @@ def _default_state_dir() -> Path:
     return STATE_DIR.resolve()
 
 def _state_file(state_dir: Path) -> Path:
-    raise NotImplementedError
+    return state_dir / 'STATE.json'
 
 def _lock_file(state_dir: Path) -> Path:
-    raise NotImplementedError
+    return state_dir / 'state.lock'
 
 def _ensure_paths(state_dir: Path) -> None:
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -79,24 +79,63 @@ class InvalidAgentStatusError(StateError):
     pass
 
 def locked_read_modify_write(modifier_fn: Callable[[dict[str, Any]], dict[str, Any]], state_dir: Path | None=None) -> dict[str, Any]:
-    raise NotImplementedError
+    if state_dir is None:
+        state_dir = _default_state_dir()
+    _ensure_paths(state_dir)
+    state_path = state_dir / 'STATE.json'
+    lock_path = state_dir / 'state.lock'
+    with open(lock_path, 'a') as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        state = _read_state_from_disk(state_path)
+        new_state = modifier_fn(state)
+        _write_state_to_disk(state_path, new_state)
+        return new_state
 
 def read_state(state_dir: Path | None=None) -> dict[str, Any]:
-    raise NotImplementedError
+    if state_dir is None:
+        state_dir = _default_state_dir()
+    state_path = _state_file(state_dir)
+    return _read_state_from_disk(state_path)
 
 def init_state(state_dir: Path | None=None) -> dict[str, Any]:
-    raise NotImplementedError
+    if state_dir is None:
+        state_dir = _default_state_dir()
+    _ensure_paths(state_dir)
+    lock_path = _lock_file(state_dir)
+    with open(lock_path, 'a') as f:
+        pass
+    state_path = _state_file(state_dir)
+    _write_state_to_disk(state_path, INITIAL_STATE)
+    return INITIAL_STATE
 
 def set_phase(state_dir: Path | None=None, *, phase: str) -> dict[str, Any]:
-    raise NotImplementedError
+    if phase not in VALID_PHASES:
+        raise InvalidPhaseError(f'Invalid phase: {phase}')
+
+    def _mod(s):
+        s['phase'] = phase
+        return s
+    return locked_read_modify_write(_mod, state_dir)
 
 def set_agent_status(state_dir: Path | None=None, *, agent: str, status: str) -> dict[str, Any]:
-    raise NotImplementedError
+    if agent not in VALID_AGENTS:
+        raise InvalidAgentError(f'Invalid agent: {agent}')
+    if status not in VALID_AGENT_STATUSES:
+        raise InvalidAgentStatusError(f'Invalid status: {status}')
+
+    def _mod(s):
+        s[f'{agent}_status'] = status
+        return s
+    return locked_read_modify_write(_mod, state_dir)
 
 def get_phase(state_dir: Path | None=None) -> str:
-    raise NotImplementedError
+    state = read_state(state_dir)
+    return state.get('phase', 'idle')
 
 def get_agent_status(state_dir: Path | None=None, *, agent: str) -> str:
-    raise NotImplementedError
+    if agent not in VALID_AGENTS:
+        raise InvalidAgentError(f'Invalid agent: {agent}')
+    state = read_state(state_dir)
+    return state.get(f'{agent}_status', 'pending')
 from harness.state import StateCorruptError
 from harness.state import StateMissingError
