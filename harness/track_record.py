@@ -26,7 +26,7 @@ def _track_record_file(state_dir: Path) -> Path:
     return state_dir / 'planner_track_record.json'
 
 def _lock_file(state_dir: Path) -> Path:
-    raise NotImplementedError
+    return state_dir / 'track_record.lock'
 
 def _read_track_record_from_disk(path: Path) -> dict[str, Any]:
     raise NotImplementedError
