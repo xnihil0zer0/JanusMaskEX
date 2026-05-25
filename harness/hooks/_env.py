@@ -73,7 +73,11 @@ def _inbox_ready(mode: str, session_id: str | None=None, *, agent: str | None=No
     Unknown modes return False so the caller can surface a loud stop
     reason rather than silently continuing with an unstaged worker.
     """
-    raise NotImplementedError
+    expected = _expected_inbox_files(mode)
+    if not expected:
+        return False
+    base = _inbox_dir(session_id, agent=agent)
+    return any(((base / name).is_file() for name in expected))
 
 def _ensure_workdir_skeleton(session_id: str | None=None, *, agent: str | None=None) -> None:
     """Create outbox/ and ledger/ if absent; inbox stays orchestrator-owned."""
