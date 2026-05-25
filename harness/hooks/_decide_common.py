@@ -188,7 +188,44 @@ def decide_error_report(ctx: DeciderContext, content: str) -> dict[str, Any]:
     return harness.hooks._common.decision_payload('allow')
 
 def decide_read_like(tool_input: dict[str, Any], allowed_roots: list[Any], *, path_keys: tuple[str, ...], tool_name_for_reason: str) -> dict[str, Any]:
-    raise NotImplementedError
+    """Shared read-dispatch gate.
+
+    1. Pick a path: walk path_keys in order and take str(val) of the
+       first key whose value in tool_input is truthy.
+    2. If no truthy path key is found, the call is allowed unconditionally.
+    3. Otherwise, allow iff the chosen path is a safe subpath of any of the
+       allowed_roots (each stringified before the check).
+    4. If it is under none of them, deny with a reason that cites
+       tool_name_for_reason and the offending path verbatim, followed by a
+       fixed list of human-readable allowed-root names.
+    """
+    chosen_path: str | None = None
+    for key in path_keys:
+        val = tool_input.get(key)
+        if val:
+            chosen_path = str(val)
+            break
+    _comm = globals().get('_common', harness.hooks._common)
+    if _comm is not harness.hooks._common:
+
+        def make_decision(decision: str, reason: str='') -> dict[str, Any]:
+            return _comm.decision_payload(decision, reason=reason)
+    else:
+
+        def make_decision(decision: str, reason: str='') -> dict[str, Any]:
+            return harness.hooks._common.decision_payload(decision, reason=reason)
+    if chosen_path is None:
+        return make_decision('allow')
+    allowed = False
+    for root in allowed_roots:
+        if is_safe_subpath(chosen_path, str(root)):
+            allowed = True
+            break
+    if allowed:
+        return make_decision('allow')
+    else:
+        reason = f'{tool_name_for_reason} path outside allowed roots: {chosen_path}. Allowed roots: JANUSMASK_WORK_DIR, $STATE_DIR, project docs/, project briefs/.'
+        return make_decision('deny', reason=reason)
 import sys
 import types
 try:
