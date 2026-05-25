@@ -81,4 +81,5 @@ def _inbox_ready(mode: str, session_id: str | None=None, *, agent: str | None=No
 
 def _ensure_workdir_skeleton(session_id: str | None=None, *, agent: str | None=None) -> None:
     """Create outbox/ and ledger/ if absent; inbox stays orchestrator-owned."""
-    raise NotImplementedError
+    _outbox_dir(session_id, agent=agent).mkdir(parents=True, exist_ok=True)
+    _ledger_dir(session_id, agent=agent).mkdir(parents=True, exist_ok=True)
