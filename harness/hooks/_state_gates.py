@@ -97,7 +97,7 @@ def submissions_remaining(session_id: str, agent: str | None=None) -> int:
     return max(0, MAX_SUBMISSIONS - submissions_count(session_id, agent))
 
 def clarifications_remaining(session_id: str, agent: str | None=None) -> int:
-    raise NotImplementedError
+    return max(0, MAX_CLARIFICATIONS - clarifications_count(session_id, agent))
 import harness.hooks._paths
 import os
 import harness.hooks._ledger
