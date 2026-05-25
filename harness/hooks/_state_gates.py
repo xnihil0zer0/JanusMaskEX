@@ -78,7 +78,8 @@ def current_task_id(state: dict[str, Any] | None=None) -> str:
     return 'default'
 
 def submissions_count(session_id: str, agent: str | None=None) -> int:
-    raise NotImplementedError
+    events = harness.hooks._ledger.read_events(session_id, agent)
+    return harness.hooks._ledger.count_verb(events, 'submission', outcome='allow')
 
 def clarifications_count(session_id: str, agent: str | None=None) -> int:
     raise NotImplementedError
@@ -96,3 +97,4 @@ def clarifications_remaining(session_id: str, agent: str | None=None) -> int:
     raise NotImplementedError
 import harness.hooks._paths
 import os
+import harness.hooks._ledger
