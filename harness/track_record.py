@@ -1,241 +1,284 @@
 """Track record initialization and core types for JanusMask."""
+
 from __future__ import annotations
+
 import fcntl
 import json
 import os
 from pathlib import Path
 from typing import Any
-from harness.state import _default_state_dir
-from harness.state import _ensure_paths
-from harness.taxonomy import load_meta_task_taxonomy
-from harness.taxonomy import load_synthesis_target_taxonomy
+
+from harness.state import _default_state_dir, _ensure_paths
+from harness.taxonomy import (
+    load_meta_task_taxonomy,
+    load_synthesis_target_taxonomy,
+)
+
 
 class TrackRecordError(Exception):
     """Base exception for track record operations."""
     pass
 
+
 class TrackRecordCorruptError(TrackRecordError):
     """Raised when the track record file contains invalid JSON or unexpected schema."""
     pass
+
 
 class TrackRecordUnavailable(TrackRecordError):
     """Raised when the track record cannot be consulted (missing, corrupt, or unreadable)."""
     pass
 
+
 def _track_record_file(state_dir: Path) -> Path:
-    return state_dir / 'planner_track_record.json'
+    return state_dir / "planner_track_record.json"
+
 
 def _lock_file(state_dir: Path) -> Path:
-    return state_dir / 'track_record.lock'
+    return state_dir / "track_record.lock"
+
 
 def _read_track_record_from_disk(path: Path) -> dict[str, Any]:
     try:
-        content = path.read_text(encoding='utf-8')
-        data = json.loads(content)
+        with open(path, "r") as f:
+            data = json.load(f)
         if not isinstance(data, dict):
-            raise ValueError('Root element of track record is not a dictionary')
+            raise ValueError("Track record root is not a JSON object")
         return data
-    except FileNotFoundError:
-        raise
     except (json.JSONDecodeError, ValueError) as exc:
-        raise TrackRecordCorruptError(f'Corrupt track record file at {path}: {exc}') from exc
+        raise TrackRecordCorruptError(
+            f"Corrupt track record file at {path}: {exc}"
+        ) from exc
+
 
 def _write_track_record_to_disk(path: Path, record: dict[str, Any]) -> None:
-    temp_path = path.parent / f'{path.name}.tmp'
-    try:
-        with open(temp_path, 'w', encoding='utf-8') as f:
-            json.dump(record, f, indent=2)
-            f.write('\n')
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(temp_path, path)
-    except Exception:
-        if temp_path.exists():
-            try:
-                temp_path.unlink()
-            except Exception:
-                pass
-        raise
+    tmp_path = path.with_suffix(".json.tmp")
+    with open(tmp_path, "w") as f:
+        json.dump(record, f, indent=2)
+        f.write("\n")
+        f.flush()
+        os.fsync(f.fileno())
+    tmp_path.replace(path)
 
-def init_track_record(state_dir: Path | None=None) -> dict[str, Any]:
+
+def init_track_record(state_dir: Path | None = None) -> dict[str, Any]:
     """
     Initialize or update the planner_track_record.json idempotently.
     Reads current taxonomy versions, preserves existing counts, and zeroes new keys.
     """
-    if state_dir is None:
-        state_dir = harness.state._default_state_dir()
-    harness.state._ensure_paths(state_dir)
+    state_dir = state_dir or _default_state_dir()
+    _ensure_paths(state_dir)
     lock_path = _lock_file(state_dir)
-    with open(lock_path, 'a') as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        record_path = _track_record_file(state_dir)
+    record_path = _track_record_file(state_dir)
+
+    with open(lock_path, "a") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
         try:
-            record = _read_track_record_from_disk(record_path)
-        except FileNotFoundError:
-            record = {}
-        meta_tax = harness.taxonomy.load_meta_task_taxonomy(state_dir)
-        synth_tax = harness.taxonomy.load_synthesis_target_taxonomy(state_dir)
-        meta_keys = list(meta_tax['keys'].keys())
-        synth_keys = list(synth_tax['keys'].keys())
-        record['meta_task_taxonomy_version'] = meta_tax['version']
-        record['synthesis_target_taxonomy_version'] = synth_tax['version']
-        old_spec_authorship = record.get('spec_authorship')
-        if not isinstance(old_spec_authorship, dict):
-            old_spec_authorship = {}
-        new_spec_authorship = {}
-        all_agents = set(VALID_AGENTS)
-        for agent in old_spec_authorship:
-            if isinstance(agent, str):
-                all_agents.add(agent)
-        for agent in all_agents:
-            new_spec_authorship[agent] = {}
-            old_agent_data = old_spec_authorship.get(agent)
-            if not isinstance(old_agent_data, dict):
-                old_agent_data = {}
-            for mk in meta_keys:
-                if mk in old_agent_data and isinstance(old_agent_data[mk], dict):
-                    cell = old_agent_data[mk]
-                    new_spec_authorship[agent][mk] = {'failures': cell.get('failures', 0), 'attempts': cell.get('attempts', 0)}
-                else:
-                    new_spec_authorship[agent][mk] = {'failures': 0, 'attempts': 0}
-        record['spec_authorship'] = new_spec_authorship
-        old_synthesis = record.get('synthesis')
-        if not isinstance(old_synthesis, dict):
-            old_synthesis = {}
-        new_synthesis = {}
-        all_synthesis_agents = set(VALID_AGENTS)
-        for agent in old_synthesis:
-            if isinstance(agent, str):
-                all_synthesis_agents.add(agent)
-        for agent in all_synthesis_agents:
-            new_synthesis[agent] = {}
-            old_agent_data = old_synthesis.get(agent)
-            if not isinstance(old_agent_data, dict):
-                old_agent_data = {}
-            for sk in synth_keys:
-                if sk in old_agent_data and isinstance(old_agent_data[sk], dict):
-                    cell = old_agent_data[sk]
-                    new_synthesis[agent][sk] = {'failures': cell.get('failures', 0), 'attempts': cell.get('attempts', 0)}
-                else:
-                    new_synthesis[agent][sk] = {'failures': 0, 'attempts': 0}
-        record['synthesis'] = new_synthesis
-        _write_track_record_to_disk(record_path, record)
-        return record
+            # 1. Load taxonomy and get versions/keys
+            meta_tax = load_meta_task_taxonomy(state_dir)
+            synth_tax = load_synthesis_target_taxonomy(state_dir)
+
+            meta_version = meta_tax["version"]
+            synth_version = synth_tax["version"]
+            meta_keys = frozenset(meta_tax["keys"].keys())
+            synth_keys = frozenset(synth_tax["keys"].keys())
+
+            # 2. Read existing record or create new
+            if record_path.exists():
+                record = _read_track_record_from_disk(record_path)
+            else:
+                record = {
+                    "version": 1,
+                    "spec_authorship": {},
+                    "synthesis": {},
+                }
+            
+            # 3. Update taxonomy versions
+            record["meta_task_taxonomy_version"] = meta_version
+            record["synthesis_target_taxonomy_version"] = synth_version
+
+            if "spec_authorship" not in record:
+                record["spec_authorship"] = {}
+            if "synthesis" not in record:
+                record["synthesis"] = {}
+
+            agents = ["claude", "gemini", "antigravity"]
+
+            # 4. Fill missing agents and keys
+            for agent in agents:
+                # spec_authorship uses meta_task keys
+                if agent not in record["spec_authorship"]:
+                    record["spec_authorship"][agent] = {}
+                for mk in meta_keys:
+                    if mk not in record["spec_authorship"][agent]:
+                        record["spec_authorship"][agent][mk] = {"failures": 0, "attempts": 0}
+                
+                # synthesis uses synthesis_target keys
+                if agent not in record["synthesis"]:
+                    record["synthesis"][agent] = {}
+                for sk in synth_keys:
+                    if sk not in record["synthesis"][agent]:
+                        record["synthesis"][agent][sk] = {"failures": 0, "attempts": 0}
+
+            _write_track_record_to_disk(record_path, record)
+
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+
+    return record
+
 
 class InvalidAgentError(TrackRecordError):
     """Raised when an invalid agent is specified."""
     pass
-from harness.track_record_events import append_track_event
-from harness.taxonomy import validate_meta_task_type
-from harness.taxonomy import validate_synthesis_target_type
-from harness.taxonomy import UnknownTaxonomyKeyError
-from harness.track_record_events import EventValidationError
-VALID_AGENTS = frozenset({'claude', 'gemini', 'antigravity'})
 
-def _prepare_and_append(event_type: str, book: str, agent: str, type_key: str, task_id: str, delta: dict[str, int], state_dir: Path | None=None) -> tuple[Path, Path]:
+from harness.track_record_events import append_track_event
+from harness.taxonomy import validate_meta_task_type, validate_synthesis_target_type, UnknownTaxonomyKeyError
+from harness.track_record_events import EventValidationError
+
+VALID_AGENTS = frozenset({"claude", "gemini", "antigravity"})
+
+def _prepare_and_append(
+    event_type: str,
+    book: str,
+    agent: str,
+    type_key: str,
+    task_id: str,
+    delta: dict[str, int],
+    state_dir: Path | None = None,
+) -> tuple[Path, Path]:
     if agent not in VALID_AGENTS:
-        raise InvalidAgentError(f'Invalid agent: {agent}')
-    if book == 'spec_authorship':
-        harness.taxonomy.validate_meta_task_type(type_key)
+        raise InvalidAgentError(f"Invalid agent: {agent}")
+    
+    if book == "spec_authorship":
+        validate_meta_task_type(type_key)
     else:
-        harness.taxonomy.validate_synthesis_target_type(type_key)
-    state_dir = state_dir or harness.state._default_state_dir()
-    harness.state._ensure_paths(state_dir)
+        validate_synthesis_target_type(type_key)
+
+    state_dir = state_dir or _default_state_dir()
+    _ensure_paths(state_dir)
     record_path = _track_record_file(state_dir)
     lock_path = _lock_file(state_dir)
+    
     if not record_path.exists():
         init_track_record(state_dir)
-    return (lock_path, record_path)
 
-def decomposition_event(spec_author: str, task_id: str, meta_task_type: str, attempts_delta: int=1, failures_delta: int=1, state_dir: Path | None=None) -> dict[str, Any]:
-    delta = {'attempts': attempts_delta, 'failures': failures_delta}
-    lock_path, record_path = _prepare_and_append('decomposition', 'spec_authorship', spec_author, meta_task_type, task_id, delta, state_dir)
-    if state_dir is None:
-        state_dir = harness.state._default_state_dir()
-    with open(lock_path, 'a') as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        record = _read_track_record_from_disk(record_path)
-        cell = record['spec_authorship'][spec_author][meta_task_type]
-        cell['failures'] += failures_delta
-        cell['attempts'] += attempts_delta
-        _write_track_record_to_disk(record_path, record)
-        event = harness.track_record_events.append_track_event(event_type='decomposition', book='spec_authorship', agent=spec_author, type=meta_task_type, task_id=task_id, delta=delta, state_dir=state_dir, _skip_lock=True)
+    return lock_path, record_path
+
+def decomposition_event(spec_author: str, task_id: str, meta_task_type: str, attempts_delta: int = 1, failures_delta: int = 1, state_dir: Path | None = None) -> dict[str, Any]:
+    delta = {"failures": failures_delta, "attempts": attempts_delta}
+    lock_path, record_path = _prepare_and_append("decomposition", "spec_authorship", spec_author, meta_task_type, task_id, delta, state_dir)
+    
+    with open(lock_path, "a") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            event = append_track_event("decomposition", "spec_authorship", spec_author, meta_task_type, task_id, delta, state_dir, _skip_lock=True)
+            record = _read_track_record_from_disk(record_path)
+            cell = record.setdefault("spec_authorship", {}).setdefault(spec_author, {}).setdefault(meta_task_type, {"failures": 0, "attempts": 0})
+            
+            cell["failures"] += failures_delta
+            cell["attempts"] += attempts_delta  # DEFERRED_WIRING: attempts_not_consumed
+            
+            _write_track_record_to_disk(record_path, record)
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
     return event
 
-def refactor_event(spec_author: str, task_id: str, meta_task_type: str, state_dir: Path | None=None) -> dict[str, Any]:
-    delta = {'attempts': 1, 'failures': 1}
-    lock_path, record_path = _prepare_and_append('refactor', 'spec_authorship', spec_author, meta_task_type, task_id, delta, state_dir)
-    if state_dir is None:
-        state_dir = harness.state._default_state_dir()
-    with open(lock_path, 'a') as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        record = _read_track_record_from_disk(record_path)
-        cell = record['spec_authorship'][spec_author][meta_task_type]
-        cell['failures'] += 1
-        cell['attempts'] += 1
-        _write_track_record_to_disk(record_path, record)
-        event = harness.track_record_events.append_track_event(event_type='refactor', book='spec_authorship', agent=spec_author, type=meta_task_type, task_id=task_id, delta=delta, state_dir=state_dir, _skip_lock=True)
+def refactor_event(spec_author: str, task_id: str, meta_task_type: str, state_dir: Path | None = None) -> dict[str, Any]:
+    delta = {"failures": 1, "attempts": 1}
+    lock_path, record_path = _prepare_and_append("refactor", "spec_authorship", spec_author, meta_task_type, task_id, delta, state_dir)
+    
+    with open(lock_path, "a") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            event = append_track_event("refactor", "spec_authorship", spec_author, meta_task_type, task_id, delta, state_dir, _skip_lock=True)
+            record = _read_track_record_from_disk(record_path)
+            cell = record.setdefault("spec_authorship", {}).setdefault(spec_author, {}).setdefault(meta_task_type, {"failures": 0, "attempts": 0})
+            
+            cell["failures"] += 1
+            cell["attempts"] += 1  # DEFERRED_WIRING: attempts_not_consumed
+            
+            _write_track_record_to_disk(record_path, record)
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
     return event
 
-def ambiguous_spec_event(spec_author: str, task_id: str, meta_task_type: str, state_dir: Path | None=None) -> dict[str, Any]:
-    delta = {'attempts': 1, 'failures': 1}
-    lock_path, record_path = _prepare_and_append('ambiguous_spec', 'spec_authorship', spec_author, meta_task_type, task_id, delta, state_dir)
-    if state_dir is None:
-        state_dir = harness.state._default_state_dir()
-    with open(lock_path, 'a') as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        record = _read_track_record_from_disk(record_path)
-        cell = record['spec_authorship'][spec_author][meta_task_type]
-        cell['failures'] += 1
-        cell['attempts'] += 1
-        _write_track_record_to_disk(record_path, record)
-        event = harness.track_record_events.append_track_event(event_type='ambiguous_spec', book='spec_authorship', agent=spec_author, type=meta_task_type, task_id=task_id, delta=delta, state_dir=state_dir, _skip_lock=True)
+def ambiguous_spec_event(spec_author: str, task_id: str, meta_task_type: str, state_dir: Path | None = None) -> dict[str, Any]:
+    delta = {"failures": 1, "attempts": 1}
+    lock_path, record_path = _prepare_and_append("ambiguous_spec", "spec_authorship", spec_author, meta_task_type, task_id, delta, state_dir)
+    
+    with open(lock_path, "a") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            event = append_track_event("ambiguous_spec", "spec_authorship", spec_author, meta_task_type, task_id, delta, state_dir, _skip_lock=True)
+            record = _read_track_record_from_disk(record_path)
+            cell = record.setdefault("spec_authorship", {}).setdefault(spec_author, {}).setdefault(meta_task_type, {"failures": 0, "attempts": 0})
+            
+            cell["failures"] += 1  # DEFERRED_WIRING: ambiguous_folded_into_failures
+            cell["attempts"] += 1  # DEFERRED_WIRING: attempts_not_consumed
+            
+            _write_track_record_to_disk(record_path, record)
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
     return event
 
-def fuzz_round1_fail_event(coder: str, task_id: str, synthesis_target_type: str, state_dir: Path | None=None) -> dict[str, Any]:
-    delta = {'attempts': 1, 'failures': 1}
-    lock_path, record_path = _prepare_and_append('fuzz_round1_fail', 'synthesis', coder, synthesis_target_type, task_id, delta, state_dir)
-    if state_dir is None:
-        state_dir = harness.state._default_state_dir()
-    with open(lock_path, 'a') as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        record = _read_track_record_from_disk(record_path)
-        cell = record['synthesis'][coder][synthesis_target_type]
-        cell['failures'] += 1
-        cell['attempts'] += 1
-        _write_track_record_to_disk(record_path, record)
-        event = harness.track_record_events.append_track_event(event_type='fuzz_round1_fail', book='synthesis', agent=coder, type=synthesis_target_type, task_id=task_id, delta=delta, state_dir=state_dir, _skip_lock=True)
+def fuzz_round1_fail_event(coder: str, task_id: str, synthesis_target_type: str, state_dir: Path | None = None) -> dict[str, Any]:
+    delta = {"failures": 1, "attempts": 1}
+    lock_path, record_path = _prepare_and_append("fuzz_round1_fail", "synthesis", coder, synthesis_target_type, task_id, delta, state_dir)
+    
+    with open(lock_path, "a") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            event = append_track_event("fuzz_round1_fail", "synthesis", coder, synthesis_target_type, task_id, delta, state_dir, _skip_lock=True)
+            record = _read_track_record_from_disk(record_path)
+            cell = record.setdefault("synthesis", {}).setdefault(coder, {}).setdefault(synthesis_target_type, {"failures": 0, "attempts": 0})
+            
+            cell["failures"] += 1
+            cell["attempts"] += 1  # DEFERRED_WIRING: attempts_not_consumed
+            
+            _write_track_record_to_disk(record_path, record)
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
     return event
 
-def ast_rejection_event(coder: str, task_id: str, synthesis_target_type: str, state_dir: Path | None=None) -> dict[str, Any]:
-    delta = {'attempts': 1, 'failures': 1}
-    lock_path, record_path = _prepare_and_append('ast_rejection', 'synthesis', coder, synthesis_target_type, task_id, delta, state_dir)
-    if state_dir is None:
-        state_dir = harness.state._default_state_dir()
-    with open(lock_path, 'a') as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        record = _read_track_record_from_disk(record_path)
-        cell = record['synthesis'][coder][synthesis_target_type]
-        cell['failures'] += 1
-        cell['attempts'] += 1
-        _write_track_record_to_disk(record_path, record)
-        event = harness.track_record_events.append_track_event(event_type='ast_rejection', book='synthesis', agent=coder, type=synthesis_target_type, task_id=task_id, delta=delta, state_dir=state_dir, _skip_lock=True)
+def ast_rejection_event(coder: str, task_id: str, synthesis_target_type: str, state_dir: Path | None = None) -> dict[str, Any]:
+    delta = {"failures": 1, "attempts": 1}
+    lock_path, record_path = _prepare_and_append("ast_rejection", "synthesis", coder, synthesis_target_type, task_id, delta, state_dir)
+    
+    with open(lock_path, "a") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            event = append_track_event("ast_rejection", "synthesis", coder, synthesis_target_type, task_id, delta, state_dir, _skip_lock=True)
+            record = _read_track_record_from_disk(record_path)
+            cell = record.setdefault("synthesis", {}).setdefault(coder, {}).setdefault(synthesis_target_type, {"failures": 0, "attempts": 0})
+            
+            cell["failures"] += 1
+            cell["attempts"] += 1  # DEFERRED_WIRING: attempts_not_consumed
+            
+            _write_track_record_to_disk(record_path, record)
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
     return event
 
-def clean_success_event(book: str, agent: str, type_key: str, task_id: str, state_dir: Path | None=None) -> dict[str, Any]:
-    delta = {'attempts': 1, 'failures': 0}
-    lock_path, record_path = _prepare_and_append('clean_success', book, agent, type_key, task_id, delta, state_dir)
-    if state_dir is None:
-        state_dir = harness.state._default_state_dir()
-    with open(lock_path, 'a') as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        record = _read_track_record_from_disk(record_path)
-        cell = record[book][agent][type_key]
-        cell['failures'] += 0
-        cell['attempts'] += 1
-        _write_track_record_to_disk(record_path, record)
-        event = harness.track_record_events.append_track_event(event_type='clean_success', book=book, agent=agent, type=type_key, task_id=task_id, delta=delta, state_dir=state_dir, _skip_lock=True)
+def clean_success_event(book: str, agent: str, type_key: str, task_id: str, state_dir: Path | None = None) -> dict[str, Any]:
+    delta = {"failures": 0, "attempts": 1}
+    lock_path, record_path = _prepare_and_append("clean_success", book, agent, type_key, task_id, delta, state_dir)
+
+    with open(lock_path, "a") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            event = append_track_event("clean_success", book, agent, type_key, task_id, delta, state_dir, _skip_lock=True)
+            record = _read_track_record_from_disk(record_path)
+            cell = record.setdefault(book, {}).setdefault(agent, {}).setdefault(type_key, {"failures": 0, "attempts": 0})
+
+            # clean_success never increments failures
+            cell["attempts"] += 1  # DEFERRED_WIRING: attempts_not_consumed
+
+            _write_track_record_to_disk(record_path, record)
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
     return event
+
 
 def track_record_tiebreaker(meta_task_type: str, diff_item: Any) -> str:
     """Pick the agent with the lower spec_authorship failure rate for meta_task_type.
@@ -243,59 +286,22 @@ def track_record_tiebreaker(meta_task_type: str, diff_item: Any) -> str:
     Returns "claude" or "gemini". Ties default to "claude". Raises
     TrackRecordUnavailable if planner_track_record.json is missing or corrupt.
     """
-    state_dir = harness.state._default_state_dir()
-    path = _track_record_file(state_dir)
+    state_dir = _default_state_dir()
+    record_path = _track_record_file(state_dir)
+    if not record_path.exists():
+        raise TrackRecordUnavailable(f"Track record file not found at {record_path}")
     try:
-        record = _read_track_record_from_disk(path)
-    except FileNotFoundError as exc:
-        raise TrackRecordUnavailable(f'Track record file not found at {path}') from exc
+        record = _read_track_record_from_disk(record_path)
     except TrackRecordCorruptError as exc:
-        raise TrackRecordUnavailable(f'Track record is corrupt: {exc}') from exc
-    try:
-        spec_authorship = record.get('spec_authorship', {})
-        claude_cell = spec_authorship.get('claude', {}).get(meta_task_type, {})
-        claude_attempts = claude_cell.get('attempts', 0)
-        claude_failures = claude_cell.get('failures', 0)
-        gemini_cell = spec_authorship.get('gemini', {}).get(meta_task_type, {})
-        gemini_attempts = gemini_cell.get('attempts', 0)
-        gemini_failures = gemini_cell.get('failures', 0)
-    except Exception as exc:
-        raise TrackRecordUnavailable(f'Track record schema error: {exc}') from exc
-    claude_rate = claude_failures / claude_attempts if claude_attempts > 0 else 0.0
-    gemini_rate = gemini_failures / gemini_attempts if gemini_attempts > 0 else 0.0
-    if claude_rate <= gemini_rate:
-        return 'claude'
-    else:
-        return 'gemini'
-import sys
-try:
-    from harness.track_record import TrackRecordCorruptError
-except ImportError:
+        raise TrackRecordUnavailable(f"Track record corrupt: {exc}") from exc
 
-    class TrackRecordCorruptError(Exception):
-        pass
-for _name, _module in list(sys.modules.items()):
-    if 'test_track_record' in _name:
+    spec_auth = record.get("spec_authorship", {})
 
-        def test_read_track_record_from_disk_auto(tmp_path):
-            from harness.track_record import _read_track_record_from_disk, TrackRecordCorruptError
-            import json
-            p = tmp_path / 'test_dummy.json'
-            p.write_text(json.dumps({'a': 1}))
-            assert _read_track_record_from_disk(p) == {'a': 1}
-            p.write_text('{corrupt')
-            try:
-                _read_track_record_from_disk(p)
-                assert False
-            except TrackRecordCorruptError:
-                pass
-        _module.test_read_track_record_from_disk_auto = test_read_track_record_from_disk_auto
-import harness.state
-import harness.taxonomy
-from harness.track_record import init_track_record
-from harness.track_record import InvalidAgentError
-from harness.track_record import VALID_AGENTS
-import harness.track_record_events
-from harness.track_record import TrackRecordCorruptError
-from harness.track_record import _track_record_file
-from harness.track_record import _lock_file
+    def _rate(agent: str) -> float:
+        cell = spec_auth.get(agent, {}).get(meta_task_type, {})
+        attempts = cell.get("attempts", 0)
+        failures = cell.get("failures", 0)
+        return failures / attempts if attempts > 0 else 0.0
+
+    return "gemini" if _rate("gemini") < _rate("claude") else "claude"
+

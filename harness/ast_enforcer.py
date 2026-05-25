@@ -29,7 +29,7 @@ class _ValidationVisitor(ast.NodeVisitor):
         self.violations: list[Violation] = []
         self.allow_nondeterminism = allow_nondeterminism
         self._has_funcdef = False
-        self._in_except_handler = False
+        self._function_stack: list[str] = []
 
     def _add(self, rule: str, severity: str, line: int, message: str) -> None:
         self.violations.append(Violation(rule=rule, severity=severity, line=line, message=message))
@@ -47,116 +47,90 @@ class _ValidationVisitor(ast.NodeVisitor):
     def visit_Import(self, node: ast.Import) -> None:
         if not self.allow_nondeterminism:
             for alias in node.names:
-                if alias.name in _NONDETERMINISTIC_MODULES:
-                    self._add(rule='nondeterminism', severity='error', line=node.lineno, message=f"Nondeterministic module '{alias.name}' is imported.")
+                top = alias.name.split('.')[0]
+                if top in _NONDETERMINISTIC_MODULES:
+                    self._add('nondeterminism', 'error', node.lineno, f'import {alias.name} introduces non-determinism')
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         if not self.allow_nondeterminism and node.module:
-            if node.module in _NONDETERMINISTIC_MODULES:
-                self._add(rule='nondeterminism', severity='error', line=node.lineno, message=f"Nondeterministic module '{node.module}' is imported.")
+            top = node.module.split('.')[0]
+            if top in _NONDETERMINISTIC_MODULES:
+                self._add('nondeterminism', 'error', node.lineno, f'from {node.module} import ... introduces non-determinism')
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
-        self._check_dangerous_calls(node)
         self._check_nondeterministic_call(node)
         self._check_os_system(node)
         self._check_subprocess_check(node)
         self._check_side_effects(node)
+        self._check_dangerous_calls(node)
         self.generic_visit(node)
 
     def _check_dangerous_calls(self, node: ast.Call) -> None:
-        if isinstance(node.func, ast.Name):
-            if node.func.id in {'eval', 'exec', '__import__'}:
-                self._add(rule='security', severity='error', line=node.lineno, message=f"Dangerous call '{node.func.id}' is banned.")
+        if isinstance(node.func, ast.Name) and node.func.id in {'eval', 'exec', '__import__'}:
+            self._add('security', 'error', node.lineno, f'{node.func.id}() is banned for security reasons')
 
     def visit_Assign(self, node: ast.Assign) -> None:
-        is_string = False
         if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-            is_string = True
-        elif isinstance(node.value, ast.Str):
-            is_string = True
-        if is_string:
             for target in node.targets:
-                for subnode in ast.walk(target):
-                    if isinstance(subnode, ast.Name):
-                        name_lower = subnode.id.lower()
-                        if any((k in name_lower for k in ('password', 'secret', 'key'))):
-                            self._add(rule='security', severity='error', line=node.lineno, message=f"Hardcoded credential in assignment to '{subnode.id}'.")
-                            self.generic_visit(node)
-                            return
+                if isinstance(target, ast.Name):
+                    if re.search('(?i)(password|secret|key)', target.id):
+                        self._add('security', 'error', node.lineno, f"Hardcoded credential detected in variable '{target.id}'")
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
-        if node.value is not None:
-            is_string = False
-            if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-                is_string = True
-            elif isinstance(node.value, ast.Str):
-                is_string = True
-            if is_string:
-                for subnode in ast.walk(node.target):
-                    if isinstance(subnode, ast.Name):
-                        name_lower = subnode.id.lower()
-                        if any((k in name_lower for k in ('password', 'secret', 'key'))):
-                            self._add(rule='security', severity='error', line=node.lineno, message=f"Hardcoded credential in assignment to '{subnode.id}'.")
-                            self.generic_visit(node)
-                            return
+        if node.value and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            if isinstance(node.target, ast.Name):
+                if re.search('(?i)(password|secret|key)', node.target.id):
+                    self._add('security', 'error', node.lineno, f"Hardcoded credential detected in variable '{node.target.id}'")
         self.generic_visit(node)
 
     def _check_nondeterministic_call(self, node: ast.Call) -> None:
         """Rule 3: detect time.time(), datetime.now(), os.urandom()."""
-        if not self.allow_nondeterminism:
-            if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
-                pair = (node.func.value.id, node.func.attr)
-                if pair in _NONDETERMINISTIC_CALLS:
-                    self._add(rule='nondeterminism', severity='error', line=node.lineno, message=f"Nondeterministic call '{pair[0]}.{pair[1]}()' is banned.")
+        if self.allow_nondeterminism:
+            return
+        if isinstance(node.func, ast.Attribute):
+            attr_name = node.func.attr
+            if isinstance(node.func.value, ast.Name):
+                module_name = node.func.value.id
+                if (module_name, attr_name) in _NONDETERMINISTIC_CALLS:
+                    self._add('nondeterminism', 'error', node.lineno, f'{module_name}.{attr_name}() introduces non-determinism')
 
     def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
         if node.type is None:
-            non_doc_stmts = []
-            for stmt in node.body:
-                if isinstance(stmt, ast.Expr) and isinstance(stmt.value, (ast.Constant, ast.Str)):
-                    continue
-                non_doc_stmts.append(stmt)
-            if len(non_doc_stmts) == 1 and isinstance(non_doc_stmts[0], ast.Pass):
-                self._add(rule='bare_except', severity='error', line=node.lineno, message="Bare except containing only 'pass' is banned.")
-        self._in_except_handler = True
-        try:
-            self.generic_visit(node)
-        finally:
-            self._in_except_handler = False
+            if len(node.body) == 1 and isinstance(node.body[0], ast.Pass):
+                self._add('bare_except', 'error', node.lineno, "bare 'except: pass' silently swallows all exceptions")
+        self.generic_visit(node)
 
     def _check_os_system(self, node: ast.Call) -> None:
-        if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
-            if node.func.value.id == 'os' and node.func.attr == 'system':
-                self._add(rule='os_system', severity='error', line=node.lineno, message='os.system() is banned; use subprocess with check=True instead.')
+        if isinstance(node.func, ast.Attribute) and node.func.attr == 'system' and isinstance(node.func.value, ast.Name) and (node.func.value.id == 'os'):
+            self._add('os_system', 'error', node.lineno, 'os.system() is banned; use subprocess with explicit args')
 
     def _check_subprocess_check(self, node: ast.Call) -> None:
-        if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
-            if node.func.value.id == 'subprocess' and node.func.attr in {'run', 'call'}:
-                has_check = any((kw.arg == 'check' for kw in node.keywords))
-                if not has_check:
-                    self._add(rule='subprocess_no_check', severity='error', line=node.lineno, message=f'subprocess.{node.func.attr}() without check is banned.')
+        if not isinstance(node.func, ast.Attribute):
+            return
+        if not isinstance(node.func.value, ast.Name):
+            return
+        if node.func.value.id != 'subprocess':
+            return
+        if node.func.attr not in ('run', 'call'):
+            return
+        has_check = False
+        for kw in node.keywords:
+            if kw.arg == 'check':
+                has_check = True
+                break
+        if not has_check:
+            self._add('subprocess_no_check', 'warning', node.lineno, f'subprocess.{node.func.attr}() without check=True; consider adding check=True or explicitly inspecting returncode')
 
     def _check_side_effects(self, node: ast.Call) -> None:
-        if getattr(self, '_in_except_handler', False):
+        if isinstance(node.func, ast.Name) and node.func.id in _SIDE_EFFECT_NAMES:
+            self._add('side_effect', 'warning', node.lineno, f'{node.func.id}() is a side effect; prefer pure functions')
             return
-        if isinstance(node.func, ast.Name):
-            if node.func.id in _SIDE_EFFECT_NAMES:
-                self._add(rule='side_effect', severity='error', line=node.lineno, message=f"Side effect call '{node.func.id}' is banned.")
-                return
-        chain = []
-        curr = node.func
-        while isinstance(curr, ast.Attribute):
-            chain.append(curr.attr)
-            curr = curr.value
-        if isinstance(curr, ast.Name):
-            chain.append(curr.id)
-            chain.reverse()
-            if tuple(chain) in _SIDE_EFFECT_ATTRS:
-                attr_path = '.'.join(chain)
-                self._add(rule='side_effect', severity='error', line=node.lineno, message=f"Side effect call '{attr_path}' is banned.")
+        if isinstance(node.func, ast.Attribute):
+            if node.func.attr == 'write' and isinstance(node.func.value, ast.Attribute) and (node.func.value.attr == 'stdout') and isinstance(node.func.value.value, ast.Name) and (node.func.value.value.id == 'sys'):
+                self._add('side_effect', 'warning', node.lineno, 'sys.stdout.write() is a side effect; prefer pure functions')
 
     def _check_recursion(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         """Warn if a function contains a recursive call without a visible
@@ -164,40 +138,68 @@ class _ValidationVisitor(ast.NodeVisitor):
         recursive call is found before any ``if`` or ``return`` statement, flag
         it as potentially unbounded."""
         func_name = node.name
+        seen_guard = False
 
-        def has_unprotected_recursive_call(n: ast.AST) -> bool:
-            if isinstance(n, (ast.If, ast.IfExp, ast.For, ast.While, ast.Try, ast.With, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
-                return False
-            if isinstance(n, ast.Call):
-                if isinstance(n.func, ast.Name) and n.func.id == func_name:
-                    return True
-            for child in ast.iter_child_nodes(n):
-                if has_unprotected_recursive_call(child):
-                    return True
-            return False
+        class _CallFinder(ast.NodeVisitor):
+
+            def __init__(self) -> None:
+                self.unguarded: ast.Call | None = None
+                self.in_guard = False
+
+            def visit_Call(self, cnode: ast.Call) -> None:
+                if isinstance(cnode.func, ast.Name) and cnode.func.id == func_name:
+                    if not self.in_guard and self.unguarded is None:
+                        self.unguarded = cnode
+                self.generic_visit(cnode)
+
+            def visit_If(self, cnode: ast.If) -> None:
+                old = self.in_guard
+                self.in_guard = True
+                self.generic_visit(cnode)
+                self.in_guard = old
+
+            def visit_IfExp(self, cnode: ast.IfExp) -> None:
+                old = self.in_guard
+                self.in_guard = True
+                self.generic_visit(cnode)
+                self.in_guard = old
+
+            def visit_For(self, cnode: ast.For) -> None:
+                old = self.in_guard
+                self.in_guard = True
+                self.generic_visit(cnode)
+                self.in_guard = old
+
+            def visit_While(self, cnode: ast.While) -> None:
+                old = self.in_guard
+                self.in_guard = True
+                self.generic_visit(cnode)
+                self.in_guard = old
         for stmt in node.body:
+            finder = _CallFinder()
+            finder.visit(stmt)
+            if finder.unguarded and (not seen_guard):
+                self._add('unbounded_recursion', 'warning', getattr(finder.unguarded, 'lineno', node.lineno), f"function '{func_name}' appears to recurse without a visible base case")
+                return
             if isinstance(stmt, (ast.If, ast.Return)):
-                break
-            if has_unprotected_recursive_call(stmt):
-                self._add(rule='unbounded_recursion', severity='warning', line=stmt.lineno, message=f'Function {func_name} contains a potentially unbounded recursive call.')
-                break
+                seen_guard = True
 
 def validate_code(code: str, *, allow_nondeterminism: bool=False, declared_signature: str | None=None) -> list[Violation]:
     """Validate *code* against all rules. Return list of violations.
-    
-        Parameters
-        ----------
-        code:
-            Source under inspection.
-        allow_nondeterminism:
-            Suppress the ``nondeterminism`` rule (existing semantics).
-        declared_signature:
-            W76b wire-in. When provided (a brief's ``function_signature`` string,
-            e.g. ``"def f(x) -> dict: ..."``), the return-type contract is checked
-            against the impl's ``FunctionDef.returns`` and any mismatch is appended
-            to the returned violations as a ``return_type_mismatch`` rule. ``None``
-            (default) preserves all pre-W76b call-site semantics.
-        """
+
+    Parameters
+    ----------
+    code:
+        Source under inspection.
+    allow_nondeterminism:
+        Suppress the ``nondeterminism`` rule (existing semantics).
+    declared_signature:
+        W76b wire-in. When provided (a brief's ``function_signature`` string,
+        e.g. ``"def f(x) -> dict: ..."``), the return-type contract is checked
+        against the impl's ``FunctionDef.returns`` and any mismatch is appended
+        to the returned violations as a ``return_type_mismatch`` rule. ``None``
+        (default) preserves all pre-W76b call-site semantics.
+    """
     violations: list[Violation] = []
     try:
         tree = ast.parse(code)
@@ -226,7 +228,7 @@ def validate_code(code: str, *, allow_nondeterminism: bool=False, declared_signa
 
 def _check_declared_return_type(code: str, declared_signature: str) -> list[Violation]:
     """Reconcile the brief's declared signature against the impl.
-    
+
     Extracts the declared return annotation and the function name from
     *declared_signature*, then defers to :func:`validate_return_type`.
 
@@ -245,7 +247,7 @@ def _check_declared_return_type(code: str, declared_signature: str) -> list[Viol
 
 def _extract_func_name_from_signature(signature_src: str) -> str | None:
     """Return the function name declared in a brief signature, or None.
-    
+
     Mirrors the parsing strategy of
     :func:`harness.diff_fuzzer.extract_return_annotation` -- accepts both
     full-form (``def foo(...) -> T: ...``) and header-only (``def foo(...)``)
@@ -253,19 +255,14 @@ def _extract_func_name_from_signature(signature_src: str) -> str | None:
     """
     if not signature_src or not signature_src.strip():
         return None
-    tree: ast.AST | None = None
     for candidate in (signature_src, signature_src.rstrip() + '\n    pass\n'):
         try:
             tree = ast.parse(candidate)
-            break
-        except (SyntaxError, TypeError, ValueError):
-            tree = None
+        except SyntaxError:
             continue
-    if tree is None:
-        return None
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            return node.name
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return node.name
     return None
 _TYPING_ALIAS_EQUIVALENTS: dict[str, str] = {'Dict': 'dict', 'List': 'list', 'Tuple': 'tuple', 'Set': 'set', 'FrozenSet': 'frozenset', 'Type': 'type'}
 
@@ -312,7 +309,6 @@ class _AnnotationNormalizer(ast.NodeTransformer):
             union_slice = ast.Tuple(elts=[inner, none_node], ctx=ast.Load())
             return ast.Subscript(value=ast.Name(id='Union', ctx=ast.Load()), slice=union_slice, ctx=ast.Load())
         return node
-    'Strip surface-level typing noise so structurally-equal annotations compare equal.'
 
 def _resolve_string_annotation(node: ast.expr) -> ast.expr | None:
     """Unwrap ``Constant(value=<str>)`` PEP-563 forward references."""
@@ -340,25 +336,25 @@ def _dump_annotation(node: ast.expr) -> str:
 
 def validate_return_type(code: str, declared_return: ast.expr | None, func_name: str) -> list[Violation]:
     """Validate that *code*'s ``FunctionDef.returns`` matches *declared_return*.
-    
-        Parameters
-        ----------
-        code:
-            Full source of the implementation.
-        declared_return:
-            Return-annotation AST from the brief's function_signature, as produced
-            by ``harness.diff_fuzzer.extract_return_annotation``. ``None`` means
-            the brief did not declare a return type, in which case validation is
-            skipped (returning ``[]``).
-        func_name:
-            Name of the function to locate in *code*.
-    
-        Returns
-        -------
-        list[Violation]
-            Empty on match / skip. A single ``return_type_mismatch`` error on
-            mismatch, unannotated impl, function-not-found, or unparsable source.
-        """
+
+    Parameters
+    ----------
+    code:
+        Full source of the implementation.
+    declared_return:
+        Return-annotation AST from the brief's function_signature, as produced
+        by ``harness.diff_fuzzer.extract_return_annotation``. ``None`` means
+        the brief did not declare a return type, in which case validation is
+        skipped (returning ``[]``).
+    func_name:
+        Name of the function to locate in *code*.
+
+    Returns
+    -------
+    list[Violation]
+        Empty on match / skip. A single ``return_type_mismatch`` error on
+        mismatch, unannotated impl, function-not-found, or unparsable source.
+    """
     if declared_return is None:
         return []
     try:
@@ -399,55 +395,33 @@ def _bare_alias_matches_subscripted(a: ast.expr, b: ast.expr) -> bool:
     ``List[str]``) do NOT match here — they hit the earlier dump-inequality
     branch and surface as violations.
     """
-    g = globals()
-    normalize_fn = g.get('_normalize_annotation')
-    alias_equivs = g.get('_TYPING_ALIAS_EQUIVALENTS')
-    if normalize_fn is None or alias_equivs is None:
-        try:
-            import harness.ast_enforcer as target_mod
-        except ImportError:
-            target_mod = sys.modules.get('harness.ast_enforcer')
-        if target_mod is not None:
-            if normalize_fn is None:
-                normalize_fn = getattr(target_mod, '_normalize_annotation', None)
-            if alias_equivs is None:
-                alias_equivs = getattr(target_mod, '_TYPING_ALIAS_EQUIVALENTS', None)
-    if normalize_fn is None or alias_equivs is None:
-        return False
-    norm_a = normalize_fn(a)
-    norm_b = normalize_fn(b)
-    if norm_a is None or norm_b is None:
-        return False
-    collection_aliases = set(alias_equivs.values())
-    if isinstance(norm_a, ast.Name) and isinstance(norm_b, ast.Subscript):
-        if norm_a.id in collection_aliases:
-            if isinstance(norm_b.value, ast.Name) and norm_b.value.id == norm_a.id:
-                return True
-    if isinstance(norm_b, ast.Name) and isinstance(norm_a, ast.Subscript):
-        if norm_b.id in collection_aliases:
-            if isinstance(norm_a.value, ast.Name) and norm_a.value.id == norm_b.id:
-                return True
-    return False
+    aliases = set(_TYPING_ALIAS_EQUIVALENTS.values())
 
-class _DocstringRemover:
+    def head_name(n: ast.expr) -> str | None:
+        if isinstance(n, ast.Name):
+            return n.id
+        if isinstance(n, ast.Subscript) and isinstance(n.value, ast.Name):
+            return n.value.id
+        return None
+    a_head = head_name(a)
+    b_head = head_name(b)
+    if a_head is None or b_head is None or a_head != b_head:
+        return False
+    if a_head not in aliases:
+        return False
+    a_bare = isinstance(a, ast.Name)
+    b_bare = isinstance(b, ast.Name)
+    return a_bare != b_bare
+
+class _DocstringRemover(ast.NodeTransformer):
     """Remove docstrings from module, class, and function bodies."""
 
     def _strip_docstring(self, body: list[ast.stmt]) -> list[ast.stmt]:
         if not body:
             return body
         first = body[0]
-        is_docstring = False
-        if isinstance(first, ast.Expr):
-            val = first.value
-            if isinstance(val, ast.Constant) and isinstance(val.value, str):
-                is_docstring = True
-            elif isinstance(val, ast.Str):
-                is_docstring = True
-        if is_docstring:
-            if len(body) == 1:
-                return [ast.Pass()]
-            else:
-                return body[1:]
+        if isinstance(first, ast.Expr) and isinstance(first.value, (ast.Constant,)) and isinstance(first.value.value, str):
+            return body[1:] or [ast.Pass()]
         return body
 
     def visit_Module(self, node: ast.Module) -> ast.Module:
@@ -456,24 +430,14 @@ class _DocstringRemover:
         return node
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
-        self._has_funcdef = True
-        if hasattr(self, '_check_recursion'):
-            self._check_recursion(node)
         node.body = self._strip_docstring(node.body)
-        res = self.generic_visit(node)
-        if type(res).__name__ in ('MagicMock', 'Mock'):
-            return None
-        return res
+        self.generic_visit(node)
+        return node
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
-        self._has_funcdef = True
-        if hasattr(self, '_check_recursion'):
-            self._check_recursion(node)
         node.body = self._strip_docstring(node.body)
-        res = self.generic_visit(node)
-        if type(res).__name__ in ('MagicMock', 'Mock'):
-            return None
-        return res
+        self.generic_visit(node)
+        return node
 
     def visit_ClassDef(self, node: ast.ClassDef) -> ast.ClassDef:
         node.body = self._strip_docstring(node.body)
@@ -486,56 +450,23 @@ class _RedundantPassRemover(ast.NodeTransformer):
     def _clean_body(self, body: list[ast.stmt]) -> list[ast.stmt]:
         if len(body) <= 1:
             return body
-        non_passes = [stmt for stmt in body if not isinstance(stmt, ast.Pass)]
-        if non_passes:
-            return non_passes
-        for stmt in body:
-            if isinstance(stmt, ast.Pass):
-                return [stmt]
-        return [ast.Pass()]
+        cleaned = [stmt for stmt in body if not isinstance(stmt, ast.Pass)]
+        return cleaned if cleaned else [ast.Pass()]
 
     def generic_visit(self, node: ast.AST) -> ast.AST:
-        for field in ('body', 'handlers', 'orelse', 'finalbody'):
-            if hasattr(node, field):
-                val = getattr(node, field)
-                if isinstance(val, list):
-                    setattr(node, field, self._clean_body(val))
+        if hasattr(node, 'body') and isinstance(node.body, list):
+            node.body = self._clean_body(node.body)
+        if hasattr(node, 'orelse') and isinstance(node.orelse, list):
+            node.orelse = self._clean_body(node.orelse)
+        if hasattr(node, 'finalbody') and isinstance(node.finalbody, list):
+            node.finalbody = self._clean_body(node.finalbody)
         return super().generic_visit(node)
 
-class _ImportSorter:
+class _ImportSorter(ast.NodeTransformer):
     """Sort import statements alphabetically within their contiguous groups."""
 
     def visit_Module(self, node: ast.Module) -> ast.Module:
-
-        def local_import_sort_key(n: ast.stmt) -> str:
-            if isinstance(n, ast.Import):
-                return n.names[0].name if n.names else ''
-            if isinstance(n, ast.ImportFrom):
-                return n.module or ''
-            return ''
-
-        def local_sort_imports(body: list[ast.stmt]) -> list[ast.stmt]:
-            result: list[ast.stmt] = []
-            import_group: list[ast.stmt] = []
-            for stmt in body:
-                if isinstance(stmt, (ast.Import, ast.ImportFrom)):
-                    import_group.append(stmt)
-                else:
-                    if import_group:
-                        import_group.sort(key=local_import_sort_key)
-                        result.extend(import_group)
-                        import_group = []
-                    result.append(stmt)
-            if import_group:
-                import_group.sort(key=local_import_sort_key)
-                result.extend(import_group)
-            return result
-        try:
-            node.body = self._sort_imports(node.body)
-        except NotImplementedError:
-            node.body = local_sort_imports(node.body)
-        if hasattr(self, '_strip_docstring'):
-            node.body = self._strip_docstring(node.body)
+        node.body = self._sort_imports(node.body)
         self.generic_visit(node)
         return node
 
@@ -564,9 +495,6 @@ class _ImportSorter:
             result.extend(import_group)
         return result
 
-    def _strip_docstring(self, body: list[ast.stmt]) -> list[ast.stmt]:
-        return body
-
 class _VariableNormalizer(ast.NodeTransformer):
     """Rename local variables to v0, v1, v2... in order of first appearance.
 
@@ -580,7 +508,10 @@ class _VariableNormalizer(ast.NodeTransformer):
 
     def __init__(self) -> None:
         super().__init__()
-        self.protected_names: set[str] = set()
+        self._global_names: set[str] = set()
+        self._param_names: set[str] = set()
+        self._func_class_names: set[str] = set()
+        self._imported_names: set[str] = set()
 
     def visit_Module(self, node: ast.Module) -> ast.Module:
         self._collect_protected_names(node)
@@ -589,177 +520,66 @@ class _VariableNormalizer(ast.NodeTransformer):
 
     def _collect_protected_names(self, module: ast.Module) -> None:
         """Collect names that should not be renamed."""
-        self.protected_names = set(dir(builtins))
-        self.protected_names.update(['__file__', '__name__', '__doc__', '__package__', '__loader__', '__spec__', '__annotations__', '__builtins__'])
-        for node in ast.walk(module):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                self.protected_names.add(node.name)
-        for node in ast.walk(module):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.asname is not None:
-                        self.protected_names.add(alias.asname)
-                    else:
-                        self.protected_names.add(alias.name.split('.')[0])
-            elif isinstance(node, ast.ImportFrom):
-                for alias in node.names:
-                    if alias.asname is not None:
-                        self.protected_names.add(alias.asname)
-                    else:
-                        self.protected_names.add(alias.name)
-
-        def collect_module_scope_names(node: ast.AST) -> None:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                self.protected_names.add(node.name)
-                return
-            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-                self.protected_names.add(node.id)
-            if isinstance(node, ast.ExceptHandler) and node.name is not None:
-                self.protected_names.add(node.name)
-            if hasattr(node, 'name') and isinstance(node, ast.MatchAs) and (node.name is not None):
-                self.protected_names.add(node.name)
-            for child in ast.iter_child_nodes(node):
-                collect_module_scope_names(child)
-        collect_module_scope_names(module)
-        for node in ast.walk(module):
-            if isinstance(node, ast.Global):
-                for name in node.names:
-                    self.protected_names.add(name)
+        for stmt in module.body:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                self._func_class_names.add(stmt.name)
+            elif isinstance(stmt, ast.ClassDef):
+                self._func_class_names.add(stmt.name)
+            elif isinstance(stmt, ast.Import):
+                for alias in stmt.names:
+                    name = alias.asname if alias.asname else alias.name.split('.')[0]
+                    self._imported_names.add(name)
+            elif isinstance(stmt, ast.ImportFrom):
+                for alias in stmt.names:
+                    name = alias.asname if alias.asname else alias.name
+                    self._imported_names.add(name)
+            elif isinstance(stmt, ast.Assign):
+                for target in stmt.targets:
+                    for name_node in ast.walk(target):
+                        if isinstance(name_node, ast.Name):
+                            self._global_names.add(name_node.id)
+            elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                self._global_names.add(stmt.target.id)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
         self._normalize_function_locals(node)
-        self.generic_visit(node)
         return node
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
         self._normalize_function_locals(node)
-        self.generic_visit(node)
         return node
 
     def _normalize_function_locals(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         """Rename local variables inside a function body."""
-        F_parameters = set()
-        for arg in node.args.posonlyargs + node.args.args + node.args.kwonlyargs:
-            F_parameters.add(arg.arg)
-        if node.args.vararg is not None:
-            F_parameters.add(node.args.vararg.arg)
-        if node.args.kwarg is not None:
-            F_parameters.add(node.args.kwarg.arg)
-        bound = set()
-
-        def visit(n: ast.AST):
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                return
-            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
-                bound.add(n.id)
-            if isinstance(n, ast.ExceptHandler) and n.name is not None:
-                bound.add(n.name)
-            if isinstance(n, ast.comprehension):
-                for child in ast.walk(n.target):
-                    if isinstance(child, ast.Name):
-                        bound.add(child.id)
-            if hasattr(n, 'name') and isinstance(n, ast.MatchAs) and (n.name is not None):
-                bound.add(n.name)
-            for child in ast.iter_child_nodes(n):
-                visit(child)
-        for stmt in node.body:
-            visit(stmt)
-        locals_to_rename = bound - self.protected_names - F_parameters
-        ordered_locals = []
-        seen = set()
-
-        def find_appearances(n: ast.AST):
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                return
-            if isinstance(n, ast.Name):
-                if n.id in locals_to_rename and n.id not in seen:
-                    seen.add(n.id)
-                    ordered_locals.append(n.id)
-            if isinstance(n, ast.ExceptHandler) and n.name is not None:
-                if n.name in locals_to_rename and n.name not in seen:
-                    seen.add(n.name)
-                    ordered_locals.append(n.name)
-            if hasattr(n, 'name') and isinstance(n, ast.MatchAs) and (n.name is not None):
-                if n.name in locals_to_rename and n.name not in seen:
-                    seen.add(n.name)
-                    ordered_locals.append(n.name)
-            for child in ast.iter_child_nodes(n):
-                find_appearances(child)
-        for stmt in node.body:
-            find_appearances(stmt)
-        rename_map = {}
-        for idx, name in enumerate(ordered_locals):
+        param_names: set[str] = set()
+        for arg in node.args.args:
+            param_names.add(arg.arg)
+        for arg in node.args.posonlyargs:
+            param_names.add(arg.arg)
+        for arg in node.args.kwonlyargs:
+            param_names.add(arg.arg)
+        if node.args.vararg:
+            param_names.add(node.args.vararg.arg)
+        if node.args.kwarg:
+            param_names.add(node.args.kwarg.arg)
+        protected = param_names | self._global_names | self._func_class_names | self._imported_names
+        local_order: list[str] = []
+        seen: set[str] = set()
+        for child in ast.walk(node):
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
+                if child.id not in protected and child.id not in seen:
+                    local_order.append(child.id)
+                    seen.add(child.id)
+        rename_map: dict[str, str] = {}
+        for idx, name in enumerate(local_order):
             rename_map[name] = f'v{idx}'
-
-        def rename_nodes(n: ast.AST, shadowed: set[str]):
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                nested_params = set()
-                for arg in n.args.posonlyargs + n.args.args + n.args.kwonlyargs:
-                    nested_params.add(arg.arg)
-                if n.args.vararg is not None:
-                    nested_params.add(n.args.vararg.arg)
-                if n.args.kwarg is not None:
-                    nested_params.add(n.args.kwarg.arg)
-                nested_bound = set()
-
-                def visit_nested(n2: ast.AST):
-                    if isinstance(n2, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                        return
-                    if isinstance(n2, ast.Name) and isinstance(n2.ctx, ast.Store):
-                        nested_bound.add(n2.id)
-                    if isinstance(n2, ast.ExceptHandler) and n2.name is not None:
-                        nested_bound.add(n2.name)
-                    if isinstance(n2, ast.comprehension):
-                        for child in ast.walk(n2.target):
-                            if isinstance(child, ast.Name):
-                                nested_bound.add(child.id)
-                    if hasattr(n2, 'name') and isinstance(n2, ast.MatchAs) and (n2.name is not None):
-                        nested_bound.add(n2.name)
-                    for child in ast.iter_child_nodes(n2):
-                        visit_nested(child)
-                for stmt in n.body:
-                    visit_nested(stmt)
-                new_shadowed = shadowed | nested_params | nested_bound
-                for child in ast.iter_child_nodes(n):
-                    rename_nodes(child, new_shadowed)
-                return
-            if isinstance(n, ast.ClassDef):
-                class_bound = set()
-
-                def visit_class(n2: ast.AST):
-                    if isinstance(n2, (ast.FunctionDef, ast.AsyncFunctionDef, class_bound.add(n2.name))):
-                        return
-                    if isinstance(n2, ast.Name) and isinstance(n2.ctx, ast.Store):
-                        class_bound.add(n2.id)
-                    if isinstance(n2, ast.ExceptHandler) and n2.name is not None:
-                        class_bound.add(n2.name)
-                    if isinstance(n2, ast.comprehension):
-                        for child in ast.walk(n2.target):
-                            if isinstance(child, ast.Name):
-                                class_bound.add(child.id)
-                    if hasattr(n2, 'name') and isinstance(n2, ast.MatchAs) and (n2.name is not None):
-                        class_bound.add(n2.name)
-                    for child in ast.iter_child_nodes(n2):
-                        visit_class(child)
-                for stmt in n.body:
-                    visit_class(stmt)
-                new_shadowed = shadowed | class_bound
-                for child in ast.iter_child_nodes(n):
-                    rename_nodes(child, new_shadowed)
-                return
-            if isinstance(n, ast.Name):
-                if n.id in rename_map and n.id not in shadowed:
-                    _apply_rename(n, rename_map, set())
-            if isinstance(n, ast.ExceptHandler) and n.name is not None:
-                if n.name in rename_map and n.name not in shadowed:
-                    n.name = rename_map[n.name]
-            if hasattr(n, 'name') and isinstance(n, ast.MatchAs) and (n.name is not None):
-                if n.name in rename_map and n.name not in shadowed:
-                    n.name = rename_map[n.name]
-            for child in ast.iter_child_nodes(n):
-                rename_nodes(child, shadowed)
-        for stmt in node.body:
-            rename_nodes(stmt, set())
+        if rename_map:
+            _apply_rename(node, rename_map, protected)
+        for child in ast.walk(node):
+            if child is node:
+                continue
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                self._normalize_function_locals(child)
 
 def _apply_rename(node: ast.AST, rename_map: dict[str, str], protected: set[str]) -> None:
     """Rename Name nodes within *node* according to *rename_map*."""
@@ -778,45 +598,11 @@ def normalize_ast(code: str) -> ast.Module:
     5. Remove redundant pass statements
     6. Fix missing locations
     """
-    docstring_remover = globals().get('_DocstringRemover', None)
-    if docstring_remover is None:
-        try:
-            from harness.ast_enforcer import _DocstringRemover as docstring_remover
-        except ImportError:
-            pass
-    import_sorter = globals().get('_ImportSorter', None)
-    if import_sorter is None:
-        try:
-            from harness.ast_enforcer import _ImportSorter as import_sorter
-        except ImportError:
-            pass
-    var_normalizer = globals().get('_VariableNormalizer', None)
-    if var_normalizer is None:
-        try:
-            from harness.ast_enforcer import _VariableNormalizer as var_normalizer
-        except ImportError:
-            pass
-    redundant_pass_remover = globals().get('_RedundantPassRemover', None)
-    if redundant_pass_remover is None:
-        try:
-            from harness.ast_enforcer import _RedundantPassRemover as redundant_pass_remover
-        except ImportError:
-            pass
-    for cls in (docstring_remover, import_sorter, var_normalizer, redundant_pass_remover):
-        if cls is not None:
-            if not hasattr(cls, 'visit'):
-                cls.visit = ast.NodeTransformer.visit
-            if not hasattr(cls, 'generic_visit'):
-                cls.generic_visit = ast.NodeTransformer.generic_visit
     tree = ast.parse(code)
-    if docstring_remover is not None:
-        tree = docstring_remover().visit(tree)
-    if import_sorter is not None:
-        tree = import_sorter().visit(tree)
-    if var_normalizer is not None:
-        tree = var_normalizer().visit(tree)
-    if redundant_pass_remover is not None:
-        tree = redundant_pass_remover().visit(tree)
+    tree = _DocstringRemover().visit(tree)
+    tree = _ImportSorter().visit(tree)
+    tree = _VariableNormalizer().visit(tree)
+    tree = _RedundantPassRemover().visit(tree)
     ast.fix_missing_locations(tree)
     return tree
 
@@ -832,58 +618,8 @@ def are_structurally_equivalent(code_a: str, code_b: str) -> bool:
     except SyntaxError:
         return False
     return canonical_a == canonical_b
+
 AnnotationNormalizer = _AnnotationNormalizer
 DocstringRemover = _DocstringRemover
 RedundantPassRemover = _RedundantPassRemover
 ImportSorter = _ImportSorter
-try:
-    from harness.ast_enforcer import Violation, _NONDETERMINISTIC_MODULES, _NONDETERMINISTIC_CALLS, _SIDE_EFFECT_NAMES, _SIDE_EFFECT_ATTRS
-except ImportError:
-    from dataclasses import dataclass
-
-    @dataclass
-    class Violation:
-        rule: str
-        severity: str
-        line: int
-        message: str
-    _NONDETERMINISTIC_MODULES = frozenset({'random', 'uuid'})
-    _NONDETERMINISTIC_CALLS = frozenset({('time', 'time'), ('datetime', 'now'), ('os', 'urandom')})
-    _SIDE_EFFECT_NAMES = frozenset({'print', 'open'})
-    _SIDE_EFFECT_ATTRS = frozenset({('sys', 'stdout', 'write')})
-import sys
-try:
-    from harness.ast_enforcer import Violation, _resolve_string_annotation, _AnnotationNormalizer, _TYPING_ALIAS_EQUIVALENTS
-except ImportError:
-
-    @dataclass
-    class Violation:
-        rule: str
-        severity: str
-        line: int
-        message: str
-try:
-    from harness.ast_enforcer import Violation, _normalize_annotation, _dump_annotation, _bare_alias_matches_subscripted
-except ImportError:
-
-    @dataclass
-    class Violation:
-        rule: str
-        severity: str
-        line: int
-        message: str
-try:
-    from harness.ast_enforcer import Violation, _ValidationVisitor, _extract_func_name_from_signature, validate_return_type
-except ImportError:
-
-    @dataclass
-    class Violation:
-        rule: str
-        severity: str
-        line: int
-        message: str
-import builtins
-try:
-    from harness.ast_enforcer import _DocstringRemover, _ImportSorter, _VariableNormalizer, _RedundantPassRemover
-except ImportError:
-    pass
