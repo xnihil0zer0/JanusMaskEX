@@ -55,7 +55,13 @@ def round_number() -> int:
     Callers that also need to consult STATE.json should use
     `_state_gates.current_round` which layers env -> STATE.json fallback.
     """
-    raise NotImplementedError
+    val = os.environ.get('JANUSMASK_ROUND')
+    if val is None or val == '':
+        return -1
+    try:
+        return int(val)
+    except ValueError:
+        return -1
 
 def safe_under_state(candidate: str) -> bool:
     """True iff `candidate` resolves inside the state dir."""
