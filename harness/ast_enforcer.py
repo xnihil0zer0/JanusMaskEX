@@ -328,7 +328,7 @@ def validate_return_type(code: str, declared_return: ast.expr | None, func_name:
         list[Violation]
             Empty on match / skip. A single ``return_type_mismatch`` error on
             mismatch, unannotated impl, function-not-found, or unparsable source.
-        """
+    """
     if declared_return is None:
         return []
     try:
@@ -515,8 +515,9 @@ except ImportError:
     _SIDE_EFFECT_ATTRS = frozenset({('sys', 'stdout', 'write')})
 import sys
 try:
-    from harness.ast_enforcer import Violation, _resolve_string_annotation, _AnnotationNormalizer, _TYPING_ALIAS_EQUIVALENTS
+    from harness.ast_enforcer import Violation
 except ImportError:
+    from dataclasses import dataclass
 
     @dataclass
     class Violation:
@@ -524,3 +525,20 @@ except ImportError:
         severity: str
         line: int
         message: str
+try:
+    from harness.ast_enforcer import _resolve_string_annotation
+except ImportError:
+
+    def _resolve_string_annotation(node: ast.expr) -> ast.expr | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            try:
+                return ast.parse(node.value, mode='eval').body
+            except SyntaxError:
+                return None
+        return node
+try:
+    from harness.ast_enforcer import _AnnotationNormalizer
+except ImportError:
+
+    class _AnnotationNormalizer(ast.NodeTransformer):
+        pass
