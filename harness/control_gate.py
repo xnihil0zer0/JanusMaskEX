@@ -87,13 +87,13 @@ def _read_decision(path: Path) -> Optional[dict]:
 
 def await_decision(state_dir: Path, task_id: str, phase: str, config: dict[str, Any], *, emit_pending: Optional[Callable]=None, emit_timeout: Optional[Callable]=None, poll_interval: float=_DECISION_POLL_INTERVAL, timeout: Optional[float]=None) -> str:
     """Block until ``state/control/decisions/{task_id}.json`` exists.
-    
-        Returns the decision string ('approve' / 'reject' / 'retry') or
-        ``'timeout'`` after ``timeout`` seconds. Returns ``'auto'`` immediately
-        when the task's phase is not in ``config['control']['require_approval']``
-        — this is the default no-op path that keeps the orchestrator
-        bit-identical when the operator has not opted in.
-        """
+
+    Returns the decision string ('approve' / 'reject' / 'retry') or
+    ``'timeout'`` after ``timeout`` seconds. Returns ``'auto'`` immediately
+    when the task's phase is not in ``config['control']['require_approval']``
+    — this is the default no-op path that keeps the orchestrator
+    bit-identical when the operator has not opted in.
+    """
     if not require_approval_for(phase, config):
         return 'auto'
     if timeout is None:
@@ -117,7 +117,7 @@ def await_decision(state_dir: Path, task_id: str, phase: str, config: dict[str, 
         if target_path is not None:
             data = _read_decision(target_path)
             if data is not None:
-                return data['decision'].lower()
+                return str(data['decision']).lower()
             else:
                 return 'auto'
         elapsed = time.time() - start_time
