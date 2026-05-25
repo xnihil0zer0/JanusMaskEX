@@ -53,16 +53,15 @@ def check_pause(state_dir: Path, config: dict[str, Any]) -> bool:
     """
     p = pause_flag_path(state_dir, config)
     try:
-        content = p.read_text()
+        content = p.read_text(encoding='utf-8')
+        return content.strip().lower() == 'paused'
     except OSError as e:
+        p_str = str(p)
         now = time.time()
-        path_str = str(p)
-        last_warn = _last_pause_warning.get(path_str, 0.0)
-        if now - last_warn >= _PAUSE_LOG_RATE_LIMIT:
-            logger.warning('Pause flag path %s is unreadable: %s', path_str, e)
-            _last_pause_warning[path_str] = now
+        if now - _last_pause_warning.get(p_str, 0.0) >= _PAUSE_LOG_RATE_LIMIT:
+            logger.warning('Pause flag path %s is unreadable: %s', p_str, e)
+            _last_pause_warning[p_str] = now
         return False
-    return content.strip().lower() == 'paused'
 
 def require_approval_for(phase: str, config: dict[str, Any]) -> bool:
     raise NotImplementedError
