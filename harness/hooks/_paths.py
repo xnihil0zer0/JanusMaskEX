@@ -47,7 +47,7 @@ def agent() -> str:
     return os.environ.get('JANUSMASK_AGENT', 'gemini')
 
 def mode() -> str:
-    raise NotImplementedError
+    return os.environ.get('JANUSMASK_MODE', 'synthesis')
 
 def round_number() -> int:
     """Prefer JANUSMASK_ROUND env (authoritative post-P0.4), else -1 sentinel.
