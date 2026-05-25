@@ -600,7 +600,9 @@ class _VariableNormalizer(ast.NodeTransformer):
 
 def _apply_rename(node: ast.AST, rename_map: dict[str, str], protected: set[str]) -> None:
     """Rename Name nodes within *node* according to *rename_map*."""
-    raise NotImplementedError
+    for child in ast.walk(node):
+        if isinstance(child, ast.Name) and child.id in rename_map:
+            child.id = rename_map[child.id]
 
 def normalize_ast(code: str) -> ast.Module:
     """Normalize AST for structural comparison.
