@@ -273,8 +273,7 @@ def _resolve_string_annotation(node: ast.expr) -> ast.expr | None:
     """Unwrap ``Constant(value=<str>)`` PEP-563 forward references."""
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         try:
-            parsed = ast.parse(node.value, mode='eval')
-            return parsed.body
+            return ast.parse(node.value, mode='eval').body
         except SyntaxError:
             return None
     return node
