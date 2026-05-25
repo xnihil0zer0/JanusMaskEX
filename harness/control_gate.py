@@ -32,7 +32,15 @@ def _control_section(config: dict[str, Any]) -> dict[str, Any]:
     return config.get('control', {}) if isinstance(config, dict) else {}
 
 def pause_flag_path(state_dir: Path, config: dict[str, Any]) -> Path:
-    raise NotImplementedError
+    control = _control_section(config)
+    path_str = control.get('pause_flag_path')
+    if not path_str:
+        path_str = DEFAULT_PAUSE_FLAG
+    path_obj = Path(path_str)
+    if path_obj.is_absolute():
+        return path_obj
+    else:
+        return state_dir.parent / path_obj
 
 def decisions_dir(state_dir: Path, config: dict[str, Any]) -> Path:
     raise NotImplementedError
