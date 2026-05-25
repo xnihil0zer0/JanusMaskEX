@@ -51,7 +51,18 @@ def check_pause(state_dir: Path, config: dict[str, Any]) -> bool:
     Critique #13: tolerates EISDIR/EACCES/FileNotFoundError without
     crashing — degrades to False with a rate-limited WARNING.
     """
-    raise NotImplementedError
+    p = pause_flag_path(state_dir, config)
+    try:
+        content = p.read_text()
+    except OSError as e:
+        now = time.time()
+        path_str = str(p)
+        last_warn = _last_pause_warning.get(path_str, 0.0)
+        if now - last_warn >= _PAUSE_LOG_RATE_LIMIT:
+            logger.warning('Pause flag path %s is unreadable: %s', path_str, e)
+            _last_pause_warning[path_str] = now
+        return False
+    return content.strip().lower() == 'paused'
 
 def require_approval_for(phase: str, config: dict[str, Any]) -> bool:
     raise NotImplementedError
