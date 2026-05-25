@@ -193,7 +193,19 @@ def ambiguous_spec_event(spec_author: str, task_id: str, meta_task_type: str, st
     return event
 
 def fuzz_round1_fail_event(coder: str, task_id: str, synthesis_target_type: str, state_dir: Path | None=None) -> dict[str, Any]:
-    raise NotImplementedError
+    delta = {'attempts': 1, 'failures': 1}
+    lock_path, record_path = _prepare_and_append('fuzz_round1_fail', 'synthesis', coder, synthesis_target_type, task_id, delta, state_dir)
+    if state_dir is None:
+        state_dir = harness.state._default_state_dir()
+    with open(lock_path, 'a') as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        record = _read_track_record_from_disk(record_path)
+        cell = record['synthesis'][coder][synthesis_target_type]
+        cell['failures'] += 1
+        cell['attempts'] += 1
+        _write_track_record_to_disk(record_path, record)
+        event = harness.track_record_events.append_track_event(event_type='fuzz_round1_fail', book='synthesis', agent=coder, type=synthesis_target_type, task_id=task_id, delta=delta, state_dir=state_dir, _skip_lock=True)
+    return event
 
 def ast_rejection_event(coder: str, task_id: str, synthesis_target_type: str, state_dir: Path | None=None) -> dict[str, Any]:
     raise NotImplementedError
