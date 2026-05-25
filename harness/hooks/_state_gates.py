@@ -86,7 +86,8 @@ def clarifications_count(session_id: str, agent: str | None=None) -> int:
     return harness.hooks._ledger.count_verb(events, 'clarification', outcome='allow')
 
 def plan_submitted(session_id: str, agent: str | None=None) -> bool:
-    raise NotImplementedError
+    events = harness.hooks._ledger.read_events(session_id, agent)
+    return harness.hooks._ledger.has_verb(events, 'plan_draft', outcome='allow')
 
 def reconciliation_submitted(session_id: str, agent: str | None=None) -> bool:
     raise NotImplementedError
