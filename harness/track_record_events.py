@@ -31,7 +31,7 @@ def _event_log_file(state_dir: Path) -> Path:
     return state_dir / 'track_record_events.jsonl'
 
 def _lock_file(state_dir: Path) -> Path:
-    raise NotImplementedError
+    return state_dir / 'track_record.lock'
 
 def append_track_event(event_type: str, book: str, agent: str, type: str, task_id: str, delta: dict[str, int], state_dir: Path | None=None, _skip_lock: bool=False) -> dict[str, Any]:
     raise NotImplementedError
