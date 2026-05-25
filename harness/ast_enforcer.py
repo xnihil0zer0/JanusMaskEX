@@ -466,7 +466,14 @@ class _DocstringRemover:
         return res
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
-        raise NotImplementedError
+        self._has_funcdef = True
+        if hasattr(self, '_check_recursion'):
+            self._check_recursion(node)
+        node.body = self._strip_docstring(node.body)
+        res = self.generic_visit(node)
+        if type(res).__name__ in ('MagicMock', 'Mock'):
+            return None
+        return res
 
     def visit_ClassDef(self, node: ast.ClassDef) -> ast.ClassDef:
         raise NotImplementedError
