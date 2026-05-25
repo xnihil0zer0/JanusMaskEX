@@ -5,8 +5,10 @@ import json
 import os
 from pathlib import Path
 from typing import Any
-from harness.state import _default_state_dir, _ensure_paths
-from harness.taxonomy import load_meta_task_taxonomy, load_synthesis_target_taxonomy
+from harness.state import _default_state_dir
+from harness.state import _ensure_paths
+from harness.taxonomy import load_meta_task_taxonomy
+from harness.taxonomy import load_synthesis_target_taxonomy
 
 class TrackRecordError(Exception):
     """Base exception for track record operations."""
@@ -21,7 +23,7 @@ class TrackRecordUnavailable(TrackRecordError):
     pass
 
 def _track_record_file(state_dir: Path) -> Path:
-    raise NotImplementedError
+    return state_dir / 'planner_track_record.json'
 
 def _lock_file(state_dir: Path) -> Path:
     raise NotImplementedError
@@ -43,7 +45,9 @@ class InvalidAgentError(TrackRecordError):
     """Raised when an invalid agent is specified."""
     pass
 from harness.track_record_events import append_track_event
-from harness.taxonomy import validate_meta_task_type, validate_synthesis_target_type, UnknownTaxonomyKeyError
+from harness.taxonomy import validate_meta_task_type
+from harness.taxonomy import validate_synthesis_target_type
+from harness.taxonomy import UnknownTaxonomyKeyError
 from harness.track_record_events import EventValidationError
 VALID_AGENTS = frozenset({'claude', 'gemini', 'antigravity'})
 
