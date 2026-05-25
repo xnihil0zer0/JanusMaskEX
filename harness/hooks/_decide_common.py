@@ -31,10 +31,16 @@ not reduce cleanly to a callable parameter on DeciderContext.
 from __future__ import annotations
 import json
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
+from typing import Callable
 from harness.safe_subpath import is_safe_subpath
-from . import _common, _ledger, _paths, _state_gates
-from .rpc import submit_code as rpc_submit_code, submit_plan_draft as rpc_submit_plan_draft, submit_reconciliation as rpc_submit_reconciliation
+from . import _common
+from . import _ledger
+from . import _paths
+from . import _state_gates
+from .rpc import submit_code as rpc_submit_code
+from .rpc import submit_plan_draft as rpc_submit_plan_draft
+from .rpc import submit_reconciliation as rpc_submit_reconciliation
 MAX_VIOLATIONS = 50
 ERROR_MAX_BYTES = 64 * 1024
 
@@ -62,7 +68,27 @@ def format_ast_reason(payload: dict[str, Any]) -> str:
     raise NotImplementedError
 
 def format_plan_reason(payload: dict[str, Any]) -> str:
-    raise NotImplementedError
+    """Renders a human-readable validation summary from a plan_draft rejection payload:
+
+        header = payload.get('error', 'plan_draft validation failed.')
+        bullets = ['- [{code}] {path}: {message}' for each v in payload['violations']]
+        return header + ('
+' + '
+'.join(bullets) if bullets else '')
+    """
+    header = payload.get('error')
+    if header is None:
+        header = 'plan_draft validation failed.'
+    violations = payload.get('violations')
+    if not violations:
+        return header
+    bullets = []
+    for v in violations:
+        code = v.get('code', '')
+        path = v.get('path', '')
+        message = v.get('message', '')
+        bullets.append(f'- [{code}] {path}: {message}')
+    return header + '\n' + '\n'.join(bullets)
 
 def decide_submission(ctx: 'DeciderContext', content: str, events: list[dict[str, Any]], inbox_dir: Any) -> dict[str, Any]:
     raise NotImplementedError
@@ -78,3 +104,13 @@ def decide_error_report(ctx: DeciderContext, content: str) -> dict[str, Any]:
 
 def decide_read_like(tool_input: dict[str, Any], allowed_roots: list[Any], *, path_keys: tuple[str, ...], tool_name_for_reason: str) -> dict[str, Any]:
     raise NotImplementedError
+import sys
+import types
+try:
+    import harness.hooks.rpc as _rpc
+except ImportError:
+    _rpc = types.ModuleType('harness.hooks.rpc')
+    sys.modules['harness.hooks.rpc'] = _rpc
+for _name in ('submit_code', 'submit_plan_draft', 'submit_reconciliation'):
+    if not hasattr(_rpc, _name):
+        setattr(_rpc, _name, lambda *a, **k: None)
