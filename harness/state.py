@@ -19,11 +19,8 @@ def _default_state_dir() -> Path:
         raw = os.environ.get('CLAUDE_STATE_DIR')
     if raw:
         return Path(raw).resolve()
-    try:
-        from harness.paths import STATE_DIR
-        return STATE_DIR.resolve()
-    except ImportError:
-        return (Path(__file__).resolve().parent.parent / 'state').resolve()
+    from harness.paths import STATE_DIR
+    return STATE_DIR.resolve()
 
 def _state_file(state_dir: Path) -> Path:
     raise NotImplementedError
