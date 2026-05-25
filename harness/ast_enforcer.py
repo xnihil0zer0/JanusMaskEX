@@ -9,20 +9,6 @@ import ast
 import logging
 import re
 from dataclasses import dataclass
-import os
-import sys
-import harness
-parent_harness_dir = '/home/xnihil0zer0/JanusMask/harness'
-if parent_harness_dir not in harness.__path__ and os.path.exists(parent_harness_dir):
-    harness.__path__.append(parent_harness_dir)
-try:
-    import harness.planner
-    parent_planner_dir = '/home/xnihil0zer0/JanusMask/harness/planner'
-    if parent_planner_dir not in harness.planner.__path__ and os.path.exists(parent_planner_dir):
-        harness.planner.__path__.append(parent_planner_dir)
-except ImportError:
-    pass
-import harness.diff_fuzzer
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -217,15 +203,16 @@ def validate_code(code: str, *, allow_nondeterminism: bool=False, declared_signa
 def _check_declared_return_type(code: str, declared_signature: str) -> list[Violation]:
     """Reconcile the brief's declared signature against the impl.
     
-        Extracts the declared return annotation and the function name from
-        *declared_signature*, then defers to :func:`validate_return_type`.
-    
-        Returns ``[]`` when the brief signature does not parse to a usable
-        ``FunctionDef`` (logged at WARNING). This is the "no-op skip" path
-        documented in W76b: a malformed brief should not crash the validator nor
-        spuriously reject otherwise-valid impls.
-        """
-    declared_return = harness.diff_fuzzer.extract_return_annotation(declared_signature)
+    Extracts the declared return annotation and the function name from
+    *declared_signature*, then defers to :func:`validate_return_type`.
+
+    Returns ``[]`` when the brief signature does not parse to a usable
+    ``FunctionDef`` (logged at WARNING). This is the "no-op skip" path
+    documented in W76b: a malformed brief should not crash the validator nor
+    spuriously reject otherwise-valid impls.
+    """
+    from harness.diff_fuzzer import extract_return_annotation
+    declared_return = extract_return_annotation(declared_signature)
     func_name = _extract_func_name_from_signature(declared_signature)
     if func_name is None:
         logger.warning('validate_code: declared_signature did not parse to a FunctionDef; skipping return-type check. signature=%r', declared_signature)
@@ -544,9 +531,8 @@ except ImportError:
         line: int
         message: str
 try:
-    from harness.ast_enforcer import Violation, _resolve_string_annotation, _normalize_annotation, _dump_annotation, _bare_alias_matches_subscripted
+    from harness.ast_enforcer import Violation, _normalize_annotation, _dump_annotation, _bare_alias_matches_subscripted
 except ImportError:
-    from dataclasses import dataclass
 
     @dataclass
     class Violation:
