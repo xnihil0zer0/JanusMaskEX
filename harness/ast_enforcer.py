@@ -344,7 +344,6 @@ def _bare_alias_matches_subscripted(a: ast.expr, b: ast.expr) -> bool:
     ``List[str]``) do NOT match here — they hit the earlier dump-inequality
     branch and surface as violations.
     """
-    import sys
     g = globals()
     normalize_fn = g.get('_normalize_annotation')
     alias_equivs = g.get('_TYPING_ALIAS_EQUIVALENTS')
@@ -354,8 +353,10 @@ def _bare_alias_matches_subscripted(a: ast.expr, b: ast.expr) -> bool:
         except ImportError:
             target_mod = sys.modules.get('harness.ast_enforcer')
         if target_mod is not None:
-            normalize_fn = getattr(target_mod, '_normalize_annotation', None)
-            alias_equivs = getattr(target_mod, '_TYPING_ALIAS_EQUIVALENTS', None)
+            if normalize_fn is None:
+                normalize_fn = getattr(target_mod, '_normalize_annotation', None)
+            if alias_equivs is None:
+                alias_equivs = getattr(target_mod, '_TYPING_ALIAS_EQUIVALENTS', None)
     if normalize_fn is None or alias_equivs is None:
         return False
     norm_a = normalize_fn(a)
@@ -487,3 +488,4 @@ except ImportError:
     _NONDETERMINISTIC_CALLS = frozenset({('time', 'time'), ('datetime', 'now'), ('os', 'urandom')})
     _SIDE_EFFECT_NAMES = frozenset({'print', 'open'})
     _SIDE_EFFECT_ATTRS = frozenset({('sys', 'stdout', 'write')})
+import sys
