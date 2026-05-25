@@ -184,21 +184,45 @@ class _ValidationVisitor(ast.NodeVisitor):
 
 def validate_code(code: str, *, allow_nondeterminism: bool=False, declared_signature: str | None=None) -> list[Violation]:
     """Validate *code* against all rules. Return list of violations.
+    
+        Parameters
+        ----------
+        code:
+            Source under inspection.
+        allow_nondeterminism:
+            Suppress the ``nondeterminism`` rule (existing semantics).
+        declared_signature:
+            W76b wire-in. When provided (a brief's ``function_signature`` string,
+            e.g. ``"def f(x) -> dict: ..."``), the return-type contract is checked
+            against the impl's ``FunctionDef.returns`` and any mismatch is appended
+            to the returned violations as a ``return_type_mismatch`` rule. ``None``
+            (default) preserves all pre-W76b call-site semantics.
+        """
+    violations: list[Violation] = []
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        violations.append(Violation(rule='syntax', severity='error', line=exc.lineno or 0, message=f'SyntaxError: {exc.msg}'))
+        return violations
+    visitor = _ValidationVisitor(allow_nondeterminism=allow_nondeterminism)
+    visitor.visit(tree)
+    violations.extend(visitor.violations)
+    if not visitor._has_funcdef:
 
-    Parameters
-    ----------
-    code:
-        Source under inspection.
-    allow_nondeterminism:
-        Suppress the ``nondeterminism`` rule (existing semantics).
-    declared_signature:
-        W76b wire-in. When provided (a brief's ``function_signature`` string,
-        e.g. ``"def f(x) -> dict: ..."``), the return-type contract is checked
-        against the impl's ``FunctionDef.returns`` and any mismatch is appended
-        to the returned violations as a ``return_type_mismatch`` rule. ``None``
-        (default) preserves all pre-W76b call-site semantics.
-    """
-    raise NotImplementedError
+        def _is_mergeable_top(n: ast.stmt) -> bool:
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ImportFrom)):
+                return True
+            if isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name):
+                return True
+            if isinstance(n, ast.Assign) and n.targets and isinstance(n.targets[0], (ast.Name, ast.Tuple, ast.List)):
+                return True
+            return False
+        has_mergeable_top_level = any((_is_mergeable_top(n) for n in tree.body))
+        if not has_mergeable_top_level:
+            violations.append(Violation(rule='incomplete_ast', severity='error', line=0, message='code must contain at least one FunctionDef, AsyncFunctionDef, ClassDef, ImportFrom, or top-level Assign / AnnAssign that can merge into the target'))
+    if declared_signature:
+        violations.extend(_check_declared_return_type(code, declared_signature))
+    return violations
 
 def _check_declared_return_type(code: str, declared_signature: str) -> list[Violation]:
     """Reconcile the brief's declared signature against the impl.
@@ -532,6 +556,16 @@ except ImportError:
         message: str
 try:
     from harness.ast_enforcer import Violation, _normalize_annotation, _dump_annotation, _bare_alias_matches_subscripted
+except ImportError:
+
+    @dataclass
+    class Violation:
+        rule: str
+        severity: str
+        line: int
+        message: str
+try:
+    from harness.ast_enforcer import Violation, _ValidationVisitor, _extract_func_name_from_signature, validate_return_type
 except ImportError:
 
     @dataclass
