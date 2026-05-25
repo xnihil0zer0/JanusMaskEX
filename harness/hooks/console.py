@@ -43,7 +43,19 @@ def _divider(agent_id: str, char: str='─', width: int=60) -> str:
     return f'{color}{char * width}{_C.RESET}'
 
 def _code_preview(code: str, max_lines: int=12) -> str:
-    raise NotImplementedError
+    MUTED = '\x1b[38;5;240m'
+    CODE = '\x1b[38;5;183m'
+    RESET = '\x1b[0m'
+    DIM = '\x1b[2m'
+    lines = code.rstrip().split('\n')
+    truncated = len(lines) > max_lines
+    display = lines[:max_lines]
+    parts = []
+    for i, line in enumerate(display, 1):
+        parts.append(f'  {MUTED}{i:3d}{RESET} {CODE}{line}{RESET}')
+    if truncated:
+        parts.append(f'  {DIM}... ({len(lines) - max_lines} more lines){RESET}')
+    return '\n'.join(parts)
 
 def _stream(msg: str) -> None:
     raise NotImplementedError
