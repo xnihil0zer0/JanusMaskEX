@@ -29,9 +29,7 @@ _PAUSE_LOG_RATE_LIMIT = 60.0
 _last_pause_warning: dict[str, float] = {}
 
 def _control_section(config: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(config, dict):
-        return {}
-    return config.get('control', {})
+    return config.get('control', {}) if isinstance(config, dict) else {}
 
 def pause_flag_path(state_dir: Path, config: dict[str, Any]) -> Path:
     raise NotImplementedError
