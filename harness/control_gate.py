@@ -65,8 +65,11 @@ def check_pause(state_dir: Path, config: dict[str, Any]) -> bool:
         return False
 
 def require_approval_for(phase: str, config: dict[str, Any]) -> bool:
-    requires = _control_section(config).get('require_approval', []) or []
-    return phase in requires
+    control = _control_section(config)
+    req_approval = control.get('require_approval')
+    if isinstance(req_approval, (list, tuple, set)):
+        return phase in req_approval
+    return False
 
 def _read_decision(path: Path) -> Optional[dict]:
     """Return decision dict if present + parseable; None on absent/corrupt."""
