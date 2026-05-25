@@ -5,7 +5,8 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+from typing import Callable
 from harness.paths import STATE_DIR_STR
 VALID_PHASES = frozenset({'idle', 'synthesis', 'ast_validation', 'fuzzing', 'cross_examination', 'decomposition', 'accepted', 'rejected'})
 VALID_AGENTS = frozenset({'claude', 'gemini', 'antigravity'})
@@ -13,7 +14,16 @@ VALID_AGENT_STATUSES = frozenset({'pending', 'running', 'submitted', 'error', 't
 INITIAL_STATE: dict[str, Any] = {'task_id': None, 'round': 0, 'phase': 'idle', 'claude_status': 'pending', 'gemini_status': 'pending', 'antigravity_status': 'pending', 'status_updated_at_epoch': None, 'fuzz_results': None, 'cross_exam_round': 0, 'decomposed': False, 'parent_task': None, 'children': []}
 
 def _default_state_dir() -> Path:
-    raise NotImplementedError
+    raw = os.environ.get('JANUSMASK_STATE_DIR')
+    if not raw:
+        raw = os.environ.get('CLAUDE_STATE_DIR')
+    if raw:
+        return Path(raw).resolve()
+    try:
+        from harness.paths import STATE_DIR
+        return STATE_DIR.resolve()
+    except ImportError:
+        return (Path(__file__).resolve().parent.parent / 'state').resolve()
 
 def _state_file(state_dir: Path) -> Path:
     raise NotImplementedError
