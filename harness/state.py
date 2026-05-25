@@ -44,7 +44,21 @@ def _read_state_from_disk(state_path: Path) -> dict[str, Any]:
         raise StateMissingError(f'State file not found at {state_path}') from exc
 
 def _write_state_to_disk(state_path: Path, state: dict[str, Any]) -> None:
-    raise NotImplementedError
+    temp_path = state_path.parent / f'{state_path.name}.tmp'
+    try:
+        with open(temp_path, 'w') as f:
+            json.dump(state, f, indent=2)
+            f.write('\n')
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, state_path)
+    except Exception:
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+        raise
 
 class StateError(Exception):
     pass
