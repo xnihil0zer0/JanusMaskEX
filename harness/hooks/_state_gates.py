@@ -11,7 +11,8 @@ from __future__ import annotations
 import json
 import pathlib
 from typing import Any
-from . import _ledger, _paths
+from . import _ledger
+from . import _paths
 _STATE_FILENAME = 'STATE.json'
 MAX_SUBMISSIONS = 5
 MAX_CLARIFICATIONS = 2
@@ -21,9 +22,17 @@ def _state_file() -> pathlib.Path:
 
 def read_state_besteffort() -> dict[str, Any]:
     """Best-effort read of STATE.json. Returns {} on missing/corrupt — hooks
-    must not block the agent when STATE.json is transiently being rewritten.
-    Use `harness.state.read_state` for authoritative reads."""
-    raise NotImplementedError
+        must not block the agent when STATE.json is transiently being rewritten.
+        Use `harness.state.read_state` for authoritative reads."""
+    try:
+        path = _state_file()
+        content = path.read_text(encoding='utf-8')
+        data = json.loads(content)
+        if isinstance(data, dict):
+            return data
+    except (ValueError, OSError):
+        pass
+    return {}
 
 def current_round(state: dict[str, Any] | None=None) -> int:
     raise NotImplementedError
