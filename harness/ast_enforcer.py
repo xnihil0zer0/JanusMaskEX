@@ -221,7 +221,22 @@ def _extract_func_name_from_signature(signature_src: str) -> str | None:
     full-form (``def foo(...) -> T: ...``) and header-only (``def foo(...)``)
     inputs, with sync and async variants.
     """
-    raise NotImplementedError
+    if not signature_src or not signature_src.strip():
+        return None
+    tree: ast.AST | None = None
+    for candidate in (signature_src, signature_src.rstrip() + '\n    pass\n'):
+        try:
+            tree = ast.parse(candidate)
+            break
+        except SyntaxError:
+            tree = None
+            continue
+    if tree is None:
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return node.name
+    return None
 _TYPING_ALIAS_EQUIVALENTS: dict[str, str] = {'Dict': 'dict', 'List': 'list', 'Tuple': 'tuple', 'Set': 'set', 'FrozenSet': 'frozenset', 'Type': 'type'}
 
 class _AnnotationNormalizer(ast.NodeTransformer):
