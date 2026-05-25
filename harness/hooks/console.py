@@ -32,10 +32,11 @@ class _C:
     MUTED = '\x1b[38;5;240m'
 
 def _agent_color(agent_id: str) -> str:
-    raise NotImplementedError
+    return _C.CLAUDE if agent_id == 'claude' else _C.GEMINI
 
 def _agent_label(agent_id: str) -> str:
-    raise NotImplementedError
+    color = _agent_color(agent_id)
+    return f'{color}{_C.BOLD}{agent_id.upper()}{_C.RESET}'
 
 def _divider(agent_id: str, char: str='─', width: int=60) -> str:
     raise NotImplementedError
