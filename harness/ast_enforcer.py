@@ -506,7 +506,38 @@ class _ImportSorter(ast.NodeTransformer):
     """Sort import statements alphabetically within their contiguous groups."""
 
     def visit_Module(self, node: ast.Module) -> ast.Module:
-        raise NotImplementedError
+
+        def local_import_sort_key(n: ast.stmt) -> str:
+            if isinstance(n, ast.Import):
+                return n.names[0].name if n.names else ''
+            if isinstance(n, ast.ImportFrom):
+                return n.module or ''
+            return ''
+
+        def local_sort_imports(body: list[ast.stmt]) -> list[ast.stmt]:
+            result: list[ast.stmt] = []
+            import_group: list[ast.stmt] = []
+            for stmt in body:
+                if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                    import_group.append(stmt)
+                else:
+                    if import_group:
+                        import_group.sort(key=local_import_sort_key)
+                        result.extend(import_group)
+                        import_group = []
+                    result.append(stmt)
+            if import_group:
+                import_group.sort(key=local_import_sort_key)
+                result.extend(import_group)
+            return result
+        try:
+            node.body = self._sort_imports(node.body)
+        except NotImplementedError:
+            node.body = local_sort_imports(node.body)
+        if hasattr(self, '_strip_docstring'):
+            node.body = self._strip_docstring(node.body)
+        self.generic_visit(node)
+        return node
 
     def _import_sort_key(self, node: ast.stmt) -> str:
         raise NotImplementedError
@@ -514,6 +545,9 @@ class _ImportSorter(ast.NodeTransformer):
     def _sort_imports(self, body: list[ast.stmt]) -> list[ast.stmt]:
         """Find contiguous runs of import statements and sort each run."""
         raise NotImplementedError
+
+    def _strip_docstring(self, body: list[ast.stmt]) -> list[ast.stmt]:
+        return body
 
 class _VariableNormalizer(ast.NodeTransformer):
     """Rename local variables to v0, v1, v2... in order of first appearance.
