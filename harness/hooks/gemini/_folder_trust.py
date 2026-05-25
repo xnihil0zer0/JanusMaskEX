@@ -17,4 +17,6 @@ rather than requiring a freshly-minted test module for this leaf file.
 from __future__ import annotations
 
 def _folder_trust_enabled(settings: dict | None) -> bool:
-    raise NotImplementedError
+    if settings is None:
+        return False
+    return bool(settings.get('folderTrust', False))
