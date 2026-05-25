@@ -20,7 +20,20 @@ from harness.safe_subpath import is_safe_subpath
 _DEFAULT_PROJECT_DIR = pathlib.Path(__file__).resolve().parent.parent.parent
 
 def project_dir() -> pathlib.Path:
-    raise NotImplementedError
+    raw = os.environ.get('JANUSMASK_PROJECT_DIR')
+    if not raw:
+        raw = os.environ.get('CLAUDE_PROJECT_DIR')
+    if raw:
+        return pathlib.Path(raw).resolve()
+    default_dir = globals().get('_DEFAULT_PROJECT_DIR')
+    if default_dir is not None:
+        return default_dir
+    try:
+        from harness.hooks._paths import _DEFAULT_PROJECT_DIR as fallback_default
+        return fallback_default
+    except ImportError:
+        pass
+    return pathlib.Path(__file__).resolve().parent.parent.parent
 
 def state_dir() -> pathlib.Path:
     raise NotImplementedError
