@@ -451,7 +451,9 @@ class _DocstringRemover:
         return body
 
     def visit_Module(self, node: ast.Module) -> ast.Module:
-        raise NotImplementedError
+        node.body = self._strip_docstring(node.body)
+        self.generic_visit(node)
+        return node
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
         raise NotImplementedError
