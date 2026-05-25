@@ -48,15 +48,15 @@ def decision_payload(decision: str, *, reason: str='', additional_context: str='
         `gemini/` entrypoints; this helper stays decision-only so both sides can
         wrap it.
         """
-    decision_val = _normalise_decision(decision)
-    payload: dict[str, Any] = {'decision': decision_val}
+    decision_norm = _normalise_decision(decision)
+    result: dict[str, Any] = {'decision': decision_norm}
     if reason:
-        payload['reason'] = reason
+        result['reason'] = reason
     if additional_context:
-        payload['additionalContext'] = additional_context
+        result['additionalContext'] = additional_context
     if tool_input is not None:
-        payload['tool_input'] = tool_input
-    return payload
+        result['tool_input'] = tool_input
+    return result
 
 def write_decision(payload: dict[str, Any], stream=None) -> None:
     stream = stream if stream is not None else sys.stdout
