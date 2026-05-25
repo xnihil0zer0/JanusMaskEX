@@ -456,7 +456,10 @@ class _DocstringRemover:
         return node
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
-        raise NotImplementedError
+        node.body = self._strip_docstring(node.body)
+        self._has_funcdef = True
+        self._check_recursion(node)
+        self.generic_visit(node)
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
         raise NotImplementedError
