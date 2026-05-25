@@ -47,20 +47,21 @@ def decisions_dir(state_dir: Path, config: dict[str, Any]) -> Path:
 
 def check_pause(state_dir: Path, config: dict[str, Any]) -> bool:
     """Return True iff the pause flag is set to ``paused``.
-
-    Critique #13: tolerates EISDIR/EACCES/FileNotFoundError without
-    crashing — degrades to False with a rate-limited WARNING.
-    """
-    p = pause_flag_path(state_dir, config)
+    
+        Critique #13: tolerates EISDIR/EACCES/FileNotFoundError without
+        crashing — degrades to False with a rate-limited WARNING.
+        """
+    path = pause_flag_path(state_dir, config)
+    path_str = str(path)
     try:
-        content = p.read_text(encoding='utf-8')
+        content = path.read_text(encoding='utf-8')
         return content.strip().lower() == 'paused'
     except OSError as e:
-        p_str = str(p)
         now = time.time()
-        if now - _last_pause_warning.get(p_str, 0.0) >= _PAUSE_LOG_RATE_LIMIT:
-            logger.warning('Pause flag path %s is unreadable: %s', p_str, e)
-            _last_pause_warning[p_str] = now
+        last_logged = _last_pause_warning.get(path_str, 0.0)
+        if now - last_logged >= _PAUSE_LOG_RATE_LIMIT:
+            logger.warning('Pause flag path %s is unreadable: %s', path_str, e)
+            _last_pause_warning[path_str] = now
         return False
 
 def require_approval_for(phase: str, config: dict[str, Any]) -> bool:
