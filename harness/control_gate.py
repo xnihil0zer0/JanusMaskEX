@@ -77,7 +77,7 @@ def _read_decision(path: Path) -> Optional[dict]:
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text(errors='replace'))
+        data = json.loads(path.read_text(encoding='utf-8', errors='replace'))
     except (OSError, json.JSONDecodeError, UnicodeDecodeError, ValueError) as e:
         logger.warning('decision file %s corrupt: %s', path, e)
         return None
