@@ -344,7 +344,27 @@ def _bare_alias_matches_subscripted(a: ast.expr, b: ast.expr) -> bool:
     ``List[str]``) do NOT match here — they hit the earlier dump-inequality
     branch and surface as violations.
     """
-    raise NotImplementedError
+    he = sys.modules.get('harness.ast_enforcer')
+    equivs = getattr(he, '_TYPING_ALIAS_EQUIVALENTS', None) if he else None
+    if equivs is None:
+        equivs = globals().get('_TYPING_ALIAS_EQUIVALENTS', {})
+    aliases = set(equivs.values())
+
+    def head_name(n: ast.expr) -> str | None:
+        if isinstance(n, ast.Name):
+            return n.id
+        if isinstance(n, ast.Subscript) and isinstance(n.value, ast.Name):
+            return n.value.id
+        return None
+    a_head = head_name(a)
+    b_head = head_name(b)
+    if a_head is None or b_head is None or a_head != b_head:
+        return False
+    if a_head not in aliases:
+        return False
+    a_bare = isinstance(a, ast.Name)
+    b_bare = isinstance(b, ast.Name)
+    return a_bare != b_bare
 
 class _DocstringRemover(ast.NodeTransformer):
     """Remove docstrings from module, class, and function bodies."""
@@ -460,3 +480,4 @@ except ImportError:
     _NONDETERMINISTIC_CALLS = frozenset({('time', 'time'), ('datetime', 'now'), ('os', 'urandom')})
     _SIDE_EFFECT_NAMES = frozenset({'print', 'open'})
     _SIDE_EFFECT_ATTRS = frozenset({('sys', 'stdout', 'write')})
+import sys
