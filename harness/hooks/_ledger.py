@@ -61,5 +61,6 @@ def count_verb(events: Iterable[dict[str, Any]], verb: str, *, outcome: str='all
     return sum((1 for e in events if e.get('verb') == verb and e.get('outcome') == outcome))
 
 def has_verb(events: Iterable[dict[str, Any]], verb: str, *, outcome: str='allow') -> bool:
+    """Return True if at least one event in events carries the requested verb and outcome."""
     return count_verb(events, verb, outcome=outcome) > 0
 import harness.hooks._paths
