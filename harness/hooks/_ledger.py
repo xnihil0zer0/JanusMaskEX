@@ -24,7 +24,6 @@ from . import _paths
 
 def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-import harness.hooks._paths
 
 def ledger_path(session_id: str, agent: str | None=None) -> pathlib.Path:
     resolved_agent = agent or harness.hooks._paths.agent() or 'unknown'
@@ -43,3 +42,4 @@ def count_verb(events: Iterable[dict[str, Any]], verb: str, *, outcome: str='all
 
 def has_verb(events: Iterable[dict[str, Any]], verb: str, *, outcome: str='allow') -> bool:
     raise NotImplementedError
+import harness.hooks._paths
