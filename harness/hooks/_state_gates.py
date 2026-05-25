@@ -18,7 +18,7 @@ MAX_SUBMISSIONS = 5
 MAX_CLARIFICATIONS = 2
 
 def _state_file() -> pathlib.Path:
-    raise NotImplementedError
+    return harness.hooks._paths.state_dir() / 'STATE.json'
 
 def read_state_besteffort() -> dict[str, Any]:
     """Best-effort read of STATE.json. Returns {} on missing/corrupt — hooks
