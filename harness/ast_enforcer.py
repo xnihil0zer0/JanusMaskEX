@@ -429,11 +429,30 @@ def _bare_alias_matches_subscripted(a: ast.expr, b: ast.expr) -> bool:
                 return True
     return False
 
-class _DocstringRemover(ast.NodeTransformer):
+class _DocstringRemover:
     """Remove docstrings from module, class, and function bodies."""
 
     def _strip_docstring(self, body: list[ast.stmt]) -> list[ast.stmt]:
-        raise NotImplementedError
+        if not body:
+            return body
+        first = body[0]
+        is_string = False
+        if isinstance(first, ast.Expr):
+            val = first.value
+            if isinstance(val, ast.Constant) and isinstance(val.value, str):
+                is_string = True
+            elif hasattr(ast, 'Str') and isinstance(val, getattr(ast, 'Str')) and isinstance(val.s, str):
+                is_string = True
+        if is_string:
+            if len(body) == 1:
+                pass_node = ast.Pass()
+                for attr in ('lineno', 'col_offset', 'end_lineno', 'end_col_offset'):
+                    if hasattr(first, attr):
+                        setattr(pass_node, attr, getattr(first, attr))
+                return [pass_node]
+            else:
+                return body[1:]
+        return body
 
     def visit_Module(self, node: ast.Module) -> ast.Module:
         raise NotImplementedError
