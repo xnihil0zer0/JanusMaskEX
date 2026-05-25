@@ -306,7 +306,7 @@ def _normalize_annotation(node: ast.expr) -> ast.expr | None:
 
 def _dump_annotation(node: ast.expr) -> str:
     """Deterministic string form of an annotation for comparison."""
-    return ast.dump(node, annotate_fields=False)
+    return ast.dump(node, annotate_fields=False, include_attributes=False)
 
 def validate_return_type(code: str, declared_return: ast.expr | None, func_name: str) -> list[Violation]:
     """Validate that *code*'s ``FunctionDef.returns`` matches *declared_return*.
