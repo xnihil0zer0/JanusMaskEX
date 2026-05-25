@@ -28,6 +28,7 @@ Any future edit that further relaxes this scrub MUST author a new brief
 amend before landing (see Decision B "Pin").
 """
 from __future__ import annotations
+
 import ast
 import importlib.util
 import os
@@ -36,9 +37,17 @@ import re
 import subprocess
 import sys
 import tempfile
-__all__ = ['run_embedded_tests', 'should_run_embedded_tests']
-_MODULE_NAME_RE = re.compile('^[A-Za-z_][A-Za-z0-9_]*$')
-_WORKER_SCRUB_ENV = {'PATH': '/usr/bin:/bin', 'LANG': 'C'}
+
+__all__ = ["run_embedded_tests", "should_run_embedded_tests"]
+
+
+_MODULE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+_WORKER_SCRUB_ENV = {
+    "PATH": "/usr/bin:/bin",
+    "LANG": "C",
+}
+
 
 def should_run_embedded_tests(module_src: str) -> bool:
     """Return True iff ``module_src`` has a top-level pytest target.
@@ -54,11 +63,12 @@ def should_run_embedded_tests(module_src: str) -> bool:
     except SyntaxError:
         return False
     for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name.startswith('test_'):
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
             return True
-        if isinstance(node, ast.ClassDef) and node.name.startswith('Test'):
+        if isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
             return True
     return False
+
 
 def _pytest_site_dir() -> str:
     """Resolve pytest's parent site-packages directory.
@@ -67,12 +77,18 @@ def _pytest_site_dir() -> str:
     gives the ``pytest`` package directory; its parent is the
     site-packages directory to expose on PYTHONPATH.
     """
-    spec = importlib.util.find_spec('pytest')
+    spec = importlib.util.find_spec("pytest")
     if spec is None or not spec.submodule_search_locations:
-        raise RuntimeError('pytest not importable from orchestrator env')
+        raise RuntimeError("pytest not importable from orchestrator env")
     return os.path.dirname(spec.submodule_search_locations[0])
 
-def run_embedded_tests(module_name: str, module_src: str, *, timeout: float=10.0) -> str | None:
+
+def run_embedded_tests(
+    module_name: str,
+    module_src: str,
+    *,
+    timeout: float = 10.0,
+) -> str | None:
     """Run pytest against ``module_src`` under a scrubbed subprocess.
 
     Args:
@@ -91,23 +107,71 @@ def run_embedded_tests(module_name: str, module_src: str, *, timeout: float=10.0
     if not should_run_embedded_tests(module_src):
         return None
     if not _MODULE_NAME_RE.match(module_name):
-        return f'embedded tests rejected: invalid module_name {module_name!r}'
-    env = {**_WORKER_SCRUB_ENV, 'PYTHONPATH': _pytest_site_dir()}
-    base_cmd = [sys.executable, '-S', '-m', 'pytest']
+        return f"embedded tests rejected: invalid module_name {module_name!r}"
+
+    pytest_site = _pytest_site_dir()
+
     with tempfile.TemporaryDirectory() as td:
-        candidate = os.path.join(td, f'{module_name}.py')
-        pathlib.Path(candidate).write_text(module_src, encoding='utf-8')
+        td_path = pathlib.Path(td)
+        mod_path = td_path / f"{module_name}.py"
+        mod_path.write_text(module_src, encoding="utf-8")
+        env = dict(_WORKER_SCRUB_ENV)
+        env["PYTHONPATH"] = f"{td_path}{os.pathsep}{pytest_site}"
+
+        collect_argv = [
+            sys.executable,
+            "-S",
+            "-m",
+            "pytest",
+            "--collect-only",
+            "-q",
+            f"{module_name}.py",
+        ]
         try:
-            collect = subprocess.run(base_cmd + ['--collect-only', candidate], cwd=td, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=timeout)
+            proc = subprocess.run(
+                collect_argv,
+                cwd=str(td_path),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
         except subprocess.TimeoutExpired:
-            return 'embedded tests timed out'
-        if collect.returncode != 0:
-            return f'embedded tests collect failed: {collect.stdout.strip()}'
+            return "embedded tests timed out"
+        if proc.returncode != 0:
+            msg = (
+                proc.stderr.strip()
+                or proc.stdout.strip()
+                or "subprocess exited nonzero with no output"
+            )
+            return f"embedded tests collect failed: {msg}"
+
+        run_argv = [
+            sys.executable,
+            "-S",
+            "-m",
+            "pytest",
+            "-x",
+            "--no-header",
+            "-q",
+            f"{module_name}.py",
+        ]
         try:
-            run = subprocess.run(base_cmd + [candidate], cwd=td, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=timeout)
+            proc = subprocess.run(
+                run_argv,
+                cwd=str(td_path),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
         except subprocess.TimeoutExpired:
-            return 'embedded tests timed out'
-        if run.returncode != 0:
-            return f'embedded tests failed: {run.stdout.strip()}'
+            return "embedded tests timed out"
+    if proc.returncode != 0:
+        msg = (
+            proc.stdout.strip()
+            or proc.stderr.strip()
+            or "subprocess exited nonzero with no output"
+        )
+        return f"embedded tests failed: {msg}"
     return None
-'Embedded pytest runner for bypass-eligible candidate modules (DD6-cat2).'

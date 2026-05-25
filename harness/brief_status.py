@@ -2,177 +2,131 @@ import json
 from pathlib import Path
 
 def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
-    """Summarise the planning state of every brief found in ``repo_root``.
-
-    A *brief* is a ``brief_*.md`` file living at the top level of the repo. Its
-    matching *plan* is the sibling file with the ``brief_`` prefix swapped for
-    ``plan_`` and a ``.json`` suffix (e.g. ``brief_hooks_beta.md`` pairs with
-    ``plan_hooks_beta.json``). The display ``slug`` is the trailing
-    underscore-delimited component of the brief's stem (``brief_hooks_beta`` ->
-    ``beta``).
-
-    A plan lists tasks under its ``"tasks"`` key, each carrying a ``task_id``. A
-    task counts as accepted when ``state_dir/impl_progress.jsonl`` holds an event
-    whose ``phase`` is ``"accepted"`` for that ``task_id``.
-
-    Each returned row is a dict with:
-      - ``slug``: the brief's slug.
-      - ``brief``: the brief file name.
-      - ``has_plan``: whether the matching plan file exists.
-      - ``state``: one of ``"unplanned"`` (no plan), ``"complete"`` (every plan
-        task accepted), ``"planned"`` (a plan exists but nothing accepted yet) or
-        ``"in_progress"`` (some but not all plan tasks accepted).
-      - ``remaining``: the plan task_ids that are not yet accepted.
-      - ``total``: the number of tasks in the plan.
-      - ``accepted``: the number of accepted plan tasks.
-      - ``mtime``: the brief file's modification time.
-
-    Rows are returned sorted by brief file name for deterministic output.
-    """
-    repo_root = Path(repo_root)
-    state_dir = Path(state_dir)
-    accepted = _load_accepted_task_ids(state_dir / 'impl_progress.jsonl')
-    rows: list[dict] = []
-    for brief_path in sorted(repo_root.glob('brief_*.md')):
-        slug = brief_path.stem.split('_')[-1]
-        plan_path = brief_path.with_name('plan_' + brief_path.name[len('brief_'):]).with_suffix('.json')
-        has_plan = plan_path.is_file()
-        plan_task_ids = _load_plan_task_ids(plan_path) if has_plan else []
-        remaining = [tid for tid in plan_task_ids if tid not in accepted]
+    accepted_map = {}
+    ledger_path = state_dir / 'impl_progress.jsonl'
+    if ledger_path.exists():
+        try:
+            with open(ledger_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    try:
+                        row = json.loads(line)
+                        if isinstance(row, dict) and row.get('phase') == 'accepted' and (row.get('event') == 'auto_commit'):
+                            tid = row.get('task_id')
+                            if tid:
+                                accepted_map[tid] = {'task_id': tid, 'commit_sha': row.get('commit_sha'), 'ts': row.get('ts')}
+                    except json.JSONDecodeError:
+                        pass
+        except OSError:
+            pass
+    records = []
+    archive_root = (repo_root / '_archive').resolve()
+    for p in repo_root.glob('brief_hooks_*.md'):
+        try:
+            if archive_root in p.resolve().parents:
+                continue
+        except OSError:
+            pass
+        slug = p.stem.removeprefix('brief_hooks_')
+        plan_filename = f'plan_hooks_{slug}.json'
+        plan_file = repo_root / plan_filename
+        has_plan = plan_file.exists() and (not plan_filename.endswith('_critique.json'))
+        task_ids = []
+        if has_plan:
+            try:
+                with open(plan_file, 'r', encoding='utf-8') as f:
+                    plan_data = json.load(f)
+                    if isinstance(plan_data, dict) and isinstance(plan_data.get('tasks'), list):
+                        for t in plan_data['tasks']:
+                            if isinstance(t, dict) and 'task_id' in t:
+                                task_ids.append(t['task_id'])
+            except Exception:
+                has_plan = False
+        if not has_plan:
+            plan_filename = None
+        accepted_for_brief = []
+        remaining = []
+        for tid in task_ids:
+            if tid in accepted_map:
+                accepted_for_brief.append(accepted_map[tid])
+            else:
+                remaining.append(tid)
+        queued = [tid for tid in task_ids if (state_dir / 'tasks' / f'{tid}.json').exists()]
+        processing = [tid for tid in task_ids if (state_dir / 'tasks' / 'processing' / f'{tid}.json').exists() or (state_dir / 'tasks' / f'{tid}.json.processing').exists()]
+        processed_unaccepted = [tid for tid in task_ids if (state_dir / 'tasks' / 'processed' / f'{tid}.json').exists() and tid not in accepted_map]
+        blocked = [tid for tid in task_ids if (state_dir / 'tasks' / 'blocked' / f'{tid}.json').exists()]
         if not has_plan:
             state = 'unplanned'
+        elif not task_ids:
+            state = 'planned'
+        elif blocked:
+            state = 'blocked'
+        elif queued or processing:
+            state = 'in_flight'
         elif not remaining:
             state = 'complete'
-        elif len(remaining) == len(plan_task_ids):
-            state = 'planned'
         else:
-            state = 'in_progress'
-        rows.append({'slug': slug, 'brief': brief_path.name, 'has_plan': has_plan, 'state': state, 'remaining': remaining, 'total': len(plan_task_ids), 'accepted': len(plan_task_ids) - len(remaining), 'mtime': brief_path.stat().st_mtime})
-    return rows
+            state = 'queued'
+        staged_or_done = set(queued) | set(processing) | set(processed_unaccepted) | set(blocked) | {a['task_id'] for a in accepted_for_brief}
+        unstaged_task_ids = [tid for tid in task_ids if tid not in staged_or_done]
+        records.append({'slug': slug, 'brief_filename': p.name, 'brief_mtime': p.stat().st_mtime, 'has_plan': has_plan, 'plan_filename': plan_filename, 'task_ids': task_ids, 'queued': queued, 'processing': processing, 'processed_unaccepted': processed_unaccepted, 'accepted': accepted_for_brief, 'blocked': blocked, 'remaining': remaining, 'state': state, 'unstaged_task_ids': unstaged_task_ids})
+    records.sort(key=lambda x: x['brief_mtime'], reverse=True)
+    return records
 
 def compute_autowork_eligibility(repo_root: Path, state_dir: Path, now=None, max_age_sec: int=604800) -> dict:
-    """Decide which briefs autowork may act on, and why the rest are blocked.
-
-    A brief is *eligible* only when both gates pass:
-      - the auto-promote allowlist file
-        (``state_dir/control/autowork/auto_promote.allowlist``, one slug per
-        line) exists and lists the brief's slug, and
-      - the brief is fresh -- ``now - mtime`` does not exceed ``max_age_sec``.
-
-    When the allowlist file is absent every brief is blocked with reason
-    ``"allowlist_missing"``; a slug not named in an existing allowlist is blocked
-    with ``"not_allowlisted"``; an allowlisted but aged brief is blocked with
-    ``"stale"``. ``now`` defaults to the wall clock when not supplied.
-
-    Returns a dict with ``eligible`` (list of slugs), ``eligible_count``,
-    ``blocked`` (list of ``{"slug", "reason"}`` dicts) and ``allowlist_present``.
-    """
     import time
-    repo_root = Path(repo_root)
-    state_dir = Path(state_dir)
     if now is None:
         now = time.time()
+    records = compute_brief_status(repo_root, state_dir)
     allowlist_path = state_dir / 'control' / 'autowork' / 'auto_promote.allowlist'
-    allowlist_present = allowlist_path.is_file()
-    allowed: set = set()
-    if allowlist_present:
+    if not allowlist_path.exists():
+        allow = None
+    else:
         try:
-            text = allowlist_path.read_text(encoding='utf-8')
+            lines = allowlist_path.read_text(encoding='utf-8').splitlines()
+            allow = {s for line in lines if (s := line.strip()) and (not s.startswith('#'))}
         except OSError:
-            text = ''
-        for line in text.splitlines():
-            line = line.strip()
-            if line:
-                allowed.add(line)
-    eligible: list = []
-    blocked: list = []
-    for row in compute_brief_status(repo_root, state_dir):
-        slug = row['slug']
-        if not allowlist_present:
-            blocked.append({'slug': slug, 'reason': 'allowlist_missing'})
-            continue
-        if slug not in allowed:
-            blocked.append({'slug': slug, 'reason': 'not_allowlisted'})
-            continue
-        if now - row['mtime'] > max_age_sec:
+            allow = None
+    eligible: list[str] = []
+    blocked: list[dict] = []
+    dispatchable: list[str] = []
+    parked: dict[str, list] = {}
+    for record in records:
+        slug = record['slug']
+        zombies = list(record.get('processed_unaccepted') or [])
+        if zombies:
+            parked[slug] = zombies
+        try:
+            mtime = float(record['brief_mtime'] or 0)
+        except (TypeError, ValueError):
+            mtime = 0.0
+        if mtime <= 0 or now - mtime > float(max_age_sec):
             blocked.append({'slug': slug, 'reason': 'stale'})
-            continue
-        eligible.append(slug)
-    return {'eligible': eligible, 'eligible_count': len(eligible), 'blocked': blocked, 'allowlist_present': allowlist_present}
+        elif slug not in (allow or set()):
+            blocked.append({'slug': slug, 'reason': 'allowlist_missing' if allow is None else 'not_in_allowlist'})
+        else:
+            eligible.append(slug)
+            if record.get('unstaged_task_ids'):
+                dispatchable.append(slug)
+    return {'eligible': eligible, 'blocked': blocked, 'eligible_count': len(eligible), 'blocked_count': len(blocked), 'allowlist_present': allow is not None, 'allowlist_slugs': sorted(allow) if allow else [], 'max_age_sec': int(max_age_sec), 'dispatchable': dispatchable, 'parked': parked}
 
 def compute_autowork_backlog(repo_root: Path, state_dir: Path, now=None, max_age_sec: int=604800) -> dict:
-    """Cross autowork eligibility with planning state to find the backlog.
-
-    A brief belongs to the backlog when it is *eligible* (per
-    :func:`compute_autowork_eligibility`) and still has *unfinished work* -- that
-    is, its planning state (per :func:`compute_brief_status`) is anything other
-    than ``"complete"``. An eligible ``"unplanned"`` brief still needs planning,
-    so it counts as having unfinished work even though it has no plan tasks yet.
-
-    ``now`` and ``max_age_sec`` are forwarded to the eligibility computation so
-    the freshness gate behaves identically here.
-
-    Returns a dict with:
-      - ``eligible_with_work``: list of slugs that are both eligible and not yet
-        complete.
-      - ``eligible_with_work_count``: the length of that list.
-      - ``detail``: a per-eligible-brief list of dicts carrying ``slug``,
-        ``brief``, ``state``, ``remaining``, ``total``, ``accepted`` and
-        ``has_unfinished_work``.
-    """
-    repo_root = Path(repo_root)
-    state_dir = Path(state_dir)
-    eligibility = compute_autowork_eligibility(repo_root, state_dir, now=now, max_age_sec=max_age_sec)
-    status_by_slug = {row['slug']: row for row in compute_brief_status(repo_root, state_dir)}
-    eligible_with_work: list = []
-    detail: list = []
+    eligibility = compute_autowork_eligibility(repo_root, state_dir, now, max_age_sec)
+    records = compute_brief_status(repo_root, state_dir)
+    record_index = {r['slug']: r for r in records}
+    eligible_with_work: list[str] = []
+    eligible_without_work: list[str] = []
+    detail: list[dict] = []
     for slug in eligibility['eligible']:
-        row = status_by_slug.get(slug, {})
-        has_unfinished_work = row.get('state') != 'complete'
-        detail.append({'slug': slug, 'brief': row.get('brief'), 'state': row.get('state'), 'remaining': row.get('remaining', []), 'total': row.get('total', 0), 'accepted': row.get('accepted', 0), 'has_unfinished_work': has_unfinished_work})
+        record = record_index.get(slug)
+        if record is None:
+            state = 'unplanned'
+            has_unfinished_work = True
+        else:
+            state = record['state']
+            has_unfinished_work = state == 'unplanned' or bool(record['unstaged_task_ids']) or bool(record['remaining'])
         if has_unfinished_work:
             eligible_with_work.append(slug)
-    return {'eligible_with_work': eligible_with_work, 'eligible_with_work_count': len(eligible_with_work), 'detail': detail}
-
-def _load_accepted_task_ids(progress_path: Path) -> set:
-    """Return the set of task_ids that have an ``accepted``-phase event."""
-    accepted: set = set()
-    if not progress_path.is_file():
-        return accepted
-    try:
-        text = progress_path.read_text(encoding='utf-8')
-    except OSError:
-        return accepted
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        if not isinstance(event, dict):
-            continue
-        if event.get('phase') == 'accepted':
-            task_id = event.get('task_id')
-            if task_id is not None:
-                accepted.add(task_id)
-    return accepted
-
-def _load_plan_task_ids(plan_path: Path) -> list:
-    """Return the ordered list of task_ids declared by a plan file."""
-    try:
-        plan = json.loads(plan_path.read_text(encoding='utf-8'))
-    except (OSError, json.JSONDecodeError, ValueError):
-        return []
-    if not isinstance(plan, dict):
-        return []
-    task_ids: list = []
-    for task in plan.get('tasks') or []:
-        if isinstance(task, dict):
-            task_id = task.get('task_id')
-            if task_id is not None:
-                task_ids.append(task_id)
-        elif isinstance(task, str):
-            task_ids.append(task)
-    return task_ids
+        else:
+            eligible_without_work.append(slug)
+        detail.append({'slug': slug, 'has_unfinished_work': has_unfinished_work, 'state': state})
+    return {'eligible_with_work': eligible_with_work, 'eligible_without_work': eligible_without_work, 'detail': detail}

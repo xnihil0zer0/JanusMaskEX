@@ -22,183 +22,171 @@ Per §10.3 decorator opt-out: validators may carry an
 with a default of ``{}`` so undecorated validators run with defaults.
 """
 from __future__ import annotations
+
 import ast
 import os
 import re
 import traceback
-import sys
-import types
-import time
-from typing import Any
-from typing import Callable
-from hypothesis import HealthCheck
-from hypothesis import given
-from hypothesis import settings
+from typing import Any, Callable
+
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+
 from harness.diff_fuzzer import extract_function_signature
 from harness.embedded_test_runner import should_run_embedded_tests
-_VALIDATOR_PREFIX_RE = re.compile('^(validate_|check_|is_)')
+
+
+_VALIDATOR_PREFIX_RE = re.compile(r'^(validate_|check_|is_)')
 _DEFAULT_INPUT_BUDGET = 200
 _RUN_ALWAYS: bool = os.environ.get('RUN_NARROW_FUZZ_ALWAYS') == '1'
 
+
 def _strategy_for_annotation(annotation: str) -> st.SearchStrategy[Any] | None:
     a = annotation.strip()
-    if a.startswith('typing.'):
-        a = a[len('typing.'):]
-    a_normalized = ''.join(a.split())
-    if a_normalized in ('str', 'builtins.str', 'Text'):
+    if a in ('str', 'builtins.str'):
         return st.text(alphabet=st.characters(blacklist_categories=('Cs',)))
-    if a_normalized in ('bool', 'builtins.bool'):
+    if a in ('bool', 'builtins.bool'):
         return st.booleans()
-    if a_normalized in ('int', 'builtins.int'):
+    if a in ('int', 'builtins.int'):
         return st.integers()
-    if a_normalized in ('list', 'List') or a_normalized.startswith('list[') or a_normalized.startswith('List['):
-        return st.lists(st.one_of(st.integers(), st.text(max_size=8), st.none()), max_size=4)
-    if a_normalized in ('dict', 'Dict') or a_normalized.startswith('dict[') or a_normalized.startswith('Dict['):
-        return st.dictionaries(st.text(max_size=8), st.one_of(st.none(), st.integers(), st.text(max_size=8)), max_size=4)
+    if a in ('list', 'List') or a.startswith('list[') or a.startswith('List['):
+        return st.lists(
+            st.one_of(st.integers(), st.text(max_size=8), st.none()),
+            max_size=4,
+        )
+    if a in ('dict', 'Dict') or a.startswith('dict[') or a.startswith('Dict['):
+        return st.dictionaries(
+            st.text(max_size=8),
+            st.one_of(st.none(), st.integers(), st.text(max_size=8)),
+            max_size=4,
+        )
     return None
+
 
 def _discover_validators(module_src: str) -> list[str]:
     try:
         tree = ast.parse(module_src)
     except SyntaxError:
         return []
-    names = []
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef):
-            if _VALIDATOR_PREFIX_RE.match(node.name):
-                names.append(node.name)
-    return names
+    # Async validators are silently skipped: _fuzz_one calls fn(**kwargs)
+    # synchronously, so an `async def` returns an unawaited coroutine instead
+    # of raising — 200 Hypothesis iterations would falsely pass. Out of scope
+    # for the §10.2 strategy table.
+    return [
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and _VALIDATOR_PREFIX_RE.match(node.name)
+    ]
 
-def _build_strategies(sig: dict[str, str]) -> dict[str, st.SearchStrategy[Any]] | None:
-    strategies = {}
-    for param_name, annotation in sig.items():
-        strat = _strategy_for_annotation(annotation)
-        if strat is None:
+
+def _build_strategies(
+    sig: dict[str, str],
+) -> dict[str, st.SearchStrategy[Any]] | None:
+    strategies: dict[str, st.SearchStrategy[Any]] = {}
+    for param, annot in sig.items():
+        s = _strategy_for_annotation(annot)
+        if s is None:
             return None
-        strategies[param_name] = strat
+        strategies[param] = s
     return strategies
 
+
 def _exec_module(module_name: str, module_src: str) -> dict[str, Any] | None:
-    original_module = sys.modules.get(module_name)
+    ns: dict[str, Any] = {'__name__': module_name}
     try:
-        code = compile(module_src, f'<module {module_name}>', 'exec')
-    except (SyntaxError, ValueError):
+        compiled = compile(module_src, f'<narrow_fuzz_{module_name}>', 'exec')
+        exec(compiled, ns)
+    except Exception:
         return None
-    mod = types.ModuleType(module_name)
-    mod.__file__ = f'<module {module_name}>'
-    if '.' in module_name:
-        mod.__package__ = module_name.rsplit('.', 1)[0]
-    else:
-        mod.__package__ = ''
-    sys.modules[module_name] = mod
-    try:
-        exec(code, mod.__dict__)
-    except BaseException:
-        return None
-    finally:
-        if original_module is not None:
-            sys.modules[module_name] = original_module
-        else:
-            sys.modules.pop(module_name, None)
-    return mod.__dict__
+    return ns
+
 
 def _meta_for(fn: Callable[..., Any]) -> dict[str, Any]:
-    meta = getattr(fn, '_narrow_fuzz_meta', {})
-    if isinstance(meta, dict):
-        return meta
-    return {}
+    meta = getattr(fn, '_narrow_fuzz_meta', None)
+    return meta if isinstance(meta, dict) else {}
 
-def _fuzz_one(fn: Callable[..., Any], name: str, strategies: dict[str, st.SearchStrategy[Any]], timeout: float) -> str | None:
 
-    def bind_arguments(func: Callable[..., Any], kwargs: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+def _fuzz_one(
+    fn: Callable[..., Any],
+    name: str,
+    strategies: dict[str, st.SearchStrategy[Any]],
+    timeout: float,
+) -> str | None:
+    captured: dict[str, Any] = {}
+
+    @settings(
+        max_examples=_DEFAULT_INPUT_BUDGET,
+        deadline=int(timeout * 1000),
+        suppress_health_check=[
+            HealthCheck.too_slow,
+            HealthCheck.function_scoped_fixture,
+        ],
+        print_blob=False,
+    )
+    @given(**strategies)
+    def runner(**kwargs: Any) -> None:
         try:
-            sig = inspect.signature(func)
-        except Exception:
-            return ([], kwargs)
-        args = []
-        bound_kwargs = {}
-        for name_param, param in sig.parameters.items():
-            if param.kind == inspect.Parameter.POSITIONAL_ONLY:
-                if name_param in kwargs:
-                    args.append(kwargs[name_param])
-                elif param.default is not inspect.Parameter.empty:
-                    args.append(param.default)
-            elif param.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD:
-                if name_param in kwargs:
-                    bound_kwargs[name_param] = kwargs[name_param]
-            elif param.kind == inspect.Parameter.KEYWORD_ONLY:
-                if name_param in kwargs:
-                    bound_kwargs[name_param] = kwargs[name_param]
-            elif param.kind == inspect.Parameter.VAR_KEYWORD:
-                for k, v in kwargs.items():
-                    if k not in sig.parameters:
-                        bound_kwargs[k] = v
-            elif param.kind == inspect.Parameter.VAR_POSITIONAL:
-                if name_param in kwargs:
-                    val = kwargs[name_param]
-                    if isinstance(val, (list, tuple)):
-                        args.extend(val)
-                    else:
-                        args.append(val)
-        return (args, bound_kwargs)
-    if not strategies:
-        try:
-            fn()
-        except Exception as e:
-            tb_str = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
-            return f'Fuzzing function {name} failed with {type(e).__name__}.\nTraceback:\n{tb_str}'
-        return None
+            fn(**kwargs)
+        except Exception as exc:
+            captured['input'] = kwargs
+            captured['exc_type'] = type(exc).__name__
+            captured['exc_msg'] = str(exc)
+            captured['tb'] = traceback.format_exc(limit=3)
+            raise
 
-    def test_target(**kwargs):
-        args, b_kwargs = bind_arguments(fn, kwargs)
-        fn(*args, **b_kwargs)
-    test_target.__name__ = name
-    test_target.__qualname__ = name
-    deadline_val = int(timeout * 1000) if timeout else None
-    decorated = given(**strategies)(settings(max_examples=200, deadline=deadline_val, database=None, suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much])(test_target))
     try:
-        decorated()
-    except Exception as e:
-        tb_str = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
-        notes = getattr(e, '__notes__', [])
-        notes_str = '\n'.join(notes)
-        return f'Fuzzing function {name} failed with {type(e).__name__}.\nTraceback:\n{tb_str}\nNotes:\n{notes_str}'
+        runner()
+    except Exception:
+        if not captured:
+            return f'{name}: narrow-fuzz failed (no captured input)'
+        return (
+            f'{captured["exc_type"]} on {name} with input {captured["input"]!r}: '
+            f'{captured["exc_msg"]}'
+        )
     return None
 
-def fuzz(module_name: str, module_src: str, *, timeout: float=5.0) -> str | None:
+
+def fuzz(
+    module_name: str,
+    module_src: str,
+    *,
+    timeout: float = 5.0,
+) -> str | None:
     """Narrow-fuzz the candidate's validator-like functions.
 
     See module docstring for design contract; brief §4.1, §11.2, §13
     are the binding spec.
     """
-    if should_run_embedded_tests(module_src) and (not _RUN_ALWAYS):
+    if should_run_embedded_tests(module_src) and not _RUN_ALWAYS:
         return None
+
     validator_names = _discover_validators(module_src)
     if not validator_names:
         return None
-    ns = _exec_module(module_name, module_src)
-    if ns is None:
+
+    namespace = _exec_module(module_name, module_src)
+    if namespace is None:
         return None
+
     for name in validator_names:
-        fn = ns.get(name)
-        if not fn or not callable(fn):
+        fn = namespace.get(name)
+        if not callable(fn):
             continue
         meta = _meta_for(fn)
         if meta.get('skip'):
             continue
-        val_timeout = meta.get('timeout', timeout)
         try:
             sig = extract_function_signature(module_src, name)
         except Exception:
             continue
-        if sig is None:
+        if not sig:
             continue
         strategies = _build_strategies(sig)
         if strategies is None:
             continue
-        err = _fuzz_one(fn, name, strategies, val_timeout)
+        per_timeout = float(meta.get('timeout', timeout))
+        err = _fuzz_one(fn, name, strategies, per_timeout)
         if err is not None:
             return err
     return None
-import inspect

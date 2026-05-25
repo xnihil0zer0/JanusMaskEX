@@ -1,29 +1,27 @@
 import re
-from typing import List
-from typing import Tuple
+from typing import List, Tuple
+
 
 def strip_decomposition_suffixes(task_id: str) -> str:
     """Remove all trailing decomposition-related suffixes from task_id.
-
+    
     Suffixes to strip: -reviewed, -compose, -boundary, -empty_input, -type_error, -general, -single_element
     Strips repeatedly until no suffix matches. Pure string operation; no I/O.
     Never raises.
-
+    
     Args:
         task_id: The task ID string to normalize
-
+        
     Returns:
         The task_id with all trailing decomposition suffixes removed
     """
-    result = task_id
-    while True:
-        for suffix in _DECOMPOSITION_SUFFIXES:
-            if result.endswith(suffix):
-                result = result[:-len(suffix)]
-                break
-        else:
-            break
-    return result
+    suffixes = re.compile(r'(-reviewed|-compose|-boundary|-empty_input|-type_error|-general|-single_element)$')
+    prev = None
+    while prev != task_id:
+        prev = task_id
+        task_id = suffixes.sub('', task_id)
+    return task_id
+
 
 class TestStripDecompositionSuffixes:
     """Test suite for strip_decomposition_suffixes function."""
@@ -82,28 +80,35 @@ class TestStripDecompositionSuffixes:
 
     def test_interior_suffix_not_removed(self):
         """Regression test: suffixes in the middle should not be stripped."""
+        # Interior occurrence should NOT be stripped
         task_id = 'GIT-reviewed-reviewed-COMMIT-001'
         expected = 'GIT-reviewed-COMMIT-001'
         assert strip_decomposition_suffixes(task_id) == expected
 
     def test_suffix_like_substrings_not_removed(self):
         """Verify that suffix patterns that are not trailing are preserved."""
+        # '-reviewed' is part of the task ID, not a trailing suffix
         task_id = 'REVIEW-001'
         assert strip_decomposition_suffixes(task_id) == 'REVIEW-001'
+        
+        # Compound word containing suffix
         task_id = 'COMPOSE-002'
         assert strip_decomposition_suffixes(task_id) == 'COMPOSE-002'
 
     def test_only_suffix(self):
         """Test behavior when input is only a suffix."""
+        # Should strip the suffix and return empty string
         assert strip_decomposition_suffixes('-reviewed') == ''
         assert strip_decomposition_suffixes('-compose') == ''
 
     def test_mixed_suffix_order(self):
         """Test that suffix order doesn't matter; all are removed."""
+        # Order shouldn't affect the result since we strip all matching suffixes
         task_id = 'TASK-999-general-type_error-boundary'
         expected = 'TASK-999'
         assert strip_decomposition_suffixes(task_id) == expected
-_DECOMPOSITION_SUFFIXES = ('-reviewed', '-compose', '-boundary', '-empty_input', '-type_error', '-general', '-single_element')
-if __name__ == '__main__':
+
+
+if __name__ == "__main__":
     import pytest
-    pytest.main([__file__, '-v'])
+    pytest.main([__file__, "-v"])

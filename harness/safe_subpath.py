@@ -12,8 +12,11 @@ imported only inside the ``__main__`` block below, so importing
 (production sandboxes, batch workers, etc.). Tests live in the sibling file
 ``tests/test_safe_subpath.py``.
 """
+
 from __future__ import annotations
+
 import pathlib
+
 
 def is_safe_subpath(candidate: str, root: str) -> bool:
     """Check if candidate path is a safe descendant of root.
@@ -31,14 +34,18 @@ def is_safe_subpath(candidate: str, root: str) -> bool:
         bool: True if candidate is a safe descendant of root, False otherwise
     """
     try:
-        candidate_resolved = Path(candidate).resolve()
-        root_resolved = Path(root).resolve()
-        candidate_resolved.relative_to(root_resolved)
+        cand_abs = pathlib.Path(candidate).resolve()
+        root_abs = pathlib.Path(root).resolve()
+        cand_abs.relative_to(root_abs)  # Raises ValueError if cand not under root
         return True
-    except Exception:
+    except (ValueError, RuntimeError, OSError, TypeError):
         return False
-from pathlib import Path
+
+
 if __name__ == '__main__':
-    import pytest
+    # pytest is intentionally imported lazily here so module-load works in
+    # environments without pytest. Tests live in tests/test_safe_subpath.py.
+    import pytest  # noqa: E402
     import sys
+
     sys.exit(pytest.main(['tests/test_safe_subpath.py', '-v']))

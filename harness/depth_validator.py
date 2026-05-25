@@ -20,28 +20,35 @@ def check_true_depth(task_id: str, tasks_dir: Path, max_depth: int=3) -> bool:
     Returns:
         False if lineage depth > max_depth, True otherwise
     """
-    visited: set[str] = set()
-    current = task_id
+    tasks_dir = Path(tasks_dir)
+    processed_dir = tasks_dir / 'processed'
     depth = 0
-    while current is not None:
-        if current in visited:
-            logger.warning('Circular parent reference detected at task %s', current)
-            return False
-        visited.add(current)
-        path = tasks_dir / f'{current}.json'
-        if not path.is_file():
-            path = tasks_dir / 'processed' / f'{current}.json'
-        if not path.is_file():
-            logger.warning('Task file not found for %s in %s', current, tasks_dir)
-            return False
-        try:
-            data = json.loads(path.read_text())
-        except (json.JSONDecodeError, OSError) as exc:
-            logger.warning('Failed to load task file for %s: %s', current, exc)
-            return False
-        depth += 1
-        if depth > max_depth:
-            return False
-        parent = data.get('parent_task')
-        current = parent if parent else None
+    current_task_id = task_id
+    visited = set()
+    try:
+        while current_task_id:
+            if current_task_id in visited:
+                logger.warning(f'Circular reference detected in task lineage starting from {task_id}')
+                return False
+            visited.add(current_task_id)
+            depth += 1
+            if depth > max_depth:
+                logger.warning(f'Task {task_id} lineage depth {depth} exceeds max_depth {max_depth}')
+                return False
+            task_file = tasks_dir / f'{current_task_id}.json'
+            if not task_file.exists():
+                task_file = processed_dir / f'{current_task_id}.json'
+            try:
+                with open(task_file, 'r') as f:
+                    task_data = json.load(f)
+            except FileNotFoundError:
+                logger.warning(f'Task file not found in tasks/ or processed/: {current_task_id}')
+                return False
+            except json.JSONDecodeError as e:
+                logger.warning(f'Invalid JSON in task file {task_file}: {e}')
+                return False
+            current_task_id = task_data.get('parent_task') or task_data.get('parent_task_id')
+    except Exception as e:
+        logger.warning(f'Error checking depth for task {task_id}: {e}')
+        return False
     return True

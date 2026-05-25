@@ -618,8 +618,3 @@ def are_structurally_equivalent(code_a: str, code_b: str) -> bool:
     except SyntaxError:
         return False
     return canonical_a == canonical_b
-
-AnnotationNormalizer = _AnnotationNormalizer
-DocstringRemover = _DocstringRemover
-RedundantPassRemover = _RedundantPassRemover
-ImportSorter = _ImportSorter

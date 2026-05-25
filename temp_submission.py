@@ -1,20 +1,87 @@
-import os
-import pathlib
+from __future__ import annotations
+import inspect
+import traceback
+from typing import Any, Callable
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
-from harness.hooks import _paths
-from harness.hooks._env import _resolve_agent
+def _fuzz_one(fn: Callable[..., Any], name: str, strategies: dict[str, st.SearchStrategy[Any]], timeout: float) -> str | None:
+    def bind_arguments(func: Callable[..., Any], kwargs: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+        try:
+            sig = inspect.signature(func)
+        except Exception:
+            return [], kwargs
+            
+        args = []
+        bound_kwargs = {}
+        
+        for name_param, param in sig.parameters.items():
+            if param.kind == inspect.Parameter.POSITIONAL_ONLY:
+                if name_param in kwargs:
+                    args.append(kwargs[name_param])
+                elif param.default is not inspect.Parameter.empty:
+                    args.append(param.default)
+            elif param.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD:
+                if name_param in kwargs:
+                    bound_kwargs[name_param] = kwargs[name_param]
+            elif param.kind == inspect.Parameter.KEYWORD_ONLY:
+                if name_param in kwargs:
+                    bound_kwargs[name_param] = kwargs[name_param]
+            elif param.kind == inspect.Parameter.VAR_KEYWORD:
+                for k, v in kwargs.items():
+                    if k not in sig.parameters:
+                        bound_kwargs[k] = v
+            elif param.kind == inspect.Parameter.VAR_POSITIONAL:
+                if name_param in kwargs:
+                    val = kwargs[name_param]
+                    if isinstance(val, (list, tuple)):
+                        args.extend(val)
+                    else:
+                        args.append(val)
+                        
+        return args, bound_kwargs
 
-def _work_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path:
-    work_dir_env = os.environ.get('JANUSMASK_WORK_DIR', '')
-    if work_dir_env:
-        return pathlib.Path(work_dir_env).resolve()
-    actual_session = session_id
-    if not actual_session:
-        actual_session = os.environ.get('JANUSMASK_SESSION_ID', '')
-    if not actual_session:
-        actual_session = 'nosession'
-    actual_agent = _resolve_agent(agent)
-    return (_paths.state_dir() / 'workdirs' / actual_agent / actual_session).resolve()
+    if not strategies:
+        try:
+            fn()
+        except Exception as e:
+            tb_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+            return (
+                f"Fuzzing function {name} failed with {type(e).__name__}.\n"
+                f"Traceback:\n{tb_str}"
+            )
+        return None
 
-def _inbox_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path:
-    return _work_dir(session_id, agent=agent) / "inbox"
+    def test_target(**kwargs):
+        args, b_kwargs = bind_arguments(fn, kwargs)
+        fn(*args, **b_kwargs)
+        
+    test_target.__name__ = name
+    test_target.__qualname__ = name
+    
+    deadline_val = int(timeout * 1000) if timeout else None
+    
+    decorated = given(**strategies)(
+        settings(
+            max_examples=200,
+            deadline=deadline_val,
+            database=None,
+            suppress_health_check=[
+                HealthCheck.too_slow,
+                HealthCheck.filter_too_much
+            ]
+        )(test_target)
+    )
+    
+    try:
+        decorated()
+    except Exception as e:
+        tb_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+        notes = getattr(e, '__notes__', [])
+        notes_str = "\n".join(notes)
+        return (
+            f"Fuzzing function {name} failed with {type(e).__name__}.\n"
+            f"Traceback:\n{tb_str}\n"
+            f"Notes:\n{notes_str}"
+        )
+    return None

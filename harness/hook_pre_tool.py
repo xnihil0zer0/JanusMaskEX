@@ -9,44 +9,77 @@ The legacy branch exists only to keep in-repo callers (the
 invocation without the new schema) working; the authoritative logic
 lives in ``harness.hooks.claude.pre_tool``.
 """
+
 from __future__ import annotations
+
 import io
 import json
 import os
 import pathlib
 import sys
+
+# When invoked as ``python3 harness/hook_pre_tool.py`` (subprocess
+# path used by TestProcessBehavior and by legacy config entries),
+# the project root is not automatically on sys.path. Inject it so
+# the ``harness.hooks.*`` import below resolves.
 _PROJECT_ROOT = str(pathlib.Path(__file__).resolve().parent.parent)
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
-from harness.hooks import _common
-from harness.hooks.claude.pre_tool import _LEGACY_ALLOWED_SUBAGENT_TOOLS as ALLOWED_SUBAGENT_TOOLS
-from harness.hooks.claude.pre_tool import _LEGACY_ALLOWED_TOOLS as ALLOWED_TOOLS
-from harness.hooks.claude.pre_tool import legacy_dispatch
+
+# Re-exports for backward compatibility with callers that imported
+# these names directly off ``harness.hook_pre_tool`` in prior phases.
+# The canonical home is now ``harness.hooks.claude.pre_tool``.
+from harness.hooks import _common  # noqa: E402
+from harness.hooks.claude.pre_tool import (  # noqa: E402,F401
+    _LEGACY_ALLOWED_SUBAGENT_TOOLS as ALLOWED_SUBAGENT_TOOLS,
+    _LEGACY_ALLOWED_TOOLS as ALLOWED_TOOLS,
+    legacy_dispatch,
+)
+
 
 def _legacy_dispatch(payload: dict) -> None:
     """Backward-compat wrapper that writes the decision to ``sys.stdout``.
-        The authoritative implementation is
-        ``harness.hooks.claude.pre_tool.legacy_dispatch``.
-    """
+    The authoritative implementation is
+    ``harness.hooks.claude.pre_tool.legacy_dispatch``."""
     json.dump(legacy_dispatch(payload), sys.stdout)
+
 
 def main() -> None:
     try:
         raw = sys.stdin.read()
         if not raw.strip():
-            json.dump(_common.decision_payload('allow'), sys.stdout)
+            json.dump(_common.decision_payload("allow"), sys.stdout)
             return
         payload = json.loads(raw)
     except Exception as exc:
-        json.dump(_common.decision_payload('deny', reason=f'Malformed hook input: {exc}'), sys.stdout)
+        json.dump(
+            _common.decision_payload(
+                "deny", reason=f"Malformed hook input: {exc}"
+            ),
+            sys.stdout,
+        )
         return
-    if isinstance(payload, dict) and 'hook_event_name' in payload:
+
+    if isinstance(payload, dict) and "hook_event_name" in payload:
+        # New-schema Claude Code PreToolUse envelope → authoritative
+        # decision module. Lazy import kept intentionally — legacy
+        # subprocess invocations without PYTHONPATH only hit the
+        # legacy_dispatch branch below.
         from harness.hooks.claude.pre_tool import main as _new_main
         _new_main(io.StringIO(raw), sys.stdout)
         return
+
     if not isinstance(payload, dict):
-        json.dump(_common.decision_payload('deny', reason='Malformed hook input: expected JSON object.'), sys.stdout)
+        json.dump(
+            _common.decision_payload(
+                "deny", reason="Malformed hook input: expected JSON object."
+            ),
+            sys.stdout,
+        )
         return
+
     json.dump(legacy_dispatch(payload), sys.stdout)
-if __name__ == '__main__':
+
+
+if __name__ == "__main__":
     main()

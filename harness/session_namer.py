@@ -18,7 +18,8 @@ def generate_submission_filename(agent: str, round_number: int, task_id: str, ti
     """
     if timestamp_str:
         return f'{agent}_round{round_number}_{task_id}_{timestamp_str}_submission.json'
-    return f'{agent}_round{round_number}_{task_id}_submission.json'
+    else:
+        return f'{agent}_round{round_number}_{task_id}_submission.json'
 
 def generate_feedback_filename(agent: str, round_number: int, task_id: str, timestamp_str: str | None=None) -> str:
     """
@@ -37,7 +38,8 @@ def generate_feedback_filename(agent: str, round_number: int, task_id: str, time
     """
     if timestamp_str:
         return f'{task_id}_round{round_number}_{agent}_{timestamp_str}_feedback.json'
-    return f'{task_id}_round{round_number}_{agent}_feedback.json'
+    else:
+        return f'{task_id}_round{round_number}_{agent}_feedback.json'
 
 def get_latest_submission(sessions_dir: Path, agent: str, round_number: int, task_id: str) -> Path | None:
     """
@@ -54,10 +56,10 @@ def get_latest_submission(sessions_dir: Path, agent: str, round_number: int, tas
     """
     sessions_dir = Path(sessions_dir)
     pattern = f'{agent}_round{round_number}_{task_id}*_submission.json'
-    matches = list(sessions_dir.glob(pattern))
-    if not matches:
+    matching_files = list(sessions_dir.glob(pattern))
+    if not matching_files:
         return None
-    return max(matches, key=lambda p: p.stat().st_mtime)
+    return max(matching_files, key=lambda p: p.stat().st_mtime)
 
 def get_latest_feedback(sessions_dir: Path, agent: str, task_id: str) -> Path | None:
     """
@@ -71,11 +73,12 @@ def get_latest_feedback(sessions_dir: Path, agent: str, task_id: str) -> Path | 
     Returns:
         Path to the most recently modified feedback file, or None if not found
     """
+    sessions_dir = Path(sessions_dir)
     pattern = f'{task_id}_round*_{agent}*_feedback.json'
-    matches = list(sessions_dir.glob(pattern))
-    if not matches:
+    matching_files = list(sessions_dir.glob(pattern))
+    if not matching_files:
         return None
-    return max(matches, key=lambda p: p.stat().st_mtime)
+    return max(matching_files, key=lambda p: p.stat().st_mtime)
 
 def feedback_glob_pattern(agent: str, task_id: str | None) -> str:
     """Glob pattern matching all rounds' feedback files for this (task, agent).
@@ -83,5 +86,5 @@ def feedback_glob_pattern(agent: str, task_id: str | None) -> str:
     Used by cross_examiner.clear_feedback_files; kept here so the filename
     contract lives in exactly one module.
     """
-    return f'{task_id or '*'}_round*_{agent}_feedback.json'
-'Session namer helper: locate the most recent submission file.'
+    tid = task_id or "*"
+    return f"{tid}_round*_{agent}_feedback.json"

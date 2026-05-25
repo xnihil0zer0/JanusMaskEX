@@ -1,52 +1,91 @@
 import logging
-from dataclasses import dataclass
-from dataclasses import field
-from typing import List
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import List, Optional
+
 logger = logging.getLogger(__name__)
 
 class ConfigError(Exception):
     pass
-HOOKS_VALID_MODES = frozenset({'off', 'shadow', 'enforce'})
-HOOKS_ALLOWED_VERBS = frozenset({'submit_code', 'submit_plan_draft', 'submit_reconciliation_response', 'request_clarification', 'report_error'})
-HOOKS_DEFAULT_SHADOW_DIR = 'state/hooks/shadow/'
+
+
+# -- Hooks config (HOOK-13) -------------------------------------------------
+# The hooks: block drives the Claude/Gemini hook-migration rollout flag.
+# See hooks-implementation-plan.md §Phase 1 + sub-plan-02 §3.2.
+
+HOOKS_VALID_MODES = frozenset({"off", "shadow", "enforce"})
+
+# Verbs the hook path may authoritatively handle (sub-plan 02 §5.3 order is
+# request_clarification → report_error → submit_reconciliation_response →
+# submit_plan_draft → submit_code). Enforce subsets are gated on the P5
+# equivalence report.
+HOOKS_ALLOWED_VERBS = frozenset({
+    "submit_code",
+    "submit_plan_draft",
+    "submit_reconciliation_response",
+    "request_clarification",
+    "report_error",
+})
+
+HOOKS_DEFAULT_SHADOW_DIR = "state/hooks/shadow/"
+
+# HOOK-52: consecutive-clean-runs floor for the P5 shadow→enforce diff gate.
+# Sub-plan 06 §1 mandates this as a configurable key; callers read it via
+# harness.hooks_equivalence.check_diff_gate.
 HOOKS_DEFAULT_MIN_CLEAN_RUNS = 3
+
 
 @dataclass
 class HooksConfig:
-    mode: str = 'off'
+    mode: str = "off"
     enforce_verbs: List[str] = field(default_factory=list)
     shadow_dir: str = HOOKS_DEFAULT_SHADOW_DIR
     shadow_min_clean_runs: int = HOOKS_DEFAULT_MIN_CLEAN_RUNS
 
     def __post_init__(self):
-        """Validate per-field values right after dataclass construction.
-
-        The hooks flag gates real enforcement behaviour, so a malformed
-        ``mode`` or an unrecognised verb is rejected up front with
-        :class:`ConfigError` rather than being allowed to silently roll the
-        flag forward. ``mode`` must be one of :data:`HOOKS_VALID_MODES`;
-        ``enforce_verbs`` must be a list whose entries are all drawn from
-        :data:`HOOKS_ALLOWED_VERBS`; ``shadow_dir`` must be a string; and,
-        following the module's count idiom, ``shadow_min_clean_runs`` is
-        type-checked by excluding ``bool`` and requiring ``int``, then floored
-        at ``>= 0``.
-        """
+        if not isinstance(self.mode, str) or isinstance(self.mode, bool):
+            raise ConfigError(
+                f"hooks.mode must be one of {sorted(HOOKS_VALID_MODES)}, "
+                f"got {type(self.mode).__name__}"
+            )
         if self.mode not in HOOKS_VALID_MODES:
-            raise ConfigError(f'hooks.mode must be one of {sorted(HOOKS_VALID_MODES)}, got {self.mode!r}')
+            raise ConfigError(
+                f"hooks.mode={self.mode!r} is invalid; "
+                f"allowed: {sorted(HOOKS_VALID_MODES)}"
+            )
         if not isinstance(self.enforce_verbs, list):
-            raise ConfigError(f'hooks.enforce_verbs must be a list, got {type(self.enforce_verbs).__name__}')
-        for verb in self.enforce_verbs:
-            if verb not in HOOKS_ALLOWED_VERBS:
-                raise ConfigError(f'hooks.enforce_verbs contains unknown verb {verb!r}; allowed: {sorted(HOOKS_ALLOWED_VERBS)}')
+            raise ConfigError(
+                f"hooks.enforce_verbs must be a list, got "
+                f"{type(self.enforce_verbs).__name__}"
+            )
+        for v in self.enforce_verbs:
+            if not isinstance(v, str):
+                raise ConfigError(
+                    f"hooks.enforce_verbs entries must be strings; "
+                    f"got {type(v).__name__}"
+                )
+            if v not in HOOKS_ALLOWED_VERBS:
+                raise ConfigError(
+                    f"hooks.enforce_verbs entry {v!r} is not a recognised verb; "
+                    f"allowed: {sorted(HOOKS_ALLOWED_VERBS)}"
+                )
         if not isinstance(self.shadow_dir, str):
-            raise ConfigError(f'hooks.shadow_dir must be a string, got {type(self.shadow_dir).__name__}')
-        runs = self.shadow_min_clean_runs
-        if isinstance(runs, bool) or not isinstance(runs, int):
-            raise ConfigError(f'hooks.shadow_min_clean_runs must be a non-negative int, got {type(runs).__name__}')
-        if runs < 0:
-            raise ConfigError(f'hooks.shadow_min_clean_runs must be >= 0, got {runs!r}')
-from harness.config_loader import HooksConfig
+            raise ConfigError(
+                f"hooks.shadow_dir must be a string path, got "
+                f"{type(self.shadow_dir).__name__}"
+            )
+        if isinstance(self.shadow_min_clean_runs, bool) or not isinstance(
+            self.shadow_min_clean_runs, int
+        ):
+            raise ConfigError(
+                f"hooks.shadow_min_clean_runs must be a positive int, got "
+                f"{type(self.shadow_min_clean_runs).__name__}"
+            )
+        if self.shadow_min_clean_runs < 1:
+            raise ConfigError(
+                "hooks.shadow_min_clean_runs must be >= 1; "
+                "a zero floor defeats the shadow phase."
+            )
+
 
 def get_hooks_config(cfg: dict) -> HooksConfig:
     """Read the hooks block out of the top-level config dict.
@@ -55,14 +94,21 @@ def get_hooks_config(cfg: dict) -> HooksConfig:
     The reader is strict about unknown keys so a typo doesn't silently roll
     the flag forward.
     """
-    block = cfg.get('hooks') or {}
-    if not isinstance(block, dict):
-        raise ConfigError(f'hooks: must be a mapping, got {type(block).__name__}')
-    allowed = {f.name for f in fields(HooksConfig)}
-    unknown = set(block) - allowed
-    if unknown:
-        raise ConfigError(f'hooks: unknown key(s) {sorted(unknown)}; allowed: {sorted(allowed)}')
-    return HooksConfig(**block)
+    hooks_cfg = cfg.get("hooks", None)
+    if hooks_cfg is None or hooks_cfg == {}:
+        return HooksConfig()
+    if not isinstance(hooks_cfg, dict):
+        raise ConfigError("hooks section must be a dict")
+
+    allowed_keys = {"mode", "enforce_verbs", "shadow_dir", "shadow_min_clean_runs"}
+    for key in hooks_cfg.keys():
+        if key not in allowed_keys:
+            raise ConfigError(f"Unknown key in hooks config: '{key}'")
+
+    try:
+        return HooksConfig(**hooks_cfg)
+    except TypeError as exc:
+        raise ConfigError(str(exc))
 
 @dataclass
 class BatchExecutionConfig:
@@ -74,54 +120,51 @@ class BatchExecutionConfig:
     batch_size_per_worker: int = 2000
 
     def __post_init__(self):
-        """Validate per-field values right after dataclass construction.
+        if not isinstance(self.enabled, bool):
+            raise ConfigError(f"Invalid type for 'enabled': expected bool, got {type(self.enabled).__name__}")
+        if not isinstance(self.seccomp, bool):
+            raise ConfigError(f"Invalid type for 'seccomp': expected bool, got {type(self.seccomp).__name__}")
+        if self.rlimit_nproc is not None and not isinstance(self.rlimit_nproc, int):
+            raise ConfigError(f"Invalid type for 'rlimit_nproc': expected int or None, got {type(self.rlimit_nproc).__name__}")
+        if isinstance(self.rlimit_nproc, bool): # bool is subclass of int in python!
+            raise ConfigError(f"Invalid type for 'rlimit_nproc': expected int or None, got {type(self.rlimit_nproc).__name__}")
+            
+        if not isinstance(self.wall_timeout_per_input_sec, (float, int)) or isinstance(self.wall_timeout_per_input_sec, bool):
+            raise ConfigError(f"Invalid type for 'wall_timeout_per_input_sec': expected float, got {type(self.wall_timeout_per_input_sec).__name__}")
+        self.wall_timeout_per_input_sec = float(self.wall_timeout_per_input_sec)
 
-        Each numeric knob gates a real resource (worker processes, the
-        per-input wall clock, the per-worker batch slice, the optional
-        ``RLIMIT_NPROC`` cap), so an out-of-range or wrong-typed value is
-        rejected up front with :class:`ConfigError` rather than being allowed
-        to fail deep inside the sandbox runner.
-
-        Following the module's validation idiom, integer "count" fields are
-        type-checked by excluding ``bool`` and requiring ``int``, then floored
-        at ``>= 1``; ``wall_timeout_per_input_sec`` must be a strictly positive
-        number; and ``rlimit_nproc`` is ``Optional[int]`` -- when set it must be
-        a positive int.
-        """
-        for name in ('worker_pool_size', 'batch_size_per_worker'):
-            value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, int):
-                raise ConfigError(f'batch_execution.{name} must be a positive int, got {type(value).__name__}')
-            if value < 1:
-                raise ConfigError(f'batch_execution.{name} must be >= 1, got {value!r}')
-        wall = self.wall_timeout_per_input_sec
-        if isinstance(wall, bool) or not isinstance(wall, (int, float)):
-            raise ConfigError(f'batch_execution.wall_timeout_per_input_sec must be a positive number, got {type(wall).__name__}')
-        if wall <= 0:
-            raise ConfigError(f'batch_execution.wall_timeout_per_input_sec must be > 0, got {wall!r}')
-        rlimit = self.rlimit_nproc
-        if rlimit is not None:
-            if isinstance(rlimit, bool) or not isinstance(rlimit, int):
-                raise ConfigError(f'batch_execution.rlimit_nproc must be a positive int or None, got {type(rlimit).__name__}')
-            if rlimit < 1:
-                raise ConfigError(f'batch_execution.rlimit_nproc must be >= 1, got {rlimit!r}')
-from harness.config_loader import BatchExecutionConfig
+        if not isinstance(self.worker_pool_size, int) or isinstance(self.worker_pool_size, bool):
+            raise ConfigError(f"Invalid type for 'worker_pool_size': expected int, got {type(self.worker_pool_size).__name__}")
+        if not isinstance(self.batch_size_per_worker, int) or isinstance(self.batch_size_per_worker, bool):
+            raise ConfigError(f"Invalid type for 'batch_size_per_worker': expected int, got {type(self.batch_size_per_worker).__name__}")
+            
+        if self.worker_pool_size < 1:
+            raise ConfigError("worker_pool_size must be >= 1")
+        if self.rlimit_nproc is not None:
+            if self.rlimit_nproc < 0:
+                raise ConfigError("rlimit_nproc cannot be negative")
+            if self.rlimit_nproc in (0, 1):
+                logger.warning("rlimit_nproc set to %d, which is documented as unsafe (see test_nproc.py)", self.rlimit_nproc)
 
 def get_batch_execution_config(cfg: dict) -> BatchExecutionConfig:
-    """Read the batch_execution block out of the top-level config dict.
-
-    Missing or empty ``batch_execution:`` blocks return safe defaults. The
-    reader is strict about unknown keys so a typo doesn't silently change a
-    resource knob. Per-field range/type validation is handled by
-    :meth:`BatchExecutionConfig.__post_init__`.
-    """
-    block = cfg.get('batch_execution') or {}
-    if not isinstance(block, dict):
-        raise ConfigError(f'batch_execution: must be a mapping, got {type(block).__name__}')
-    allowed = {f.name for f in fields(BatchExecutionConfig)}
-    unknown = set(block) - allowed
-    if unknown:
-        raise ConfigError(f'batch_execution: unknown key(s) {sorted(unknown)}; allowed: {sorted(allowed)}')
-    return BatchExecutionConfig(**block)
-from dataclasses import fields
-from harness.config_loader import ConfigError
+    if 'batch_execution' not in cfg:
+        return BatchExecutionConfig()
+    
+    batch_cfg = cfg['batch_execution']
+    if not isinstance(batch_cfg, dict):
+        raise ConfigError("batch_execution section must be a dict")
+        
+    allowed_keys = {
+        'enabled', 'seccomp', 'rlimit_nproc', 
+        'wall_timeout_per_input_sec', 'worker_pool_size', 
+        'batch_size_per_worker'
+    }
+    
+    for key in batch_cfg.keys():
+        if key not in allowed_keys:
+            raise ConfigError(f"Unknown key in batch_execution config: '{key}'")
+            
+    try:
+        return BatchExecutionConfig(**batch_cfg)
+    except TypeError as e:
+        raise ConfigError(str(e))
