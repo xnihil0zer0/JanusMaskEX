@@ -548,7 +548,21 @@ class _ImportSorter:
 
     def _sort_imports(self, body: list[ast.stmt]) -> list[ast.stmt]:
         """Find contiguous runs of import statements and sort each run."""
-        raise NotImplementedError
+        result: list[ast.stmt] = []
+        import_group: list[ast.stmt] = []
+        for stmt in body:
+            if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                import_group.append(stmt)
+            else:
+                if import_group:
+                    import_group.sort(key=self._import_sort_key)
+                    result.extend(import_group)
+                    import_group = []
+                result.append(stmt)
+        if import_group:
+            import_group.sort(key=self._import_sort_key)
+            result.extend(import_group)
+        return result
 
     def _strip_docstring(self, body: list[ast.stmt]) -> list[ast.stmt]:
         return body
