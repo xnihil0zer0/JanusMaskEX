@@ -29,18 +29,9 @@ _PAUSE_LOG_RATE_LIMIT = 60.0
 _last_pause_warning: dict[str, float] = {}
 
 def _control_section(config: dict[str, Any]) -> dict[str, Any]:
-    """
-    Extracts the control section from the config dictionary.
-    
-    If config is not a dictionary, or if the "control" key is missing,
-    an empty dictionary is returned. Otherwise, the value associated
-    with "control" is returned.
-    """
     if not isinstance(config, dict):
         return {}
-    if 'control' not in config:
-        return {}
-    return config['control']
+    return config.get('control', {})
 
 def pause_flag_path(state_dir: Path, config: dict[str, Any]) -> Path:
     raise NotImplementedError
