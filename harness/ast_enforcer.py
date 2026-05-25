@@ -258,16 +258,31 @@ class _AnnotationNormalizer(ast.NodeTransformer):
     """
 
     def _bare_alias(self, name: str) -> str:
-        raise NotImplementedError
+        return _TYPING_ALIAS_EQUIVALENTS.get(name, name)
 
     def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
-        raise NotImplementedError
+        self.generic_visit(node)
+        if isinstance(node.value, ast.Name) and node.value.id == 'typing' and (node.attr in _TYPING_ALIAS_EQUIVALENTS):
+            return ast.Name(id=_TYPING_ALIAS_EQUIVALENTS[node.attr], ctx=ast.Load())
+        if isinstance(node.value, ast.Name) and node.value.id == 'typing':
+            return ast.Name(id=node.attr, ctx=ast.Load())
+        return node
 
     def visit_Name(self, node: ast.Name) -> ast.AST:
-        raise NotImplementedError
+        alias = self._bare_alias(node.id)
+        if alias != node.id:
+            return ast.Name(id=alias, ctx=ast.Load())
+        return node
 
     def visit_Subscript(self, node: ast.Subscript) -> ast.AST:
-        raise NotImplementedError
+        self.generic_visit(node)
+        if isinstance(node.value, ast.Name) and node.value.id == 'Optional':
+            inner = node.slice
+            none_node = ast.Constant(value=None)
+            union_slice = ast.Tuple(elts=[inner, none_node], ctx=ast.Load())
+            return ast.Subscript(value=ast.Name(id='Union', ctx=ast.Load()), slice=union_slice, ctx=ast.Load())
+        return node
+    'Strip surface-level typing noise so structurally-equal annotations compare equal.'
 
 def _resolve_string_annotation(node: ast.expr) -> ast.expr | None:
     """Unwrap ``Constant(value=<str>)`` PEP-563 forward references."""
@@ -280,7 +295,14 @@ def _resolve_string_annotation(node: ast.expr) -> ast.expr | None:
 
 def _normalize_annotation(node: ast.expr) -> ast.expr | None:
     """Apply string-unwrap + typing-alias normalisation. Returns None on failure."""
-    raise NotImplementedError
+    resolved = _resolve_string_annotation(node)
+    if resolved is None:
+        return None
+    try:
+        snapshot = ast.parse(ast.unparse(resolved), mode='eval').body
+    except (SyntaxError, ValueError):
+        return None
+    return _AnnotationNormalizer().visit(snapshot)
 
 def _dump_annotation(node: ast.expr) -> str:
     """Deterministic string form of an annotation for comparison."""
