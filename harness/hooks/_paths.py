@@ -76,7 +76,7 @@ def safe_under_project(candidate: str) -> bool:
 
 def load_inbox_task(inbox_dir: pathlib.Path) -> dict[str, Any]:
     """Read ``<inbox_dir>/task.json`` and return the parsed dict.
-
+    
     Returns ``{}`` when the file is missing, unreadable, or contains
     malformed JSON — callers downstream expect a dict and derive their
     own defaults (``task_id="default"`` etc.) from the empty result.
@@ -85,7 +85,15 @@ def load_inbox_task(inbox_dir: pathlib.Path) -> dict[str, Any]:
     ``_env.inbox_dir(session_id)``) so this hoist stays agent-agnostic
     and avoids an otherwise-circular import on the per-agent ``_env``.
     """
-    raise NotImplementedError
+    try:
+        task_path = pathlib.Path(inbox_dir) / 'task.json'
+        content = task_path.read_text(encoding='utf-8')
+        data = json.loads(content)
+        if isinstance(data, dict):
+            return data
+        return {}
+    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError):
+        return {}
 
 def is_safe_subpath(candidate: str, root: str) -> bool:
     try:
