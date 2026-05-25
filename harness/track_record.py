@@ -213,7 +213,3 @@ from harness.track_record import init_track_record
 from harness.track_record import InvalidAgentError
 from harness.track_record import VALID_AGENTS
 import harness.track_record_events
-from harness.track_record import TrackRecordCorruptError
-from harness.track_record import _track_record_file
-from harness.track_record import _lock_file
-from harness.track_record import _write_track_record_to_disk
