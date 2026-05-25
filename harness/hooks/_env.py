@@ -38,10 +38,21 @@ def _resolve_agent(agent: str | None) -> str:
     ``JANUSMASK_AGENT`` is unset (e.g. unit tests that only configure
     ``JANUSMASK_STATE_DIR``).
     """
-    raise NotImplementedError
+    if agent is not None:
+        return agent
+    return _paths.agent()
 
 def _work_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path:
-    raise NotImplementedError
+    work_dir_env = os.environ.get('JANUSMASK_WORK_DIR', '')
+    if work_dir_env:
+        return pathlib.Path(work_dir_env).resolve()
+    actual_session = session_id
+    if not actual_session:
+        actual_session = os.environ.get('JANUSMASK_SESSION_ID', '')
+    if not actual_session:
+        actual_session = 'nosession'
+    actual_agent = _resolve_agent(agent)
+    return (_paths.state_dir() / 'workdirs' / actual_agent / actual_session).resolve()
 
 def _inbox_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path:
     raise NotImplementedError
@@ -50,7 +61,7 @@ def _outbox_dir(session_id: str | None=None, *, agent: str | None=None) -> pathl
     raise NotImplementedError
 
 def _ledger_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path:
-    raise NotImplementedError
+    return _work_dir(session_id, agent=agent) / 'ledger'
 
 def _expected_inbox_files(mode: str) -> tuple[str, ...]:
     raise NotImplementedError
