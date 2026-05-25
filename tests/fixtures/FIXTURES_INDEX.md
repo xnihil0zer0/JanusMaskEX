@@ -34,3 +34,4 @@
 ## Autobrief V2 Fixtures
 *   `autobrief/claude`: POSIX-shell agent stub for autobrief V2 integration tests. Branches on `TEST_AUTOBRIEF_MODE` to emit timeout / invalid-JSON / valid-shape outputs.
 *   `autobrief/gemini`: POSIX-shell agent stub mirroring `autobrief/claude` for the Gemini side of the dual-agent autobrief endpoint.
+*   `autobrief/agy`: POSIX-shell agent stub mirroring `autobrief/claude` for the Antigravity side of the dual-agent autobrief endpoint.
