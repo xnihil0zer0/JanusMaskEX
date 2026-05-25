@@ -16,7 +16,9 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Optional, Callable
+from typing import Any
+from typing import Optional
+from typing import Callable
 logger = logging.getLogger('janusmask.control_gate')
 DEFAULT_PAUSE_FLAG = 'state/control/orchestrator.flag'
 DEFAULT_DECISIONS_DIR = 'state/control/decisions'
@@ -27,7 +29,18 @@ _PAUSE_LOG_RATE_LIMIT = 60.0
 _last_pause_warning: dict[str, float] = {}
 
 def _control_section(config: dict[str, Any]) -> dict[str, Any]:
-    raise NotImplementedError
+    """
+    Extracts the control section from the config dictionary.
+    
+    If config is not a dictionary, or if the "control" key is missing,
+    an empty dictionary is returned. Otherwise, the value associated
+    with "control" is returned.
+    """
+    if not isinstance(config, dict):
+        return {}
+    if 'control' not in config:
+        return {}
+    return config['control']
 
 def pause_flag_path(state_dir: Path, config: dict[str, Any]) -> Path:
     raise NotImplementedError
