@@ -53,5 +53,6 @@ def inbox_ready(mode: str, session_id: str | None=None) -> bool:
     return harness.hooks._env._inbox_ready(mode, session_id, agent='gemini')
 
 def ensure_workdir_skeleton(session_id: str | None=None) -> None:
-    raise NotImplementedError
+    """Create outbox/ and ledger/ if absent; inbox stays orchestrator-owned."""
+    harness.hooks._env._ensure_workdir_skeleton(session_id, agent='gemini')
 import harness.hooks._env
