@@ -57,8 +57,14 @@ def read_events(session_id: str, agent: str | None=None, *, path: pathlib.Path |
     return events
 
 def count_verb(events: Iterable[dict[str, Any]], verb: str, *, outcome: str='allow') -> int:
-    raise NotImplementedError
+    """Tally events whose verb and outcome match, tolerating rows that omit either key."""
+    count = 0
+    for e in events:
+        if e.get('verb') == verb and e.get('outcome') == outcome:
+            count += 1
+    return count
 
 def has_verb(events: Iterable[dict[str, Any]], verb: str, *, outcome: str='allow') -> bool:
-    raise NotImplementedError
+    """Check if at least one event in events carries the requested verb and outcome."""
+    return count_verb(events, verb, outcome=outcome) > 0
 import harness.hooks._paths
