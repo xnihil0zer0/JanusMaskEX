@@ -24,9 +24,12 @@ from . import _paths
 
 def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+import harness.hooks._paths
 
 def ledger_path(session_id: str, agent: str | None=None) -> pathlib.Path:
-    raise NotImplementedError
+    resolved_agent = agent or harness.hooks._paths.agent() or 'unknown'
+    resolved_session = session_id or 'nosession'
+    return harness.hooks._paths.state_dir() / 'sessions' / f'{resolved_agent}_{resolved_session}.ledger.jsonl'
 
 def append_hook_event(session_id: str, agent: str, verb: str, outcome: str, *, hook: str='', tool: str='', round_number: int | None=None, phase: str='', counters: dict[str, Any] | None=None, digest: str='', detail: dict[str, Any] | None=None, path: pathlib.Path | None=None) -> dict[str, Any]:
     """Append one row; returns the row dict for the caller's convenience."""
