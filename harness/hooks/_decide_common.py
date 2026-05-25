@@ -91,7 +91,50 @@ def format_plan_reason(payload: dict[str, Any]) -> str:
     return header + '\n' + '\n'.join(bullets)
 
 def decide_submission(ctx: 'DeciderContext', content: str, events: list[dict[str, Any]], inbox_dir: Any) -> dict[str, Any]:
-    raise NotImplementedError
+    task = harness.hooks._paths.load_inbox_task(inbox_dir)
+    if not isinstance(task, dict):
+        task = {}
+    max_submissions = getattr(harness.hooks._state_gates, 'MAX_SUBMISSIONS', 5)
+    count = harness.hooks._ledger.count_verb(events, 'submission', outcome='allow')
+    if count >= max_submissions:
+        reason = f'submission rate limit reached ({max_submissions} max)'
+        ctx.journal('submission', 'deny', {'reason': reason})
+        return harness.hooks._common.decision_payload('deny', reason=reason)
+    files_touched = task.get('files_touched')
+    target = None
+    if isinstance(files_touched, (list, tuple)) and len(files_touched) > 0:
+        target = files_touched[0]
+    is_py = True
+    if isinstance(target, str):
+        if not target.endswith('.py'):
+            is_py = False
+    if not is_py:
+        ctx.journal('submission', 'allow')
+        return harness.hooks._common.decision_payload('allow')
+    deterministic = True
+    constraints = task.get('constraints', {})
+    if isinstance(constraints, dict):
+        if constraints.get('deterministic') is False:
+            deterministic = False
+    meta_task_type = task.get('meta_task_type')
+    if isinstance(meta_task_type, str):
+        if meta_task_type == 'io_adapter' or meta_task_type.startswith('test_'):
+            deterministic = False
+    errors, warnings = rpc_submit_code.validate_code(content, task, deterministic=deterministic)
+    if errors:
+        truncated = False
+        if len(errors) > 50:
+            errors = errors[:50]
+            truncated = True
+        payload = {'error': 'AST validation failed.', 'violations': errors, 'truncated': truncated}
+        reason = format_ast_reason(payload)
+        ctx.journal('submission', 'deny', {'reason': reason})
+        return harness.hooks._common.decision_payload('deny', reason=reason)
+    if warnings:
+        ctx.journal('submission', 'allow')
+        return ctx.allow_with_warnings(warnings)
+    ctx.journal('submission', 'allow')
+    return harness.hooks._common.decision_payload('allow')
 
 def decide_plan_draft(ctx: DeciderContext, content: str, events: list[dict[str, Any]]) -> dict[str, Any]:
     raise NotImplementedError
@@ -114,3 +157,9 @@ except ImportError:
 for _name in ('submit_code', 'submit_plan_draft', 'submit_reconciliation'):
     if not hasattr(_rpc, _name):
         setattr(_rpc, _name, lambda *a, **k: None)
+import harness.hooks._paths
+import harness.hooks._ledger
+import harness.hooks._common
+import harness.hooks._state_gates
+from harness.hooks._decide_common import format_ast_reason
+from harness.hooks.rpc import submit_code as rpc_submit_code
