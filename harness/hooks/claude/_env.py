@@ -36,7 +36,7 @@ def outbox_dir(session_id: str | None=None) -> pathlib.Path:
     return harness.hooks._env._outbox_dir(session_id=session_id, agent='claude')
 
 def ledger_dir(session_id: str | None=None) -> pathlib.Path:
-    raise NotImplementedError
+    return harness.hooks._env._ledger_dir(session_id=session_id, agent='claude')
 
 def expected_inbox_files(mode: str) -> tuple[str, ...]:
     raise NotImplementedError
