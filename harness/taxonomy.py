@@ -28,7 +28,8 @@ def meta_task_keys() -> frozenset[str]:
 
 def synthesis_target_keys() -> frozenset[str]:
     """Return a frozenset of valid synthesis-target keys."""
-    raise NotImplementedError
+    data = load_synthesis_target_taxonomy()
+    return frozenset(data['keys'].keys())
 
 def validate_meta_task_type(value: str) -> None:
     """Validate that the given string is a known meta-task type."""
