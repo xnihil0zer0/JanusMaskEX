@@ -16,6 +16,7 @@ def _load_taxonomy_file(file_name: str, path: Path | None=None) -> dict:
 
 def load_meta_task_taxonomy(path: Path | None=None) -> dict:
     """Load and validate the meta-task taxonomy JSON file."""
+    from harness.taxonomy import _load_taxonomy_file
     return _load_taxonomy_file('meta_task_taxonomy.json', path)
 
 def load_synthesis_target_taxonomy(path: Path | None=None) -> dict:
@@ -37,4 +38,3 @@ def validate_meta_task_type(value: str) -> None:
 def validate_synthesis_target_type(value: str) -> None:
     """Validate that the given string is a known synthesis-target type."""
     raise NotImplementedError
-from harness.taxonomy import _load_taxonomy_file
