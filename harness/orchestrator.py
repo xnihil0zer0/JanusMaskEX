@@ -122,7 +122,7 @@ def load_config(config_path: Path=DEFAULT_CONFIG_PATH) -> dict[str, Any]:
     if not isinstance(config, dict):
         raise ValueError(f'Config root must be a YAML mapping, got {type(config)}')
     config = _interpolate_config_paths(config)
-    if config.get('synthesis', {}).get('antigravity_mode', False):
+    if 'synthesis' in config and config['synthesis'].get('antigravity_mode', True):
         config.setdefault('synthesis', {})['active_agents'] = ['antigravity']
         config.setdefault('control', {})['autobrief_default_agent'] = 'antigravity'
     return config
@@ -468,7 +468,7 @@ def run_both_agents(prompt_claude: str, prompt_gemini: str, config: dict[str, An
     _con(f'  {_orch_tag()} {_C.BOLD}phase: {phase_name}{_C.RESET}')
     _con(f'{"─" * 60}')
 
-    if config.get('synthesis', {}).get('antigravity_mode', False):
+    if config.get('synthesis', {}).get('antigravity_mode', True):
         _con(f'  {_orch_tag()} Running agents sequentially (Antigravity Mode)')
         code_a = run_agent_phase(agent_a, prompt_claude, config, state_dir, round_number, phase_name)
         code_b = run_agent_phase(agent_b, prompt_gemini, config, state_dir, round_number, phase_name)
@@ -1442,7 +1442,7 @@ def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
             locked_read_modify_write(_set_task_state, state_dir)
             logger.info('Phase -> synthesis (ast_retry per-agent module)')
             results: dict[str, tuple[bool, str | None]] = {}
-            if config.get('synthesis', {}).get('antigravity_mode', False):
+            if config.get('synthesis', {}).get('antigravity_mode', True):
                 # Sequential execution
                 for agent_name in (agent_a, agent_b):
                     try:

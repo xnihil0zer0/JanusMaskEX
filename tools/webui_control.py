@@ -141,7 +141,7 @@ class ControlHandlers:
                     if not isinstance(raw_cfg, dict):
                         raw_cfg = {}
                     control_cfg = raw_cfg.get('control', {})
-                    if raw_cfg.get('synthesis', {}).get('antigravity_mode', False):
+                    if raw_cfg.get('synthesis', {}).get('antigravity_mode', True):
                         control_cfg['autobrief_default_agent'] = 'antigravity'
                     self.__class__._config_cache = control_cfg
                 except (OSError, yaml.YAMLError):

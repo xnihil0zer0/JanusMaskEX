@@ -75,8 +75,9 @@ fi
 """
     claude_path = fixtures_dir / "claude"
     gemini_path = fixtures_dir / "gemini"
+    agy_path = fixtures_dir / "agy"
     
-    for path in (claude_path, gemini_path):
+    for path in (claude_path, gemini_path, agy_path):
         path.write_text(stub_content)
         path.chmod(0o755)
         

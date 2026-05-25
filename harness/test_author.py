@@ -81,6 +81,11 @@ def run_oracle_against(test_code: str, impl_source: str, target_module_name: str
             parts = target_module_name.split('.')
             target_file_path = tmp_path / Path(*parts)
             target_file_path = target_file_path.with_suffix('.py')
+            target_file_path.parent.mkdir(parents=True, exist_ok=True)
+            curr = target_file_path.parent
+            while curr != tmp_path:
+                (curr / '__init__.py').touch(exist_ok=True)
+                curr = curr.parent
             target_file_path.write_text(impl_source, encoding='utf-8')
             
             # Write the test file
@@ -191,7 +196,7 @@ def _default_gen_fn(prompt: str, *, session_dir, attempt: int):
             import yaml
             with open(config_path, "r", encoding="utf-8") as f:
                 cfg = yaml.safe_load(f)
-            antigravity_mode = cfg.get("synthesis", {}).get("antigravity_mode", False)
+            antigravity_mode = cfg.get("synthesis", {}).get("antigravity_mode", True)
         except Exception:
             pass
             

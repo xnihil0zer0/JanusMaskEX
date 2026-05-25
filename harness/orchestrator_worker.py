@@ -139,7 +139,7 @@ def main() -> int:
             if use_retry_module:
                 locked_read_modify_write(_set_task_state, state_dir)
                 results: dict[str, tuple[bool, str | None]] = {}
-                if config.get('synthesis', {}).get('antigravity_mode', False):
+                if config.get('synthesis', {}).get('antigravity_mode', True):
                     for agent_name in (agent_a, agent_b):
                         try:
                             ok, code, _violations = synthesize_with_retries(agent_name, base_prompt, config, state_dir, round_number, task, orch.run_agent_phase, (lambda a: lambda code, t: orch._validate_submission(code, a, t))(agent_name))

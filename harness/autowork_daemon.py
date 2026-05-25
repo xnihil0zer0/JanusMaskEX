@@ -1046,7 +1046,7 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
     
     cfg = config or {}
     active_agents = cfg.get('synthesis', {}).get('active_agents', ['claude', 'gemini'])
-    requires_claude = cfg.get('synthesis', {}).get('antigravity_mode', False) or 'claude' in active_agents or 'antigravity' in active_agents
+    requires_claude = cfg.get('synthesis', {}).get('antigravity_mode', True) or 'claude' in active_agents or 'antigravity' in active_agents
 
     if not paused:
         for task in chosen:

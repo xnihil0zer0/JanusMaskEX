@@ -196,6 +196,7 @@ class TestDesignDocCompliance:
             "phase",
             "claude_status",
             "gemini_status",
+            "antigravity_status",
             "status_updated_at_epoch",
             "fuzz_results",
             "cross_exam_round",
