@@ -502,7 +502,7 @@ class _RedundantPassRemover(ast.NodeTransformer):
                     setattr(node, field, self._clean_body(val))
         return super().generic_visit(node)
 
-class _ImportSorter(ast.NodeTransformer):
+class _ImportSorter:
     """Sort import statements alphabetically within their contiguous groups."""
 
     def visit_Module(self, node: ast.Module) -> ast.Module:
@@ -540,7 +540,13 @@ class _ImportSorter(ast.NodeTransformer):
         return node
 
     def _import_sort_key(self, node: ast.stmt) -> str:
-        raise NotImplementedError
+        if isinstance(node, ast.Import):
+            if node.names:
+                return node.names[0].name
+            return ''
+        if isinstance(node, ast.ImportFrom):
+            return node.module or ''
+        return ''
 
     def _sort_imports(self, body: list[ast.stmt]) -> list[ast.stmt]:
         """Find contiguous runs of import statements and sort each run."""
