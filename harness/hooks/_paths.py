@@ -36,7 +36,12 @@ def project_dir() -> pathlib.Path:
     return pathlib.Path(__file__).resolve().parent.parent.parent
 
 def state_dir() -> pathlib.Path:
-    raise NotImplementedError
+    raw = os.environ.get('JANUSMASK_STATE_DIR')
+    if not raw:
+        raw = os.environ.get('CLAUDE_STATE_DIR')
+    if raw:
+        return pathlib.Path(raw).resolve()
+    return (project_dir() / 'state').resolve()
 
 def agent() -> str:
     raise NotImplementedError
