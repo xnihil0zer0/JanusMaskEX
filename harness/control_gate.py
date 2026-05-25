@@ -132,15 +132,25 @@ def await_decision(state_dir: Path, task_id: str, phase: str, config: dict[str, 
 
 def record_agent_pid(state_dir: Path, agent: str, pid: int) -> None:
     """Best-effort: stamp ``STATE.json`` with ``{agent}_pid``.
-    
+
     Errors are swallowed — pid recording is observability, not correctness.
     """
     try:
-        from harness.state import locked_read_modify_write
+        import sys
+        state_mod = sys.modules.get('harness.state')
+        if state_mod is None:
+            try:
+                import harness.state as state_mod
+            except Exception:
+                import harness
+                state_mod = getattr(harness, 'state', None)
+        if state_mod is not None:
 
-        def update_state(state_dict):
-            state_dict[f'{agent}_pid'] = pid
-            return state_dict
-        locked_read_modify_write(update_state, state_dir)
+            def update_callback(state_dict):
+                if state_dict is None:
+                    state_dict = {}
+                state_dict[f'{agent}_pid'] = pid
+                return state_dict
+            state_mod.locked_read_modify_write(update_callback, state_dir)
     except Exception:
         pass
