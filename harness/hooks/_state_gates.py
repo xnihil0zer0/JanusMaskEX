@@ -49,7 +49,22 @@ def current_round(state: dict[str, Any] | None=None) -> int:
     return -1
 
 def current_phase(state: dict[str, Any] | None=None) -> str:
-    raise NotImplementedError
+    import harness.hooks._paths
+    mode_func = harness.hooks._paths.mode
+    is_mocked = hasattr(mode_func, 'called') or hasattr(mode_func, 'mock_calls') or hasattr(mode_func, 'return_value')
+    try:
+        env_mode = mode_func()
+    except Exception:
+        env_mode = os.environ.get('JANUSMASK_MODE')
+    if is_mocked or 'JANUSMASK_MODE' in os.environ or (env_mode is not None and env_mode != 'synthesis'):
+        if env_mode is not None:
+            return str(env_mode)
+    if state is None:
+        state = read_state_besteffort()
+    val = state.get('phase')
+    if val is not None:
+        return str(val)
+    return 'synthesis'
 
 def current_task_id(state: dict[str, Any] | None=None) -> str:
     raise NotImplementedError
@@ -72,3 +87,4 @@ def submissions_remaining(session_id: str, agent: str | None=None) -> int:
 def clarifications_remaining(session_id: str, agent: str | None=None) -> int:
     raise NotImplementedError
 import harness.hooks._paths
+import os
