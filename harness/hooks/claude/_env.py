@@ -47,7 +47,7 @@ def inbox_ready(mode: str, session_id: str | None=None) -> bool:
     Unknown modes return False so the caller can surface a loud stop
     reason rather than silently continuing with an unstaged worker.
     """
-    raise NotImplementedError
+    return harness.hooks._env._inbox_ready(mode, session_id, agent='claude')
 
 def ensure_workdir_skeleton(session_id: str | None=None) -> None:
     """Create outbox/ and ledger/ if absent; inbox stays orchestrator-owned."""
