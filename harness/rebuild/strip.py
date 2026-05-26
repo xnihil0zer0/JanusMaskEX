@@ -20,8 +20,6 @@ def strip_source(source: str) -> str:
     are retained. Output is ``ast.unparse``'d, so it is normalized (comments
     dropped) but byte-stable for downstream merges.
     """
-    if not isinstance(source, str):
-        raise TypeError('source must be a string')
     stripify_fn = globals().get('_stripify')
     if stripify_fn is None:
 
@@ -34,22 +32,11 @@ def strip_source(source: str) -> str:
             node.body = new_body
     tree = ast.parse(source)
 
-    def _is_test_function(name: str) -> bool:
-        return name.startswith('test_')
-
-    def _is_pytest_class(name: str, method_defs: list) -> bool:
-        return name.startswith('Test') and any((m.name.startswith('test') for m in method_defs))
-
     def process_body(body: list[ast.stmt]) -> None:
         for node in body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if _is_test_function(node.name):
-                    continue
                 stripify_fn(node)
             elif isinstance(node, ast.ClassDef):
-                method_defs = [sub for sub in node.body if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef))]
-                if _is_pytest_class(node.name, method_defs):
-                    continue
                 process_body(node.body)
     process_body(tree.body)
     return ast.unparse(tree)
