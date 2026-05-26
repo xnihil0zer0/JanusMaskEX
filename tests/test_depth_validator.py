@@ -65,3 +65,29 @@ def test_circular_reference_fails(tasks_dir: Path) -> None:
 def test_missing_parent_file_fails(tasks_dir: Path) -> None:
     _write(tasks_dir, "child", parent="ghost")
     assert check_true_depth("child", tasks_dir) is False
+
+
+def test_empty_and_invalid_inputs(tasks_dir: Path) -> None:
+    # Test cases that should return False instead of raising exception or returning True
+    assert check_true_depth('', 0, 0) is False
+    assert check_true_depth('', 150, 0) is False
+    assert check_true_depth('', 150, -6211) is False
+    assert check_true_depth(None, tasks_dir) is False
+    assert check_true_depth([], tasks_dir) is False
+    assert check_true_depth({}, tasks_dir) is False
+    assert check_true_depth('child', None) is False
+    assert check_true_depth('child', []) is False
+
+
+def test_invalid_parent_id_fails(tasks_dir: Path) -> None:
+    _write(tasks_dir, "child", parent="")
+    assert check_true_depth("child", tasks_dir) is False
+
+    _write(tasks_dir, "child2", parent=[])
+    # _write takes str | None, but we can write custom payload
+    import json
+    payload = {"task_id": "child2", "parent_task": []}
+    (tasks_dir / "child2.json").write_text(json.dumps(payload))
+    assert check_true_depth("child2", tasks_dir) is False
+
+
