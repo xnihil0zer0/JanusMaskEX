@@ -123,7 +123,6 @@ def load_config(config_path: Path=DEFAULT_CONFIG_PATH) -> dict[str, Any]:
         raise ValueError(f'Config root must be a YAML mapping, got {type(config)}')
     config = _interpolate_config_paths(config)
     if 'synthesis' in config and config['synthesis'].get('antigravity_mode', True):
-        config.setdefault('synthesis', {})['active_agents'] = ['antigravity']
         config.setdefault('control', {})['autobrief_default_agent'] = 'antigravity'
     return config
 

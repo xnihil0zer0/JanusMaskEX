@@ -34,6 +34,8 @@ DEFAULT_BRIEF_MAX_SIZE_BYTES = 50000
 _PRIORITY_RANK = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
 _UNSET_RANK = 4
 _shutdown_requested = False
+_suspended_pids: set[int] = set()
+_suspension_start_times: dict[int, float] = {}
 
 def _install_sigterm_handler() -> None:
 
@@ -982,33 +984,34 @@ def _decide(repo_root: pathlib.Path, state_dir: pathlib.Path, running_task_ids: 
     chosen = admitted[:free]
     return (chosen, paused, free)
 
-def suspend_parallel_workers(state_dir: pathlib.Path, current_tid: str) -> None:
+def suspend_parallel_workers(state_dir: pathlib.Path, exclude_pid: int) -> None:
+    global _suspended_pids, _suspension_start_times
     rdir = state_dir / 'running'
     if not rdir.exists():
         return
+    daemon_pid = os.getpid()
     for p in rdir.glob('*.pid'):
-        if p.stem == current_tid:
-            continue
         try:
             pid = int(p.read_text(encoding='utf-8').strip())
+            if pid == exclude_pid or pid == daemon_pid:
+                continue
             os.kill(pid, signal.SIGSTOP)
+            _suspended_pids.add(pid)
+            _suspension_start_times[pid] = time.time()
             _emit_telemetry(state_dir, p.stem, 'suspend', f'pid={pid}')
         except Exception:
             pass
 
-def resume_parallel_workers(state_dir: pathlib.Path, current_tid: str) -> None:
-    rdir = state_dir / 'running'
-    if not rdir.exists():
-        return
-    for p in rdir.glob('*.pid'):
-        if p.stem == current_tid:
-            continue
+def resume_parallel_workers(state_dir: pathlib.Path) -> None:
+    global _suspended_pids, _suspension_start_times
+    for pid in list(_suspended_pids):
         try:
-            pid = int(p.read_text(encoding='utf-8').strip())
             os.kill(pid, signal.SIGCONT)
-            _emit_telemetry(state_dir, p.stem, 'resume', f'pid={pid}')
+            _emit_telemetry(state_dir, '', 'resume', f'pid={pid}')
         except Exception:
             pass
+    _suspended_pids.clear()
+    _suspension_start_times.clear()
 
 def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dry_run: bool, config: dict | None=None) -> dict:
     running = _reap_running(state_dir)
@@ -1053,21 +1056,42 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
             tid = task['task_id']
             if requires_claude:
                 _emit_telemetry(state_dir, tid, 'launch_sequential', 'running sequential/claude worker')
-                suspend_parallel_workers(state_dir, tid)
                 cmd = [sys.executable, '-m', 'harness.orchestrator_worker', '--state-dir', str(state_dir), '--task-id', tid]
                 pid = None
                 try:
                     proc = subprocess.Popen(cmd)
                     pid = proc.pid
                     _write_pidfile(state_dir, tid, pid)
+                    suspend_parallel_workers(state_dir, exclude_pid=pid)
                     _emit_telemetry(state_dir, tid, 'launch', f'pid={pid}')
                     launched.append(tid)
+                    
+                    seq_start = time.time()
                     try:
-                        proc.wait(timeout=300)
-                    except subprocess.TimeoutExpired:
-                        _emit_telemetry(state_dir, tid, 'timeout', 'sequential worker timed out (5 min)')
-                        proc.kill()
-                        proc.wait()
+                        while proc.poll() is None:
+                            now = time.time()
+                            if now - seq_start > 300:
+                                _emit_telemetry(state_dir, tid, 'timeout', 'sequential worker timed out (5 min)')
+                                proc.kill()
+                                proc.wait()
+                                break
+                            
+                            to_remove = set()
+                            for spid in _suspended_pids:
+                                if now - _suspension_start_times.get(spid, now) > 300:
+                                    try:
+                                        os.kill(spid, signal.SIGTERM)
+                                        _emit_telemetry(state_dir, str(spid), 'watchdog_term', f'pid={spid}')
+                                    except Exception:
+                                        pass
+                                    to_remove.add(spid)
+                            for spid in to_remove:
+                                _suspended_pids.discard(spid)
+                                _suspension_start_times.pop(spid, None)
+                            
+                            time.sleep(1.0)
+                    except Exception as exc:
+                        pass
                 except Exception as exc:
                     _emit_telemetry(state_dir, tid, 'spawn_failed', repr(exc))
                 finally:
@@ -1078,7 +1102,7 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
                             pid_file.unlink()
                         except OSError:
                             pass
-                    resume_parallel_workers(state_dir, tid)
+                    resume_parallel_workers(state_dir)
             else:
                 pid = _spawn_worker(state_dir, tid)
                 if pid is None:

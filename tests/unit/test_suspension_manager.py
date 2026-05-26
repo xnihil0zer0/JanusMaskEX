@@ -1,32 +1,17 @@
 import os
 import signal
 import tempfile
+import time
 from pathlib import Path
-from unittest.mock import patch
-import inspect
+from unittest.mock import patch, MagicMock
 
 import harness.autowork_daemon
-
-# If _suspended_pids is not in the imported module, define it dynamically
-# so the import statement below succeeds.
-if not hasattr(harness.autowork_daemon, "_suspended_pids"):
-    harness.autowork_daemon._suspended_pids = set()
-
-from harness.autowork_daemon import suspend_parallel_workers, resume_parallel_workers, _suspended_pids
-
+from harness.autowork_daemon import suspend_parallel_workers, resume_parallel_workers, _suspended_pids, _suspension_start_times, _iteration
 
 def test_suspension_manager():
-    sig = inspect.signature(suspend_parallel_workers)
-    is_janusmask_jr = "current_tid" in sig.parameters
-
     with tempfile.TemporaryDirectory() as tmpdir:
         state_dir = Path(tmpdir)
-        if is_janusmask_jr:
-            # JanusMaskJR checks state_dir / 'running'
-            running_dir = state_dir / 'running'
-        else:
-            # NobleJanus checks state_dir / 'control' / 'autowork' / 'running'
-            running_dir = state_dir / 'control' / 'autowork' / 'running'
+        running_dir = state_dir / 'running'
         running_dir.mkdir(parents=True)
 
         # Create mock active worker pid files
@@ -41,49 +26,69 @@ def test_suspension_manager():
 
         # Reset global suspended PIDs tracking set
         _suspended_pids.clear()
+        _suspension_start_times.clear()
 
         # Mock os.kill to monitor signals sent
         with patch('os.kill') as mock_kill, patch('os.getpid', return_value=11111):
-            if is_janusmask_jr:
-                # In JanusMaskJR, suspend_parallel_workers(state_dir, current_tid)
-                suspend_parallel_workers(state_dir, 'T001')
+            # Suspend parallel workers except the executor process (12345) and the daemon itself (11111)
+            suspend_parallel_workers(state_dir, exclude_pid=12345)
 
-                # Verification: SIGSTOP sent to 67890 (T002) and 11111 (T003)
-                mock_kill.assert_any_call(67890, signal.SIGSTOP)
-                mock_kill.assert_any_call(11111, signal.SIGSTOP)
-                
-                # Excluded pid 12345 (T001) should not be sent SIGSTOP
-                # Verify that 12345 is not in mock_kill calls
-                for call in mock_kill.call_args_list:
-                    assert call[0][0] != 12345
+            # Verification: SIGSTOP sent only to 67890
+            mock_kill.assert_any_call(67890, signal.SIGSTOP)
+            assert 12345 not in _suspended_pids
+            assert 11111 not in _suspended_pids
+            assert 67890 in _suspended_pids
+            assert 67890 in _suspension_start_times
 
-                # Manually populate tracking set to satisfy assertion
-                _suspended_pids.add(67890)
+            mock_kill.reset_mock()
 
-                mock_kill.reset_mock()
+            # Resume the suspended workers
+            resume_parallel_workers(state_dir)
 
-                # Resume the suspended workers
-                resume_parallel_workers(state_dir, 'T001')
+            # Verification: SIGCONT sent only to 67890, and set is cleared
+            mock_kill.assert_called_once_with(67890, signal.SIGCONT)
+            assert len(_suspended_pids) == 0
+            assert len(_suspension_start_times) == 0
 
-                # Verification: SIGCONT sent to 67890 (T002) and 11111 (T003)
-                mock_kill.assert_any_call(67890, signal.SIGCONT)
-                mock_kill.assert_any_call(11111, signal.SIGCONT)
-                _suspended_pids.clear()
-            else:
-                # Suspend parallel workers except the executor process (12345) and the daemon itself (11111)
-                suspend_parallel_workers(exclude_pid=12345, state_dir=state_dir)
+@patch('harness.autowork_daemon.time.sleep')
+@patch('subprocess.Popen')
+@patch('harness.autowork_daemon._decide')
+@patch('harness.autowork_daemon._reap_running', return_value=set())
+@patch('harness.autowork_daemon._auto_promote', return_value={})
+@patch('harness.autowork_daemon._write_pidfile')
+@patch('harness.autowork_daemon.resume_parallel_workers')
+@patch('harness.autowork_daemon.suspend_parallel_workers')
+@patch('os.kill')
+def test_watchdog_timeout(mock_kill, mock_suspend, mock_resume, mock_write_pid, mock_auto_promote, mock_reap, mock_decide, mock_popen, mock_sleep):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        state_dir = Path(tmpdir)
+        repo_root = Path(tmpdir)
 
-                # Verification: SIGSTOP sent only to 67890
-                mock_kill.assert_any_call(67890, signal.SIGSTOP)
-                assert 12345 not in _suspended_pids
-                assert 11111 not in _suspended_pids
-                assert 67890 in _suspended_pids
+        # Mock decide to return one task, forcing execution into the watchdog loop
+        mock_decide.return_value = ([{'task_id': 'T999'}], False, 1)
 
-                mock_kill.reset_mock()
+        # Setup mock Popen to stay running for a couple of polls, then exit
+        mock_proc = MagicMock()
+        mock_proc.pid = 9999
+        mock_proc.poll.side_effect = [None, None, 0] # Loop twice, then exit
+        mock_popen.return_value = mock_proc
 
-                # Resume the suspended workers
-                resume_parallel_workers(state_dir=state_dir)
+        # Prepare suspended pids state
+        _suspended_pids.clear()
+        _suspension_start_times.clear()
+        
+        _suspended_pids.add(67890)
+        _suspension_start_times[67890] = time.time() - 350 # Older than 300 seconds
 
-                # Verification: SIGCONT sent only to 67890, and set is cleared
-                mock_kill.assert_called_once_with(67890, signal.SIGCONT)
-                assert len(_suspended_pids) == 0
+        # Call iteration
+        config = {'synthesis': {'antigravity_mode': True}}
+        _iteration(repo_root, state_dir, 4, dry_run=False, config=config)
+
+        # Watchdog should have killed the suspended pid (67890)
+        mock_kill.assert_any_call(67890, signal.SIGTERM)
+        assert 67890 not in _suspended_pids
+        
+        # Verify the sequential worker was started
+        mock_popen.assert_called_once()
+        mock_suspend.assert_called_once_with(state_dir, exclude_pid=9999)
+        mock_resume.assert_called_once_with(state_dir)
