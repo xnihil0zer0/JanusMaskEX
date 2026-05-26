@@ -11,40 +11,31 @@ Hooks must never trust agent-supplied paths. `safe_subpath` re-exports
 `harness.safe_subpath.is_safe_subpath` unchanged — this module only adds
 the convenience of rooting against the authoritative state/project dirs.
 """
-
 from __future__ import annotations
-
 import json
 import os
 import pathlib
 from typing import Any
-
 from harness.safe_subpath import is_safe_subpath
-
 _DEFAULT_PROJECT_DIR = pathlib.Path(__file__).resolve().parent.parent.parent
 
-
 def project_dir() -> pathlib.Path:
-    raw = os.environ.get("JANUSMASK_PROJECT_DIR") or os.environ.get("CLAUDE_PROJECT_DIR")
+    raw = os.environ.get('JANUSMASK_PROJECT_DIR') or os.environ.get('CLAUDE_PROJECT_DIR')
     if raw:
         return pathlib.Path(raw).resolve()
     return _DEFAULT_PROJECT_DIR
 
-
 def state_dir() -> pathlib.Path:
-    raw = os.environ.get("JANUSMASK_STATE_DIR")
+    raw = os.environ.get('JANUSMASK_STATE_DIR')
     if raw:
         return pathlib.Path(raw).resolve()
-    return project_dir() / "state"
-
+    return project_dir() / 'state'
 
 def agent() -> str:
-    return os.environ.get("JANUSMASK_AGENT", "")
-
+    return os.environ.get('JANUSMASK_AGENT', '')
 
 def mode() -> str:
-    return os.environ.get("JANUSMASK_MODE", "synthesis")
-
+    return os.environ.get('JANUSMASK_MODE', 'synthesis')
 
 def round_number() -> int:
     """Prefer JANUSMASK_ROUND env (authoritative post-P0.4), else -1 sentinel.
@@ -52,24 +43,21 @@ def round_number() -> int:
     Callers that also need to consult STATE.json should use
     `_state_gates.current_round` which layers env -> STATE.json fallback.
     """
-    raw = os.environ.get("JANUSMASK_ROUND")
-    if raw is None or raw == "":
+    raw = os.environ.get('JANUSMASK_ROUND')
+    if raw is None or raw == '':
         return -1
     try:
         return int(raw)
     except ValueError:
         return -1
 
-
 def safe_under_state(candidate: str) -> bool:
     """True iff `candidate` resolves inside the state dir."""
     return is_safe_subpath(str(candidate), str(state_dir()))
 
-
 def safe_under_project(candidate: str) -> bool:
     """True iff `candidate` resolves inside the project root."""
     return is_safe_subpath(str(candidate), str(project_dir()))
-
 
 def load_inbox_task(inbox_dir: pathlib.Path) -> dict[str, Any]:
     """Read ``<inbox_dir>/task.json`` and return the parsed dict.
@@ -82,8 +70,8 @@ def load_inbox_task(inbox_dir: pathlib.Path) -> dict[str, Any]:
     ``_env.inbox_dir(session_id)``) so this hoist stays agent-agnostic
     and avoids an otherwise-circular import on the per-agent ``_env``.
     """
-    task_path = inbox_dir / "task.json"
+    task_path = inbox_dir / 'task.json'
     try:
-        return json.loads(task_path.read_text(encoding="utf-8"))
+        return json.loads(task_path.read_text(encoding='utf-8'))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return {}
