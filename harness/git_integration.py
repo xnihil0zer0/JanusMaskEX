@@ -983,10 +983,29 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
 def create_staging_worktree(staging_path: str, parent_root: str | pathlib.Path | None = None) -> None:
     """Prunes stale worktrees, handles existing paths, and creates a staging worktree."""
     import logging
+    import shutil
+    import pathlib
+    import subprocess
+    
     logger = logging.getLogger(__name__)
     staging_path_obj = pathlib.Path(staging_path).resolve()
-    cwd_str = str(parent_root) if parent_root is not None else None
     
+    # Resolve parent root
+    if parent_root is None:
+        try:
+            res = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=True)
+            parent_root_obj = pathlib.Path(res.stdout.strip()).resolve()
+        except Exception:
+            parent_root_obj = pathlib.Path(__file__).resolve().parent.parent
+    else:
+        parent_root_obj = pathlib.Path(parent_root).resolve()
+        
+    cwd_str = str(parent_root_obj)
+
+    # Ensure sibling check
+    if staging_path_obj.parent != parent_root_obj.parent:
+        raise ValueError("Staging worktree must be placed in a sibling directory of the repository root.")
+
     # 1. Prune stale worktrees
     try:
         subprocess.run(['git', 'worktree', 'prune'], cwd=cwd_str, check=True, capture_output=True, text=True)
@@ -994,8 +1013,17 @@ def create_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
         logger.warning(f"git worktree prune failed: {e}")
 
     # 2. Handle existing path
-    if staging_path_obj.exists():
-        logger.info(f"Staging path {staging_path} already exists. Removing.")
+    try:
+        res = subprocess.run(['git', 'worktree', 'list', '--porcelain'], cwd=cwd_str, check=True, capture_output=True, text=True)
+        worktrees = []
+        for line in res.stdout.splitlines():
+            if line.startswith('worktree '):
+                worktrees.append(pathlib.Path(line[9:]).resolve())
+    except Exception:
+        worktrees = []
+
+    if staging_path_obj in worktrees or staging_path_obj.exists():
+        logger.info(f"Staging path {staging_path} is already a worktree or exists. Removing.")
         try:
             subprocess.run(['git', 'worktree', 'remove', '-f', str(staging_path_obj)], cwd=cwd_str, check=False, capture_output=True)
         except Exception:
@@ -1018,10 +1046,31 @@ def create_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
 def remove_staging_worktree(staging_path: str, parent_root: str | pathlib.Path | None = None) -> None:
     """Removes the staging worktree cleanly."""
     import logging
+    import shutil
+    import pathlib
+    import subprocess
+    
     logger = logging.getLogger(__name__)
     staging_path_obj = pathlib.Path(staging_path).resolve()
-    cwd_str = str(parent_root) if parent_root is not None else None
     
+    # Resolve parent root
+    if parent_root is None:
+        try:
+            res = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=True)
+            parent_root_obj = pathlib.Path(res.stdout.strip()).resolve()
+        except Exception:
+            parent_root_obj = pathlib.Path(__file__).resolve().parent.parent
+    else:
+        parent_root_obj = pathlib.Path(parent_root).resolve()
+        
+    cwd_str = str(parent_root_obj)
+    
+    # Try to prune first to clean up any metadata
+    try:
+        subprocess.run(['git', 'worktree', 'prune'], cwd=cwd_str, check=False, capture_output=True)
+    except Exception:
+        pass
+
     try:
         subprocess.run(['git', 'worktree', 'remove', '-f', str(staging_path_obj)], cwd=cwd_str, check=True, capture_output=True, text=True)
         logger.info(f"Removed staging worktree reference for {staging_path}")

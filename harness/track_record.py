@@ -292,16 +292,15 @@ def track_record_tiebreaker(meta_task_type: str, diff_item: Any) -> str:
         raise TrackRecordUnavailable(f"Track record file not found at {record_path}")
     try:
         record = _read_track_record_from_disk(record_path)
-    except TrackRecordCorruptError as exc:
+        spec_auth = record.get("spec_authorship", {})
+
+        def _rate(agent: str) -> float:
+            cell = spec_auth.get(agent, {}).get(meta_task_type, {})
+            attempts = cell.get("attempts", 0)
+            failures = cell.get("failures", 0)
+            return failures / attempts if attempts > 0 else 0.0
+
+        return "gemini" if _rate("gemini") < _rate("claude") else "claude"
+    except (TrackRecordCorruptError, AttributeError, TypeError, KeyError) as exc:
         raise TrackRecordUnavailable(f"Track record corrupt: {exc}") from exc
-
-    spec_auth = record.get("spec_authorship", {})
-
-    def _rate(agent: str) -> float:
-        cell = spec_auth.get(agent, {}).get(meta_task_type, {})
-        attempts = cell.get("attempts", 0)
-        failures = cell.get("failures", 0)
-        return failures / attempts if attempts > 0 else 0.0
-
-    return "gemini" if _rate("gemini") < _rate("claude") else "claude"
 

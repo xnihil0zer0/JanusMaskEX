@@ -75,3 +75,11 @@ def test_tiebreaker_equal_rates_defaults_to_claude(tmp_path, monkeypatch):
     )
 
     assert track_record_tiebreaker("test_unit", None) == "claude"
+
+
+def test_tiebreaker_schema_corrupt_raises_unavailable(tmp_path, monkeypatch):
+    record_path = _seed_state_dir(tmp_path, monkeypatch)
+    record_path.write_text('{"version": 1, "spec_authorship": null}')
+
+    with pytest.raises(TrackRecordUnavailable, match="corrupt"):
+        track_record_tiebreaker("test_unit", None)
