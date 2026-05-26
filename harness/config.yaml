@@ -21,20 +21,19 @@ agents:
     - --setting-sources
     - ''
     command: claude
+  claude_fallback:
+    args:
+    - -m
+    - claude-opus-4.6
+    - -p
+    - --dangerously-skip-permissions
+    - --sandbox
+    command: agy
   gemini:
     args:
     - -p
-    - --model
-    - gemini-3.1-pro-preview
-    - -o
-    - stream-json
-    - --admin-policy
-    - ${CONFIG_DIR}/gemini_worker_policy.toml
-    - --allowed-mcp-server-names
-    - janusmask
-    - --approval-mode
-    - yolo
-    command: gemini
+    - --sandbox
+    command: agy
 autowork:
   brief_max_age_seconds: 604800
   brief_max_size_bytes: 50000
