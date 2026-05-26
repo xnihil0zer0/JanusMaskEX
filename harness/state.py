@@ -189,3 +189,7 @@ if 'locked_read_modify_write' not in globals():
 
         def locked_read_modify_write(modifier_fn: Callable[[dict[str, Any]], dict[str, Any]], state_dir: Path | None=None) -> dict[str, Any]:
             raise NotImplementedError('locked_read_modify_write not found')
+from harness.state import InvalidAgentError
+from harness.state import VALID_AGENTS
+from harness.state import read_state
+'Reconstruction of get_agent_status for harness/state.py.'
