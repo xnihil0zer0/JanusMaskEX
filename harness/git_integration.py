@@ -458,13 +458,14 @@ def _run_streamed_command(cmd: list[str], cwd: str, timeout: int, check: bool=Fa
             raise subprocess.CalledProcessError(retcode, cmd, output=stdout_str)
         return subprocess.CompletedProcess(cmd, retcode, stdout=stdout_str, stderr='')
 
-def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Path) -> dict:
+def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Path, worktree_root: pathlib.Path | None = None) -> dict:
     """Copy validated output to target, then commit it scoped to target_file.
 
     Args:
         task_id: The task ID (e.g., 'GIT-COMMIT-001'). Output expected at state/output/<task_id>.py
         target_file: Destination path relative to or absolute within worktree root
         state_dir: Path to state/ directory (used to locate state/output/)
+        worktree_root: Optional custom worktree root (e.g. staging workspace)
 
     Returns:
         A dict with keys:
@@ -487,15 +488,30 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
     """
     result = {'committed': False, 'sha': None, 'error': None, 'target': target_file}
     try:
-        output = _run_streamed_command(['git', 'rev-parse', '--show-toplevel'], cwd=str(state_dir), timeout=30, check=True)
-        worktree_root = pathlib.Path(output.stdout.strip())
+        if worktree_root is None:
+            output = _run_streamed_command(['git', 'rev-parse', '--show-toplevel'], cwd=str(state_dir), timeout=30, check=True)
+            worktree_root = pathlib.Path(output.stdout.strip())
+        else:
+            worktree_root = pathlib.Path(worktree_root)
+
         sidecar_path = state_dir / 'output' / f'{task_id}.files.json'
         if sidecar_path.exists():
             return _commit_accepted_output_multi(task_id, sidecar_path, state_dir, worktree_root, result)
         patches_sidecar = state_dir / 'output' / f'{task_id}.patches.json'
         if patches_sidecar.exists():
             return _commit_accepted_output_patches(task_id, patches_sidecar, state_dir, worktree_root, result)
+
         target_path = pathlib.Path(target_file).resolve()
+        if worktree_root is not None:
+            # Re-root target_path from parent root to worktree_root if it was absolute to the parent
+            parent_output = _run_streamed_command(['git', 'rev-parse', '--show-toplevel'], cwd=str(state_dir), timeout=30, check=True)
+            parent_root = pathlib.Path(parent_output.stdout.strip()).resolve()
+            try:
+                rel = target_path.relative_to(parent_root)
+                target_path = (worktree_root / rel).resolve()
+            except ValueError:
+                pass
+
         try:
             target_path.relative_to(worktree_root)
         except ValueError:
@@ -963,3 +979,97 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
         result['sha'] = None
         result['error'] = str(exc)
         return result
+
+def create_staging_worktree(staging_path: str, parent_root: str | pathlib.Path | None = None) -> None:
+    """Prunes stale worktrees, handles existing paths, and creates a staging worktree."""
+    import logging
+    logger = logging.getLogger(__name__)
+    staging_path_obj = pathlib.Path(staging_path).resolve()
+    cwd_str = str(parent_root) if parent_root is not None else None
+    
+    # 1. Prune stale worktrees
+    try:
+        subprocess.run(['git', 'worktree', 'prune'], cwd=cwd_str, check=True, capture_output=True, text=True)
+    except subprocess.SubprocessError as e:
+        logger.warning(f"git worktree prune failed: {e}")
+
+    # 2. Handle existing path
+    if staging_path_obj.exists():
+        logger.info(f"Staging path {staging_path} already exists. Removing.")
+        try:
+            subprocess.run(['git', 'worktree', 'remove', '-f', str(staging_path_obj)], cwd=cwd_str, check=False, capture_output=True)
+        except Exception:
+            pass
+        if staging_path_obj.is_dir():
+            shutil.rmtree(staging_path_obj, ignore_errors=True)
+        elif staging_path_obj.exists():
+            staging_path_obj.unlink(missing_ok=True)
+
+    # 3. Create worktree
+    # Detached HEAD is safer and avoids temporary branch name collisions
+    cmd = ['git', 'worktree', 'add', '--detach', str(staging_path_obj)]
+    try:
+        subprocess.run(cmd, cwd=cwd_str, check=True, capture_output=True, text=True)
+        logger.info(f"Created staging worktree at {staging_path}")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to create staging worktree: {e.stderr}")
+        raise
+
+def remove_staging_worktree(staging_path: str, parent_root: str | pathlib.Path | None = None) -> None:
+    """Removes the staging worktree cleanly."""
+    import logging
+    logger = logging.getLogger(__name__)
+    staging_path_obj = pathlib.Path(staging_path).resolve()
+    cwd_str = str(parent_root) if parent_root is not None else None
+    
+    try:
+        subprocess.run(['git', 'worktree', 'remove', '-f', str(staging_path_obj)], cwd=cwd_str, check=True, capture_output=True, text=True)
+        logger.info(f"Removed staging worktree reference for {staging_path}")
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"git worktree remove failed: {e.stderr}")
+        try:
+            subprocess.run(['git', 'worktree', 'prune'], cwd=cwd_str, check=True, capture_output=True)
+        except Exception:
+            pass
+
+    if staging_path_obj.exists():
+        shutil.rmtree(staging_path_obj, ignore_errors=True)
+        logger.info(f"Deleted staging directory at {staging_path}")
+
+def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Path | None = None) -> None:
+    """Merges the HEAD commit from staging_path back to the parent repository."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # 1. Get HEAD commit of staging
+    try:
+        res = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=str(staging_path), check=True, capture_output=True, text=True)
+        staging_sha = res.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to get staging HEAD: {e.stderr}")
+        raise RuntimeError(f"Failed to get staging HEAD: {e.stderr}")
+
+    # 2. Get parent repo root
+    if parent_root is None:
+        try:
+            res_common = subprocess.run(['git', 'rev-parse', '--git-common-dir'], cwd=str(staging_path), check=True, capture_output=True, text=True)
+            git_common = pathlib.Path(res_common.stdout.strip())
+            if not git_common.is_absolute():
+                git_common = (staging_path / git_common).resolve()
+            if git_common.name == '.git':
+                parent_root = git_common.parent
+            else:
+                # Inside git worktrees structure: .git/worktrees/<name>
+                parent_root = git_common.parent.parent
+        except Exception:
+            parent_root = pathlib.Path(__file__).resolve().parent.parent
+
+    logger.info(f"Merging staging commit {staging_sha} into parent repo at {parent_root}")
+    try:
+        subprocess.run(['git', 'merge', '--ff-only', staging_sha], cwd=str(parent_root), check=True, capture_output=True, text=True)
+        logger.info("Fast-forward merge successful.")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Fast-forward merge failed: {e.stderr}")
+        raise RuntimeError(f"Fast-forward merge failed: {e.stderr}")
+    finally:
+        remove_staging_worktree(str(staging_path))

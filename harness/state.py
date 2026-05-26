@@ -179,11 +179,29 @@ def init_state(state_dir: Path | None = None) -> dict[str, Any]:
     with open(lock_path, "a") as lock_fd:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
         try:
+            if state_path.exists():
+                try:
+                    current_state = _read_state_from_disk(state_path)
+                    if current_state.get("handoff_pending") is True:
+                        current_state["handoff_pending"] = False
+                        _write_state_to_disk(state_path, current_state)
+                        return current_state
+                except Exception:
+                    pass
             _write_state_to_disk(state_path, initial)
         finally:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
 
     return initial
+
+def serialize_orchestrator_state(state_dir: Path) -> None:
+    """Serializes orchestrator state to disk for exec handover."""
+    def _modifier(state: dict[str, Any]) -> dict[str, Any]:
+        state["handoff_pending"] = True
+        state["handoff_time"] = time.time()
+        return state
+    locked_read_modify_write(_modifier, state_dir)
+
 
 
 # ---------------------------------------------------------------------------

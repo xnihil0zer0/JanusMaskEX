@@ -787,7 +787,20 @@ def parse_args(argv: Optional[list[str]]=None) -> argparse.Namespace:
     parser.add_argument('--buffer-lines', type=int, default=DEFAULT_BUFFER_LINES, help=f'tailer ring buffer cap (default: {DEFAULT_BUFFER_LINES})')
     return parser.parse_args(argv)
 
+_ACTIVE_SERVER: Optional[WebUIServer] = None
+
+def release_for_handover() -> None:
+    """Close active WebUI port socket to allow rebinding."""
+    global _ACTIVE_SERVER
+    if _ACTIVE_SERVER is not None:
+        try:
+            logger.info("Closing active WebUI socket for handover.")
+            _ACTIVE_SERVER.server_close()
+        except Exception as e:
+            logger.warning(f"Failed to close WebUI socket: {e}")
+
 def main(argv: Optional[list[str]]=None) -> int:
+    global _ACTIVE_SERVER
     args = parse_args(argv)
     logging.basicConfig(level=os.environ.get('WEBUI_LOG_LEVEL', 'INFO'), stream=sys.stderr, format='%(asctime)s %(name)s %(levelname)s %(message)s')
     state_dir = Path(args.state_dir).resolve()
@@ -795,6 +808,7 @@ def main(argv: Optional[list[str]]=None) -> int:
     tailer = build_tailer(state_dir, logs_dir, args.buffer_lines)
     tailer.start()
     server = WebUIServer((args.host, args.port), WebUIHandler, state_dir=state_dir, logs_dir=logs_dir, tailer=tailer)
+    _ACTIVE_SERVER = server
     _install_signal_handlers(server, tailer)
     logger.info('WebUI sidecar listening on http://%s:%d', args.host, args.port)
     webui_auth.announce_token(state_dir, args.host, args.port)

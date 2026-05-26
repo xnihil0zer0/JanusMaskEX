@@ -1165,6 +1165,49 @@ def _rollback_rejected_commit(worktree_root: Path, sha: str | None, target_rel: 
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as cexc:
         logger.error('%s rollback: git checkout HEAD -- %s failed for %s: %s; worktree may be in inconsistent state', kind, target_rel, task_id, cexc)
 
+def perform_process_handover(state_dir: Path) -> None:
+    """Hot-swaps the running process image with the newly updated script."""
+    import os
+    import sys
+    import logging
+    import shutil
+    logger = logging.getLogger('janusmask.orchestrator')
+
+    # 1. State preservation
+    from harness.state import serialize_orchestrator_state
+    try:
+        serialize_orchestrator_state(state_dir)
+        logger.info("Preserved orchestrator state for handover.")
+    except Exception as e:
+        logger.error(f"Failed to preserve state: {e}")
+
+    # 2. Port release (WebUI port, default 8765 or custom)
+    try:
+        from tools.webui_server import release_for_handover
+        release_for_handover()
+        logger.info("Released WebUI socket/port.")
+    except Exception as e:
+        logger.debug(f"WebUI release not required or failed: {e}")
+
+    # 3. Process execution handoff via os.execv
+    executable = sys.executable or shutil.which("python3") or shutil.which("python") or "/usr/bin/python3"
+    cmd_args = sys.argv
+    if not cmd_args:
+        cmd_args = ["-m", "harness.orchestrator", "--state-dir", str(state_dir)]
+    args = [executable] + cmd_args
+
+    logger.info(f"Triggering os.execv with command: {args}")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    for handler in logging.root.handlers:
+        handler.flush()
+
+    try:
+        os.execv(executable, args)
+    except Exception as e:
+        logger.critical(f"os.execv handover failed! {e}")
+        raise
+
 def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -> bool:
     """Copy accepted output to its target and create a scoped git commit.
 
@@ -1192,6 +1235,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     to the singular commit path. The agent was supposed to emit
     ``__JANUSMASK_MANIFEST__`` per the G19a-1 prompt extension; absence
     indicates a regression. The fallback is the pre-G19a behavior: commit
+    ``files_touched[0] // commit is reverted via ``git reset --hard HEAD~1``
     ``files_touched[0]`` only.
 
     U3: after a successful commit, if ``task.get('verification_command')`` is
@@ -1267,6 +1311,12 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     from harness import git_integration
     from harness._journal import write_jsonl_row
     from harness.orchestrator import _resolve_files_touched, _vcmd_scrubbed_env, logger
+    import fcntl
+    import shutil
+    import subprocess
+    import sys
+    import time
+    
     files_touched = _resolve_files_touched(state_dir, task, task_id)
     if not files_touched:
         logger.info('auto-commit: skipped %s (no files_touched resolved)', task_id)
@@ -1284,12 +1334,37 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
             logger.warning('multi_file_missing_sidecar: ledger append failed for %s: %s', task_id, exc)
     if not target_rel.endswith('.py'):
         logger.info('auto-commit: target %s is non-py; delegating to git_integration.commit_accepted_output (direct-copy path)', task_id)
+
+    # 1. Resolve worktree root of the parent workspace
     try:
         rev = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=True, timeout=10, cwd=str(state_dir.parent))
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
         logger.warning('auto-commit: git rev-parse failed for %s: %s', task_id, exc)
         return False
     worktree_root = Path(rev.stdout.strip()).resolve()
+
+    # Determine staging directory as sibling to the parent worktree
+    staging_path = worktree_root.parent / f"{worktree_root.name}_staging"
+
+    logger.info('auto-commit: using staging worktree at %s for task %s', staging_path, task_id)
+    
+    # 2. Create the staging worktree
+    try:
+        git_integration.create_staging_worktree(str(staging_path), parent_root=worktree_root)
+    except Exception as e:
+        logger.error('Failed to create staging worktree for %s: %s', task_id, e)
+        return False
+
+    # 3. Create symlink to .venv if it exists in the parent
+    parent_venv = worktree_root / ".venv"
+    staging_venv = staging_path / ".venv"
+    if parent_venv.exists() and not staging_venv.exists():
+        try:
+            os.symlink(parent_venv.resolve(), staging_venv)
+        except Exception as sym_exc:
+            logger.warning('Failed to symlink .venv to staging: %s', sym_exc)
+
+    # 4. Commit changes inside the staging worktree
     target_abs = str((worktree_root / target_rel).resolve())
     lock_dir = state_dir / 'control' / 'autowork'
     lock_dir.mkdir(parents=True, exist_ok=True)
@@ -1297,60 +1372,93 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     with open(lock_path, 'a') as lock_fd:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
         try:
-            result = git_integration.commit_accepted_output(task_id, target_abs, state_dir)
+            result = git_integration.commit_accepted_output(task_id, target_abs, state_dir, worktree_root=staging_path)
         finally:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
+
+    # 5. Run verification inside staging
     if result.get('committed'):
         vcmd = task.get('verification_command')
         if not (isinstance(vcmd, str) and vcmd.strip()):
-            logger.warning('verification_missing: task=%s -- auto-commit rolled back; tasks must carry a non-empty verification_command', task_id)
-            _rollback_rejected_commit(worktree_root, result.get('sha'), target_rel, task_id, 'verification_missing')
+            logger.warning('verification_missing: task=%s -- staging rolled back; tasks must carry a non-empty verification_command', task_id)
+            _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'verification_missing')
+            git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
             try:
                 write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'verification_missing', 'commit_sha': result.get('sha'), 'files': [target_rel], 'reason': 'verification_command missing, empty, or non-string'})
             except OSError as exc:
                 logger.warning('verification_missing: ledger append failed for %s: %s', task_id, exc)
             return False
-        if isinstance(vcmd, str) and vcmd:
-            verify_exit: int | None = None
-            verify_stdout = ''
-            verify_stderr = ''
-            timed_out = False
+
+        verify_exit: int | None = None
+        verify_stdout = ''
+        verify_stderr = ''
+        timed_out = False
+        try:
+            # We run the verification command inside staging_path
+            vproc = subprocess.run(f'set -o pipefail; {vcmd}', shell=True, cwd=str(staging_path), capture_output=True, text=True, timeout=600, env=_vcmd_scrubbed_env(), executable='/bin/bash')
+            verify_exit = vproc.returncode
+            verify_stdout = vproc.stdout or ''
+            verify_stderr = vproc.stderr or ''
+        except subprocess.TimeoutExpired as texc:
+            timed_out = True
+            verify_exit = 124
+            partial_out = texc.stdout
+            partial_err = texc.stderr
+            if isinstance(partial_out, (bytes, bytearray)):
+                verify_stdout = partial_out.decode('utf-8', 'replace')
+            elif isinstance(partial_out, str):
+                verify_stdout = partial_out
+            if isinstance(partial_err, (bytes, bytearray)):
+                verify_stderr = partial_err.decode('utf-8', 'replace')
+            elif isinstance(partial_err, str):
+                verify_stderr = partial_err
+            verify_stderr = (verify_stderr + '\n' if verify_stderr else '') + f'[verification_command timed out after 600s: {texc!r}]'
+
+        if verify_exit != 0:
+            cmd_preview = vcmd if len(vcmd) <= 200 else vcmd[:200] + '...(truncated)'
+            logger.warning('verification_failed: task=%s exit=%s timeout=%s cmd=%s', task_id, verify_exit, timed_out, cmd_preview)
+            
+            # Discard staging worktree after rollback
+            _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'verification_failed')
+            git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
+            
+            stdout_tail = verify_stdout[-2000:] if verify_stdout else ''
+            stderr_tail = verify_stderr[-2000:] if verify_stderr else ''
             try:
-                vproc = subprocess.run(f'set -o pipefail; {vcmd}', shell=True, cwd=str(worktree_root), capture_output=True, text=True, timeout=600, env=_vcmd_scrubbed_env(), executable='/bin/bash')
-                verify_exit = vproc.returncode
-                verify_stdout = vproc.stdout or ''
-                verify_stderr = vproc.stderr or ''
-            except subprocess.TimeoutExpired as texc:
-                timed_out = True
-                verify_exit = 124
-                partial_out = texc.stdout
-                partial_err = texc.stderr
-                if isinstance(partial_out, (bytes, bytearray)):
-                    verify_stdout = partial_out.decode('utf-8', 'replace')
-                elif isinstance(partial_out, str):
-                    verify_stdout = partial_out
-                if isinstance(partial_err, (bytes, bytearray)):
-                    verify_stderr = partial_err.decode('utf-8', 'replace')
-                elif isinstance(partial_err, str):
-                    verify_stderr = partial_err
-                verify_stderr = (verify_stderr + '\n' if verify_stderr else '') + f'[verification_command timed out after 600s: {texc!r}]'
-            if verify_exit != 0:
-                cmd_preview = vcmd if len(vcmd) <= 200 else vcmd[:200] + '...(truncated)'
-                logger.warning('verification_failed: task=%s exit=%s timeout=%s cmd=%s', task_id, verify_exit, timed_out, cmd_preview)
-                _rollback_rejected_commit(worktree_root, result.get('sha'), target_rel, task_id, 'verification_failed')
-                stdout_tail = verify_stdout[-2000:] if verify_stdout else ''
-                stderr_tail = verify_stderr[-2000:] if verify_stderr else ''
-                try:
-                    write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'verification_failed', 'exit': verify_exit, 'stdout_tail': stdout_tail, 'stderr_tail': stderr_tail, 'commit_sha': result.get('sha'), 'files': [target_rel], 'timed_out': timed_out})
-                except OSError as exc:
-                    logger.warning('verification_failed: ledger append failed for %s: %s', task_id, exc)
-                return False
-        logger.info('auto-commit: SUCCESS %s -> %s (sha=%s)', task_id, target_rel, result.get('sha'))
+                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'verification_failed', 'exit': verify_exit, 'stdout_tail': stdout_tail, 'stderr_tail': stderr_tail, 'commit_sha': result.get('sha'), 'files': [target_rel], 'timed_out': timed_out})
+            except OSError as exc:
+                logger.warning('verification_failed: ledger append failed for %s: %s', task_id, exc)
+            return False
+
+        # Verification succeeded!
+        logger.info('auto-commit: SUCCESS in staging for %s -> %s (sha=%s)', task_id, target_rel, result.get('sha'))
+        
+        # 6. Mark the task as processed before merging/handover
+        _mark_processed(state_dir, task_id)
+        
         try:
             write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'accepted', 'task_id': task_id, 'event': 'auto_commit', 'commit_sha': result.get('sha'), 'files': [target_rel], 'exit': 0})
         except OSError as exc:
             logger.warning('auto-commit: ledger append failed for %s: %s', task_id, exc)
+
+        # 7. Merge staging changes back to parent and remove worktree
+        try:
+            git_integration.merge_staging_to_parent(staging_path, worktree_root)
+            logger.info("Merged staging commit back to parent repository.")
+        except Exception as merge_err:
+            logger.error('Failed to merge staging changes: %s', merge_err)
+            return False
+
+        # 8. Check if running inside test environment
+        if "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ:
+            logger.info("Test environment detected. Skipping os.execv process handover.")
+            return True
+
+        # 9. Perform process exec handover
+        perform_process_handover(state_dir)
         return True
+
+    # Error handling when not committed
     err = result.get('error')
     if err:
         logger.warning('auto-commit: FAILED %s: %s', task_id, err)
@@ -1370,13 +1478,15 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                 if not isinstance(_rel, str):
                     continue
                 try:
-                    subprocess.run(['git', 'reset', '-q', '--', _rel], cwd=str(worktree_root), check=False, timeout=30)
+                    subprocess.run(['git', 'reset', '-q', '--', _rel], cwd=str(staging_path), check=False, timeout=30)
                 except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as rexc:
                     logger.error('commit_failed scrub: git reset -q -- %s failed for %s: %s; worktree may be in inconsistent state', _rel, task_id, rexc)
                 try:
-                    subprocess.run(['git', 'checkout', 'HEAD', '--', _rel], cwd=str(worktree_root), check=False, timeout=30)
+                    subprocess.run(['git', 'checkout', 'HEAD', '--', _rel], cwd=str(staging_path), check=False, timeout=30)
                 except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as cexc:
                     logger.error('commit_failed scrub: git checkout HEAD -- %s failed for %s: %s; worktree may be in inconsistent state', _rel, task_id, cexc)
+        # Staging directory cleanup on error (no reset needed on parent repository as it was untouched)
+        git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
     return False
 
 def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
