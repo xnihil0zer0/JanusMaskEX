@@ -5,12 +5,10 @@ as the behavioral spec (copied verbatim), any seed/scaffolding files (package
 ``__init__``, conftest) the tests need to run in isolation, and where the
 reconstructed replicant lands.
 """
-
 from __future__ import annotations
-
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
-
 
 @dataclass
 class TargetDescriptor:
@@ -44,7 +42,6 @@ class TargetDescriptor:
             ORACLE always stays on the parent ambient python (it imports
             ``harness``); only the scoped pytest + full suite use this.
     """
-
     name: str
     source_root: Path
     modules: list[str]
@@ -62,42 +59,13 @@ class TargetDescriptor:
         self.source_root = Path(self.source_root).resolve()
         self.output_dir = Path(self.output_dir).resolve()
         self.stash_dir = Path(self.stash_dir).resolve()
-
+from harness.rebuild.target import TargetDescriptor
 
 def mathlib_descriptor(output_dir: Path, stash_dir: Path, source_root: Path) -> TargetDescriptor:
     """Build the descriptor for the shipped samples/mathlib smoke target."""
-    return TargetDescriptor(
-        name='mathlib',
-        source_root=source_root,
-        modules=['mathlib.py'],
-        test_files=['test_mathlib.py'],
-        output_dir=output_dir,
-        stash_dir=stash_dir,
-        seed_files=[],
-        full_test_command='python -m pytest -q',
-        unit_test_selector='test_mathlib.py -k {unit}',
-    )
+    return TargetDescriptor(name='mathlib', source_root=source_root, modules=['mathlib.py'], test_files=['test_mathlib.py'], output_dir=output_dir, stash_dir=stash_dir, seed_files=[], full_test_command='python -m pytest -q', unit_test_selector='test_mathlib.py -k {unit}')
 
-
-def janusmask_module_descriptor(
-    name: str,
-    modules: list[str],
-    test_files: list[str],
-    output_dir: Path,
-    stash_dir: Path,
-    source_root: Path,
-    seed_files: list[str] | None = None,
-    unit_test_selector: str = '',
-) -> TargetDescriptor:
+def janusmask_module_descriptor(name: str, modules: list[str], test_files: list[str], output_dir: Path, stash_dir: Path, source_root: Path, seed_files: list[str] | None=None, unit_test_selector: str='') -> TargetDescriptor:
     """Build a descriptor for rebuilding JanusMask's own leaf module(s) into JR."""
-    return TargetDescriptor(
-        name=name,
-        source_root=source_root,
-        modules=modules,
-        test_files=test_files,
-        output_dir=output_dir,
-        stash_dir=stash_dir,
-        seed_files=seed_files or [],
-        full_test_command='python -m pytest -q ' + ' '.join(test_files),
-        unit_test_selector=unit_test_selector,
-    )
+    return TargetDescriptor(name=name, source_root=source_root, modules=modules, test_files=test_files, output_dir=output_dir, stash_dir=stash_dir, seed_files=seed_files or [], full_test_command='python -m pytest -q ' + ' '.join(test_files), unit_test_selector=unit_test_selector)
+'Factory for the shipped samples/mathlib smoke target descriptor.'
