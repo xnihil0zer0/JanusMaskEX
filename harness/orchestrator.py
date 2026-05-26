@@ -280,6 +280,11 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
     outbox_path.mkdir(parents=True, exist_ok=True)
     _stage_inbox(Path(env['JANUSMASK_WORK_DIR']), env['JANUSMASK_MODE'], state_dir)
     resolved_prompt = prompt.replace('{STATE_DIR}', str(state_dir)).replace('{OUTBOX_PATH}', str(outbox_path))
+    from harness.interceptors import registry as interceptor_registry
+    try:
+        interceptor_registry.pre_invocation(agent, resolved_prompt, env)
+    except Exception as exc:
+        logger.error("Error in pre_invocation interceptor: %s", exc, exc_info=True)
     cmd = _build_agent_command(agent, resolved_prompt, config)
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.OK}spawning{_C.RESET} {_C.DIM}{cmd[0]}{_C.RESET}')
     logger.info('Spawning %s: %s', agent, ' '.join(cmd[:6]) + ' ...')
@@ -376,12 +381,22 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
     poll_interval = 0.5
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.INFO}waiting for submission...{_C.RESET}')
     while time.monotonic() < deadline:
+        from harness.interceptors import registry as interceptor_registry
         if sub_path.is_file():
             try:
                 with open(sub_path, 'r') as f:
                     data = json.load(f)
                 code = data.get('code')
                 if code and isinstance(code, str):
+                    inter_res = interceptor_registry.pre_tool_use(agent, 'submit_code', {'code': code})
+                    if inter_res and inter_res.get('decision') == 'deny':
+                        _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}submission denied by interceptor: {inter_res.get("reason")}{_C.RESET}')
+                        try:
+                            sub_path.unlink()
+                        except OSError:
+                            pass
+                        continue
+                    interceptor_registry.post_tool_use(agent, 'submit_code', {'code': code, 'status': 'success'})
                     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.OK}submission received{_C.RESET} {_C.DIM}({len(code)} chars){_C.RESET}')
                     return code
             except (json.JSONDecodeError, OSError):
@@ -389,8 +404,14 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
         if work_dir is not None:
             code = _path_b_outbox_fallback(work_dir, sub_path, task_id)
             if code and isinstance(code, str):
-                _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.WARN}submission via outbox fallback{_C.RESET} {_C.DIM}({len(code)} chars){_C.RESET}')
-                return code
+                inter_res = interceptor_registry.pre_tool_use(agent, 'submit_code', {'code': code})
+                if inter_res and inter_res.get('decision') == 'deny':
+                    _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}fallback submission denied by interceptor: {inter_res.get("reason")}{_C.RESET}')
+                    code = None
+                else:
+                    interceptor_registry.post_tool_use(agent, 'submit_code', {'code': code, 'status': 'success'})
+                    _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.WARN}submission via outbox fallback{_C.RESET} {_C.DIM}({len(code)} chars){_C.RESET}')
+                    return code
         if proc.poll() is not None:
             rc = proc.returncode
             for _attempt in range(3):
@@ -400,15 +421,27 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
                             data = json.load(f)
                         code = data.get('code')
                         if code:
-                            _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.WARN}exited (code {rc}) but submission found{_C.RESET}')
-                            return code
+                            inter_res = interceptor_registry.pre_tool_use(agent, 'submit_code', {'code': code})
+                            if inter_res and inter_res.get('decision') == 'deny':
+                                _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}exited submission denied by interceptor: {inter_res.get("reason")}{_C.RESET}')
+                                code = None
+                            else:
+                                interceptor_registry.post_tool_use(agent, 'submit_code', {'code': code, 'status': 'success'})
+                                _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.WARN}exited (code {rc}) but submission found{_C.RESET}')
+                                return code
                     except (json.JSONDecodeError, OSError):
                         pass
                 if work_dir is not None:
                     code = _path_b_outbox_fallback(work_dir, sub_path, task_id)
                     if code and isinstance(code, str):
-                        _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.WARN}exited (code {rc}) but outbox fallback recovered submission{_C.RESET}')
-                        return code
+                        inter_res = interceptor_registry.pre_tool_use(agent, 'submit_code', {'code': code})
+                        if inter_res and inter_res.get('decision') == 'deny':
+                            _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}exited fallback submission denied by interceptor: {inter_res.get("reason")}{_C.RESET}')
+                            code = None
+                        else:
+                            interceptor_registry.post_tool_use(agent, 'submit_code', {'code': code, 'status': 'success'})
+                            _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.WARN}exited (code {rc}) but outbox fallback recovered submission{_C.RESET}')
+                            return code
                 time.sleep(0.2)
             _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}died without submitting (code {rc}){_C.RESET}')
             logger.error('%s agent died (rc=%d) without submitting', agent, rc)
