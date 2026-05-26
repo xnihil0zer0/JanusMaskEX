@@ -29,9 +29,9 @@ def read_input(stream=None) -> dict[str, Any]:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise HookInputError(f'hook stdin is not valid JSON: {exc}') from exc
+        raise ValueError(f'hook stdin is not valid JSON: {exc}') from exc
     if not isinstance(data, dict):
-        raise HookInputError(f'hook stdin must be a JSON object, got {type(data).__name__}')
+        raise ValueError(f'hook stdin must be a JSON object, got {type(data).__name__}')
     return data
 
 def _normalise_decision(decision: str) -> str:
