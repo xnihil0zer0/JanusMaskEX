@@ -1070,15 +1070,15 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
                     try:
                         while proc.poll() is None:
                             now = time.time()
-                            if now - seq_start > 300:
-                                _emit_telemetry(state_dir, tid, 'timeout', 'sequential worker timed out (5 min)')
+                            if now - seq_start > 900:
+                                _emit_telemetry(state_dir, tid, 'timeout', 'sequential worker timed out (15 min)')
                                 proc.kill()
                                 proc.wait()
                                 break
                             
                             to_remove = set()
                             for spid in _suspended_pids:
-                                if now - _suspension_start_times.get(spid, now) > 300:
+                                if now - _suspension_start_times.get(spid, now) > 900:
                                     try:
                                         os.kill(spid, signal.SIGTERM)
                                         _emit_telemetry(state_dir, str(spid), 'watchdog_term', f'pid={spid}')
