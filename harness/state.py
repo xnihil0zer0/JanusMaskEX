@@ -103,8 +103,9 @@ def init_state(state_dir: Path | None=None) -> dict[str, Any]:
         try:
             if state_path.exists():
                 try:
-                    current_state = _read_state_from_disk(state_path)
-                    if current_state.get('handoff_pending') is True:
+                    with open(state_path, 'r') as f:
+                        current_state = json.load(f)
+                    if isinstance(current_state, dict) and current_state.get('handoff_pending') is True:
                         current_state['handoff_pending'] = False
                         _write_state_to_disk(state_path, current_state)
                         return current_state
