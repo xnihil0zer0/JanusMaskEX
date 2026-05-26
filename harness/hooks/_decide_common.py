@@ -66,8 +66,11 @@ class DeciderContext:
 
 def format_ast_reason(payload: dict[str, Any]) -> str:
     header = payload.get('error') or payload.get('message') or 'AST validation failed.'
-    bullets = [f'- L{v['line']}: [{v['rule']}] {v['message']}' for v in payload.get('violations', [])]
-    return header + ('\n' + '\n'.join(bullets) if bullets else '')
+    violations = payload.get('violations') or []
+    lines = [header]
+    for v in violations:
+        lines.append(f'- L{v['line']}: [{v['rule']}] {v['message']}')
+    return '\n'.join(lines)
 
 def format_plan_reason(payload: dict[str, Any]) -> str:
     header = payload.get('error', 'plan_draft validation failed.')
