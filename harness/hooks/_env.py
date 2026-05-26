@@ -24,20 +24,11 @@ module itself does not introduce new public symbols — the per-agent
 shims re-export them under the public names the rest of the hook
 codebase already imports.
 """
-
 from __future__ import annotations
-
 import os
 import pathlib
-
 from . import _paths
-
-_INBOX_EXPECTATIONS: dict[str, tuple[str, ...]] = {
-    "synthesis": ("task.json",),
-    "planning": ("brief.json", "diff_summary.json"),
-    "reconciliation": ("diff_summary.json",),
-}
-
+_INBOX_EXPECTATIONS: dict[str, tuple[str, ...]] = {'synthesis': ('task.json',), 'planning': ('brief.json', 'diff_summary.json'), 'reconciliation': ('diff_summary.json',)}
 
 def _resolve_agent(agent: str | None) -> str:
     """Pick the agent identity: explicit arg wins, else ``_paths.agent()``.
@@ -49,35 +40,29 @@ def _resolve_agent(agent: str | None) -> str:
     """
     if agent:
         return agent
-    return _paths.agent() or ""
+    return _paths.agent() or ''
 
-
-def _work_dir(session_id: str | None = None, *, agent: str | None = None) -> pathlib.Path:
-    raw = os.environ.get("JANUSMASK_WORK_DIR")
+def _work_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path:
+    raw = os.environ.get('JANUSMASK_WORK_DIR')
     if raw:
         return pathlib.Path(raw).resolve()
-    sid = session_id or os.environ.get("JANUSMASK_SESSION_ID") or "nosession"
+    sid = session_id or os.environ.get('JANUSMASK_SESSION_ID') or 'nosession'
     a = _resolve_agent(agent)
-    return (_paths.state_dir() / "workdirs" / a / sid).resolve()
+    return (_paths.state_dir() / 'workdirs' / a / sid).resolve()
 
+def _inbox_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path:
+    return _work_dir(session_id, agent=agent) / 'inbox'
 
-def _inbox_dir(session_id: str | None = None, *, agent: str | None = None) -> pathlib.Path:
-    return _work_dir(session_id, agent=agent) / "inbox"
+def _outbox_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path:
+    return _work_dir(session_id, agent=agent) / 'outbox'
 
-
-def _outbox_dir(session_id: str | None = None, *, agent: str | None = None) -> pathlib.Path:
-    return _work_dir(session_id, agent=agent) / "outbox"
-
-
-def _ledger_dir(session_id: str | None = None, *, agent: str | None = None) -> pathlib.Path:
-    return _work_dir(session_id, agent=agent) / "ledger"
-
+def _ledger_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path:
+    return _work_dir(session_id, agent=agent) / 'ledger'
 
 def _expected_inbox_files(mode: str) -> tuple[str, ...]:
     return _INBOX_EXPECTATIONS.get(mode, ())
 
-
-def _inbox_ready(mode: str, session_id: str | None = None, *, agent: str | None = None) -> bool:
+def _inbox_ready(mode: str, session_id: str | None=None, *, agent: str | None=None) -> bool:
     """True iff at least one expected inbox file exists for ``mode``.
 
     Unknown modes return False so the caller can surface a loud stop
@@ -87,10 +72,9 @@ def _inbox_ready(mode: str, session_id: str | None = None, *, agent: str | None 
     if not expected:
         return False
     base = _inbox_dir(session_id, agent=agent)
-    return any((base / name).is_file() for name in expected)
+    return any(((base / name).is_file() for name in expected))
 
-
-def _ensure_workdir_skeleton(session_id: str | None = None, *, agent: str | None = None) -> None:
+def _ensure_workdir_skeleton(session_id: str | None=None, *, agent: str | None=None) -> None:
     """Create outbox/ and ledger/ if absent; inbox stays orchestrator-owned."""
     _outbox_dir(session_id, agent=agent).mkdir(parents=True, exist_ok=True)
     _ledger_dir(session_id, agent=agent).mkdir(parents=True, exist_ok=True)
