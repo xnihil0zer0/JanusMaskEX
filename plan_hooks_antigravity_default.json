@@ -1,0 +1,99 @@
+{
+  "plan_id": "plan_hooks_antigravity_default",
+  "brief": "brief_hooks_antigravity_default.md",
+  "tasks": [
+    {
+      "task_id": "REWIRE_GEMINI_TO_ANTIGRAVITY",
+      "title": "Rewire the gemini agent definition to use the agy command (Antigravity CLI)",
+      "meta_task_type": "harness_self_fix",
+      "priority": "critical",
+      "dependencies": [],
+      "files_touched": [
+        "harness/config.yaml"
+      ],
+      "acceptance_criteria": [
+        "harness/config.yaml defines the gemini agent with command 'agy' and args ['-p', '--sandbox'].",
+        "harness/config.yaml includes the new 'claude_fallback' agent definition with command 'agy' and args ['-m', 'claude-opus-4.6', '-p', '--dangerously-skip-permissions', '--sandbox']."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -c \"import yaml; cfg = yaml.safe_load(open('harness/config.yaml')); assert cfg['agents']['gemini']['command'] == 'agy'; assert cfg['agents']['claude_fallback']['command'] == 'agy'\"",
+      "spec": {
+        "objective": "Modify the default configuration to route Gemini requests through the Antigravity CLI and define the Claude fallback parameters.",
+        "functional_requirements": [
+          "Edit harness/config.yaml agents section.",
+          "Change command of gemini to agy and set args to ['-p', '--sandbox'].",
+          "Add claude_fallback agent configuration pointing to agy command and selecting the claude-opus-4.6 model via the -m flag."
+        ],
+        "interfaces": "config.yaml agents definitions",
+        "edge_cases": [
+          "Ensure yaml syntax is fully valid."
+        ],
+        "non_goals": [],
+        "implementation_notes": "Update the config.yaml file directly."
+      },
+      "test_spec": {
+        "unit_tests": [],
+        "integration_tests": [],
+        "adversarial_tests": [],
+        "fixtures": []
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      }
+    },
+    {
+      "task_id": "IMPLEMENT_CLAUDE_FALLBACK",
+      "title": "Implement Claude Code rate limit fallback and write unit test suite",
+      "meta_task_type": "harness_self_fix",
+      "priority": "critical",
+      "dependencies": [
+        "REWIRE_GEMINI_TO_ANTIGRAVITY"
+      ],
+      "files_touched": [
+        "harness/orchestrator.py",
+        "tests/unit/test_claude_fallback.py"
+      ],
+      "acceptance_criteria": [
+        "harness/orchestrator.py run_both_agents detects when claude agent returns None, and falls back to running the 'claude_fallback' agent.",
+        "The fallback functions under both sequential (Antigravity Mode) and parallel thread-pool execution paths.",
+        "tests/unit/test_claude_fallback.py defines unit tests that mock the claude agent failing, and asserts that the orchestrator calls 'claude_fallback' as the replacement.",
+        "pytest runs on tests/unit/test_claude_fallback.py successfully."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "pytest tests/unit/test_claude_fallback.py",
+      "spec": {
+        "objective": "Add rate limit fallback orchestration logic to orchestrator.py and verify via a new unit test suite.",
+        "functional_requirements": [
+          "Update run_both_agents to check if the result of the first agent (when it is 'claude') is None.",
+          "If the result is None, execute run_agent_phase with 'claude_fallback' and assign its result to the first agent's returned value.",
+          "Implement the fallback check for both sequential execution and parallel future-based execution.",
+          "Create tests/unit/test_claude_fallback.py containing test_claude_fallback_triggered and test_claude_fallback_not_triggered mock tests."
+        ],
+        "interfaces": "run_both_agents, run_agent_phase",
+        "edge_cases": [
+          "Ensure mock processes simulate timeout or failure returning None correctly.",
+          "Ensure that errors during the fallback do not crash the orchestrator, and return None cleanly."
+        ],
+        "non_goals": [],
+        "implementation_notes": "Implement within harness/orchestrator.py."
+      },
+      "test_spec": {
+        "unit_tests": [
+          "tests/unit/test_claude_fallback.py"
+        ],
+        "integration_tests": [],
+        "adversarial_tests": [],
+        "fixtures": []
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      }
+    }
+  ]
+}
