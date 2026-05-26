@@ -78,3 +78,4 @@ def _ensure_workdir_skeleton(session_id: str | None=None, *, agent: str | None=N
     """Create outbox/ and ledger/ if absent; inbox stays orchestrator-owned."""
     _outbox_dir(session_id, agent=agent).mkdir(parents=True, exist_ok=True)
     _ledger_dir(session_id, agent=agent).mkdir(parents=True, exist_ok=True)
+from harness.hooks import _paths
