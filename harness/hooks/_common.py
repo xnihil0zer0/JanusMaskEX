@@ -9,22 +9,16 @@ raises.
 Diagnostics always go to stderr. stdout carries exactly one JSON object
 (the decision) so the hook runner can parse it without ambiguity.
 """
-
 from __future__ import annotations
-
 import json
 import sys
 from typing import Any
-
-ALLOW = "allow"
-DENY = "deny"
-
+ALLOW = 'allow'
+DENY = 'deny'
 DECISIONS = frozenset({ALLOW, DENY})
-
 
 class HookInputError(ValueError):
     """Raised when the stdin JSON envelope is malformed."""
-
 
 def read_input(stream=None) -> dict[str, Any]:
     """Read and parse the hook envelope from stdin (or provided stream)."""
@@ -35,28 +29,18 @@ def read_input(stream=None) -> dict[str, Any]:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise HookInputError(f"hook stdin is not valid JSON: {exc}") from exc
+        raise HookInputError(f'hook stdin is not valid JSON: {exc}') from exc
     if not isinstance(data, dict):
-        raise HookInputError(f"hook stdin must be a JSON object, got {type(data).__name__}")
+        raise HookInputError(f'hook stdin must be a JSON object, got {type(data).__name__}')
     return data
 
-
 def _normalise_decision(decision: str) -> str:
-    token = (decision or "").strip().lower()
+    token = (decision or '').strip().lower()
     if token not in DECISIONS:
-        raise ValueError(
-            f"unknown decision {decision!r}; expected one of {sorted(DECISIONS)}"
-        )
+        raise ValueError(f'unknown decision {decision!r}; expected one of {sorted(DECISIONS)}')
     return token
 
-
-def decision_payload(
-    decision: str,
-    *,
-    reason: str = "",
-    additional_context: str = "",
-    tool_input: dict | None = None,
-) -> dict[str, Any]:
+def decision_payload(decision: str, *, reason: str='', additional_context: str='', tool_input: dict | None=None) -> dict[str, Any]:
     """Build a neutral decision envelope.
 
     Event-specific hookSpecificOutput shapes are built by the `claude/` and
@@ -64,17 +48,17 @@ def decision_payload(
     wrap it.
     """
     token = _normalise_decision(decision)
-    payload: dict[str, Any] = {"decision": token}
+    payload: dict[str, Any] = {'decision': token}
     if reason:
-        payload["reason"] = reason
+        payload['reason'] = reason
     if additional_context:
-        payload["additionalContext"] = additional_context
+        payload['additionalContext'] = additional_context
     if tool_input is not None:
-        payload["tool_input"] = tool_input
+        payload['tool_input'] = tool_input
     return payload
 
-
 def write_decision(payload: dict[str, Any], stream=None) -> None:
-    stream = stream if stream is not None else sys.stdout
+    if stream is None:
+        stream = sys.stdout
     stream.write(json.dumps(payload))
     stream.flush()
