@@ -1162,6 +1162,30 @@ def _resolve_files_touched(state_dir: Path, task: dict[str, Any], task_id: str) 
         current_parent = parent_task.get('parent_task')
     return []
 
+def _resolve_verification_command(state_dir: Path, task: dict[str, Any], task_id: str) -> str | None:
+    """Return the verification_command for a task, resolving from parent task chain if needed."""
+    vcmd = task.get('verification_command')
+    if vcmd:
+        return vcmd
+    seen: set[str] = {task_id}
+    current_parent = task.get('parent_task')
+    processed_dir = state_dir / 'tasks' / 'processed'
+    while current_parent and current_parent not in seen:
+        seen.add(current_parent)
+        parent_file = processed_dir / f'{current_parent}.json'
+        if not parent_file.exists():
+            return None
+        try:
+            with open(parent_file, 'r', encoding='utf-8') as f:
+                parent_task = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return None
+        parent_vcmd = parent_task.get('verification_command')
+        if parent_vcmd:
+            return parent_vcmd
+        current_parent = parent_task.get('parent_task')
+    return None
+
 def _rollback_rejected_commit(worktree_root: Path, sha: str | None, target_rel: str, task_id: str, kind: str) -> None:
     """Undo a rejected auto-commit without destroying a peer worker's commit.
 
@@ -1351,7 +1375,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     """
     from harness import git_integration
     from harness._journal import write_jsonl_row
-    from harness.orchestrator import _resolve_files_touched, _vcmd_scrubbed_env, logger
+    from harness.orchestrator import _resolve_files_touched, _resolve_verification_command, _vcmd_scrubbed_env, logger
     import fcntl
     import shutil
     import subprocess
@@ -1419,7 +1443,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
 
     # 5. Run verification inside staging
     if result.get('committed'):
-        vcmd = task.get('verification_command')
+        vcmd = _resolve_verification_command(state_dir, task, task_id)
         if not (isinstance(vcmd, str) and vcmd.strip()):
             logger.warning('verification_missing: task=%s -- staging rolled back; tasks must carry a non-empty verification_command', task_id)
             _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'verification_missing')
