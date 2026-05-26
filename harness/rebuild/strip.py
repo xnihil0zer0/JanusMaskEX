@@ -25,7 +25,7 @@ def strip_source(source: str) -> str:
     stripify_fn = globals().get('_stripify')
     if stripify_fn is None:
 
-        def stripify_fn(node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        def stripify_fn(node):
             new_body: list[ast.stmt] = []
             doc = ast.get_docstring(node, clean=False)
             if doc is not None:
