@@ -135,6 +135,7 @@ def set_phase(state_dir: Path | None=None, *, phase: str) -> dict[str, Any]:
     return locked_read_modify_write(_modifier, state_dir)
 
 def set_agent_status(state_dir: Path | None=None, *, agent: str, status: str) -> dict[str, Any]:
+    """Updates the status of a specific agent in the state file under lock."""
     if agent not in VALID_AGENTS:
         raise InvalidAgentError(f'Invalid agent {agent!r}. Must be one of: {', '.join(sorted(VALID_AGENTS))}')
     if status not in VALID_AGENT_STATUSES:
@@ -157,3 +158,34 @@ def get_agent_status(state_dir: Path | None=None, *, agent: str) -> str:
         raise InvalidAgentError(f'Invalid agent {agent!r}. Must be one of: {', '.join(sorted(VALID_AGENTS))}')
     state = read_state(state_dir)
     return state[f'{agent}_status']
+if 'VALID_AGENTS' not in globals():
+    try:
+        from harness.state import VALID_AGENTS
+    except ImportError:
+        VALID_AGENTS = frozenset({'claude', 'gemini', 'antigravity'})
+if 'VALID_AGENT_STATUSES' not in globals():
+    try:
+        from harness.state import VALID_AGENT_STATUSES
+    except ImportError:
+        VALID_AGENT_STATUSES = frozenset({'pending', 'running', 'submitted', 'error', 'timeout'})
+if 'InvalidAgentError' not in globals():
+    try:
+        from harness.state import InvalidAgentError
+    except ImportError:
+
+        class InvalidAgentError(Exception):
+            pass
+if 'InvalidAgentStatusError' not in globals():
+    try:
+        from harness.state import InvalidAgentStatusError
+    except ImportError:
+
+        class InvalidAgentStatusError(Exception):
+            pass
+if 'locked_read_modify_write' not in globals():
+    try:
+        from harness.state import locked_read_modify_write
+    except ImportError:
+
+        def locked_read_modify_write(modifier_fn: Callable[[dict[str, Any]], dict[str, Any]], state_dir: Path | None=None) -> dict[str, Any]:
+            raise NotImplementedError('locked_read_modify_write not found')
