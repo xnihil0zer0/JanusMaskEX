@@ -1,0 +1,48 @@
+<div class="card" id="grounding-panel">
+    <h2>Grounding & Security Metrics</h2>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>Task ID</th>
+                    <th>Target Repo</th>
+                    <th>Confirmed/High</th>
+                    <th>Medium</th>
+                    <th>Low (FPs)</th>
+                    <th>Tool Layers Audited</th>
+                    <th>Est. FPR</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for m in metrics %}
+                <tr>
+                    <td>#{{ m.task_id }}</td>
+                    <td class="font-bold">{{ m.target }}</td>
+                    <td class="text-green">{{ m.by_confidence.CONFIRMED|default(0) }} / {{ m.by_confidence.HIGH|default(0) }}</td>
+                    <td class="text-blue">{{ m.by_confidence.MEDIUM|default(0) }}</td>
+                    <td class="text-yellow">{{ m.by_confidence.LOW|default(0) }}</td>
+                    <td>
+                        <div style="display: flex; gap: 0.3rem;">
+                            <span class="status-badge" style="background: rgba(0, 240, 255, 0.05); color: var(--accent-blue); font-size: 0.65rem; border: 1px solid rgba(0, 240, 255, 0.15);">Semgrep</span>
+                            <span class="status-badge" style="background: rgba(255, 183, 0, 0.05); color: var(--accent-yellow); font-size: 0.65rem; border: 1px solid rgba(255, 183, 0, 0.15);">CodeQL</span>
+                            <span class="status-badge" style="background: rgba(0, 255, 102, 0.05); color: var(--accent-green); font-size: 0.65rem; border: 1px solid rgba(0, 255, 102, 0.15);">Joern</span>
+                        </div>
+                    </td>
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="font-family: 'JetBrains Mono', monospace; font-weight: bold;">{{ "{:.1%}".format(m.estimated_fpr) }}</span>
+                            <div class="progress-bar-bg" style="width: 50px; height: 6px; margin: 0; background: rgba(255,255,255,0.02);">
+                                <div class="progress-bar-fill" style="width: {{ m.estimated_fpr * 100 }}%; background: var(--accent-red);"></div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="7" class="text-center" style="color: var(--text-secondary); padding: 1.5rem;">No grounding reports compiled yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>

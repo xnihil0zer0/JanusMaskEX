@@ -1,0 +1,14 @@
+<div class="card" id="activity-panel">
+    <h2>Live Operations Feed</h2>
+    <div class="feed-container">
+        {% for a in activity %}
+        <div class="feed-item">
+            <span class="feed-time">[{{ a.timestamp[11:19] if a.timestamp else '' }}]</span>
+            <span class="feed-worker font-bold">[{{ a.worker_type|default('system') }}]</span>
+            <span class="feed-msg">{{ a.message }}</span>
+        </div>
+        {% else %}
+        <div class="text-center p-4" style="color: var(--text-secondary); font-style: italic;">No live progress logs.</div>
+        {% endfor %}
+    </div>
+</div>

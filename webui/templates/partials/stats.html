@@ -1,0 +1,26 @@
+<div class="stats-container" id="stats-panel">
+    <div class="stat-item">
+        <span class="stat-item-label">Confirmed Revenue</span>
+        <span class="stat-item-value text-green">${{ "{:,}".format(stats.revenue) }}</span>
+    </div>
+    <div class="stat-item">
+        <span class="stat-item-label">Total Findings</span>
+        <span class="stat-item-value text-blue">{{ stats.findings }}</span>
+    </div>
+    <div class="stat-item">
+        <span class="stat-item-label">Active Workers</span>
+        <span class="stat-item-value text-cyan">{{ stats.active_workers }}</span>
+    </div>
+    <div class="stat-item">
+        <span class="stat-item-label">Success Rate</span>
+        <span class="stat-item-value text-green">{{ stats.success_rate }}</span>
+    </div>
+    <div class="stat-item">
+        <span class="stat-item-label">Total Runs</span>
+        <span class="stat-item-value text-cyan">{{ stats.run_count }}</span>
+    </div>
+    <div class="stat-item">
+        <span class="stat-item-label">Current Phase</span>
+        <span class="stat-item-value text-yellow uppercase">{{ stats.phase }}</span>
+    </div>
+</div>

@@ -1,0 +1,54 @@
+<div class="card" id="queue-panel">
+    <h2>Active Workers Queue</h2>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>Worker / Process Tree</th>
+                    <th>PID</th>
+                    <th>Model / Command</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for w in workers %}
+                <tr data-pid="{{ w.pid }}" data-worker-type="{{ w.worker_type }}" style="cursor: pointer;" title="Double-click to stream logs">
+                    <td>
+                        <span class="font-bold">#{{ w.id }} [{{ w.worker_type }}]</span>
+                    </td>
+                    <td>{{ w.pid }}</td>
+                    <td>{{ w.model or 'sonnet' }}</td>
+                    <td>
+                        <span class="status-badge status-{{ w.status|lower }}">{{ w.status }}</span>
+                    </td>
+                    <td>
+                        {% if w.status == 'running' %}
+                        <button class="btn-danger btn-kill" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;" hx-post="/action/kill/{{ w.pid }}" hx-swap="none">Kill</button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% for child in w.children %}
+                <tr>
+                    <td>
+                        <div class="process-child">{{ child.name }}</div>
+                    </td>
+                    <td>{{ child.pid }}</td>
+                    <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ child.cmdline }}">
+                        {{ child.cmdline }}
+                    </td>
+                    <td><span class="text-secondary" style="font-size: 0.75rem; text-transform: uppercase;">child</span></td>
+                    <td>
+                        <button class="btn-danger btn-kill" style="padding: 0.2rem 0.4rem; font-size: 0.7rem;" hx-post="/action/kill/{{ child.pid }}" hx-swap="none">Kill</button>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="5" class="text-center" style="color: var(--text-secondary); padding: 1.5rem;">No active workers registered.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>

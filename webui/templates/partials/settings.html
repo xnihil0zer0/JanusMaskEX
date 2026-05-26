@@ -1,0 +1,77 @@
+<div class="card" id="settings-panel">
+    <!-- Allowlist Manager -->
+    <div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+            <h3 style="font-family: 'Orbitron', sans-serif; font-size: 0.9rem; text-transform: uppercase; color: var(--accent-blue);">Auto-Promote Allowlist</h3>
+        </div>
+        <div class="table-responsive" style="max-height: 150px; overflow-y: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Slug</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for slug in allowlist %}
+                    <tr>
+                        <td class="font-bold" style="font-family: 'JetBrains Mono', monospace;">{{ slug }}</td>
+                        <td>
+                            <button class="btn-danger" style="padding: 0.2rem 0.5rem; font-size: 0.7rem;" hx-post="/action/allowlist/remove?slug={{ slug }}" hx-target="#settings-panel" hx-swap="outerHTML">Remove</button>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="2" class="text-center" style="color: var(--text-secondary); padding: 0.75rem;">No slugs allowlisted.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <form style="display: flex; gap: 0.5rem; margin-top: 0.75rem;" id="allowlistForm">
+            <input class="form-input" style="flex: 1; padding: 0.4rem 0.6rem; font-size: 0.8rem;" type="text" name="new_slug" placeholder="e.g. lib_crypto_audit" required>
+            <button class="btn-action" style="padding: 0.4rem 1rem;" type="button" hx-post="/action/allowlist/add" hx-include="#allowlistForm" hx-target="#settings-panel" hx-swap="outerHTML">Add</button>
+        </form>
+    </div>
+
+    <!-- System Configurations -->
+    <div style="border-top: 1px solid var(--border-color); padding-top: 1rem; margin-top: 0.5rem;">
+        <h3 style="font-family: 'Orbitron', sans-serif; font-size: 0.9rem; text-transform: uppercase; color: var(--accent-blue); margin-bottom: 0.75rem;">System Configurations</h3>
+        <form id="configForm" style="display: flex; flex-direction: column; gap: 0.75rem;" hx-post="/action/update_config" hx-target="#configResult">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.7rem;">Concurrency Cap</label>
+                    <input class="form-input" style="padding: 0.4rem;" type="number" name="parallel_cap" value="{{ config.parallel_cap }}" min="1" max="16" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.7rem;">Min RAM (MB)</label>
+                    <input class="form-input" style="padding: 0.4rem;" type="number" name="min_ram_mb" value="{{ config.min_ram_mb }}" min="0" required>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" style="font-size: 0.7rem;">Antigravity Mode (Sequential Orchestration)</label>
+                <select class="form-select" name="antigravity_mode" style="padding: 0.4rem;">
+                    <option value="false" {% if not config.antigravity_mode %}selected{% endif %}>Disabled (Parallel Mode)</option>
+                    <option value="true" {% if config.antigravity_mode %}selected{% endif %}>Enabled (Sequential Mode)</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" style="font-size: 0.7rem;">Cooldown Tier 1 (sec)</label>
+                <input class="form-input" style="padding: 0.4rem;" type="number" name="cooldown_tier_1" value="{{ config.cooldown_tier_1 }}" min="0" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label" style="font-size: 0.7rem;">Cooldown Tier 2 (sec)</label>
+                <input class="form-input" style="padding: 0.4rem;" type="number" name="cooldown_tier_2" value="{{ config.cooldown_tier_2 }}" min="0" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label" style="font-size: 0.7rem;">Cooldown Tier 3 (sec)</label>
+                <input class="form-input" style="padding: 0.4rem;" type="number" name="cooldown_tier_3" value="{{ config.cooldown_tier_3 }}" min="0" required>
+            </div>
+
+            <button class="btn-action" style="width: 100%; margin-top: 0.25rem;" type="submit">Save Settings</button>
+        </form>
+        <div id="configResult" style="font-size: 0.85rem; text-align: center; margin-top: 0.5rem;"></div>
+    </div>
+</div>

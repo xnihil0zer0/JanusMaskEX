@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NobleJanus Command & Control Center v3</title>
+    <!-- CSS stylesheet -->
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <!-- Vis.js for AST Dependency Graph -->
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+</head>
+<body>
+
+    <header>
+        <div>
+            <h1>NobleJanus Command & Control Center v3</h1>
+            <p style="color: var(--text-secondary); font-size: 0.95rem; margin-top: 0.25rem;">Autonomous Fuzzing & Grounded Security Audits</p>
+        </div>
+        <div class="system-status">
+            <div class="status-dot"></div>
+            System Operational
+        </div>
+    </header>
+
+    <!-- Vanilla CSS Tab Buttons -->
+    <div class="tab-buttons">
+        <button class="tab-btn active" onclick="switchTab(event, 'tab-overview')">Overview</button>
+        <button class="tab-btn" onclick="switchTab(event, 'tab-tasks')">Tasks & Briefs</button>
+        <button class="tab-btn" onclick="switchTab(event, 'tab-workers')">Workers & Agents</button>
+        <button class="tab-btn" onclick="switchTab(event, 'tab-telemetry')">Telemetry</button>
+        <button class="tab-btn" onclick="switchTab(event, 'tab-graph')">Code & AST Graph</button>
+    </div>
+
+    <!-- Tab Contents -->
+    <div class="tab-container">
+        
+        <!-- Tab 1: Overview -->
+        <div id="tab-overview" class="tab-content active">
+            <div class="dashboard-grid">
+                <div class="grid-col">
+                    <div class="card">
+                        <h2>System Health & Performance</h2>
+                        <div hx-get="/partial/stats" hx-trigger="load, every 5s" hx-swap="outerHTML">
+                            <div class="text-center p-4" style="color: var(--text-secondary);">Loading stats...</div>
+                        </div>
+                    </div>
+                    <div class="card" id="ledger-panel">
+                        <h2>Revenue & ROI Ledger</h2>
+                        <div style="background: rgba(0, 255, 102, 0.02); border: 1px dashed rgba(0, 255, 102, 0.15); border-radius: 8px; padding: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem;">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.02); padding-bottom: 0.5rem;">
+                                <span style="color: var(--text-secondary);">Estimated ROI</span>
+                                <span class="text-green font-bold" style="font-family: 'Orbitron', sans-serif;">+184.2%</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.02); padding-bottom: 0.5rem;">
+                                <span style="color: var(--text-secondary);">Total Audit Valuation</span>
+                                <span class="text-cyan font-bold" style="font-family: 'JetBrains Mono', monospace;">$125,000</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.02); padding-bottom: 0.5rem;">
+                                <span style="color: var(--text-secondary);">Est. Vulnerability Density</span>
+                                <span class="text-yellow font-bold" style="font-family: 'JetBrains Mono', monospace;">0.43/KLOC</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+                                <span style="color: var(--text-secondary);">Grounding Security Margin</span>
+                                <span class="text-green font-bold" style="font-family: 'Orbitron', sans-serif;">99.98%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="grid-col">
+                    <div hx-get="/partial/diff_viewer" hx-trigger="load, every 5s" hx-swap="outerHTML">
+                        <div class="card">
+                            <h2>Dual-Agent Live Diff-Viewer</h2>
+                            <div class="text-center p-4" style="color: var(--text-secondary);">Loading differential viewer...</div>
+                        </div>
+                    </div>
+                    <div hx-get="/partial/fuzzing_tracker" hx-trigger="load, every 5s" hx-swap="outerHTML">
+                        <div class="card">
+                            <h2>Fuzzing Mutation Tracker</h2>
+                            <div class="text-center p-4" style="color: var(--text-secondary);">Loading mutation tracker...</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="grid-col">
+                    <div hx-get="/partial/grounding" hx-trigger="load, every 5s" hx-swap="outerHTML">
+                        <div class="card">
+                            <h2>Grounding & Security Metrics</h2>
+                            <div class="text-center p-4" style="color: var(--text-secondary);">Loading grounding reports...</div>
+                        </div>
+                    </div>
+                    <div hx-get="/partial/activity" hx-trigger="load, every 5s" hx-swap="outerHTML">
+                        <div class="card">
+                            <h2>Live Operations Feed</h2>
+                            <div class="text-center p-4" style="color: var(--text-secondary);">Loading activity logs...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 2: Tasks & Briefs -->
+        <div id="tab-tasks" class="tab-content">
+            <div class="split-view">
+                <div class="grid-col">
+                    <div hx-get="/partial/planner" hx-trigger="load" hx-swap="outerHTML">
+                        <div class="card">
+                            <h2>Interactive Brief Writer</h2>
+                            <div class="text-center p-4" style="color: var(--text-secondary);">Loading brief writer...</div>
+                        </div>
+                    </div>
+                    <div hx-get="/partial/settings" hx-trigger="load" hx-swap="outerHTML">
+                        <div class="card">
+                            <h2>System Configurations & Allowlist</h2>
+                            <div class="text-center p-4" style="color: var(--text-secondary);">Loading configurations...</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="detail-panel card">
+                    <h2>Task & Brief Specifications</h2>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem;">Submit a brief or edit allowlists on the left. The dependency tree and Markdown specifications will render below.</p>
+                    <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 1.5rem; margin-top: 1rem;">
+                        <h3 style="color: var(--accent-blue); margin-bottom: 1rem;">Active Target Pipeline Diagram</h3>
+                        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: var(--accent-green); border-left: 2px solid var(--accent-blue); padding-left: 1rem;">
+                            <div>[ROOT] - bounty_target_validation</div>
+                            <div style="padding-left: 1.5rem;">├── [DEP] - diff_fuzz_synthesis (PENDING)</div>
+                            <div style="padding-left: 3rem;">├── [SUB] - ast_verification (PENDING)</div>
+                            <div style="padding-left: 3rem;">└── [SUB] - bash_safety_audit (PENDING)</div>
+                            <div style="padding-left: 1.5rem;">└── [DEP] - neurosymbolic_grounding (PENDING)</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1.5rem;">
+                        <h3 style="margin-bottom: 0.75rem;">System Task Queue Overview</h3>
+                        <div hx-get="/partial/bounty_board" hx-trigger="load, every 5s" hx-swap="outerHTML">
+                            <div class="text-center p-4" style="color: var(--text-secondary);">Loading triage priority board...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 3: Workers & Active Agents -->
+        <div id="tab-workers" class="tab-content">
+            <div class="card">
+                <h2>Active Workers Registry</h2>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: -0.5rem; margin-bottom: 0.5rem;">Double-click any active worker row below to launch real-time NDJSON stream telemetry.</p>
+                <div hx-get="/partial/queue" hx-trigger="load, every 5s" hx-swap="outerHTML">
+                    <div class="text-center p-4" style="color: var(--text-secondary);">Loading worker registry...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 4: Performance Telemetry -->
+        <div id="tab-telemetry" class="tab-content">
+            <div class="dashboard-grid">
+                <div class="card">
+                    <h2>Token Consumption</h2>
+                    <div style="display: flex; flex-direction: column; gap: 1rem; padding: 1rem;">
+                        <div>
+                            <span class="form-label">Input Tokens Spent</span>
+                            <div class="stat-item-value text-cyan" id="perf-input-tokens">--</div>
+                        </div>
+                        <div>
+                            <span class="form-label">Output Tokens Spent</span>
+                            <div class="stat-item-value text-green" id="perf-output-tokens">--</div>
+                        </div>
+                        <div>
+                            <span class="form-label">Total Cost USD</span>
+                            <div class="stat-item-value text-yellow" id="perf-total-cost">--</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h2>Response Latencies</h2>
+                    <div style="display: flex; flex-direction: column; gap: 1rem; padding: 1rem;">
+                        <div>
+                            <span class="form-label">Claude Code Avg Latency</span>
+                            <div class="stat-item-value text-blue" id="perf-claude-latency">--</div>
+                        </div>
+                        <div>
+                            <span class="form-label">Gemini CLI Avg Latency</span>
+                            <div class="stat-item-value text-cyan" id="perf-gemini-latency">--</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h2>Mutation Velocity</h2>
+                    <div style="display: flex; flex-direction: column; gap: 1rem; padding: 1rem;">
+                        <div>
+                            <span class="form-label">Total Code Mutations</span>
+                            <div class="stat-item-value text-green" id="perf-mutations">--</div>
+                        </div>
+                        <div>
+                            <span class="form-label">Lines Changed (Diff)</span>
+                            <div class="stat-item-value text-blue" id="perf-lines-changed">--</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 5: Code & AST Graph -->
+        <div id="tab-graph" class="tab-content">
+            <div class="split-view">
+                <div class="card">
+                    <h2>AST Node Inspector</h2>
+                    <div id="inspector-panel" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; height: 500px; overflow-y: auto;">
+                        <span style="color: var(--text-secondary);">Click on any module, class, or function node to inspect its signature and scope.</span>
+                    </div>
+                </div>
+                <div class="card">
+                    <h2>Interactive Dependency Trees & AST Graph</h2>
+                    <div id="graph-canvas"></div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- NDJSON Live Logs Stream Modal -->
+    <div id="log-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeLogModal()">&times;</span>
+            <h2 id="modal-title" style="margin-bottom: 1rem;">Worker Stream Telemetry Logs</h2>
+            <div id="log-area" class="log-stream-area">
+                <div class="log-line-info">Waiting for SSE payload connection...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Client-side logic scripts -->
+    <script>
+        function switchTab(evt, tabId) {
+            const contents = document.getElementsByClassName("tab-content");
+            for (let i = 0; i < contents.length; i++) {
+                contents[i].classList.remove("active");
+            }
+            const buttons = document.getElementsByClassName("tab-btn");
+            for (let i = 0; i < buttons.length; i++) {
+                buttons[i].classList.remove("active");
+            }
+            document.getElementById(tabId).classList.add("active");
+            evt.currentTarget.classList.add("active");
+            
+            // Trigger graph layout re-render when switching to graph tab
+            if (tabId === 'tab-graph' && window.loadAstGraph) {
+                setTimeout(window.loadAstGraph, 100);
+            }
+        }
+
+        // Live Log SSE Streaming Manager
+        let currentSseSource = null;
+        
+        function openLogModal(pid, workerType) {
+            document.getElementById("modal-title").innerText = `${workerType} (PID ${pid}) Real-time Stream Logs`;
+            const logArea = document.getElementById("log-area");
+            logArea.innerHTML = `<div class="log-line-info">Connecting to /api/logs/stream/${pid} ...</div>`;
+            document.getElementById("log-modal").style.display = "block";
+            
+            if (currentSseSource) {
+                currentSseSource.close();
+            }
+            
+            currentSseSource = new EventSource(`/api/logs/stream/${pid}`);
+            currentSseSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    const lineDiv = document.createElement("div");
+                    
+                    if (data.type === 'thought') {
+                        lineDiv.className = 'log-line-thought';
+                        lineDiv.innerText = `[THOUGHT] ${data.message}`;
+                    } else if (data.type === 'tool_call') {
+                        lineDiv.className = 'log-line-tool';
+                        lineDiv.innerText = `[TOOL CALL] ${data.message}`;
+                    } else if (data.type === 'output') {
+                        lineDiv.className = 'log-line-output';
+                        lineDiv.innerText = `[OUTPUT] ${data.message}`;
+                    } else if (data.type === 'error') {
+                        lineDiv.className = 'log-line-error';
+                        lineDiv.innerText = `[ERROR] ${data.message}`;
+                    } else {
+                        lineDiv.className = 'log-line-info';
+                        lineDiv.innerText = data.message;
+                    }
+                    
+                    logArea.appendChild(lineDiv);
+                    logArea.scrollTop = logArea.scrollHeight;
+                } catch (e) {
+                    const infoDiv = document.createElement("div");
+                    infoDiv.className = 'log-line-info';
+                    infoDiv.innerText = event.data;
+                    logArea.appendChild(infoDiv);
+                    logArea.scrollTop = logArea.scrollHeight;
+                }
+            };
+            
+            currentSseSource.onerror = function() {
+                const errDiv = document.createElement("div");
+                errDiv.className = 'log-line-error';
+                errDiv.innerText = "Log stream closed or encountered connection limit.";
+                logArea.appendChild(errDiv);
+                if (currentSseSource) {
+                    currentSseSource.close();
+                }
+            };
+        }
+        
+        function closeLogModal() {
+            document.getElementById("log-modal").style.display = "none";
+            if (currentSseSource) {
+                currentSseSource.close();
+                currentSseSource = null;
+            }
+        }
+
+        // Attach double-click handler to table rows in Workers registry
+        document.body.addEventListener('dblclick', function(event) {
+            const row = event.target.closest('tr');
+            if (row && row.dataset.pid) {
+                const pid = row.dataset.pid;
+                const workerType = row.dataset.workerType || 'Worker';
+                openLogModal(pid, workerType);
+            }
+        });
+
+        // Telemetry updater
+        function updateTelemetry() {
+            fetch('/api/performance')
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('perf-input-tokens').innerText = data.token_consumption.input_tokens.toLocaleString();
+                    document.getElementById('perf-output-tokens').innerText = data.token_consumption.output_tokens.toLocaleString();
+                    document.getElementById('perf-total-cost').innerText = `$${data.token_consumption.cost_usd.toFixed(2)}`;
+                    
+                    document.getElementById('perf-claude-latency').innerText = `${(data.latencies.claude_avg_ms / 1000).toFixed(2)}s`;
+                    document.getElementById('perf-gemini-latency').innerText = `${(data.latencies.gemini_avg_ms / 1000).toFixed(2)}s`;
+                    
+                    document.getElementById('perf-mutations').innerText = data.mutation_velocity.mutations_count;
+                    document.getElementById('perf-lines-changed').innerText = `+${data.mutation_velocity.lines_changed}`;
+                });
+        }
+        setInterval(updateTelemetry, 5000);
+        window.addEventListener('load', updateTelemetry);
+    </script>
+
+    <!-- Load AST Graph JS script -->
+    <script src="/static/graph.js"></script>
+
+</body>
+</html>

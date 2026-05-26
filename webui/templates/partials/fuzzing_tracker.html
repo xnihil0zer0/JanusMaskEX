@@ -1,0 +1,78 @@
+<div class="card" id="fuzzing-panel">
+    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
+        <h2>Fuzzing Mutation Tracker</h2>
+        <span style="font-family: 'Orbitron', sans-serif; font-size: 0.75rem; color: var(--accent-green); font-weight: bold; background: rgba(0, 255, 102, 0.05); padding: 0.25rem 0.5rem; border-radius: 4px;">Engine: Hypothesis</span>
+    </div>
+    
+    <div style="display: flex; flex-direction: column; gap: 1rem;">
+        <!-- Coverage stats -->
+        <div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.25rem;">
+                <span>Fuzzing Differential Coverage</span>
+                <span class="text-green">{{ fuzzing_coverage }}</span>
+            </div>
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" style="width: {{ fuzzing_coverage }}"></div>
+            </div>
+        </div>
+
+        {% if fuzz_results %}
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; background: rgba(0,0,0,0.2); border-radius: 6px; padding: 0.75rem; border: 1px solid var(--border-color);">
+            <div class="fuzz-metric-row">
+                <span>Equivalence Verdict:</span>
+                {% if fuzz_results.equivalent %}
+                <span class="text-green font-bold">EQUIVALENT</span>
+                {% else %}
+                <span class="text-red font-bold">DISCREPANCY DETECTED</span>
+                {% endif %}
+            </div>
+            <div class="fuzz-metric-row">
+                <span>Total Inputs Tested:</span>
+                <span class="font-bold" style="font-family: 'JetBrains Mono', monospace;">{{ fuzz_results.total_inputs }}</span>
+            </div>
+            <div class="fuzz-metric-row">
+                <span>Matching Runs:</span>
+                <span class="text-green font-bold" style="font-family: 'JetBrains Mono', monospace;">{{ fuzz_results.matching_inputs }}</span>
+            </div>
+            <div class="fuzz-metric-row">
+                <span>Discrepancy Failures:</span>
+                <span class="text-red font-bold" style="font-family: 'JetBrains Mono', monospace;">{{ fuzz_results.failure_count }}</span>
+            </div>
+            
+            {% if fuzz_results.skipped_reason %}
+            <div class="fuzz-metric-row">
+                <span>Skipped Reason:</span>
+                <span class="text-yellow font-bold">{{ fuzz_results.skipped_reason }}</span>
+            </div>
+            {% endif %}
+
+            {% if fuzz_results.error %}
+            <div class="fuzz-metric-row" style="flex-direction: column; align-items: flex-start; gap: 0.25rem;">
+                <span>Fuzzer Error:</span>
+                <span class="text-red" style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; word-break: break-all;">{{ fuzz_results.error }}</span>
+            </div>
+            {% endif %}
+        </div>
+
+        {% if fuzz_results.failures %}
+        <div>
+            <span class="form-label" style="font-size: 0.75rem;">Discrepancy Counterexamples:</span>
+            <div class="feed-container" style="max-height: 120px; margin-top: 0.4rem;">
+                {% for failure in fuzz_results.failures %}
+                <div class="feed-item" style="border-left: 2px solid var(--accent-red); background: rgba(255, 51, 102, 0.02);">
+                    <span class="feed-time">Counterexample Args:</span>
+                    <code style="font-size: 0.75rem; color: var(--accent-yellow); white-space: pre-wrap; word-break: break-all;">{{ failure.args }}</code>
+                    <span class="feed-msg" style="font-size: 0.75rem; margin-top: 0.2rem; color: var(--text-primary);">Reason: {{ failure.reason }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div style="color: var(--text-secondary); text-align: center; padding: 2rem; font-style: italic; font-size: 0.85rem;">
+            No active fuzzing discrepancy reports.
+        </div>
+        {% endif %}
+    </div>
+</div>

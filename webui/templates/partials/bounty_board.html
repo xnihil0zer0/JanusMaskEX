@@ -1,0 +1,48 @@
+<div class="card" id="bounty-panel">
+    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
+        <h2>Bounty Target Board</h2>
+        <span style="font-family: 'Orbitron', sans-serif; font-size: 0.75rem; color: var(--accent-blue); font-weight: bold; background: rgba(0, 240, 255, 0.05); padding: 0.25rem 0.5rem; border-radius: 4px;">Triage Priority</span>
+    </div>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>Repository</th>
+                    <th>Eligible</th>
+                    <th>Tier</th>
+                    <th>Max Payout</th>
+                    <th>Advisories</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in repos %}
+                <tr>
+                    <td class="font-bold" style="color: var(--accent-blue);">{{ r.repo }}</td>
+                    <td>
+                        {% if r.eligible %}
+                        <span class="text-green font-bold">YES</span>
+                        {% else %}
+                        <span class="text-red font-bold">NO</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-cyan font-bold" style="font-family: 'Orbitron', sans-serif; font-size: 0.8rem;">{{ r.tier }}</td>
+                    <td class="text-green font-bold" style="font-family: 'JetBrains Mono', monospace;">${{ "{:,}".format(r.max_paid) }}</td>
+                    <td style="font-family: 'JetBrains Mono', monospace;">{{ r.advisories }}</td>
+                    <td>
+                        {% if r.status != 'idle' %}
+                        <span class="status-badge status-running">{{ r.status }}</span>
+                        {% else %}
+                        <span class="status-badge" style="background: rgba(255,255,255,0.03); color: var(--text-secondary); border: 1px solid rgba(255,255,255,0.05);">Idle</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="text-center" style="color: var(--text-secondary); padding: 1.5rem;">No repository bounty datasets.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
