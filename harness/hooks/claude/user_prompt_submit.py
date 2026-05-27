@@ -10,7 +10,10 @@ Fires on every user prompt arriving in Claude. Responsibilities
   1. On the first prompt of a session (no ``task_read`` ledger row
      yet), read the mode-appropriate inbox file and inject its JSON
      body verbatim into ``additionalContext``. Append a ``task_read``
-     marker so follow-up prompts don't re-inject.
+     marker so follow-up prompts don't re-inject. When the task body
+     advertises ``files_touched``, also look up recent self-healing
+     history records that overlap and append a formatted section so
+     the worker can avoid repeating a known failing trajectory.
   2. If STATE.json.phase == ``cross_examination`` and inbox/
      feedback.json is present and has not been injected yet, inject it
      and record ``feedback_read``.
@@ -180,6 +183,37 @@ def main(stdin: TextIO | None = None, stdout: TextIO | None = None) -> int:
                 phase=phase,
                 detail={"mode": mode, "label": label, "path": str(path)},
             )
+
+            inbox_task = _paths.load_inbox_task(_env.inbox_dir(session_id))
+            files_touched_raw = (
+                inbox_task.get("files_touched") if isinstance(inbox_task, dict) else None
+            )
+            if isinstance(files_touched_raw, list):
+                files_touched = [str(f) for f in files_touched_raw if f is not None]
+            elif isinstance(files_touched_raw, str):
+                files_touched = [files_touched_raw]
+            else:
+                files_touched = []
+
+            if files_touched:
+                state_root = _paths.state_dir()
+                history_path = (
+                    state_root / "control" / "autowork" / "self_healing_history.jsonl"
+                )
+                alt_history_path = (
+                    state_root
+                    / "state"
+                    / "control"
+                    / "autowork"
+                    / "self_healing_history.jsonl"
+                )
+                if history_path.is_file() or alt_history_path.is_file():
+                    records = _paths.load_self_healing_history(state_root)
+                    matches = _paths.matching_history_records(records, files_touched)
+                    if matches:
+                        history_section = _paths.format_self_healing_section(matches)
+                        if history_section:
+                            sections.append(history_section.rstrip("\n"))
 
     # (2) Feedback injection — cross_examination only, once per session.
     if phase == "cross_examination" and not _ledger.has_verb(
