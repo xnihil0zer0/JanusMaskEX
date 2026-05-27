@@ -175,6 +175,21 @@ def collect_dispatchable_tasks(status_records: list[dict], running_task_ids: set
     if not tasks_dir.exists() or not tasks_dir.is_dir():
         return []
     accepted_ids = _accepted_task_ids(status_records)
+    ledger_path = base / 'impl_progress.jsonl'
+    if ledger_path.exists():
+        try:
+            with open(ledger_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    try:
+                        row = json.loads(line)
+                        if isinstance(row, dict) and row.get('phase') == 'accepted' and row.get('event') == 'auto_commit':
+                            tid = row.get('task_id')
+                            if tid:
+                                accepted_ids.add(tid)
+                    except Exception:
+                        pass
+        except OSError:
+            pass
     running_ids = set(running_task_ids or set())
     all_tasks: list[dict] = []
     for p in sorted(tasks_dir.iterdir()):
