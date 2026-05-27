@@ -241,7 +241,7 @@ def _is_fuzzable_annotation(node: ast.expr | None) -> bool:
     if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
         base = node.value.id
         if base == 'ast':
-            return node.attr != 'AST'
+            return True
         if base == 'pathlib' and node.attr == 'Path':
             return True
         return False

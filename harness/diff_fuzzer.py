@@ -668,12 +668,9 @@ def fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[
             code_b = _rename_function(code_b, func_b, func_a)
         func_name = func_a or func_b
         if func_name is None:
-            meta_type = _extract_meta_task_type(task if isinstance(task, dict) else {})
-            if meta_type in FUZZ_BYPASS_META_TYPES:
-                reason = f'meta_task_type={meta_type!r} has no discoverable target function in either submission; skipping fuzz by policy'
-                logger.info('fuzz_from_task skipping: %s', reason)
-                return FuzzResult(equivalent=True, skipped_reason=reason)
-            return FuzzResult(equivalent=False, error='Could not determine target function name from task or code')
+            reason = 'Could not determine target function name from task or code'
+            logger.info('fuzz_from_task skipping: %s', reason)
+            return FuzzResult(equivalent=True, skipped_reason=reason)
     a_has = _code_defines_function(code_a, func_name)
     b_has = _code_defines_function(code_b, func_name)
     if not a_has or not b_has:

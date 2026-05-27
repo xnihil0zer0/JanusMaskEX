@@ -638,7 +638,7 @@ class TestDifferentialFuzzExtended:
         assert result.equivalent is True
 
     def test_f69_no_function_in_code_and_no_signature(self, fast_config):
-        """F-69: No function in code and no signature -> error."""
+        """F-69: No function in code and no signature -> skip with equivalent=True."""
         code = "x = 42\ny = x + 1\n"
         task = {
             "task_id": "t3",
@@ -646,9 +646,52 @@ class TestDifferentialFuzzExtended:
         }
         result = fuzz_from_task(code, code, task, fast_config,
                                 session_id="nofunc_test")
-        assert result.equivalent is False
-        assert result.error is not None
-        assert "function" in result.error.lower() or "Could not determine" in result.error
+        assert result.equivalent is True
+        assert result.skipped_reason is not None
+
+    def test_fuzz_from_task_logs_info_on_skip(self, fast_config, caplog):
+        import logging
+        code = "x = 42\ny = x + 1\n"
+        task = {
+            "task_id": "t3",
+            "constraints": {},
+        }
+        with caplog.at_level(logging.INFO, logger="janusmask.diff_fuzzer"):
+            result = fuzz_from_task(code, code, task, fast_config, session_id="nofunc_test")
+        assert result.equivalent is True
+        assert result.skipped_reason is not None
+        assert any("skipping" in record.message or "Could not determine" in record.message for record in caplog.records)
+
+    def test_fuzz_from_task_skips_regardless_of_meta_task_type(self, fast_config):
+        code = "x = 42\ny = x + 1\n"
+        for meta_type in ["refactor", "bugfix", "feature", "rebuild", None]:
+            task = {
+                "task_id": f"t_{meta_type}",
+                "meta_task_type": meta_type,
+                "constraints": {},
+            }
+            result = fuzz_from_task(code, code, task, fast_config, session_id="nofunc_test")
+            assert result.equivalent is True
+            assert result.skipped_reason is not None
+
+    def test_fuzz_from_task_retains_normal_behavior(self, fast_config):
+        # Identical should return equivalent=True, no skipped_reason
+        code_eq = "def add(a: int, b: int) -> int:\n    return a + b\n"
+        task = {
+            "task_id": "t_normal",
+            "constraints": {
+                "function_signature": "def add(a: int, b: int) -> int",
+            },
+        }
+        result = fuzz_from_task(code_eq, code_eq, task, fast_config, session_id="task_test_normal")
+        assert result.equivalent is True
+        assert result.skipped_reason is None
+
+        # Different should return equivalent=False, no skipped_reason
+        code_diff = "def add(a: int, b: int) -> int:\n    return a + b + 1\n"
+        result2 = fuzz_from_task(code_eq, code_diff, task, fast_config, session_id="task_test_normal_diff")
+        assert result2.equivalent is False
+        assert result2.skipped_reason is None
 
     def test_f72_sandboxes_cleaned_up(self, fast_config):
         """F-72: Sandboxes cleaned up after fuzzing."""

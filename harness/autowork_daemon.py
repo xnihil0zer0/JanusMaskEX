@@ -466,6 +466,231 @@ def _reclaim_orphan_processing(state_dir: pathlib.Path, live_ids: set[str]) -> i
         reclaimed += 1
     return reclaimed
 
+def _get_errors_for_task(state_dir: pathlib.Path, task_id: str) -> str:
+    import json
+    import pathlib
+    errors = []
+    
+    logs_dir = state_dir.parent / 'logs'
+    fuzz_dir = logs_dir / 'fuzz_results'
+    if fuzz_dir.exists() and fuzz_dir.is_dir():
+        try:
+            for p in fuzz_dir.glob(f"*{task_id}*.json"):
+                try:
+                    fuzz_data = json.loads(p.read_text(encoding='utf-8'))
+                    if isinstance(fuzz_data, dict):
+                        failures = fuzz_data.get('failures', [])
+                        if failures:
+                            errors.append(f"Fuzzing failures from {p.name}:\n" + json.dumps(failures[:5], indent=2))
+                        elif fuzz_data.get('error'):
+                            errors.append(f"Fuzzing error from {p.name}: {fuzz_data['error']}")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+            
+    ledger = state_dir / 'impl_progress.jsonl'
+    if ledger.exists():
+        try:
+            with open(ledger, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if task_id in line:
+                        try:
+                            row = json.loads(line)
+                            if not isinstance(row, dict):
+                                continue
+                            if row.get('stderr_tail'):
+                                errors.append(f"stderr tail:\n{row['stderr_tail']}")
+                            elif row.get('detail') and ('error' in line or 'fail' in line):
+                                errors.append(f"Detail: {row['detail']}")
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+            
+    workdirs_dir = state_dir / 'workdirs'
+    if workdirs_dir.exists():
+        try:
+            for agent in ['claude', 'gemini', 'antigravity']:
+                agent_dir = workdirs_dir / agent
+                if agent_dir.exists():
+                    for p in agent_dir.glob(f"*-{task_id}-*/outbox/error.md"):
+                        try:
+                            errors.append(f"Agent error report ({p.parent.parent.name}):\n{p.read_text(encoding='utf-8')}")
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+    if errors:
+        return "\n\n".join(errors)
+    return "No traceback or fuzz error logs found."
+
+def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: str) -> None:
+    import json
+    import os
+    import pathlib
+    import subprocess
+    import sys
+    import time
+    import uuid
+
+    state_dir = pathlib.Path(state_dir)
+    
+    task_json_path = state_dir / 'tasks' / 'blocked' / f'{task_id}.json'
+    files_touched = []
+    objective = ''
+    if task_json_path.exists():
+        try:
+            with open(task_json_path, 'r', encoding='utf-8') as f:
+                task_data = json.load(f)
+                if isinstance(task_data, dict):
+                    files_touched = task_data.get('files_touched', [])
+                    objective = task_data.get('objective', '')
+        except Exception:
+            pass
+
+    config_path = pathlib.Path('harness/config.yaml')
+    if not config_path.is_file():
+        config_path = state_dir.parent / 'harness' / 'config.yaml'
+        
+    config = {}
+    if yaml is not None and config_path.is_file():
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+        except Exception:
+            pass
+            
+    if not isinstance(config, dict):
+        config = {}
+
+    control = config.get('control', {})
+    agent = control.get('autobrief_default_agent', 'claude') if isinstance(control, dict) else 'claude'
+    if not agent:
+        agent = 'claude'
+
+    history_dir = state_dir / 'control' / 'autowork'
+    history_dir.mkdir(parents=True, exist_ok=True)
+    history_path = history_dir / 'self_healing_history.jsonl'
+    
+    record = {
+        'ts': time.time(),
+        'task_id': task_id,
+        'files_touched': files_touched,
+        'outcome': last_outcome,
+        'spec_objective': objective
+    }
+    
+    line = json.dumps(record, sort_keys=True) + '\n'
+    try:
+        import fcntl
+        with open(history_path, 'a', encoding='utf-8') as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                f.write(line)
+                f.flush()
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+    except Exception:
+        try:
+            with open(history_path, 'a', encoding='utf-8') as f:
+                f.write(line)
+        except Exception:
+            pass
+
+    agents = config.get('agents', {})
+    agent_cfg = agents.get(agent, {}) if isinstance(agents, dict) else {}
+    if not agent_cfg:
+        if agent == 'gemini':
+            agent_cfg = {'command': 'agy', 'args': ['-p', '--sandbox']}
+        else:
+            agent_cfg = {
+                'command': 'claude',
+                'args': [
+                    '-p', '--model', 'opus', '--output-format', 'stream-json',
+                    '--include-partial-messages', '--settings', '${CONFIG_DIR}/claude_worker.json',
+                    '--mcp-config', '${CONFIG_DIR}/claude_mcp.json', '--strict-mcp-config',
+                    '--setting-sources', ''
+                ]
+            }
+
+    command_tmpl = agent_cfg.get('command', 'claude')
+    args_tmpl = agent_cfg.get('args', [])
+
+    from harness.paths import PROJECT_ROOT_STR, CONFIG_DIR_STR, HARNESS_DIR_STR
+    def subst(s: str) -> str:
+        if not isinstance(s, str):
+            return s
+        s = s.replace('${PROJECT_ROOT}', PROJECT_ROOT_STR)
+        s = s.replace('${STATE_DIR}', str(state_dir))
+        s = s.replace('${CONFIG_DIR}', CONFIG_DIR_STR)
+        s = s.replace('${HARNESS_DIR}', HARNESS_DIR_STR)
+        return s
+
+    command = subst(command_tmpl)
+    args = [subst(arg) for arg in args_tmpl]
+
+    rewire = {
+        str(pathlib.Path(CONFIG_DIR_STR) / 'claude_worker.json'): str(pathlib.Path(CONFIG_DIR_STR) / 'claude_worker_planning_hooks.json'),
+        str(pathlib.Path(CONFIG_DIR_STR) / 'gemini_worker_policy.toml'): str(pathlib.Path(CONFIG_DIR_STR) / 'gemini_worker_policy_planning.toml')
+    }
+    args = [rewire.get(a, a) for a in args]
+
+    if agent == 'claude' and '--permission-mode' not in args:
+        args = args + ['--permission-mode', 'acceptEdits']
+
+    errors_str = _get_errors_for_task(state_dir, task_id)
+    
+    prompt = (
+        f"The task '{task_id}' has exhausted its retry budget. You need to investigate and perform self-healing.\n"
+        f"Objective: {objective}\n"
+        f"Files touched: {files_touched}\n\n"
+        f"--- Traceback/Fuzz Error Logs ---\n"
+        f"{errors_str}\n\n"
+        f"Instructions:\n"
+        f"1. Draft a new brief hooks file at `brief_hooks_{task_id}_fix.md` outlining the problem and proposed plan.\n"
+        f"2. Append `{task_id}_fix` as a new line to the allowlist file at `state/control/autowork/auto_promote.allowlist` so it can be promoted."
+    )
+
+    env = dict(os.environ)
+    env['JANUSMASK_MODE'] = 'planning'
+    env['JANUSMASK_TASK_ID'] = task_id
+    env['JANUSMASK_STATE_DIR'] = str(state_dir)
+    
+    session_slug = f"{agent}-r1-{task_id}-{uuid.uuid4().hex[:8]}"
+    work_dir = state_dir / 'workdirs' / agent / session_slug
+    env['JANUSMASK_WORK_DIR'] = str(work_dir)
+    
+    outbox_path = work_dir / 'outbox'
+    outbox_path.mkdir(parents=True, exist_ok=True)
+    
+    inbox_dir = work_dir / 'inbox'
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    brief_data = {
+        'task_id': task_id,
+        'objective': objective,
+        'files_touched': files_touched
+    }
+    try:
+        with open(inbox_dir / 'brief.json', 'w', encoding='utf-8') as f:
+            json.dump(brief_data, f)
+    except OSError:
+        pass
+
+    resolved_prompt = prompt.replace('{STATE_DIR}', str(state_dir)).replace('{OUTBOX_PATH}', str(outbox_path))
+    
+    try:
+        p_index = args.index('-p')
+        cmd = [command] + args[:p_index + 1] + [resolved_prompt] + args[p_index + 1:]
+    except ValueError:
+        cmd = [command] + args + ['-p', resolved_prompt]
+
+    try:
+        subprocess.Popen(cmd, env=env)
+    except Exception as exc:
+        _emit_telemetry(state_dir, task_id, 'spawn_failed', repr(exc))
+
 def _retry_blocked_tasks(state_dir: pathlib.Path, summary: dict, max_attempts: int=3) -> int:
     """Re-stage blocked task JSONs back to tasks/ under a retry budget + backoff.
 
@@ -517,6 +742,10 @@ def _retry_blocked_tasks(state_dir: pathlib.Path, summary: dict, max_attempts: i
                 except OSError:
                     pass
                 _emit_telemetry(state_dir, tid, 'retry_exhausted', f'blocked retry budget {effective_max} exhausted (outcome={last_outcome or "unknown"})')
+                try:
+                    _escalate_to_autobrief(state_dir, tid, last_outcome)
+                except Exception as exc:
+                    _emit_telemetry(state_dir, tid, 'escalation_failed', repr(exc))
             continue
         if attempts <= 1:
             threshold = 300.0
