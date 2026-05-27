@@ -1,6 +1,6 @@
 """User-prompt context-injection hook for the Gemini worker (P3 / HOOK-31).
 
-Gemini CLI doesn't ship a dedicated UserPromptSubmit hook — its event
+Gemini CLI doesn't ship a dedicated UserPromptSubmit hook -- its event
 list (``gemini_chunk.js`` line 314832) goes BeforeTool / AfterTool /
 BeforeModel / AfterModel / SessionStart / SessionEnd / PreCompress /
 Notification. The functional equivalent of Claude's UserPromptSubmit
@@ -14,6 +14,9 @@ Responsibilities (mirror ``harness.hooks.claude.user_prompt_submit``):
      per-session ledger), read the mode-appropriate inbox file and
      inject its JSON body into ``systemMessage``. Append a
      ``task_read`` marker so follow-up prompts don't re-inject.
+     When ``files_touched`` is present on the task, look up recent
+     self-healing history records that overlap and append a formatted
+     section so the worker sees prior incidents for the same files.
   2. If ``STATE.json.phase == "cross_examination"`` and an inbox/
      ``feedback.json`` is present, inject it once and record
      ``feedback_read``.
@@ -21,7 +24,7 @@ Responsibilities (mirror ``harness.hooks.claude.user_prompt_submit``):
      remaining budget) so identity anchors survive any compaction.
 
 The ledger verbs (``task_read``, ``feedback_read``) are *shared* with
-HOOK-21 — idempotency is the same contract on both sides, which keeps
+HOOK-21 -- idempotency is the same contract on both sides, which keeps
 the Phase 5 shadow-diff equivalence checker honest.
 """
 
@@ -133,7 +136,7 @@ def main(stdin: TextIO | None = None, stdout: TextIO | None = None) -> int:
     stdout = stdout if stdout is not None else sys.stdout
     try:
         payload = _common.read_input(stdin)
-    except _common.HookInputError as exc:
+    except (ValueError, _common.HookInputError) as exc:
         sys.stderr.write(
             f"BeforeModel(gemini): malformed stdin: {exc}\n"
         )
@@ -171,6 +174,37 @@ def main(stdin: TextIO | None = None, stdout: TextIO | None = None) -> int:
                 phase=phase,
                 detail={"mode": mode, "label": label, "path": str(path)},
             )
+
+            inbox_task = _paths.load_inbox_task(_env.inbox_dir(session_id))
+            files_touched_raw = (
+                inbox_task.get("files_touched") if isinstance(inbox_task, dict) else None
+            )
+            if isinstance(files_touched_raw, list):
+                files_touched = [str(f) for f in files_touched_raw if f is not None]
+            elif isinstance(files_touched_raw, str):
+                files_touched = [files_touched_raw]
+            else:
+                files_touched = []
+
+            if files_touched:
+                state_root = _paths.state_dir()
+                history_path = (
+                    state_root / "control" / "autowork" / "self_healing_history.jsonl"
+                )
+                alt_history_path = (
+                    state_root
+                    / "state"
+                    / "control"
+                    / "autowork"
+                    / "self_healing_history.jsonl"
+                )
+                if history_path.is_file() or alt_history_path.is_file():
+                    records = _paths.load_self_healing_history(state_root)
+                    matches = _paths.matching_history_records(records, files_touched)
+                    if matches:
+                        history_section = _paths.format_self_healing_section(matches)
+                        if history_section:
+                            sections.append(history_section.rstrip("\n"))
 
     if phase == "cross_examination" and not _ledger.has_verb(
         events, "feedback_read", outcome="allow"
