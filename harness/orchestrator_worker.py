@@ -271,9 +271,10 @@ def main() -> int:
                         _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'narrow_fuzz_failed'})
                         exit_code = 1
                         return exit_code
+                _detect_and_append_untracked_tests(state_dir, task, task_id, processing)
                 orch._save_final_output(state_dir, task_id, agent_a_code)
                 auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
-                no_diff = (not auto_commit_ok) and _consume_no_diff_marker(state_dir, task_id)
+                no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
                 if auto_commit_ok or no_diff:
                     orch._mark_processed(state_dir, task_id)
                 else:
@@ -308,9 +309,10 @@ def main() -> int:
                 exit_code = 1
                 return exit_code
             if fuzz_result.equivalent:
+                _detect_and_append_untracked_tests(state_dir, task, task_id, processing)
                 orch._save_final_output(state_dir, task_id, agent_a_code)
                 auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
-                no_diff = (not auto_commit_ok) and _consume_no_diff_marker(state_dir, task_id)
+                no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
                 if auto_commit_ok or no_diff:
                     orch._mark_processed(state_dir, task_id)
                 else:
@@ -337,16 +339,14 @@ def main() -> int:
                 max_rounds = int(xexam_cfg.get('max_rounds', 1))
             except (TypeError, ValueError):
                 max_rounds = 1
-
             revised_agent_a = agent_a_code
             revised_agent_b = agent_b_code
             latest_failures = list(fuzz_result.failures)
             accumulated_failures = list(fuzz_result.failures)
-
             if max_rounds >= 1:
                 task_spec = task.get('specification') or task.get('description') or ''
                 for r in range(1, max_rounds + 1):
-                    round_str = f'round{r+1}'
+                    round_str = f'round{r + 1}'
                     set_phase(state_dir, phase='cross_examination')
                     orch._emit_lifecycle(state_dir, event='phase_transition', phase='cross_examination', task_id=task_id, phase_transition={'to': 'cross_examination'})
                     claude_packet, gemini_packet = prepare_exam_packets(revised_agent_a, revised_agent_b, task_spec, accumulated_failures)
@@ -357,24 +357,25 @@ def main() -> int:
                     revised_agent_b = r_agent_b or revised_agent_b
                     set_phase(state_dir, phase='fuzzing')
                     orch._emit_lifecycle(state_dir, event='phase_transition', phase='fuzzing', task_id=task_id, phase_transition={'to': 'fuzzing'})
-                    fuzz_result_n = fuzz_from_task(revised_agent_a, revised_agent_b, task, config, session_id=f'{task_id}_r{r+1}')
+                    fuzz_result_n = fuzz_from_task(revised_agent_a, revised_agent_b, task, config, session_id=f'{task_id}_r{r + 1}')
                     orch._persist_fuzz_results(state_dir, task_id, round_str, fuzz_result_n)
                     if fuzz_result_n.error:
                         set_phase(state_dir, phase='rejected')
                         orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                        orch._mark_blocked(state_dir, task_id, f'fuzz_error_r{r+1}')
+                        orch._mark_blocked(state_dir, task_id, f'fuzz_error_r{r + 1}')
                         orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                        _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': f'fuzz_error_r{r+1}'})
+                        _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': f'fuzz_error_r{r + 1}'})
                         exit_code = 1
                         return exit_code
                     if fuzz_result_n.equivalent:
+                        _detect_and_append_untracked_tests(state_dir, task, task_id, processing)
                         orch._save_final_output(state_dir, task_id, revised_agent_a)
                         auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
-                        no_diff = (not auto_commit_ok) and _consume_no_diff_marker(state_dir, task_id)
+                        no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
                         if auto_commit_ok or no_diff:
                             orch._mark_processed(state_dir, task_id)
                         else:
-                            orch._mark_blocked(state_dir, task_id, f'auto_commit_failed_r{r+1}')
+                            orch._mark_blocked(state_dir, task_id, f'auto_commit_failed_r{r + 1}')
                         orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
                         if auto_commit_ok:
                             set_phase(state_dir, phase='accepted')
@@ -389,7 +390,7 @@ def main() -> int:
                         else:
                             set_phase(state_dir, phase='rejected')
                             orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                            _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': f'auto_commit_failed_r{r+1}'})
+                            _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': f'auto_commit_failed_r{r + 1}'})
                             exit_code = 1
                         return exit_code
                     accumulated_failures.extend(fuzz_result_n.failures)
@@ -439,5 +440,31 @@ def main() -> int:
 from harness.task_paths import current_task_spec_path
 import contextlib
 import io
+
+def _detect_and_append_untracked_tests(state_dir: Path, task: dict[str, Any], task_id: str, processing: Path) -> None:
+    """Scan for untracked test files under tests/ in the parent repo and append them to files_touched."""
+    import subprocess
+    import fnmatch
+    try:
+        cwd = str(state_dir) if state_dir.exists() else _PROJECT_ROOT
+        output = subprocess.run(['git', 'rev-parse', '--show-toplevel'], cwd=cwd, capture_output=True, text=True, check=True)
+        parent_root = Path(output.stdout.strip()).resolve()
+        res = subprocess.run(['git', 'status', '--porcelain', 'tests/'], cwd=str(parent_root), capture_output=True, text=True, check=True)
+        lines = res.stdout.splitlines()
+        added = False
+        files_touched = task.setdefault('files_touched', [])
+        for line in lines:
+            line = line.strip()
+            if line.startswith('?? '):
+                filepath = line[3:].strip().strip('"\'')
+                if fnmatch.fnmatch(filepath, 'tests/test_*.py'):
+                    if filepath not in files_touched:
+                        files_touched.append(filepath)
+                        added = True
+        if added:
+            with open(processing, 'w', encoding='utf-8') as fh:
+                json.dump(task, fh, indent=2)
+    except Exception:
+        pass
 if __name__ == '__main__':
     sys.exit(main())

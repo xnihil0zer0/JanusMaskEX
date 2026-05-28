@@ -200,12 +200,12 @@ def _ast_merge(output_code: str, target_code: str) -> str:
             for special in (a.vararg, a.kwarg):
                 if special is not None and special.annotation is not None:
                     roots.append(special.annotation)
-            roots.extend(d for d in a.defaults if d is not None)
-            roots.extend(d for d in a.kw_defaults if d is not None)
+            roots.extend((d for d in a.defaults if d is not None))
+            roots.extend((d for d in a.kw_defaults if d is not None))
         elif isinstance(node, ast.ClassDef):
             roots.extend(node.decorator_list)
             roots.extend(node.bases)
-            roots.extend(kw.value for kw in node.keywords)
+            roots.extend((kw.value for kw in node.keywords))
         return roots
 
     def _bound_names(node):
@@ -274,7 +274,6 @@ def _ast_merge(output_code: str, target_code: str) -> str:
         for node in target_class.body:
             if isinstance(node, (ast.Assign, ast.AnnAssign)):
                 base_assigned_names.update(_bound_names(node))
-
         agent_keyed = {}
         agent_no_key = []
         for i, node in enumerate(agent_class.body):
@@ -282,7 +281,6 @@ def _ast_merge(output_code: str, target_code: str) -> str:
                 overlay_names = set(_bound_names(node))
                 if overlay_names & base_assigned_names:
                     continue
-
             key = _node_key(node)
             if key is not None:
                 agent_keyed[key] = node
@@ -334,11 +332,40 @@ def _ast_merge(output_code: str, target_code: str) -> str:
         if unmatched:
             logging.getLogger(__name__).warning('JANUSMASK_DELETE directive: unmatched names %s', sorted(unmatched))
     tgt_tree.body = _expand_imports(tgt_tree.body)
+    seen_tgt_futures = set()
+    new_tgt_body = []
+    for node in tgt_tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module == '__future__':
+            names = [alias.name for alias in node.names]
+            if all((name in seen_tgt_futures for name in names)):
+                continue
+            seen_tgt_futures.update(names)
+        new_tgt_body.append(node)
+    tgt_tree.body = new_tgt_body
+    out_futures = []
+    new_out_body = []
+    for node in out_tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module == '__future__':
+            out_futures.append(node)
+        else:
+            new_out_body.append(node)
+    out_tree.body = new_out_body
+    new_futures_to_insert = []
+    for node in out_futures:
+        names = [alias.name for alias in node.names]
+        if any((name not in seen_tgt_futures for name in names)):
+            new_futures_to_insert.append(node)
+            seen_tgt_futures.update(names)
+    insert_idx = 0
+    if tgt_tree.body and _is_bare_string_expr(tgt_tree.body[0]):
+        insert_idx = 1
+    for node in new_futures_to_insert:
+        tgt_tree.body.insert(insert_idx, node)
+        insert_idx += 1
     base_assigned_names = set()
     for node in tgt_tree.body:
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
             base_assigned_names.update(_bound_names(node))
-
     out_nodes = {}
     out_no_key = []
     for i, node in enumerate(out_tree.body):
@@ -346,7 +373,6 @@ def _ast_merge(output_code: str, target_code: str) -> str:
             overlay_names = set(_bound_names(node))
             if overlay_names & base_assigned_names:
                 continue
-
         key = _node_key(node)
         if key is not None:
             out_nodes[key] = node
@@ -424,7 +450,7 @@ def _ast_merge(output_code: str, target_code: str) -> str:
                 refs = {sub.id for root in _def_time_scan_roots(node) for sub in ast.walk(root) if isinstance(sub, ast.Name)}
                 for nm in refs:
                     binder = agent_binders.get(nm)
-                    if binder is not None and binder is not node and id(binder) in agent_block_ids:
+                    if binder is not None and binder is not node and (id(binder) in agent_block_ids):
                         j = tgt_tree.body.index(binder)
                         if j > i:
                             tgt_tree.body.pop(j)
@@ -458,7 +484,7 @@ def _run_streamed_command(cmd: list[str], cwd: str, timeout: int, check: bool=Fa
             raise subprocess.CalledProcessError(retcode, cmd, output=stdout_str)
         return subprocess.CompletedProcess(cmd, retcode, stdout=stdout_str, stderr='')
 
-def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Path, worktree_root: pathlib.Path | None = None) -> dict:
+def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Path, worktree_root: pathlib.Path | None=None) -> dict:
     """Copy validated output to target, then commit it scoped to target_file.
 
     Args:
@@ -493,17 +519,55 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
             worktree_root = pathlib.Path(output.stdout.strip())
         else:
             worktree_root = pathlib.Path(worktree_root)
-
+        parent_output = _run_streamed_command(['git', 'rev-parse', '--show-toplevel'], cwd=str(state_dir), timeout=30, check=True)
+        parent_root = pathlib.Path(parent_output.stdout.strip()).resolve()
+        try:
+            untracked_output = _run_streamed_command(['git', 'status', '--porcelain', 'tests/'], cwd=str(parent_root), timeout=30, check=True)
+            untracked_files = []
+            import fnmatch
+            for line in untracked_output.stdout.splitlines():
+                line = line.strip()
+                if line.startswith('?? '):
+                    filepath = line[3:].strip().strip('"\'')
+                    if fnmatch.fnmatch(filepath, 'tests/test_*.py'):
+                        untracked_files.append(filepath)
+            if untracked_files:
+                import json
+                sidecar_path = state_dir / 'output' / f'{task_id}.files.json'
+                manifest = {}
+                if sidecar_path.exists():
+                    try:
+                        manifest = json.loads(sidecar_path.read_text(encoding='utf-8'))
+                    except Exception:
+                        manifest = {}
+                else:
+                    target_path = pathlib.Path(target_file).resolve()
+                    try:
+                        rel_target = target_path.relative_to(parent_root)
+                    except ValueError:
+                        try:
+                            rel_target = target_path.relative_to(worktree_root)
+                        except ValueError:
+                            rel_target = pathlib.Path(target_file)
+                    output_file = state_dir / 'output' / f'{task_id}.py'
+                    if output_file.exists():
+                        manifest[str(rel_target)] = output_file.read_text(encoding='utf-8')
+                for filepath in untracked_files:
+                    file_in_parent = parent_root / filepath
+                    if file_in_parent.exists():
+                        manifest[filepath] = file_in_parent.read_text(encoding='utf-8')
+                sidecar_path.parent.mkdir(parents=True, exist_ok=True)
+                sidecar_path.write_text(json.dumps(manifest, indent=2), encoding='utf-8')
+        except Exception as e:
+            logging.getLogger(__name__).warning('Failed to auto-detect and commit untracked test files: %s', e)
         sidecar_path = state_dir / 'output' / f'{task_id}.files.json'
         if sidecar_path.exists():
             return _commit_accepted_output_multi(task_id, sidecar_path, state_dir, worktree_root, result)
         patches_sidecar = state_dir / 'output' / f'{task_id}.patches.json'
         if patches_sidecar.exists():
             return _commit_accepted_output_patches(task_id, patches_sidecar, state_dir, worktree_root, result)
-
         target_path = pathlib.Path(target_file).resolve()
         if worktree_root is not None:
-            # Re-root target_path from parent root to worktree_root if it was absolute to the parent
             parent_output = _run_streamed_command(['git', 'rev-parse', '--show-toplevel'], cwd=str(state_dir), timeout=30, check=True)
             parent_root = pathlib.Path(parent_output.stdout.strip()).resolve()
             try:
@@ -511,7 +575,6 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
                 target_path = (worktree_root / rel).resolve()
             except ValueError:
                 pass
-
         try:
             target_path.relative_to(worktree_root)
         except ValueError:
@@ -980,17 +1043,14 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
         result['error'] = str(exc)
         return result
 
-def create_staging_worktree(staging_path: str, parent_root: str | pathlib.Path | None = None) -> None:
+def create_staging_worktree(staging_path: str, parent_root: str | pathlib.Path | None=None) -> None:
     """Prunes stale worktrees, handles existing paths, and creates a staging worktree."""
     import logging
     import shutil
     import pathlib
     import subprocess
-    
     logger = logging.getLogger(__name__)
     staging_path_obj = pathlib.Path(staging_path).resolve()
-    
-    # Resolve parent root
     if parent_root is None:
         try:
             res = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=True)
@@ -999,20 +1059,13 @@ def create_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
             parent_root_obj = pathlib.Path(__file__).resolve().parent.parent
     else:
         parent_root_obj = pathlib.Path(parent_root).resolve()
-        
     cwd_str = str(parent_root_obj)
-
-    # Ensure sibling check
     if staging_path_obj.parent != parent_root_obj.parent:
-        raise ValueError("Staging worktree must be placed in a sibling directory of the repository root.")
-
-    # 1. Prune stale worktrees
+        raise ValueError('Staging worktree must be placed in a sibling directory of the repository root.')
     try:
         subprocess.run(['git', 'worktree', 'prune'], cwd=cwd_str, check=True, capture_output=True, text=True)
     except subprocess.SubprocessError as e:
-        logger.warning(f"git worktree prune failed: {e}")
-
-    # 2. Handle existing path
+        logger.warning(f'git worktree prune failed: {e}')
     try:
         res = subprocess.run(['git', 'worktree', 'list', '--porcelain'], cwd=cwd_str, check=True, capture_output=True, text=True)
         worktrees = []
@@ -1021,9 +1074,8 @@ def create_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
                 worktrees.append(pathlib.Path(line[9:]).resolve())
     except Exception:
         worktrees = []
-
     if staging_path_obj in worktrees or staging_path_obj.exists():
-        logger.info(f"Staging path {staging_path} is already a worktree or exists. Removing.")
+        logger.info(f'Staging path {staging_path} is already a worktree or exists. Removing.')
         try:
             subprocess.run(['git', 'worktree', 'remove', '-f', str(staging_path_obj)], cwd=cwd_str, check=False, capture_output=True)
         except Exception:
@@ -1032,28 +1084,22 @@ def create_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
             shutil.rmtree(staging_path_obj, ignore_errors=True)
         elif staging_path_obj.exists():
             staging_path_obj.unlink(missing_ok=True)
-
-    # 3. Create worktree
-    # Detached HEAD is safer and avoids temporary branch name collisions
     cmd = ['git', 'worktree', 'add', '--detach', str(staging_path_obj)]
     try:
         subprocess.run(cmd, cwd=cwd_str, check=True, capture_output=True, text=True)
-        logger.info(f"Created staging worktree at {staging_path}")
+        logger.info(f'Created staging worktree at {staging_path}')
     except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to create staging worktree: {e.stderr}")
+        logger.error(f'Failed to create staging worktree: {e.stderr}')
         raise
 
-def remove_staging_worktree(staging_path: str, parent_root: str | pathlib.Path | None = None) -> None:
+def remove_staging_worktree(staging_path: str, parent_root: str | pathlib.Path | None=None) -> None:
     """Removes the staging worktree cleanly."""
     import logging
     import shutil
     import pathlib
     import subprocess
-    
     logger = logging.getLogger(__name__)
     staging_path_obj = pathlib.Path(staging_path).resolve()
-    
-    # Resolve parent root
     if parent_root is None:
         try:
             res = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=True)
@@ -1062,43 +1108,34 @@ def remove_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
             parent_root_obj = pathlib.Path(__file__).resolve().parent.parent
     else:
         parent_root_obj = pathlib.Path(parent_root).resolve()
-        
     cwd_str = str(parent_root_obj)
-    
-    # Try to prune first to clean up any metadata
     try:
         subprocess.run(['git', 'worktree', 'prune'], cwd=cwd_str, check=False, capture_output=True)
     except Exception:
         pass
-
     try:
         subprocess.run(['git', 'worktree', 'remove', '-f', str(staging_path_obj)], cwd=cwd_str, check=True, capture_output=True, text=True)
-        logger.info(f"Removed staging worktree reference for {staging_path}")
+        logger.info(f'Removed staging worktree reference for {staging_path}')
     except subprocess.CalledProcessError as e:
-        logger.warning(f"git worktree remove failed: {e.stderr}")
+        logger.warning(f'git worktree remove failed: {e.stderr}')
         try:
             subprocess.run(['git', 'worktree', 'prune'], cwd=cwd_str, check=True, capture_output=True)
         except Exception:
             pass
-
     if staging_path_obj.exists():
         shutil.rmtree(staging_path_obj, ignore_errors=True)
-        logger.info(f"Deleted staging directory at {staging_path}")
+        logger.info(f'Deleted staging directory at {staging_path}')
 
-def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Path | None = None) -> None:
+def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Path | None=None) -> None:
     """Merges the HEAD commit from staging_path back to the parent repository."""
     import logging
     logger = logging.getLogger(__name__)
-    
-    # 1. Get HEAD commit of staging
     try:
         res = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=str(staging_path), check=True, capture_output=True, text=True)
         staging_sha = res.stdout.strip()
     except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to get staging HEAD: {e.stderr}")
-        raise RuntimeError(f"Failed to get staging HEAD: {e.stderr}")
-
-    # 2. Get parent repo root
+        logger.error(f'Failed to get staging HEAD: {e.stderr}')
+        raise RuntimeError(f'Failed to get staging HEAD: {e.stderr}')
     if parent_root is None:
         try:
             res_common = subprocess.run(['git', 'rev-parse', '--git-common-dir'], cwd=str(staging_path), check=True, capture_output=True, text=True)
@@ -1108,17 +1145,15 @@ def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Pat
             if git_common.name == '.git':
                 parent_root = git_common.parent
             else:
-                # Inside git worktrees structure: .git/worktrees/<name>
                 parent_root = git_common.parent.parent
         except Exception:
             parent_root = pathlib.Path(__file__).resolve().parent.parent
-
-    logger.info(f"Merging staging commit {staging_sha} into parent repo at {parent_root}")
+    logger.info(f'Merging staging commit {staging_sha} into parent repo at {parent_root}')
     try:
         subprocess.run(['git', 'merge', '--ff-only', staging_sha], cwd=str(parent_root), check=True, capture_output=True, text=True)
-        logger.info("Fast-forward merge successful.")
+        logger.info('Fast-forward merge successful.')
     except subprocess.CalledProcessError as e:
-        logger.error(f"Fast-forward merge failed: {e.stderr}")
-        raise RuntimeError(f"Fast-forward merge failed: {e.stderr}")
+        logger.error(f'Fast-forward merge failed: {e.stderr}')
+        raise RuntimeError(f'Fast-forward merge failed: {e.stderr}')
     finally:
         remove_staging_worktree(str(staging_path))
