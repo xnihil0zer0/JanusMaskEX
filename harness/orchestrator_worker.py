@@ -115,6 +115,7 @@ def main() -> int:
             except OSError:
                 pass
             os.environ['JANUSMASK_TASK_ID'] = task_id
+            _precompute_baseline_test_results(state_dir, task, task_id)
             round_number = 1
             max_ast_retries = config['synthesis'].get('max_ast_retries', 3)
             use_retry_module = config['synthesis'].get('use_retry_module', False)
@@ -465,6 +466,84 @@ def _detect_and_append_untracked_tests(state_dir: Path, task: dict[str, Any], ta
             with open(processing, 'w', encoding='utf-8') as fh:
                 json.dump(task, fh, indent=2)
     except Exception:
+        pass
+
+def _precompute_baseline_test_results(state_dir: Path, task: dict[str, Any], task_id: str) -> None:
+    """Pre-compute the baseline verification_command outcome on the unmodified
+    codebase and persist it for the prompt hooks to inject into agent context.
+
+    Resolves the task's verification_command (walking the parent-task chain
+    when missing), runs it with ``/bin/bash -c 'set -o pipefail; <cmd>'`` under
+    a 600s timeout, and writes ``{command, outcome, exit_code, stdout,
+    stderr}`` to ``state_dir/'tasks'/'test_results'/{task_id}_baseline.json``.
+
+    Best-effort; never raises. Edge cases handled:
+
+      * results dir missing -> created via ``mkdir(parents=True, exist_ok=True)``;
+      * no verification_command resolvable -> outcome ``no_verification_command``,
+        ``exit_code`` null, command logged as empty string;
+      * timeout -> outcome ``timeout``, ``exit_code`` null, stderr carries
+        the truncated ``TimeoutExpired`` repr so the agent sees the cause;
+      * subprocess/OS error -> outcome ``error``, ``exit_code`` null,
+        stderr carries the truncated exception repr.
+    """
+    import subprocess
+    results_dir = state_dir / 'tasks' / 'test_results'
+    try:
+        results_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    out_path = results_dir / f'{task_id}_baseline.json'
+    vcmd: str | None = None
+    try:
+        from harness.orchestrator import _resolve_verification_command
+        vcmd = _resolve_verification_command(state_dir, task, task_id)
+    except Exception:
+        try:
+            vcmd = task.get('verification_command') if isinstance(task, dict) else None
+        except Exception:
+            vcmd = None
+    if not vcmd or not isinstance(vcmd, str) or (not vcmd.strip()):
+        payload = {'task_id': task_id, 'command': vcmd if isinstance(vcmd, str) else '', 'outcome': 'no_verification_command', 'exit_code': None, 'stdout': '', 'stderr': ''}
+        try:
+            out_path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+        except OSError:
+            pass
+        return
+    cwd = _PROJECT_ROOT
+    try:
+        ro = subprocess.run(['git', 'rev-parse', '--show-toplevel'], cwd=cwd, capture_output=True, text=True, check=False, timeout=30)
+        if ro.returncode == 0 and ro.stdout.strip():
+            cwd = ro.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    scrubbed_env = {k: v for k, v in os.environ.items() if not k.startswith('JANUSMASK_')}
+    exit_code: int | None
+    stdout_tail = ''
+    stderr_tail = ''
+    outcome: str
+    try:
+        res = subprocess.run(['/bin/bash', '-c', f'set -o pipefail; {vcmd}'], cwd=cwd, capture_output=True, text=True, timeout=600, env=scrubbed_env)
+        exit_code = res.returncode
+        stdout_tail = (res.stdout or '')[-4000:]
+        stderr_tail = (res.stderr or '')[-4000:]
+        outcome = 'passed' if exit_code == 0 else 'failed'
+    except subprocess.TimeoutExpired as texc:
+        exit_code = None
+        outcome = 'timeout'
+        stderr_tail = f'[baseline verification_command timed out after 600s: {texc!r}]'
+    except (FileNotFoundError, OSError) as exc:
+        exit_code = None
+        outcome = 'error'
+        stderr_tail = f'[baseline verification_command error: {exc!r}]'
+    except Exception as exc:
+        exit_code = None
+        outcome = 'error'
+        stderr_tail = f'[baseline verification_command error: {exc!r}]'
+    payload = {'task_id': task_id, 'command': vcmd, 'outcome': outcome, 'exit_code': exit_code, 'stdout': stdout_tail, 'stderr': stderr_tail}
+    try:
+        out_path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+    except OSError:
         pass
 if __name__ == '__main__':
     sys.exit(main())

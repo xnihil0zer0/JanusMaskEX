@@ -82,3 +82,92 @@ def test_paradox_commit_accepted_output_with_untracked_tests(git_repo: pathlib.P
     committed_files = show_res.stdout.splitlines()
     assert any(('initial.py' in f for f in committed_files))
     assert any(('tests/test_new_feature.py' in f for f in committed_files))
+from harness.orchestrator_worker import _precompute_baseline_test_results
+from harness.hooks.claude import user_prompt_submit as claude_ups
+from harness.hooks.gemini import user_prompt_submit as gemini_ups
+
+def test_baseline_precompute_writes_json_with_passing_outcome(tmp_path: pathlib.Path) -> None:
+    """Helper persists a JSON sidecar carrying command/outcome/exit_code/stdout/stderr."""
+    state_dir = tmp_path / 'state'
+    (state_dir / 'tasks').mkdir(parents=True)
+    task_id = 'baseline_pass_task'
+    task = {'task_id': task_id, 'verification_command': 'echo hello-baseline'}
+    _precompute_baseline_test_results(state_dir, task, task_id)
+    out_path = state_dir / 'tasks' / 'test_results' / f'{task_id}_baseline.json'
+    assert out_path.exists(), 'baseline JSON sidecar was not written'
+    body = json.loads(out_path.read_text(encoding='utf-8'))
+    assert body['command'] == 'echo hello-baseline'
+    assert body['outcome'] == 'passed'
+    assert body['exit_code'] == 0
+    assert 'hello-baseline' in body['stdout']
+    for key in ('command', 'outcome', 'exit_code', 'stdout', 'stderr'):
+        assert key in body, f'baseline payload missing expected key: {key}'
+
+def test_baseline_precompute_creates_results_dir_when_missing(tmp_path: pathlib.Path) -> None:
+    """Edge case: parent results dir is created on demand."""
+    state_dir = tmp_path / 'state'
+    state_dir.mkdir()
+    task_id = 'baseline_dir_task'
+    task = {'task_id': task_id, 'verification_command': 'true'}
+    _precompute_baseline_test_results(state_dir, task, task_id)
+    results_dir = state_dir / 'tasks' / 'test_results'
+    assert results_dir.is_dir(), 'helper failed to create test_results directory'
+    out_path = results_dir / f'{task_id}_baseline.json'
+    assert out_path.exists()
+    body = json.loads(out_path.read_text(encoding='utf-8'))
+    assert body['outcome'] == 'passed'
+    assert body['exit_code'] == 0
+
+def test_baseline_precompute_captures_failing_exit_code(tmp_path: pathlib.Path) -> None:
+    """A non-zero exit from the verification command is recorded as 'failed'."""
+    state_dir = tmp_path / 'state'
+    state_dir.mkdir()
+    task_id = 'baseline_fail_task'
+    task = {'task_id': task_id, 'verification_command': "bash -c 'echo oh-no 1>&2; exit 3'"}
+    _precompute_baseline_test_results(state_dir, task, task_id)
+    out_path = state_dir / 'tasks' / 'test_results' / f'{task_id}_baseline.json'
+    body = json.loads(out_path.read_text(encoding='utf-8'))
+    assert body['outcome'] == 'failed'
+    assert body['exit_code'] == 3
+    assert 'oh-no' in body['stderr']
+
+def test_baseline_precompute_handles_missing_verification_command(tmp_path: pathlib.Path) -> None:
+    """Edge case: no verification_command anywhere -> outcome=no_verification_command."""
+    state_dir = tmp_path / 'state'
+    state_dir.mkdir()
+    task_id = 'baseline_missing_task'
+    task = {'task_id': task_id}
+    _precompute_baseline_test_results(state_dir, task, task_id)
+    out_path = state_dir / 'tasks' / 'test_results' / f'{task_id}_baseline.json'
+    assert out_path.exists()
+    body = json.loads(out_path.read_text(encoding='utf-8'))
+    assert body['outcome'] == 'no_verification_command'
+    assert body['exit_code'] is None
+
+def test_baseline_hook_formatter_renders_markdown_block(tmp_path: pathlib.Path) -> None:
+    """Both prompt hooks render the baseline JSON into a markdown block."""
+    state_root = tmp_path / 'state'
+    results_dir = state_root / 'tasks' / 'test_results'
+    results_dir.mkdir(parents=True)
+    task_id = 'baseline_format_task'
+    payload = {'task_id': task_id, 'command': 'pytest tests/foo.py', 'outcome': 'failed', 'exit_code': 1, 'stdout': 'collected 0 items', 'stderr': 'E   AssertionError: boom'}
+    (results_dir / f'{task_id}_baseline.json').write_text(json.dumps(payload), encoding='utf-8')
+    claude_section = claude_ups._format_baseline_section(state_root, task_id)
+    gemini_section = gemini_ups._format_baseline_section(state_root, task_id)
+    for section in (claude_section, gemini_section):
+        assert section is not None
+        assert 'BASELINE TEST RESULTS' in section
+        assert 'pytest tests/foo.py' in section
+        assert 'failed' in section
+        assert 'Exit code: 1' in section
+        assert 'AssertionError: boom' in section
+
+def test_baseline_hook_formatter_returns_none_when_missing(tmp_path: pathlib.Path) -> None:
+    """Hook formatter returns None when the baseline sidecar does not exist."""
+    state_root = tmp_path / 'state'
+    state_root.mkdir()
+    assert claude_ups._format_baseline_section(state_root, 'no_such_task') is None
+    assert gemini_ups._format_baseline_section(state_root, 'no_such_task') is None
+    assert claude_ups._format_baseline_section(state_root, '') is None
+    assert gemini_ups._format_baseline_section(state_root, '') is None
+'Tests for auto-detection of untracked test files to resolve checkout paradox,\nand pre-computation of baseline verification_command results at worker startup.'
