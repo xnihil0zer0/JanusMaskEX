@@ -98,8 +98,13 @@ class TestAutoworkEscalation(unittest.TestCase):
         }))
         
         # Mock file checks to pass
+        mock_data = json.dumps({
+            'task_id': task_id,
+            'files_touched': ['xyz.py'],
+            'objective': 'do something'
+        })
         with patch('pathlib.Path.is_file', return_value=True), \
-             patch('builtins.open', unittest.mock.mock_open(read_data="dummy")):
+             patch('builtins.open', unittest.mock.mock_open(read_data=mock_data)):
             _escalate_to_autobrief(self.state_dir, task_id, 'embedded_tests_failed')
             
         self.assertTrue(mock_popen.called)
