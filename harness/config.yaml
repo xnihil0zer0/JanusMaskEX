@@ -97,6 +97,6 @@ synthesis:
   clarification_timeout_sec: 60
   max_ast_retries: 3
   max_clarification_requests: 2
-  timeout_seconds: 600
+  timeout_seconds: 1200
 test_author:
   review_pass: true
