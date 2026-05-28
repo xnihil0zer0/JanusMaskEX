@@ -1192,8 +1192,7 @@ def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Pat
             res_status = subprocess.run(['git', 'status', '--porcelain', '--'] + files_in_commit, cwd=str(parent_root), capture_output=True, text=True, check=False)
             dirty_files = []
             for line in res_status.stdout.splitlines():
-                line = line.strip()
-                if line:
+                if line.strip():
                     filepath = line[3:].strip().strip('"\'')
                     dirty_files.append(filepath)
             

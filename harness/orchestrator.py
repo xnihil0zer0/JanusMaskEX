@@ -450,11 +450,11 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
             agent_status = current_state.get(f'{agent}_status')
             updated_at = current_state.get('status_updated_at_epoch') or current_state.get('status_updated_at')
             if agent_status == 'running' and updated_at is not None:
-                if time.time() - updated_at > 600:
+                if time.time() - updated_at > timeout:
                     set_agent_status(state_dir, agent=agent, status='timeout')
                     _emit_lifecycle(state_dir, event='agent_status', agent=agent, status='timeout', task_id=os.environ.get('JANUSMASK_TASK_ID'))
-                    _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}watchdog timeout (>600s){_C.RESET}')
-                    logger.error('%s agent watchdog timed out after 600s', agent)
+                    _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}watchdog timeout (>{timeout}s){_C.RESET}')
+                    logger.error('%s agent watchdog timed out after %ds', agent, timeout)
                     return None
         except Exception as e:
             logger.debug('Watchdog error: %s', e)
