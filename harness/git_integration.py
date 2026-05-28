@@ -1126,16 +1126,21 @@ def remove_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
         shutil.rmtree(staging_path_obj, ignore_errors=True)
         logger.info(f'Deleted staging directory at {staging_path}')
 
-def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Path | None=None) -> None:
+def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Path | None = None) -> None:
     """Merges the HEAD commit from staging_path back to the parent repository."""
     import logging
+    import time
     logger = logging.getLogger(__name__)
+    
+    # 1. Get HEAD commit of staging
     try:
         res = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=str(staging_path), check=True, capture_output=True, text=True)
         staging_sha = res.stdout.strip()
     except subprocess.CalledProcessError as e:
-        logger.error(f'Failed to get staging HEAD: {e.stderr}')
-        raise RuntimeError(f'Failed to get staging HEAD: {e.stderr}')
+        logger.error(f"Failed to get staging HEAD: {e.stderr}")
+        raise RuntimeError(f"Failed to get staging HEAD: {e.stderr}")
+
+    # 2. Get parent repo root
     if parent_root is None:
         try:
             res_common = subprocess.run(['git', 'rev-parse', '--git-common-dir'], cwd=str(staging_path), check=True, capture_output=True, text=True)
@@ -1145,15 +1150,49 @@ def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Pat
             if git_common.name == '.git':
                 parent_root = git_common.parent
             else:
+                # Inside git worktrees structure: .git/worktrees/<name>
                 parent_root = git_common.parent.parent
         except Exception:
             parent_root = pathlib.Path(__file__).resolve().parent.parent
-    logger.info(f'Merging staging commit {staging_sha} into parent repo at {parent_root}')
+
+    logger.info(f"Merging staging commit {staging_sha} into parent repo at {parent_root}")
+    
+    stashed = False
+    try:
+        # Get files changed in staging HEAD commit
+        res_files = subprocess.run(['git', 'diff-tree', '--no-commit-id', '--name-only', '-r', staging_sha], cwd=str(staging_path), check=True, capture_output=True, text=True)
+        files_in_commit = [line.strip() for line in res_files.stdout.splitlines() if line.strip()]
+        
+        if files_in_commit:
+            # Check which of these files are dirty (modified/untracked) in the parent repo
+            res_status = subprocess.run(['git', 'status', '--porcelain', '--'] + files_in_commit, cwd=str(parent_root), capture_output=True, text=True, check=False)
+            dirty_files = []
+            for line in res_status.stdout.splitlines():
+                line = line.strip()
+                if line:
+                    filepath = line[3:].strip().strip('"\'')
+                    dirty_files.append(filepath)
+            
+            if dirty_files:
+                logger.info(f"Parent repository has dirty target files: {dirty_files}; stashing them before merge.")
+                cmd_stash = ['git', 'stash', 'push', '-u', '-m', f'janusmask-auto-stash-{int(time.time())}', '--'] + dirty_files
+                stash_res = subprocess.run(cmd_stash, cwd=str(parent_root), capture_output=True, text=True, check=True)
+                if "No local changes to save" not in stash_res.stdout:
+                    stashed = True
+    except Exception as stash_exc:
+        logger.warning(f"Failed to check/stash parent repo dirty files (non-fatal): {stash_exc}")
+
     try:
         subprocess.run(['git', 'merge', '--ff-only', staging_sha], cwd=str(parent_root), check=True, capture_output=True, text=True)
-        logger.info('Fast-forward merge successful.')
+        logger.info("Fast-forward merge successful.")
     except subprocess.CalledProcessError as e:
-        logger.error(f'Fast-forward merge failed: {e.stderr}')
-        raise RuntimeError(f'Fast-forward merge failed: {e.stderr}')
+        logger.error(f"Fast-forward merge failed: {e.stderr}")
+        raise RuntimeError(f"Fast-forward merge failed: {e.stderr}")
     finally:
+        if stashed:
+            try:
+                logger.info("Restoring parent repository local changes from stash.")
+                subprocess.run(['git', 'stash', 'pop'], cwd=str(parent_root), capture_output=True, check=True)
+            except Exception as pop_exc:
+                logger.error(f"Failed to pop stash on parent repository: {pop_exc}")
         remove_staging_worktree(str(staging_path))
