@@ -1322,7 +1322,7 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
                             
                             to_remove = set()
                             for spid in _suspended_pids:
-                                if now - _suspension_start_times.get(spid, now) > 900:
+                                if now - _suspension_start_times.get(spid, now) > 300:
                                     try:
                                         os.kill(spid, signal.SIGTERM)
                                         _emit_telemetry(state_dir, str(spid), 'watchdog_term', f'pid={spid}')

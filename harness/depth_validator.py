@@ -20,13 +20,23 @@ def check_true_depth(task_id: str, tasks_dir: Path, max_depth: int=3) -> bool:
     Returns:
         False if lineage depth > max_depth, True otherwise
     """
-    tasks_dir = Path(tasks_dir)
-    processed_dir = tasks_dir / 'processed'
+    if not isinstance(task_id, str) or not task_id:
+        return False
+    if isinstance(tasks_dir, bool):
+        return False
+    try:
+        tasks_dir = Path(tasks_dir)
+        processed_dir = tasks_dir / 'processed'
+    except Exception:
+        return False
+
     depth = 0
     current_task_id = task_id
     visited = set()
     try:
         while current_task_id:
+            if not isinstance(current_task_id, str) or not current_task_id:
+                return False
             if current_task_id in visited:
                 logger.warning(f'Circular reference detected in task lineage starting from {task_id}')
                 return False
@@ -47,7 +57,18 @@ def check_true_depth(task_id: str, tasks_dir: Path, max_depth: int=3) -> bool:
             except json.JSONDecodeError as e:
                 logger.warning(f'Invalid JSON in task file {task_file}: {e}')
                 return False
-            current_task_id = task_data.get('parent_task') or task_data.get('parent_task_id')
+            
+            p_val = None
+            if 'parent_task' in task_data:
+                p_val = task_data['parent_task']
+            elif 'parent_task_id' in task_data:
+                p_val = task_data['parent_task_id']
+            
+            if p_val is None:
+                break
+            if not isinstance(p_val, str) or not p_val:
+                return False
+            current_task_id = p_val
     except Exception as e:
         logger.warning(f'Error checking depth for task {task_id}: {e}')
         return False

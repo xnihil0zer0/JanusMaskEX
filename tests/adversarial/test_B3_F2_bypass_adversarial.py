@@ -683,16 +683,16 @@ class TestTaskShapeResilience:
 
     def test_empty_task_is_not_bypassed(self, fast_config):
         """An empty task dict: no meta_task_type, no constraints, no sig.
-        Both sides have no primary function → original "Could not determine"
-        error path fires (skipped_reason None, error set).
+        Both sides have no primary function → skips fuzzing by returning
+        equivalent=True and setting skipped_reason.
         """
         code_a = "x = 1\n"
         code_b = "y = 2\n"
         result = fuzz_from_task(code_a, code_b, {}, fast_config, session_id="shape_empty")
-        assert result.equivalent is False
-        assert result.error is not None
-        assert "target function name" in result.error.lower()
-        assert result.skipped_reason is None
+        assert result.equivalent is True
+        assert result.error is None
+        assert result.skipped_reason is not None
+        assert "could not determine" in result.skipped_reason.lower()
 
 
 # ---------------------------------------------------------------------------

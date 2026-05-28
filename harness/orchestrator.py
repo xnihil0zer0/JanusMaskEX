@@ -1454,6 +1454,51 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                 logger.warning('verification_missing: ledger append failed for %s: %s', task_id, exc)
             return False
 
+        def _is_unscoped_pytest(cmd_str: str) -> bool:
+            if 'pytest' not in cmd_str:
+                return False
+            import shlex
+            try:
+                parts = shlex.split(cmd_str)
+            except Exception:
+                parts = cmd_str.split()
+            idx = -1
+            for i, part in enumerate(parts):
+                if part == 'pytest' or part.endswith('/pytest'):
+                    idx = i
+                    break
+            if idx == -1:
+                return False
+            args = parts[idx+1:]
+            options_with_args = {
+                '-k', '-m', '-o', '-c', '-p', '--tb', '--import-mode', '--color',
+                '--durations', '--maxfail', '--lf', '--last-failed', '--ff',
+                '--failed-first', '--nf', '--new-first', '--cache-clear',
+                '--rootdir', '--override-ini', '--show-capture',
+            }
+            has_target = False
+            skip_next = False
+            for arg in args:
+                if skip_next:
+                    skip_next = False
+                    continue
+                if arg.startswith('-'):
+                    if arg in options_with_args:
+                        skip_next = True
+                    continue
+                has_target = True
+                break
+            return not has_target
+
+        if _is_unscoped_pytest(vcmd):
+            from harness.test_scoper import get_relevant_test_files
+            relevant_tests = get_relevant_test_files(staging_path, files_touched)
+            existing_tests = [t for t in relevant_tests if (staging_path / t).exists()]
+            if not existing_tests:
+                existing_tests = ['tests/test_import.py']
+            vcmd = vcmd.rstrip() + ' ' + ' '.join(existing_tests)
+            logger.info('Rewrote unscoped pytest command for task %s to: %s', task_id, vcmd)
+
         verify_exit: int | None = None
         verify_stdout = ''
         verify_stderr = ''

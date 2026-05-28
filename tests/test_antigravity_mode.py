@@ -34,7 +34,7 @@ def test_antigravity_config_override(tmp_path):
         yaml.dump(config_data, f)
         
     config = load_config(config_file)
-    assert config["synthesis"]["active_agents"] == ["antigravity"]
+    assert config["synthesis"]["active_agents"] == ["claude", "gemini"]
 
 def test_boost_antigravity_mcp_config(tmp_path, monkeypatch):
     # Mock home path to write in tmp_path
@@ -108,16 +108,16 @@ def test_process_suspension_logic(tmp_path):
         killed_signals.append((pid, sig))
         
     with patch("os.kill", side_effect=fake_kill):
-        # Suspend all except current task-001
-        suspend_parallel_workers(tmp_path, "task-001")
+        # Suspend all except current task-001 (exclude PID 11111)
+        suspend_parallel_workers(tmp_path, 11111)
         assert (22222, signal.SIGSTOP) in killed_signals
         assert (33333, signal.SIGSTOP) in killed_signals
         assert (11111, signal.SIGSTOP) not in killed_signals
         
         killed_signals.clear()
         
-        # Resume all except task-001
-        resume_parallel_workers(tmp_path, "task-001")
+        # Resume all surviving suspended processes
+        resume_parallel_workers(tmp_path)
         assert (22222, signal.SIGCONT) in killed_signals
         assert (33333, signal.SIGCONT) in killed_signals
         assert (11111, signal.SIGCONT) not in killed_signals

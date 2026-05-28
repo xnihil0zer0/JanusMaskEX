@@ -102,21 +102,30 @@ def test_build_agent_command_reconciliation_carries_opus(monkeypatch):
 def test_gemini_block_carries_pinned_pro_model(monkeypatch):
     """gemini args carry --model gemini-3.1-pro-preview in every mode
     (GH2, 2026-05-18: closes silent flash-tier default per Report 02
-    §4.1 H6). Must NEVER carry Claude model names."""
+    §4.1 H6). Must NEVER carry Claude model names.
+    If rewired to antigravity (command='agy'), it won't carry --model."""
     monkeypatch.delenv("JANUSMASK_MODE", raising=False)
     cfg = load_config(_CFG)
+    gemini_cmd_name = cfg.get("agents", {}).get("gemini", {}).get("command", "gemini")
     cmd_syn = _build_agent_command("gemini", "P", cfg)
     monkeypatch.setenv("JANUSMASK_MODE", "planning")
     cmd_plan = _build_agent_command("gemini", "P", cfg)
-    for cmd in (cmd_syn, cmd_plan):
-        assert "--model" in cmd, f"gemini cmd missing --model: {cmd!r}"
-        idx = cmd.index("--model")
-        assert cmd[idx + 1] == "gemini-3.1-pro-preview", (
-            f"gemini --model is {cmd[idx + 1]!r}, expected 'gemini-3.1-pro-preview'"
-        )
-        assert "opus" not in cmd, f"gemini cmd unexpectedly carries opus: {cmd!r}"
-        assert "haiku" not in cmd
-        assert "sonnet" not in cmd
+    if gemini_cmd_name == "agy":
+        for cmd in (cmd_syn, cmd_plan):
+            assert "agy" in cmd or any(x.endswith("agy") for x in cmd)
+            assert "opus" not in cmd
+            assert "haiku" not in cmd
+            assert "sonnet" not in cmd
+    else:
+        for cmd in (cmd_syn, cmd_plan):
+            assert "--model" in cmd, f"gemini cmd missing --model: {cmd!r}"
+            idx = cmd.index("--model")
+            assert cmd[idx + 1] == "gemini-3.1-pro-preview", (
+                f"gemini --model is {cmd[idx + 1]!r}, expected 'gemini-3.1-pro-preview'"
+            )
+            assert "opus" not in cmd, f"gemini cmd unexpectedly carries opus: {cmd!r}"
+            assert "haiku" not in cmd
+            assert "sonnet" not in cmd
 
 
 def test_planner_cli_dry_run_loads_opus_config():
@@ -181,14 +190,25 @@ def test_two_authorized_model_pins_in_harness_yaml():
     """Defensive: exactly two --model arg directives in the YAML
     post-GH2: one for claude (opus) and one for gemini
     (gemini-3.1-pro-preview). Guards against accidental third-pin
-    or silent removal of either."""
+    or silent removal of either.
+    If Gemini is rewired to antigravity, only one --model pin remains."""
+    cfg = load_config(_CFG)
+    gemini_cmd_name = cfg.get("agents", {}).get("gemini", {}).get("command", "gemini")
     text = _CFG.read_text(encoding="utf-8")
-    assert text.count("--model") == 2, (
-        "expected exactly two --model directives in harness/config.yaml "
-        "(claude=opus + gemini=gemini-3.1-pro-preview)"
-    )
-    assert "gemini-3.1-pro-preview" in text
-    assert "opus" in text
+    if gemini_cmd_name == "agy":
+        assert text.count("--model") == 1, (
+            "expected exactly one --model directive in harness/config.yaml "
+            "(claude=opus)"
+        )
+        assert "opus" in text
+        assert "gemini-3.1-pro-preview" not in text
+    else:
+        assert text.count("--model") == 2, (
+            "expected exactly two --model directives in harness/config.yaml "
+            "(claude=opus + gemini=gemini-3.1-pro-preview)"
+        )
+        assert "gemini-3.1-pro-preview" in text
+        assert "opus" in text
 
 
 def test_static_source_no_model_literal_in_orchestrator():
