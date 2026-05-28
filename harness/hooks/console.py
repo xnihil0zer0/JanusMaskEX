@@ -39,8 +39,7 @@ def _agent_label(agent_id: str) -> str:
     return f'{color}{_C.BOLD}{agent_id.upper()}{_C.RESET}'
 
 def _divider(agent_id: str, char: str='─', width: int=60) -> str:
-    color = _agent_color(agent_id)
-    return f'{color}{char * width}{_C.RESET}'
+    return f'{_agent_color(agent_id)}{char * width}{_C.RESET}'
 
 def _code_preview(code: str, max_lines: int=12) -> str:
     lines = code.rstrip().split('\n')
