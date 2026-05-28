@@ -484,6 +484,14 @@ def _run_streamed_command(cmd: list[str], cwd: str, timeout: int, check: bool=Fa
             raise subprocess.CalledProcessError(retcode, cmd, output=stdout_str)
         return subprocess.CompletedProcess(cmd, retcode, stdout=stdout_str, stderr='')
 
+def _is_tracked(file_path: str, cwd: str) -> bool:
+    """Check if a file path is tracked in the repository HEAD / index (before staging)."""
+    try:
+        res = _run_streamed_command(['git', 'ls-files', '--error-unmatch', '--', file_path], cwd=cwd, timeout=10, check=False)
+        return res.returncode == 0
+    except Exception:
+        return False
+
 def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Path, worktree_root: pathlib.Path | None=None) -> dict:
     """Copy validated output to target, then commit it scoped to target_file.
 
@@ -604,6 +612,7 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
         else:
             shutil.copy2(str(output_file), str(target_path))
         rel_target = target_path.relative_to(worktree_root)
+        is_tracked = _is_tracked(str(rel_target), str(worktree_root))
         _run_streamed_command(['git', 'add', '--', str(rel_target)], cwd=str(worktree_root), timeout=30, check=True)
         diff_result = _run_streamed_command(['git', 'diff', '--cached', '--quiet', '--', str(rel_target)], cwd=str(worktree_root), timeout=30, check=False)
         if diff_result.returncode == 0:
@@ -612,7 +621,10 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
             result['error'] = 'no_diff: AST merge produced byte-identical content; no commit created'
             return result
         commit_msg = format_auto_commit_message(task_id)
-        _run_streamed_command(['git', 'commit', '--only', '-m', commit_msg, '--', str(rel_target)], cwd=str(worktree_root), timeout=300, check=True)
+        if is_tracked:
+            _run_streamed_command(['git', 'commit', '--only', '-m', commit_msg, '--', str(rel_target)], cwd=str(worktree_root), timeout=300, check=True)
+        else:
+            _run_streamed_command(['git', 'commit', '-m', commit_msg], cwd=str(worktree_root), timeout=300, check=True)
         sha_output = _run_streamed_command(['git', 'rev-parse', 'HEAD'], cwd=str(worktree_root), timeout=30, check=True)
         result['committed'] = True
         result['sha'] = sha_output.stdout.strip()
@@ -707,6 +719,7 @@ def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, stat
         result['error'] = 'sidecar empty or non-dict'
         return result
     rel_targets: list[str] = []
+    tracked_flags: list[bool] = []
     for rel, src in manifest.items():
         if not isinstance(rel, str) or not isinstance(src, str):
             result['committed'] = False
@@ -721,6 +734,8 @@ def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, stat
             result['sha'] = None
             result['error'] = f'target escapes worktree: {rel}'
             return result
+        rel_str = str(target_path.relative_to(worktree_root))
+        tracked_flags.append(_is_tracked(rel_str, str(worktree_root)))
         try:
             _apply_file_to_target(src, target_path, task_id)
         except OSError as exc:
@@ -728,7 +743,7 @@ def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, stat
             result['sha'] = None
             result['error'] = f'write failed for {rel}: {exc}'
             return result
-        rel_targets.append(str(target_path.relative_to(worktree_root)))
+        rel_targets.append(rel_str)
     try:
         _run_streamed_command(['git', 'add', '--'] + rel_targets, cwd=str(worktree_root), timeout=60, check=True)
         diff_result = _run_streamed_command(['git', 'diff', '--cached', '--quiet', '--'] + rel_targets, cwd=str(worktree_root), timeout=30, check=False)
@@ -739,7 +754,10 @@ def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, stat
             result['error'] = 'no_diff: AST merge produced byte-identical content; no commit created'
             return result
         commit_msg = format_auto_commit_message(task_id)
-        _run_streamed_command(['git', 'commit', '--only', '-m', commit_msg, '--'] + rel_targets, cwd=str(worktree_root), timeout=300, check=True)
+        if all(tracked_flags):
+            _run_streamed_command(['git', 'commit', '--only', '-m', commit_msg, '--'] + rel_targets, cwd=str(worktree_root), timeout=300, check=True)
+        else:
+            _run_streamed_command(['git', 'commit', '-m', commit_msg], cwd=str(worktree_root), timeout=300, check=True)
         sha_output = _run_streamed_command(['git', 'rev-parse', 'HEAD'], cwd=str(worktree_root), timeout=30, check=True)
         result['committed'] = True
         result['sha'] = sha_output.stdout.strip()
@@ -985,6 +1003,7 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
             order.append(rel)
         grouped[rel].append(entry)
     rel_targets: list[str] = []
+    tracked_flags: list[bool] = []
     for rel in order:
         target_path = (worktree_root / rel).resolve()
         try:
@@ -994,6 +1013,8 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
             result['sha'] = None
             result['error'] = f'target escapes worktree: {rel}'
             return result
+        rel_str = str(target_path.relative_to(worktree_root))
+        tracked_flags.append(_is_tracked(rel_str, str(worktree_root)))
         try:
             text = target_path.read_text(encoding='utf-8')
         except OSError as exc:
@@ -1019,7 +1040,7 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
             result['sha'] = None
             result['error'] = f'write failed for {rel}: {exc}'
             return result
-        rel_targets.append(str(target_path.relative_to(worktree_root)))
+        rel_targets.append(rel_str)
     try:
         _run_streamed_command(['git', 'add', '--'] + rel_targets, cwd=str(worktree_root), timeout=60, check=True)
         diff_result = _run_streamed_command(['git', 'diff', '--cached', '--quiet', '--'] + rel_targets, cwd=str(worktree_root), timeout=30, check=False)
@@ -1030,7 +1051,10 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
             result['error'] = 'no_diff: patches produced byte-identical content; no commit created'
             return result
         commit_msg = format_auto_commit_message(task_id)
-        _run_streamed_command(['git', 'commit', '--only', '-m', commit_msg, '--'] + rel_targets, cwd=str(worktree_root), timeout=300, check=True)
+        if all(tracked_flags):
+            _run_streamed_command(['git', 'commit', '--only', '-m', commit_msg, '--'] + rel_targets, cwd=str(worktree_root), timeout=300, check=True)
+        else:
+            _run_streamed_command(['git', 'commit', '-m', commit_msg], cwd=str(worktree_root), timeout=300, check=True)
         sha_output = _run_streamed_command(['git', 'rev-parse', 'HEAD'], cwd=str(worktree_root), timeout=30, check=True)
         result['committed'] = True
         result['sha'] = sha_output.stdout.strip()
