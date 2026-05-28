@@ -87,6 +87,7 @@ def main() -> int:
     _stderr_buf = io.StringIO()
     with contextlib.redirect_stderr(_stderr_buf):
         try:
+            worker_start_monotonic = time.monotonic()
             _emit_lifecycle_safe(state_dir, phase='autowork', task_id=task_id, event='worker_start')
             started_emit = True
             from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -174,6 +175,13 @@ def main() -> int:
                 agent_a_prompt = base_prompt
                 agent_b_prompt = base_prompt
                 while ast_retries < max_ast_retries:
+                    if ast_retries > 0:
+                        remaining_budget = HARD_TIMEOUT_SECONDS - (time.monotonic() - worker_start_monotonic)
+                        if remaining_budget < SYNTHESIS_WINDOW_SECONDS:
+                            orch._emit_lifecycle(state_dir, event='retry_budget_exhausted', task_id=task_id, detail=f'remaining {remaining_budget:.1f}s < synthesis window {SYNTHESIS_WINDOW_SECONDS:.0f}s')
+                            _print_json_line({'task_id': task_id, 'outcome': 'timeout', 'reason': 'insufficient_time_for_retry', 'remaining_seconds': round(remaining_budget, 1)})
+                            exit_code = 2
+                            return exit_code
                     locked_read_modify_write(_set_task_state, state_dir)
                     agent_a_code, agent_b_code = orch.run_both_agents(agent_a_prompt, agent_b_prompt, config, state_dir, round_number, phase_name='synthesis')
                     for agent, code in [(agent_a, agent_a_code), (agent_b, agent_b_code)]:
@@ -183,11 +191,12 @@ def main() -> int:
                         else:
                             set_agent_status(state_dir, agent=agent, status='submitted')
                             orch._emit_lifecycle(state_dir, event='agent_status', agent=agent, status='submitted', task_id=task_id)
-                    if not agent_a_code and (not agent_b_code):
+                    if agent_a_code is None and agent_b_code is None:
                         ast_retries += 1
-                        agent_a_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
-                        agent_b_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
-                        continue
+                        orch._emit_lifecycle(state_dir, event='double_timeout', task_id=task_id, detail='both agents timed out; exiting before retry')
+                        _print_json_line({'task_id': task_id, 'outcome': 'timeout', 'reason': 'both_agents_timed_out', 'attempt': ast_retries})
+                        exit_code = 2
+                        return exit_code
                     if not agent_a_code or not agent_b_code:
                         ast_retries += 1
                         if not agent_a_code:
@@ -545,5 +554,7 @@ def _precompute_baseline_test_results(state_dir: Path, task: dict[str, Any], tas
         out_path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
     except OSError:
         pass
+HARD_TIMEOUT_SECONDS = 900.0
+SYNTHESIS_WINDOW_SECONDS = 600.0
 if __name__ == '__main__':
     sys.exit(main())

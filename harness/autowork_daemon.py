@@ -1273,7 +1273,7 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
                 cmd = [sys.executable, '-m', 'harness.orchestrator_worker', '--state-dir', str(state_dir), '--task-id', tid]
                 pid = None
                 try:
-                    proc = subprocess.Popen(cmd)
+                    proc = subprocess.Popen(cmd, start_new_session=True)
                     pid = proc.pid
                     _write_pidfile(state_dir, tid, pid)
                     suspend_parallel_workers(state_dir, exclude_pid=pid)
@@ -1285,7 +1285,7 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
                             now = time.time()
                             if now - seq_start > 900:
                                 _emit_telemetry(state_dir, tid, 'timeout', 'sequential worker timed out (15 min)')
-                                proc.kill()
+                                _kill_process_group(state_dir, tid, proc)
                                 proc.wait()
                                 break
                             to_remove = set()
@@ -1733,6 +1733,24 @@ def _check_inactivity_watchdog(repo_root: pathlib.Path, state_dir: pathlib.Path,
         except OSError:
             pass
 'harness/autowork_daemon.py safeguards (AUTOWORK_DAEMON_SAFEGUARDS).\n\nThree loop-spinning / inactivity safeguards for the autowork polling daemon:\n\n  1. ``collect_dispatchable_tasks`` skips spec files whose stem does not match\n     the declared ``task_id``, plus any ``current_task*`` or ``*.retry.json``.\n  2. A per-task dispatch circuit breaker (``_dispatch_timestamps``): 10 dispatches\n     within 300s quarantines the spec file and skips dispatch.\n  3. ``_check_inactivity_watchdog`` triggers a planning self-healing agent when\n     allowlisted briefs still have unfinished work but no agent-level event has\n     been recorded in impl_progress.jsonl for 20 minutes.\n\nThese definitions are AST-merged by name into the live module, so the helpers\nthey call (``_reap_running``, ``_decide``, ``_parallel_cap``, ...) resolve from\nthe target at call time.\n'
+
+def _kill_process_group(state_dir: pathlib.Path, task_id: str, proc: subprocess.Popen) -> None:
+    """SIGKILL the worker's entire process group on watchdog timeout (G-PGKILL).
+
+    The sequential worker is spawned with ``start_new_session=True`` so it leads
+    its own process group; killing the group reaps the grandchild agent CLIs
+    (claude/gemini) that a bare ``proc.kill()`` would orphan. Best-effort: a
+    vanished pid (ProcessLookupError) or an unsignalable group (PermissionError)
+    falls back to killing just the direct child, and never raises."""
+    try:
+        pgid = os.getpgid(proc.pid)
+        os.killpg(pgid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError) as exc:
+        _emit_telemetry(state_dir, task_id, 'killpg_failed', repr(exc))
+        try:
+            proc.kill()
+        except (ProcessLookupError, OSError):
+            pass
 if __name__ == '__main__':
     raise SystemExit(main())
 _ = transitive_deps
