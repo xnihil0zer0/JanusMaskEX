@@ -126,6 +126,13 @@ def serialize_orchestrator_state(state_dir: Path) -> None:
     locked_read_modify_write(_modifier, state_dir)
 
 def set_phase(state_dir: Path | None=None, *, phase: str) -> dict[str, Any]:
+    """Set the orchestrator ``phase`` in STATE.json under an exclusive lock.
+
+    Validates ``phase`` against :data:`VALID_PHASES` before touching disk and
+    raises :class:`InvalidPhaseError` for any unknown value. The mutation is
+    applied through :func:`locked_read_modify_write`, whose return value (the
+    freshly-written state dict) is propagated back to the caller.
+    """
     if phase not in VALID_PHASES:
         raise InvalidPhaseError(f'Invalid phase {phase!r}. Must be one of: {', '.join(sorted(VALID_PHASES))}')
 
@@ -193,3 +200,7 @@ from harness.state import InvalidAgentError
 from harness.state import VALID_AGENTS
 from harness.state import read_state
 'Reconstruction of get_agent_status for harness/state.py.'
+from harness.state import VALID_PHASES
+from harness.state import InvalidPhaseError
+from harness.state import locked_read_modify_write
+'Reconstruction of set_phase for harness/state.py.'
