@@ -169,6 +169,11 @@ def collect_dispatchable_tasks(status_records: list[dict], running_task_ids: set
     The third argument is named ``repo_root`` per spec, but the function
     resolves task files at ``<repo_root>/tasks/<id>.json``. ``run_daemon``
     passes ``state_dir`` here so the path becomes ``state_dir/tasks/``.
+
+    Spec files are skipped when their stem does not match the declared
+    ``task_id``, or when the filename starts with ``current_task`` (no
+    underscore, so ``current_task.json`` and ``current_task_*.json`` are both
+    excluded) or ends with ``.retry.json``.
     """
     base = pathlib.Path(repo_root)
     tasks_dir = base / 'tasks'
@@ -182,12 +187,12 @@ def collect_dispatchable_tasks(status_records: list[dict], running_task_ids: set
                 for line in f:
                     try:
                         row = json.loads(line)
-                        if isinstance(row, dict) and row.get('phase') == 'accepted' and row.get('event') == 'auto_commit':
+                        if isinstance(row, dict) and row.get('phase') == 'accepted' and (row.get('event') == 'auto_commit'):
                             tid = row.get('task_id')
                             if tid:
                                 accepted_ids.add(tid)
-                    except Exception:
-                        pass
+                    except Exception as err:
+                        _ = err
         except OSError:
             pass
     running_ids = set(running_task_ids or set())
@@ -199,7 +204,7 @@ def collect_dispatchable_tasks(status_records: list[dict], running_task_ids: set
             continue
         if p.name.endswith('.processing') or p.name.endswith('.json.processing'):
             continue
-        if p.name.startswith('current_task_') or p.name.endswith('.retry.json'):
+        if p.name.startswith('current_task') or p.name.endswith('.retry.json'):
             continue
         try:
             with open(p, 'r', encoding='utf-8') as f:
@@ -209,6 +214,8 @@ def collect_dispatchable_tasks(status_records: list[dict], running_task_ids: set
         if not isinstance(data, dict):
             continue
         if not isinstance(data.get('task_id'), str):
+            continue
+        if p.stem != data['task_id']:
             continue
         try:
             data['_mtime'] = p.stat().st_mtime
@@ -493,25 +500,23 @@ def _get_errors_for_task(state_dir: pathlib.Path, task_id: str) -> str:
     import json
     import pathlib
     errors = []
-    
     logs_dir = state_dir.parent / 'logs'
     fuzz_dir = logs_dir / 'fuzz_results'
     if fuzz_dir.exists() and fuzz_dir.is_dir():
         try:
-            for p in fuzz_dir.glob(f"*{task_id}*.json"):
+            for p in fuzz_dir.glob(f'*{task_id}*.json'):
                 try:
                     fuzz_data = json.loads(p.read_text(encoding='utf-8'))
                     if isinstance(fuzz_data, dict):
                         failures = fuzz_data.get('failures', [])
                         if failures:
-                            errors.append(f"Fuzzing failures from {p.name}:\n" + json.dumps(failures[:5], indent=2))
+                            errors.append(f'Fuzzing failures from {p.name}:\n' + json.dumps(failures[:5], indent=2))
                         elif fuzz_data.get('error'):
-                            errors.append(f"Fuzzing error from {p.name}: {fuzz_data['error']}")
+                            errors.append(f'Fuzzing error from {p.name}: {fuzz_data['error']}')
                 except Exception:
                     pass
         except Exception:
             pass
-            
     ledger = state_dir / 'impl_progress.jsonl'
     if ledger.exists():
         ledger_errors = []
@@ -524,37 +529,33 @@ def _get_errors_for_task(state_dir: pathlib.Path, task_id: str) -> str:
                             if not isinstance(row, dict):
                                 continue
                             if row.get('stderr_tail'):
-                                ledger_errors.append(f"stderr tail:\n{row['stderr_tail']}")
+                                ledger_errors.append(f'stderr tail:\n{row['stderr_tail']}')
                             elif row.get('detail') and ('error' in line or 'fail' in line):
-                                ledger_errors.append(f"Detail: {row['detail']}")
+                                ledger_errors.append(f'Detail: {row['detail']}')
                         except Exception:
                             pass
         except Exception:
             pass
-        # Only keep the last 10 telemetry errors to avoid command line argument list bloat
         errors.extend(ledger_errors[-10:])
-            
     workdirs_dir = state_dir / 'workdirs'
     if workdirs_dir.exists():
         try:
             for agent in ['claude', 'gemini', 'antigravity']:
                 agent_dir = workdirs_dir / agent
                 if agent_dir.exists():
-                    for p in agent_dir.glob(f"*-{task_id}-*/outbox/error.md"):
+                    for p in agent_dir.glob(f'*-{task_id}-*/outbox/error.md'):
                         try:
-                            errors.append(f"Agent error report ({p.parent.parent.name}):\n{p.read_text(encoding='utf-8')}")
+                            errors.append(f'Agent error report ({p.parent.parent.name}):\n{p.read_text(encoding='utf-8')}')
                         except Exception:
                             pass
         except Exception:
             pass
-
     if errors:
-        combined = "\n\n".join(errors)
-        # Cap the combined error string size to avoid OS ARG_MAX limits (Argument list too long)
+        combined = '\n\n'.join(errors)
         if len(combined) > 100000:
-            combined = combined[-100000:] + "\n\n[Traceback truncated due to length limits]"
+            combined = combined[-100000:] + '\n\n[Traceback truncated due to length limits]'
         return combined
-    return "No traceback or fuzz error logs found."
+    return 'No traceback or fuzz error logs found.'
 
 def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: str) -> None:
     import json
@@ -564,9 +565,7 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
     import sys
     import time
     import uuid
-
     state_dir = pathlib.Path(state_dir)
-    
     task_json_path = state_dir / 'tasks' / 'blocked' / f'{task_id}.json'
     files_touched = []
     objective = ''
@@ -579,11 +578,9 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
                     objective = task_data.get('objective', '')
         except Exception:
             pass
-
     config_path = pathlib.Path('harness/config.yaml')
     if not config_path.is_file():
         config_path = state_dir.parent / 'harness' / 'config.yaml'
-        
     config = {}
     if yaml is not None and config_path.is_file():
         try:
@@ -591,27 +588,16 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
                 config = yaml.safe_load(f)
         except Exception:
             pass
-            
     if not isinstance(config, dict):
         config = {}
-
     control = config.get('control', {})
     agent = control.get('autobrief_default_agent', 'claude') if isinstance(control, dict) else 'claude'
     if not agent:
         agent = 'claude'
-
     history_dir = state_dir / 'control' / 'autowork'
     history_dir.mkdir(parents=True, exist_ok=True)
     history_path = history_dir / 'self_healing_history.jsonl'
-    
-    record = {
-        'ts': time.time(),
-        'task_id': task_id,
-        'files_touched': files_touched,
-        'outcome': last_outcome,
-        'spec_objective': objective
-    }
-    
+    record = {'ts': time.time(), 'task_id': task_id, 'files_touched': files_touched, 'outcome': last_outcome, 'spec_objective': objective}
     line = json.dumps(record, sort_keys=True) + '\n'
     try:
         import fcntl
@@ -628,27 +614,17 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
                 f.write(line)
         except Exception:
             pass
-
     agents = config.get('agents', {})
     agent_cfg = agents.get(agent, {}) if isinstance(agents, dict) else {}
     if not agent_cfg:
         if agent == 'gemini':
             agent_cfg = {'command': 'agy', 'args': ['-p', '--sandbox']}
         else:
-            agent_cfg = {
-                'command': 'claude',
-                'args': [
-                    '-p', '--model', 'opus', '--output-format', 'stream-json',
-                    '--include-partial-messages', '--settings', '${CONFIG_DIR}/claude_worker.json',
-                    '--mcp-config', '${CONFIG_DIR}/claude_mcp.json', '--strict-mcp-config',
-                    '--setting-sources', ''
-                ]
-            }
-
+            agent_cfg = {'command': 'claude', 'args': ['-p', '--model', 'opus', '--output-format', 'stream-json', '--include-partial-messages', '--settings', '${CONFIG_DIR}/claude_worker.json', '--mcp-config', '${CONFIG_DIR}/claude_mcp.json', '--strict-mcp-config', '--setting-sources', '']}
     command_tmpl = agent_cfg.get('command', 'claude')
     args_tmpl = agent_cfg.get('args', [])
-
     from harness.paths import PROJECT_ROOT_STR, CONFIG_DIR_STR, HARNESS_DIR_STR
+
     def subst(s: str) -> str:
         if not isinstance(s, str):
             return s
@@ -657,65 +633,37 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
         s = s.replace('${CONFIG_DIR}', CONFIG_DIR_STR)
         s = s.replace('${HARNESS_DIR}', HARNESS_DIR_STR)
         return s
-
     command = subst(command_tmpl)
     args = [subst(arg) for arg in args_tmpl]
-
-    rewire = {
-        str(pathlib.Path(CONFIG_DIR_STR) / 'claude_worker.json'): str(pathlib.Path(CONFIG_DIR_STR) / 'claude_worker_planning_hooks.json'),
-        str(pathlib.Path(CONFIG_DIR_STR) / 'gemini_worker_policy.toml'): str(pathlib.Path(CONFIG_DIR_STR) / 'gemini_worker_policy_planning.toml')
-    }
+    rewire = {str(pathlib.Path(CONFIG_DIR_STR) / 'claude_worker.json'): str(pathlib.Path(CONFIG_DIR_STR) / 'claude_worker_planning_hooks.json'), str(pathlib.Path(CONFIG_DIR_STR) / 'gemini_worker_policy.toml'): str(pathlib.Path(CONFIG_DIR_STR) / 'gemini_worker_policy_planning.toml')}
     args = [rewire.get(a, a) for a in args]
-
     if agent == 'claude' and '--permission-mode' not in args:
         args = args + ['--permission-mode', 'acceptEdits']
-
     errors_str = _get_errors_for_task(state_dir, task_id)
-    
-    prompt = (
-        f"The task '{task_id}' has exhausted its retry budget. You need to investigate and perform self-healing.\n"
-        f"Objective: {objective}\n"
-        f"Files touched: {files_touched}\n\n"
-        f"--- Traceback/Fuzz Error Logs ---\n"
-        f"{errors_str}\n\n"
-        f"Instructions:\n"
-        f"1. Draft a new brief hooks file at `brief_hooks_{task_id}_fix.md` outlining the problem and proposed plan.\n"
-        f"2. Append `{task_id}_fix` as a new line to the allowlist file at `state/control/autowork/auto_promote.allowlist` so it can be promoted."
-    )
-
+    prompt = f"The task '{task_id}' has exhausted its retry budget. You need to investigate and perform self-healing.\nObjective: {objective}\nFiles touched: {files_touched}\n\n--- Traceback/Fuzz Error Logs ---\n{errors_str}\n\nInstructions:\n1. Draft a new brief hooks file at `brief_hooks_{task_id}_fix.md` outlining the problem and proposed plan.\n2. Append `{task_id}_fix` as a new line to the allowlist file at `state/control/autowork/auto_promote.allowlist` so it can be promoted."
     env = dict(os.environ)
     env['JANUSMASK_MODE'] = 'planning'
     env['JANUSMASK_TASK_ID'] = task_id
     env['JANUSMASK_STATE_DIR'] = str(state_dir)
-    
-    session_slug = f"{agent}-r1-{task_id}-{uuid.uuid4().hex[:8]}"
+    session_slug = f'{agent}-r1-{task_id}-{uuid.uuid4().hex[:8]}'
     work_dir = state_dir / 'workdirs' / agent / session_slug
     env['JANUSMASK_WORK_DIR'] = str(work_dir)
-    
     outbox_path = work_dir / 'outbox'
     outbox_path.mkdir(parents=True, exist_ok=True)
-    
     inbox_dir = work_dir / 'inbox'
     inbox_dir.mkdir(parents=True, exist_ok=True)
-    brief_data = {
-        'task_id': task_id,
-        'objective': objective,
-        'files_touched': files_touched
-    }
+    brief_data = {'task_id': task_id, 'objective': objective, 'files_touched': files_touched}
     try:
         with open(inbox_dir / 'brief.json', 'w', encoding='utf-8') as f:
             json.dump(brief_data, f)
     except OSError:
         pass
-
     resolved_prompt = prompt.replace('{STATE_DIR}', str(state_dir)).replace('{OUTBOX_PATH}', str(outbox_path))
-    
     try:
         p_index = args.index('-p')
         cmd = [command] + args[:p_index + 1] + [resolved_prompt] + args[p_index + 1:]
     except ValueError:
         cmd = [command] + args + ['-p', resolved_prompt]
-
     try:
         subprocess.Popen(cmd, env=env)
     except Exception as exc:
@@ -758,10 +706,6 @@ def _retry_blocked_tasks(state_dir: pathlib.Path, summary: dict, max_attempts: i
                     last_outcome = lo if isinstance(lo, str) else ''
             except (OSError, ValueError):
                 attempts, last_ts, last_outcome = (0, 0.0, '')
-        # G-NORETRY2: deterministic failures (code/test fails identically on a
-        # retry) get a 1-attempt budget; transient failures (env/race/commit-
-        # contention) get the full max_attempts. last_outcome is recorded by
-        # orchestrator._mark_blocked / _bump_blocked_sidecar.
         _DETERMINISTIC_OUTCOMES = ('synthesis_or_ast_failed', 'smoke_failed', 'embedded_tests_failed', 'narrow_fuzz_failed')
         effective_max = 1 if last_outcome in _DETERMINISTIC_OUTCOMES else max_attempts
         if attempts >= effective_max:
@@ -771,7 +715,7 @@ def _retry_blocked_tasks(state_dir: pathlib.Path, summary: dict, max_attempts: i
                     exhausted.write_text('1', encoding='utf-8')
                 except OSError:
                     pass
-                _emit_telemetry(state_dir, tid, 'retry_exhausted', f'blocked retry budget {effective_max} exhausted (outcome={last_outcome or "unknown"})')
+                _emit_telemetry(state_dir, tid, 'retry_exhausted', f'blocked retry budget {effective_max} exhausted (outcome={last_outcome or 'unknown'})')
                 try:
                     _escalate_to_autobrief(state_dir, tid, last_outcome)
                 except Exception as exc:
@@ -814,11 +758,6 @@ def _spawn_worker(state_dir: pathlib.Path, task_id: str) -> int | None:
     except (OSError, ValueError) as exc:
         _emit_telemetry(state_dir, task_id, 'spawn_failed', repr(exc))
         return None
-
-# Cap respawns of a rebuild job's resumable loop so a permanently-failing unit
-# can't pin the daemon in an endless --resume loop (each respawn retries only the
-# units that are still stubs; after this many launches without completion the job
-# is parked 'blocked').
 MAX_REBUILD_ATTEMPTS = 5
 
 def _rebuild_pid_name(slug: str) -> str:
@@ -828,8 +767,6 @@ def _rebuild_pid_name(slug: str) -> str:
 def _spawn_rebuild_worker(state_dir: pathlib.Path, job: dict) -> int | None:
     from harness.rebuild import job as _job
     cmd = _job.build_loop_command(job)
-    # cwd = parent JanusMask: the loop runs ``-m harness.rebuild.loop`` and needs
-    # ``import harness`` to resolve regardless of where the daemon was launched.
     try:
         proc = subprocess.Popen(cmd, cwd=_job.parent_root())
         return proc.pid
@@ -858,7 +795,6 @@ def _has_active_rebuild_job(state_dir: pathlib.Path) -> bool:
     except Exception:
         return False
     return False
-
 
 def _watch_rebuild_jobs(repo_root: pathlib.Path, state_dir: pathlib.Path, running: set[str], *, config: dict | None=None, dry_run: bool=False) -> None:
     """Model A rebuild-watcher: supervise a resumable loop per allowlisted job.
@@ -894,24 +830,24 @@ def _watch_rebuild_jobs(repo_root: pathlib.Path, state_dir: pathlib.Path, runnin
             continue
         if st.get('complete'):
             if job.get('status') != 'complete':
-                _emit_telemetry(state_dir, pidname, 'rebuild_complete', f"head={st.get('head_sha')}")
+                _emit_telemetry(state_dir, pidname, 'rebuild_complete', f'head={st.get('head_sha')}')
                 _mark_rebuild_job(state_dir, slug, status='complete')
             continue
         attempts = int(job.get('attempts', 0) or 0)
         if attempts >= MAX_REBUILD_ATTEMPTS:
             if job.get('status') != 'blocked':
                 _mark_rebuild_job(state_dir, slug, status='blocked')
-                _emit_telemetry(state_dir, pidname, 'rebuild_blocked', f'exhausted {attempts} attempts; remaining={len(st.get("remaining", []))}')
+                _emit_telemetry(state_dir, pidname, 'rebuild_blocked', f'exhausted {attempts} attempts; remaining={len(st.get('remaining', []))}')
             continue
         if dry_run:
-            _emit_telemetry(state_dir, pidname, 'rebuild_dry_run', f"would resume; remaining={len(st.get('remaining', []))}")
+            _emit_telemetry(state_dir, pidname, 'rebuild_dry_run', f'would resume; remaining={len(st.get('remaining', []))}')
             continue
         pid = _spawn_rebuild_worker(state_dir, job)
         if pid is None:
             continue
         _write_pidfile(state_dir, pidname, pid)
         _mark_rebuild_job(state_dir, slug, status='running', attempts=attempts + 1)
-        _emit_telemetry(state_dir, pidname, 'rebuild_launch', f"pid={pid} attempt={attempts + 1} remaining={len(st.get('remaining', []))}")
+        _emit_telemetry(state_dir, pidname, 'rebuild_launch', f'pid={pid} attempt={attempts + 1} remaining={len(st.get('remaining', []))}')
 
 def _mark_rebuild_job(state_dir: pathlib.Path, slug: str, *, status: str | None=None, attempts: int | None=None) -> None:
     path = pathlib.Path(state_dir) / 'control' / 'rebuild' / 'jobs' / f'{slug}.json'
@@ -1046,7 +982,7 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
                 continue
             slug = rec.get('slug') or ''
             if rec.get('has_plan') and rec.get('unstaged_task_ids'):
-                _emit_telemetry(state_dir, '', 'dry_run', f'would extract {slug}: {rec.get("unstaged_task_ids")}')
+                _emit_telemetry(state_dir, '', 'dry_run', f'would extract {slug}: {rec.get('unstaged_task_ids')}')
             elif rec.get('state') == 'unplanned':
                 _emit_telemetry(state_dir, '', 'dry_run', f'would plan_kickoff {slug}')
         return summary
@@ -1286,7 +1222,6 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
     except Exception as exc:
         _emit_telemetry(state_dir, '', 'skip', f'auto_promote error: {exc!r}')
     chosen, paused, free = _decide(repo_root, state_dir, running, cap)
-    # Model A: supervise allowlisted rebuild jobs orthogonally to task dispatch.
     try:
         _watch_rebuild_jobs(repo_root, state_dir, running, config=config, dry_run=dry_run)
     except Exception as exc:
@@ -1305,14 +1240,34 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
             _emit_telemetry(state_dir, tid, 'dry_run', 'would launch')
         return {'would_launch': would_launch, 'free_slots': free, 'cap': cap, 'paused': paused, 'extracts': extracts_count, 'plan_kickoffs': plan_kickoffs_count}
     launched: list[str] = []
-    
     cfg = config or {}
     active_agents = cfg.get('synthesis', {}).get('active_agents', ['claude', 'gemini'])
     requires_claude = cfg.get('synthesis', {}).get('antigravity_mode', True) or 'claude' in active_agents or 'antigravity' in active_agents
-
     if not paused:
         for task in chosen:
             tid = task['task_id']
+            now_ts = time.time()
+            if tid not in _dispatch_timestamps:
+                _dispatch_timestamps[tid] = []
+            _dispatch_timestamps[tid].append(now_ts)
+            _dispatch_timestamps[tid] = [ts for ts in _dispatch_timestamps[tid] if now_ts - ts <= 300.0]
+            if len(_dispatch_timestamps[tid]) >= 10:
+                tasks_dir = state_dir / 'tasks'
+                quarantine_dir = tasks_dir / 'quarantine'
+                quarantine_dir.mkdir(parents=True, exist_ok=True)
+                src_path = tasks_dir / f'{tid}.json'
+                dest_path = quarantine_dir / f'{tid}.json'
+                if src_path.exists():
+                    try:
+                        src_path.replace(dest_path)
+                    except OSError:
+                        try:
+                            import shutil
+                            shutil.move(str(src_path), str(dest_path))
+                        except Exception as err:
+                            _ = err
+                _emit_telemetry(state_dir, tid, 'quarantine', 'loop spinning detected: 10 dispatches in last 5m')
+                continue
             if requires_claude:
                 _emit_telemetry(state_dir, tid, 'launch_sequential', 'running sequential/claude worker')
                 cmd = [sys.executable, '-m', 'harness.orchestrator_worker', '--state-dir', str(state_dir), '--task-id', tid]
@@ -1324,7 +1279,6 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
                     suspend_parallel_workers(state_dir, exclude_pid=pid)
                     _emit_telemetry(state_dir, tid, 'launch', f'pid={pid}')
                     launched.append(tid)
-                    
                     seq_start = time.time()
                     try:
                         while proc.poll() is None:
@@ -1334,23 +1288,21 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
                                 proc.kill()
                                 proc.wait()
                                 break
-                            
                             to_remove = set()
                             for spid in _suspended_pids:
                                 if now - _suspension_start_times.get(spid, now) > 300:
                                     try:
                                         os.kill(spid, signal.SIGTERM)
                                         _emit_telemetry(state_dir, str(spid), 'watchdog_term', f'pid={spid}')
-                                    except Exception:
-                                        pass
+                                    except Exception as err:
+                                        _ = err
                                     to_remove.add(spid)
                             for spid in to_remove:
                                 _suspended_pids.discard(spid)
                                 _suspension_start_times.pop(spid, None)
-                            
                             time.sleep(1.0)
                     except Exception as exc:
-                        pass
+                        _ = exc
                 except Exception as exc:
                     _emit_telemetry(state_dir, tid, 'spawn_failed', repr(exc))
                 finally:
@@ -1456,7 +1408,15 @@ def run_daemon(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -
     cap = _parallel_cap(config)
     poll = _poll_interval(config)
     heartbeat = _heartbeat_interval(config)
+    global _daemon_start_time
+    _daemon_start_time = time.time()
     _emit_telemetry(state_dir, '', 'daemon_start', f'cap={cap} poll={poll} heartbeat={heartbeat}')
+    try:
+        marker_path = pathlib.Path(state_dir) / 'control' / 'autowork' / 'inactivity_escalated.json'
+        if marker_path.exists():
+            marker_path.unlink()
+    except OSError:
+        pass
     prev_paused: bool | None = None
     prev_is_idle: bool = False
     try:
@@ -1488,12 +1448,13 @@ def run_daemon(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -
             elif not is_idle and prev_is_idle:
                 _emit_telemetry(state_dir, '', 'active', '')
             prev_is_idle = is_idle
+            try:
+                _check_inactivity_watchdog(repo_root, state_dir, config)
+            except Exception as exc:
+                _emit_telemetry(state_dir, '', 'skip', f'watchdog error: {exc!r}')
             sleep_target = heartbeat if is_idle else poll
             slept = 0.0
             step = 0.5 if sleep_target > 0.5 else sleep_target
-            # G-IDLE: while idle-sleeping the long heartbeat, break early when the
-            # allowlist or a brief_hooks_*.md changes so operator edits are picked
-            # up promptly instead of after up to `heartbeat` seconds.
             watch_baseline = _autowork_watch_mtime(repo_root, state_dir) if is_idle else None
             while slept < sleep_target and (not _shutdown_requested):
                 time.sleep(step)
@@ -1623,6 +1584,155 @@ def _auto_promote_brief_eligible(state_dir, slug, brief_mtime, now=None, max_age
     return True
 "harness/autowork_daemon.py -- polling daemon for orchestrator_worker subprocesses (AW4a).\n\nR-PROMOTE-6: _iteration bubbles {extracts, plan_kickoffs} into its result dict\nso run_daemon's is_idle excludes iterations that just kicked off a plan\n(whose tasks need extracting on the next iteration). Without this, a fresh\nplan_kickoff iteration is classified idle and the daemon sleeps for\nheartbeat (1800s), leaving the new plan's tasks unstaged.\n"
 "Submission for escalating_backoff_recently_failed_to_plan.\n\nThree coordinated edits to harness/autowork_daemon.py:\n  1. _plan_attempt_marker_path: suffix .failed -> .json\n  2. _recently_failed_to_plan: read JSON marker, apply tiered backoff\n     (300s / 3600s / 86400s based on 'attempts' count); drop ttl_sec param\n  3. _auto_promote: rewrite the hallucination marker-write block to\n     read-modify-write JSON, bumping 'attempts' on each failure\n"
+_dispatch_timestamps: dict[str, list[float]] = {}
+_daemon_start_time: float = 0.0
+
+def _escalate_inactivity(state_dir: pathlib.Path, config: dict) -> None:
+    import json
+    import os
+    import pathlib
+    import subprocess
+    import sys
+    import time
+    import uuid
+    state_dir = pathlib.Path(state_dir)
+    task_id = 'daemon_inactivity_stuck'
+    config_path = pathlib.Path('harness/config.yaml')
+    if not config_path.is_file():
+        config_path = state_dir.parent / 'harness' / 'config.yaml'
+    if not isinstance(config, dict):
+        config = {}
+    control = config.get('control', {})
+    agent = control.get('autobrief_default_agent', 'claude') if isinstance(control, dict) else 'claude'
+    if not agent:
+        agent = 'claude'
+    agents = config.get('agents', {})
+    agent_cfg = agents.get(agent, {}) if isinstance(agents, dict) else {}
+    if not agent_cfg:
+        if agent == 'gemini':
+            agent_cfg = {'command': 'agy', 'args': ['-p', '--sandbox']}
+        else:
+            agent_cfg = {'command': 'claude', 'args': ['-p', '--model', 'opus', '--output-format', 'stream-json', '--include-partial-messages', '--settings', '${CONFIG_DIR}/claude_worker.json', '--mcp-config', '${CONFIG_DIR}/claude_mcp.json', '--strict-mcp-config', '--setting-sources', '']}
+    command_tmpl = agent_cfg.get('command', 'claude')
+    args_tmpl = agent_cfg.get('args', [])
+    from harness.paths import PROJECT_ROOT_STR, CONFIG_DIR_STR, HARNESS_DIR_STR
+
+    def subst(s: str) -> str:
+        if not isinstance(s, str):
+            return s
+        s = s.replace('${PROJECT_ROOT}', PROJECT_ROOT_STR)
+        s = s.replace('${STATE_DIR}', str(state_dir))
+        s = s.replace('${CONFIG_DIR}', CONFIG_DIR_STR)
+        s = s.replace('${HARNESS_DIR}', HARNESS_DIR_STR)
+        return s
+    command = subst(command_tmpl)
+    args = [subst(arg) for arg in args_tmpl]
+    rewire = {str(pathlib.Path(CONFIG_DIR_STR) / 'claude_worker.json'): str(pathlib.Path(CONFIG_DIR_STR) / 'claude_worker_planning_hooks.json'), str(pathlib.Path(CONFIG_DIR_STR) / 'gemini_worker_policy.toml'): str(pathlib.Path(CONFIG_DIR_STR) / 'gemini_worker_policy_planning.toml')}
+    args = [rewire.get(a, a) for a in args]
+    if agent == 'claude' and '--permission-mode' not in args:
+        args = args + ['--permission-mode', 'acceptEdits']
+    prompt = f'The autowork daemon is stuck with unfinished allowlisted work and no agent activity for 20 minutes.\nSynthetic Task: {task_id}\n\nPlease run a self-healing diagnostic to identify why the daemon is stuck, and resolve any blockers.'
+    env = dict(os.environ)
+    env['JANUSMASK_MODE'] = 'planning'
+    env['JANUSMASK_TASK_ID'] = task_id
+    env['JANUSMASK_STATE_DIR'] = str(state_dir)
+    session_slug = f'{agent}-r1-{task_id}-{uuid.uuid4().hex[:8]}'
+    work_dir = state_dir / 'workdirs' / agent / session_slug
+    env['JANUSMASK_WORK_DIR'] = str(work_dir)
+    outbox_path = work_dir / 'outbox'
+    outbox_path.mkdir(parents=True, exist_ok=True)
+    inbox_dir = work_dir / 'inbox'
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    brief_data = {'task_id': task_id, 'objective': 'Diagnose and resolve autowork daemon inactivity/stuck state', 'files_touched': []}
+    try:
+        with open(inbox_dir / 'brief.json', 'w', encoding='utf-8') as f:
+            json.dump(brief_data, f)
+    except OSError:
+        pass
+    resolved_prompt = prompt.replace('{STATE_DIR}', str(state_dir)).replace('{OUTBOX_PATH}', str(outbox_path))
+    try:
+        p_index = args.index('-p')
+        cmd = [command] + args[:p_index + 1] + [resolved_prompt] + args[p_index + 1:]
+    except ValueError:
+        cmd = [command] + args + ['-p', resolved_prompt]
+    history_dir = state_dir / 'control' / 'autowork'
+    history_dir.mkdir(parents=True, exist_ok=True)
+    history_path = history_dir / 'self_healing_history.jsonl'
+    record = {'ts': time.time(), 'task_id': task_id, 'files_touched': [], 'outcome': 'inactivity', 'spec_objective': 'Diagnose and resolve autowork daemon inactivity/stuck state'}
+    line = json.dumps(record, sort_keys=True) + '\n'
+    try:
+        import fcntl
+        with open(history_path, 'a', encoding='utf-8') as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                f.write(line)
+                f.flush()
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+    except Exception as err1:
+        try:
+            with open(history_path, 'a', encoding='utf-8') as f:
+                f.write(line)
+        except Exception as err2:
+            _ = err2
+    try:
+        subprocess.Popen(cmd, env=env)
+    except Exception as exc:
+        _emit_telemetry(state_dir, task_id, 'spawn_failed', repr(exc))
+
+def _check_inactivity_watchdog(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -> None:
+    repo_root = pathlib.Path(repo_root)
+    state_dir = pathlib.Path(state_dir)
+    has_unfinished = False
+    try:
+        from harness.brief_status import compute_autowork_backlog
+        backlog = compute_autowork_backlog(repo_root, state_dir)
+        has_unfinished = len(backlog.get('eligible_with_work', [])) > 0
+    except Exception as err:
+        _ = err
+    ledger_path = state_dir / 'impl_progress.jsonl'
+    last_event_ts = None
+    agent_level_events = {'worker_start', 'agent_status', 'phase_transition', 'auto_commit', 'task_blocked'}
+    if ledger_path.exists():
+        try:
+            with open(ledger_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    try:
+                        row = json.loads(line)
+                        if isinstance(row, dict):
+                            event = row.get('event')
+                            ts = row.get('ts')
+                            if event in agent_level_events and isinstance(ts, (int, float)):
+                                last_event_ts = ts
+                    except Exception as err:
+                        _ = err
+        except OSError:
+            pass
+    now = time.time()
+    if last_event_ts is not None:
+        stuck_duration = now - last_event_ts
+    else:
+        stuck_duration = now - _daemon_start_time
+    is_stuck = has_unfinished and stuck_duration > 1200.0
+    marker_path = state_dir / 'control' / 'autowork' / 'inactivity_escalated.json'
+    if is_stuck:
+        if not marker_path.exists():
+            try:
+                marker_path.parent.mkdir(parents=True, exist_ok=True)
+                marker_path.write_text(json.dumps({'ts': now}), encoding='utf-8')
+            except OSError:
+                pass
+            _emit_telemetry(state_dir, 'daemon_inactivity_stuck', 'inactivity_watchdog_triggered', f'stuck_duration={stuck_duration:.1f}s')
+            try:
+                _escalate_inactivity(state_dir, config)
+            except Exception as exc:
+                _emit_telemetry(state_dir, 'daemon_inactivity_stuck', 'escalation_failed', repr(exc))
+    elif marker_path.exists():
+        try:
+            marker_path.unlink()
+        except OSError:
+            pass
+'harness/autowork_daemon.py safeguards (AUTOWORK_DAEMON_SAFEGUARDS).\n\nThree loop-spinning / inactivity safeguards for the autowork polling daemon:\n\n  1. ``collect_dispatchable_tasks`` skips spec files whose stem does not match\n     the declared ``task_id``, plus any ``current_task*`` or ``*.retry.json``.\n  2. A per-task dispatch circuit breaker (``_dispatch_timestamps``): 10 dispatches\n     within 300s quarantines the spec file and skips dispatch.\n  3. ``_check_inactivity_watchdog`` triggers a planning self-healing agent when\n     allowlisted briefs still have unfinished work but no agent-level event has\n     been recorded in impl_progress.jsonl for 20 minutes.\n\nThese definitions are AST-merged by name into the live module, so the helpers\nthey call (``_reap_running``, ``_decide``, ``_parallel_cap``, ...) resolve from\nthe target at call time.\n'
 if __name__ == '__main__':
     raise SystemExit(main())
 _ = transitive_deps
