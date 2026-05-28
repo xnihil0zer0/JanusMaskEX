@@ -199,6 +199,8 @@ def collect_dispatchable_tasks(status_records: list[dict], running_task_ids: set
             continue
         if p.name.endswith('.processing') or p.name.endswith('.json.processing'):
             continue
+        if p.name.startswith('current_task_') or p.name.endswith('.retry.json'):
+            continue
         try:
             with open(p, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -476,6 +478,12 @@ def _reclaim_orphan_processing(state_dir: pathlib.Path, live_ids: set[str]) -> i
             p.rename(dest)
         except OSError:
             continue
+        current_task_path = tasks_dir / f'current_task_{tid}.json'
+        if current_task_path.exists():
+            try:
+                current_task_path.unlink()
+            except OSError:
+                pass
         _bump_blocked_sidecar(state_dir, tid, 'orphaned')
         _emit_telemetry(state_dir, tid, 'task_blocked', 'orphaned (no live worker) routed to blocked/')
         reclaimed += 1
@@ -506,6 +514,7 @@ def _get_errors_for_task(state_dir: pathlib.Path, task_id: str) -> str:
             
     ledger = state_dir / 'impl_progress.jsonl'
     if ledger.exists():
+        ledger_errors = []
         try:
             with open(ledger, 'r', encoding='utf-8') as f:
                 for line in f:
@@ -515,13 +524,15 @@ def _get_errors_for_task(state_dir: pathlib.Path, task_id: str) -> str:
                             if not isinstance(row, dict):
                                 continue
                             if row.get('stderr_tail'):
-                                errors.append(f"stderr tail:\n{row['stderr_tail']}")
+                                ledger_errors.append(f"stderr tail:\n{row['stderr_tail']}")
                             elif row.get('detail') and ('error' in line or 'fail' in line):
-                                errors.append(f"Detail: {row['detail']}")
+                                ledger_errors.append(f"Detail: {row['detail']}")
                         except Exception:
                             pass
         except Exception:
             pass
+        # Only keep the last 10 telemetry errors to avoid command line argument list bloat
+        errors.extend(ledger_errors[-10:])
             
     workdirs_dir = state_dir / 'workdirs'
     if workdirs_dir.exists():
@@ -538,7 +549,11 @@ def _get_errors_for_task(state_dir: pathlib.Path, task_id: str) -> str:
             pass
 
     if errors:
-        return "\n\n".join(errors)
+        combined = "\n\n".join(errors)
+        # Cap the combined error string size to avoid OS ARG_MAX limits (Argument list too long)
+        if len(combined) > 100000:
+            combined = combined[-100000:] + "\n\n[Traceback truncated due to length limits]"
+        return combined
     return "No traceback or fuzz error logs found."
 
 def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: str) -> None:
