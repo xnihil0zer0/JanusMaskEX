@@ -70,3 +70,12 @@ def test_heartbeat_interval_falls_back_on_non_positive() -> None:
     assert _heartbeat_interval({'autowork': {'heartbeat_sec': -5}}) == float(DEFAULT_HEARTBEAT_SEC)
 from harness.autowork_daemon import DEFAULT_HEARTBEAT_SEC
 from harness.autowork_daemon import _heartbeat_interval
+
+def test_collect_dispatchable_skips_mismatched_stems(tmp_path: pathlib.Path) -> None:
+    state_dir = tmp_path / 'state'
+    tasks_dir = state_dir / 'tasks'
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    p = tasks_dir / 'current_task.json'
+    p.write_text(json.dumps({'task_id': 'RB_JR_tierC_set_phase-conditional_0-reviewed', 'files_touched': ['a.py'], 'dependencies': []}), encoding='utf-8')
+    candidates = collect_dispatchable_tasks([], set(), state_dir)
+    assert 'RB_JR_tierC_set_phase-conditional_0-reviewed' not in {t['task_id'] for t in candidates}
