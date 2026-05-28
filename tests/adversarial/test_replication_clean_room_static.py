@@ -55,7 +55,31 @@ class TestSmokeArtifactsTracked:
         ids = {t["task_id"] for t in plan["tasks"]}
         assert "SMOKE_VERSION" in ids, ids
 
+    def _smoke_version_completed(self) -> bool:
+        ledger = _REPO_ROOT / "state" / "impl_progress.jsonl"
+        if not ledger.exists():
+            return False
+        try:
+            with open(ledger, "r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        row = json.loads(line)
+                        if (
+                            isinstance(row, dict)
+                            and row.get("task_id") == "SMOKE_VERSION"
+                            and row.get("phase") == "accepted"
+                            and row.get("event") == "auto_commit"
+                        ):
+                            return True
+                    except Exception:
+                        pass
+        except OSError:
+            pass
+        return False
+
     def test_committed_stub_omits_version_assignment(self) -> None:
+        if self._smoke_version_completed():
+            pytest.skip("SMOKE_VERSION has already been executed and committed to master.")
         # The committed stub MUST NOT define a top-level __version__ assignment
         # so the first dispatch produces a real diff (and a real commit). The
         # docstring legitimately mentions "__version__", so check the AST for an
@@ -72,6 +96,7 @@ class TestSmokeArtifactsTracked:
                     "committed smoke_target.py must omit the __version__ "
                     "assignment (else the smoke dispatch produces no_diff)"
                 )
+
 
 
 # -- (2) harness/ is Path.home()-free ----------------------------------------

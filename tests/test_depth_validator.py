@@ -30,19 +30,19 @@ def _write(dirpath: Path, task_id: str, parent: str | None = None) -> None:
     (dirpath / f"{task_id}.json").write_text(json.dumps(payload))
 
 
-def test_parentless_task_passes(tasks_dir: Path) -> None:
+def test_check_true_depth_parentless_task_passes(tasks_dir: Path) -> None:
     _write(tasks_dir, "root")
     assert check_true_depth("root", tasks_dir) is True
 
 
-def test_chain_within_max_depth_passes(tasks_dir: Path) -> None:
+def test_check_true_depth_chain_within_max_depth_passes(tasks_dir: Path) -> None:
     _write(tasks_dir, "a")
     _write(tasks_dir, "b", parent="a")
     _write(tasks_dir, "c", parent="b")
     assert check_true_depth("c", tasks_dir, max_depth=3) is True
 
 
-def test_chain_exceeding_max_depth_fails(tasks_dir: Path) -> None:
+def test_check_true_depth_chain_exceeding_max_depth_fails(tasks_dir: Path) -> None:
     _write(tasks_dir, "a")
     _write(tasks_dir, "b", parent="a")
     _write(tasks_dir, "c", parent="b")
@@ -50,24 +50,24 @@ def test_chain_exceeding_max_depth_fails(tasks_dir: Path) -> None:
     assert check_true_depth("d", tasks_dir, max_depth=3) is False
 
 
-def test_parent_in_processed_dir_resolved(tasks_dir: Path) -> None:
+def test_check_true_depth_parent_in_processed_dir_resolved(tasks_dir: Path) -> None:
     _write(tasks_dir / "processed", "parent")
     _write(tasks_dir, "child", parent="parent")
     assert check_true_depth("child", tasks_dir, max_depth=3) is True
 
 
-def test_circular_reference_fails(tasks_dir: Path) -> None:
+def test_check_true_depth_circular_reference_fails(tasks_dir: Path) -> None:
     _write(tasks_dir, "a", parent="b")
     _write(tasks_dir, "b", parent="a")
     assert check_true_depth("a", tasks_dir, max_depth=10) is False
 
 
-def test_missing_parent_file_fails(tasks_dir: Path) -> None:
+def test_check_true_depth_missing_parent_file_fails(tasks_dir: Path) -> None:
     _write(tasks_dir, "child", parent="ghost")
     assert check_true_depth("child", tasks_dir) is False
 
 
-def test_empty_and_invalid_inputs(tasks_dir: Path) -> None:
+def test_check_true_depth_empty_and_invalid_inputs(tasks_dir: Path) -> None:
     # Test cases that should return False instead of raising exception or returning True
     assert check_true_depth('', 0, 0) is False
     assert check_true_depth('', 150, 0) is False
@@ -79,7 +79,7 @@ def test_empty_and_invalid_inputs(tasks_dir: Path) -> None:
     assert check_true_depth('child', []) is False
 
 
-def test_invalid_parent_id_fails(tasks_dir: Path) -> None:
+def test_check_true_depth_invalid_parent_id_fails(tasks_dir: Path) -> None:
     _write(tasks_dir, "child", parent="")
     assert check_true_depth("child", tasks_dir) is False
 
@@ -89,5 +89,6 @@ def test_invalid_parent_id_fails(tasks_dir: Path) -> None:
     payload = {"task_id": "child2", "parent_task": []}
     (tasks_dir / "child2.json").write_text(json.dumps(payload))
     assert check_true_depth("child2", tasks_dir) is False
+
 
 
