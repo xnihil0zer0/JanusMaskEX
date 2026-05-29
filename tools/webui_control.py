@@ -74,6 +74,11 @@ class ControlHandlers:
     _dispatch_put: dict[str, tuple[str, str]] = {'/api/config/control': ('put_config_control', 'body'), '/api/config/autowork': ('put_config_autowork', 'body'), '/api/autowork/allowlist': ('put_autowork_allowlist', 'body')}
     _config_cache: dict = {}
     _config_cache_ts: float = 0.0
+    # AGENT-ISOLATION §4: test/operator seam — when set, the agents block is
+    # taken from here instead of harness/config.yaml. Lets tests that stub the
+    # agent binary on PATH inject a bare command name (the vendored absolute
+    # ${PROJECT_ROOT}/.agents/... command would otherwise bypass a PATH stub).
+    _agents_override: Optional[dict] = None
 
     def __init__(self, state_dir: Path, logs_dir: Path, spawn_fn=None, kill_fn=None, repo_root: Optional[Path]=None) -> None:
         self.state_dir = Path(state_dir)
@@ -180,16 +185,32 @@ class ControlHandlers:
             system_prompt += f'\n\nSlug hint: {slug_hint}\n'
         system_prompt += '\n' + exemplar
 
-        # Resolve req_agent command and args from config.yaml
-        try:
-            cfg_path = self.repo_root / 'harness' / 'config.yaml'
-            full_config = yaml.safe_load(cfg_path.read_text()) or {}
-        except Exception:
-            full_config = {}
-        
-        agent_cfg = full_config.get('agents', {}).get(req_agent, {})
-        command = agent_cfg.get('command', req_agent)
-        args = list(agent_cfg.get('args', []))
+        # Resolve req_agent command and args from config.yaml.
+        # AGENT-ISOLATION §4: interpolate ${PROJECT_ROOT}/${CONFIG_DIR}/${STATE_DIR}
+        # so the vendored .agents/ command resolves (config.yaml ships tokens,
+        # not host paths). webui_control reads config raw — it does NOT go
+        # through orchestrator.load_config — so the substitution must happen here.
+        if self.__class__._agents_override is not None:
+            agents_block = self.__class__._agents_override
+        else:
+            try:
+                cfg_path = self.repo_root / 'harness' / 'config.yaml'
+                full_config = yaml.safe_load(cfg_path.read_text()) or {}
+            except Exception:
+                full_config = {}
+            agents_block = full_config.get('agents', {})
+        from harness.paths import PROJECT_ROOT_STR, CONFIG_DIR_STR, STATE_DIR_STR
+
+        def _subst(s):
+            if not isinstance(s, str):
+                return s
+            return (s.replace('${PROJECT_ROOT}', PROJECT_ROOT_STR)
+                     .replace('${CONFIG_DIR}', CONFIG_DIR_STR)
+                     .replace('${STATE_DIR}', STATE_DIR_STR))
+
+        agent_cfg = agents_block.get(req_agent, {})
+        command = _subst(agent_cfg.get('command', req_agent))
+        args = [_subst(a) for a in agent_cfg.get('args', [])]
         
         if args:
             try:

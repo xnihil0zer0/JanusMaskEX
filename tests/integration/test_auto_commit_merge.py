@@ -55,7 +55,10 @@ BASE_AUGASSIGN = 'X = 0\nX += 1\n'
 OVERLAY_AUGASSIGN = 'X = 0\nX += 5\n'
 BASE_TUPLE = 'a, b = 1, 2\n'
 OVERLAY_TUPLE = 'a, b = 9, 9\n'
-NON_PY_CASES = [('.md', '# Title\nbody', 'docs/sample.md'), ('.yaml', 'key: value\n', 'harness/sample.yaml'), ('.js', "console.log('x');", 'tools/sample.js'), ('.css', 'body { color: red; }', 'tools/sample.css')]
+# AGENT-ISOLATION §1b: target dirs must stay OUT of harness/**, config/**,
+# scripts/** — those now require harness_self_fix + operator approval to commit.
+# These fixtures exercise the non-py commit path, so they use unprotected dirs.
+NON_PY_CASES = [('.md', '# Title\nbody', 'docs/sample.md'), ('.yaml', 'key: value\n', 'docs/sample.yaml'), ('.js', "console.log('x');", 'tools/sample.js'), ('.css', 'body { color: red; }', 'tools/sample.css')]
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
     env = dict(os.environ)
@@ -258,7 +261,7 @@ def test_merge_harness_skips_ast_parse_for_non_py_suffix(merge_harness):
     A YAML payload like ``key: value`` is NOT valid Python -- if the fixture
     parsed it, this test would raise ``SyntaxError`` during setup."""
     not_valid_python = 'key: value\nother: [1, 2, 3]\n# comment'
-    state_dir, task, task_id, target_path, original = merge_harness(target_suffix='.yaml', target_rel='harness/sample.yaml', payload=not_valid_python, task_id=f'task_yaml_skipparse_{__import__('uuid').uuid4().hex[:8]}')
+    state_dir, task, task_id, target_path, original = merge_harness(target_suffix='.yaml', target_rel='docs/sample.yaml', payload=not_valid_python, task_id=f'task_yaml_skipparse_{__import__('uuid').uuid4().hex[:8]}')
     outbox = state_dir / 'output' / f'{task_id}.py'
     assert outbox.read_bytes() == not_valid_python.encode('utf-8')
 
@@ -332,7 +335,7 @@ class TestCommitsNonPyTarget:
         _exercise_non_py(merge_harness, '.md', '# Title\nbody', 'docs/sample.md')
 
     def test_commits_yaml_target_via_auto_commit(self, merge_harness):
-        _exercise_non_py(merge_harness, '.yaml', 'key: value\n', 'harness/sample.yaml')
+        _exercise_non_py(merge_harness, '.yaml', 'key: value\n', 'docs/sample.yaml')
 
     def test_commits_js_target_via_auto_commit(self, merge_harness):
         _exercise_non_py(merge_harness, '.js', "console.log('x');", 'tools/sample.js')

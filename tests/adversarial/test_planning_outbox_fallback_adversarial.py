@@ -53,6 +53,17 @@ from harness.planner.blind_draft import (  # noqa: E402
     _resolve_outbox_artifact,
     collect_agent_draft,
 )
+from harness.paths import agent_workroot  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _isolate_agent_workroot(tmp_path, monkeypatch):
+    """AGENT-ISOLATION §3.7: outboxes were relocated OUTSIDE the repo. Pin the
+    shared workroot to tmp_path so ``agent_workroot()`` resolves there and the
+    resolver finds the outboxes these tests stage. With this set,
+    ``agent_workroot()/<agent>`` == ``tmp_path/<agent>`` == the ``agent_dir``
+    the tests build, so the (now-ignored) ``agent_dir`` arg still lines up."""
+    monkeypatch.setenv("JANUSMASK_AGENT_WORKROOT", str(tmp_path))
 
 
 def _minimal_valid_task(task_id: str = "T1") -> Dict[str, Any]:
@@ -107,7 +118,9 @@ def _write_outbox_plan(
     filename: str = "plan_draft.json",
 ) -> pathlib.Path:
     slug = f"{agent}-r{round_number}-notask-{uuid8}"
-    outbox = agent_dir / "workdirs" / agent / slug / "outbox"
+    # AGENT-ISOLATION §3.7: outboxes live under the shared workroot, not
+    # agent_dir/workdirs (the _isolate_agent_workroot fixture pins it to tmp).
+    outbox = agent_workroot() / agent / slug / "outbox"
     outbox.mkdir(parents=True, exist_ok=True)
     target = outbox / filename
     target.write_text(json.dumps(plan), encoding="utf-8")
@@ -209,7 +222,7 @@ class TestCollectAgentDraft:
         agent_dir = tmp_path / "claude"
         agent_dir.mkdir()
         slug = "claude-r1-notask-deadbeef"
-        outbox = agent_dir / "workdirs" / "claude" / slug / "outbox"
+        outbox = agent_workroot() / "claude" / slug / "outbox"
         outbox.mkdir(parents=True)
         (outbox / "plan_draft.json").write_text("{ this is not json")
         draft, status = collect_agent_draft(
@@ -255,7 +268,7 @@ class TestCollectAgentDraft:
         agent_dir.mkdir()
         # gemini-prefixed slug under claude's agent_dir → must NOT be picked up
         slug = "gemini-r1-notask-deadbeef"
-        outbox = agent_dir / "workdirs" / "claude" / slug / "outbox"
+        outbox = agent_workroot() / "claude" / slug / "outbox"
         outbox.mkdir(parents=True)
         plan = {"tasks": [_minimal_valid_task("WRONG_AGENT")]}
         (outbox / "plan_draft.json").write_text(json.dumps(plan))
@@ -280,7 +293,7 @@ class TestResolveOutboxArtifact:
         agent_dir = tmp_path / "claude"
         agent_dir.mkdir()
         slug = "claude-r1-notask-deadbeef"
-        outbox = agent_dir / "workdirs" / "claude" / slug / "outbox"
+        outbox = agent_workroot() / "claude" / slug / "outbox"
         outbox.mkdir(parents=True)
         (outbox / "reconciliation.json").write_text("{}")
         # Looking for plan_draft.json — must NOT match reconciliation.json

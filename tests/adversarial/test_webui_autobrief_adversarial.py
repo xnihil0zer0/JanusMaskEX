@@ -181,6 +181,14 @@ def sidecar(tmp_path):
         "autobrief_default_agent": "claude",
     }
     ControlHandlers._config_cache_ts = time.time() + 99999
+    # AGENT-ISOLATION §4: real config.yaml points at vendored absolute
+    # ${PROJECT_ROOT}/.agents/... commands that bypass the PATH-staged stubs;
+    # inject bare PATH-resolvable commands so the stub binaries are exercised.
+    ControlHandlers._agents_override = {
+        "claude": {"command": "claude", "args": ["-p"]},
+        "gemini": {"command": "gemini", "args": ["-p"]},
+        "antigravity": {"command": "agy", "args": ["-p"]},
+    }
 
     thread = threading.Thread(
         target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True,
@@ -209,6 +217,7 @@ def sidecar(tmp_path):
     tailer.stop()
     thread.join(timeout=2.0)
     ControlHandlers._config_cache_ts = 0
+    ControlHandlers._agents_override = None
 
 
 def _csrf(sidecar) -> str:

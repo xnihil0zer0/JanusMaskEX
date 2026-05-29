@@ -43,6 +43,7 @@ from harness.paths import PROJECT_ROOT as PROJECT_DIR
 from harness.paths import CONFIG_DIR
 from harness.paths import CONFIG_DIR_STR
 from harness.paths import STATE_DIR as DEFAULT_STATE_DIR
+from harness.paths import agent_work_dir
 DEFAULT_CONFIG_PATH = HARNESS_DIR / 'config.yaml'
 POLL_INTERVAL = 2
 logger = logging.getLogger('janusmask.orchestrator')
@@ -209,15 +210,21 @@ def _build_agent_env(agent: str, state_dir: str, round_number: int=1) -> dict[st
     task_id = os.environ.get('JANUSMASK_TASK_ID', '')
     import uuid as _uuid
     session_slug = f'{agent}-r{round_number}-{task_id or 'notask'}-{_uuid.uuid4().hex[:8]}'
-    work_dir = Path(state_dir) / 'workdirs' / agent / session_slug
+    # AGENT-ISOLATION §3.1/§3.2: workdirs live OUTSIDE the repo (shared helper)
+    # so an agent launched with cwd=work_dir cannot reach the live source tree
+    # by relative path and git cannot auto-discover the repo .git from CWD.
+    work_dir = agent_work_dir(agent, session_slug)
     env: dict[str, str] = {**os.environ, 'PYTHONHASHSEED': '0', 'CLAUDE_PROJECT_DIR': str(PROJECT_DIR), 'JANUSMASK_PROJECT_DIR': str(PROJECT_DIR), 'GEMINI_CLI_TRUST_WORKSPACE': 'true', 'JANUSMASK_AGENT': agent, 'JANUSMASK_STATE_DIR': state_dir, 'JANUSMASK_ROUND': str(round_number), 'JANUSMASK_MODE': mode, 'JANUSMASK_TASK_ID': task_id, 'JANUSMASK_WORK_DIR': str(work_dir)}
     if agent == 'gemini':
         env['JANUSMASK_GEMINI_SETTINGS'] = os.environ.get('JANUSMASK_GEMINI_SETTINGS', str(PROJECT_DIR / 'config' / 'gemini_settings.json'))
     return env
 
 def _boost_antigravity_mcp_config(state_dir: Path) -> None:
-    home_key = "HO" + "ME"
-    home_dir = os.environ[home_key]
+    # AGENT-ISOLATION §8: de-obfuscated from home_key = "HO" + "ME". This is
+    # live, load-bearing code (writes ~/.gemini/antigravity-cli/mcp_config.json
+    # on every antigravity spawn), not evasion. Any future HOME override must be
+    # reconciled with this read or the antigravity MCP server fails to register.
+    home_dir = os.environ["HOME"]  # home-free: allow (external agy CLI hardcodes ~/.gemini; see §8)
     mcp_path = Path(home_dir) / ".gemini" / "antigravity-cli" / "mcp_config.json"
     mcp_path.parent.mkdir(parents=True, exist_ok=True)
     
@@ -278,7 +285,7 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
     outbox_path = Path(env['JANUSMASK_WORK_DIR']) / 'outbox'
     outbox_path.mkdir(parents=True, exist_ok=True)
     _stage_inbox(Path(env['JANUSMASK_WORK_DIR']), env['JANUSMASK_MODE'], state_dir)
-    resolved_prompt = prompt.replace('{STATE_DIR}', str(state_dir)).replace('{OUTBOX_PATH}', str(outbox_path))
+    resolved_prompt = prompt.replace('{STATE_DIR}', str(state_dir)).replace('{OUTBOX_PATH}', str(outbox_path)).replace('{WORK_DIR}', str(Path(env['JANUSMASK_WORK_DIR'])))
     from harness.interceptors import registry as interceptor_registry
     try:
         interceptor_registry.pre_invocation(agent, resolved_prompt, env)
@@ -287,7 +294,8 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
     cmd = _build_agent_command(agent, resolved_prompt, config)
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.OK}spawning{_C.RESET} {_C.DIM}{cmd[0]}{_C.RESET}')
     logger.info('Spawning %s: %s', agent, ' '.join(cmd[:6]) + ' ...')
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, start_new_session=True)
+    # AGENT-ISOLATION §3.2: cwd is the isolated, outside-repo workdir.
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, start_new_session=True, cwd=str(Path(env['JANUSMASK_WORK_DIR'])))
     proc._work_dir = Path(env['JANUSMASK_WORK_DIR'])
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.DIM}pid={proc.pid}{_C.RESET}')
     log_dir = Path(state_dir).parent / 'logs'
@@ -777,17 +785,17 @@ def prepare_task_prompt(task: dict[str, Any]) -> str:
     tsq = "'" * 3
     task_id = task.get('task_id', 'unknown')
     spec_summary = task.get('specification', task.get('description', ''))
-    prompt = f'You are a code synthesis agent. Your goal is to write correct, clean Python code that satisfies the given specification.\n\nFollow these steps exactly:\n\n1. Read the task specification from: {{STATE_DIR}}/tasks/current_task_{task_id}.json\n   Pay attention to the spec, acceptance_criteria, and test_spec fields.\n\n2. Write Python code that satisfies ALL requirements. The code must be self-contained and importable -- define functions as specified, include type hints, and handle edge cases.\n\n3. Submit your final code by writing a single Python file at:\n   {{OUTBOX_PATH}}/submission.py\n   Writing this file IS how you submit; do not invoke any other submission mechanism. The harness intercepts the write via a PostToolUse/AfterTool hook and persists the submission for the orchestrator to pick up.\n\nImportant:\n- Only file read/write operations are available; the MCP janusmask execute tool is NOT registered in this worker session.\n- Make sure your code is syntactically valid Python.\n\nTask reference: {task_id}\n'
+    prompt = f'You are a code synthesis agent. Your goal is to write correct, clean Python code that satisfies the given specification.\n\nFollow these steps exactly:\n\n1. Read the task specification from: {{WORK_DIR}}/inbox/task.json\n   Pay attention to the spec, acceptance_criteria, and test_spec fields.\n   The current on-disk contents of any file you must edit are staged read-only under {{WORK_DIR}}/inbox/targets/<relative-path>.\n\n2. Write Python code that satisfies ALL requirements. The code must be self-contained and importable -- define functions as specified, include type hints, and handle edge cases.\n\n3. Submit your final code by writing a single Python file at:\n   {{OUTBOX_PATH}}/submission.py\n   Writing this file IS how you submit; do not invoke any other submission mechanism. The harness intercepts the write via a PostToolUse/AfterTool hook and persists the submission for the orchestrator to pick up.\n\nImportant:\n- Only file read/write operations are available; the MCP janusmask execute tool is NOT registered in this worker session.\n- Make sure your code is syntactically valid Python.\n\nTask reference: {task_id}\n'
     files_touched = task.get('files_touched') or []
     mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
     # BYPASS_WHOLE_FILE (2026-05-28): fall back to partial_edit patches for fuzzer-bypassed tasks
     if task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES:
         pe_files = files_touched if isinstance(files_touched, list) else [files_touched]
         pe_repr = ', '.join((repr(p) for p in pe_files)) if pe_files else '<see current_task.json>'
-        prompt += '\nPARTIAL-EDIT DISPATCH (__JANUSMASK_PATCHES__) for ' + pe_repr + f":\n\nThis task edits one or more LARGE existing files IN PLACE. DO NOT\nreproduce the whole file. Emit a single top-level Python list assigned\nto ``__JANUSMASK_PATCHES__`` whose elements each replace exactly ONE\nnamed block. Two entry kinds:\n\n  # replace a top-level def/async def/class (or dotted Outer.method):\n  {{'file': '<rel/path>', 'kind': 'symbol', 'name': '<qualified.Name>',\n   'code': r{tsq}<full replacement def/class source>{tsq}}}\n\n  # replace only the lines between a pair of sentinel comments:\n  {{'file': '<rel/path>', 'kind': 'region', 'marker': '<SENTINEL>',\n   'code': r{tsq}<replacement region body>{tsq}}}\n\nThe exact shape:\n\n    __JANUSMASK_PATCHES__ = [\n        {{'file': '...', 'kind': 'symbol', 'name': '...', 'code': r{tsq}...{tsq}}},\n    ]\n\nRules:\n- Use raw triple-quoted strings (r{tsq}...{tsq}) for ``code`` so newlines,\n  quotes, and backslash escape sequences survive verbatim.\n- For kind 'symbol', ``code`` MUST be exactly ONE def/async def/class\n  whose name matches the leaf of ``name``; every byte outside that block\n  is preserved by the harness.\n- For kind 'region', the file must already contain the sentinel pair\n  ``# JANUSMASK_REGION:<SENTINEL>`` ... ``# JANUSMASK_ENDREGION:<SENTINEL>``;\n  only the lines strictly between them are replaced (sentinels kept).\n- The submission file MUST contain ONLY this ``__JANUSMASK_PATCHES__``\n  assignment at top level (no other statements, imports, or decorators).\n- Replace ONLY the named symbols/regions you must change. Never emit a\n  whole-file manifest for a partial edit.\n"
+        prompt += '\nPARTIAL-EDIT DISPATCH (__JANUSMASK_PATCHES__) for ' + pe_repr + f":\n\nThis task edits one or more LARGE existing files IN PLACE. DO NOT\nreproduce the whole file. Read each target's CURRENT on-disk content\n(read-only) from {{WORK_DIR}}/inbox/targets/<rel> -- do not look for the\nfiles by repo-relative path. Emit a single top-level Python list assigned\nto ``__JANUSMASK_PATCHES__`` whose elements each replace exactly ONE\nnamed block. Two entry kinds:\n\n  # replace a top-level def/async def/class (or dotted Outer.method):\n  {{'file': '<rel/path>', 'kind': 'symbol', 'name': '<qualified.Name>',\n   'code': r{tsq}<full replacement def/class source>{tsq}}}\n\n  # replace only the lines between a pair of sentinel comments:\n  {{'file': '<rel/path>', 'kind': 'region', 'marker': '<SENTINEL>',\n   'code': r{tsq}<replacement region body>{tsq}}}\n\nThe exact shape:\n\n    __JANUSMASK_PATCHES__ = [\n        {{'file': '...', 'kind': 'symbol', 'name': '...', 'code': r{tsq}...{tsq}}},\n    ]\n\nRules:\n- Use raw triple-quoted strings (r{tsq}...{tsq}) for ``code`` so newlines,\n  quotes, and backslash escape sequences survive verbatim.\n- For kind 'symbol', ``code`` MUST be exactly ONE def/async def/class\n  whose name matches the leaf of ``name``; every byte outside that block\n  is preserved by the harness.\n- For kind 'region', the file must already contain the sentinel pair\n  ``# JANUSMASK_REGION:<SENTINEL>`` ... ``# JANUSMASK_ENDREGION:<SENTINEL>``;\n  only the lines strictly between them are replaced (sentinels kept).\n- The submission file MUST contain ONLY this ``__JANUSMASK_PATCHES__``\n  assignment at top level (no other statements, imports, or decorators).\n- Replace ONLY the named symbols/regions you must change. Never emit a\n  whole-file manifest for a partial edit.\n"
     elif isinstance(files_touched, list) and len(files_touched) > 1:
         files_repr = ', '.join((repr(p) for p in files_touched))
-        prompt += f'\nMULTI-FILE DISPATCH ({len(files_touched)} files: {files_repr}):\n\nThis task touches more than one file. Instead of writing single-file source,\nemit a single top-level Python dict literal assigned to\n``__JANUSMASK_MANIFEST__`` that maps each rel-path above to that file\'s\nfull source as a string. The exact shape:\n\n    __JANUSMASK_MANIFEST__ = {{\n        \'<rel/path/to/file>\': r{tsq}<file source here>{tsq},\n        \'<rel/path/to/other>\': r{tsq}<file source here>{tsq},\n    }}\n\nVERBATIM file content rule:\n- Each value MUST be the VERBATIM file content as it currently appears on\n  disk -- not a paraphrase, not a summary, not a fragment.\n- {tsq} (triple-single-quote) and """ (triple-double-quote) are DIFFERENT\n  Python string-delimiter tokens; they do NOT conflict with each other.\n  When you wrap the file content in r{tsq}...{tsq}, any """ inside the file\n  (e.g. the module docstring markers at the top of the file) MUST be\n  preserved byte-for-byte. Do not strip, rewrite, or convert them.\n\nRaw-string wrapping rule:\n- The recommended wrapping is r{tsq}...{tsq} (raw triple-single-quote). The r\n  prefix makes the string LITERAL, so backslash escape sequences inside\n  the file content (e.g. \\n, \\t, \\\\, \\x41, \\u0041, and regex literals\n  such as r\'\\d+\\.\\d+\') survive verbatim instead of being re-interpreted\n  by the Python lexer when the orchestrator parses the manifest. Using a\n  non-raw {tsq} would silently convert each \\n in the file content into a\n  real newline and reject \\d / \\. as invalid escape sequences, corrupting\n  the round-tripped source.\n\nConcrete example (a short file beginning with a Module docstring and a\nregex literal whose pattern contains backslash escape sequences):\n\n    __JANUSMASK_MANIFEST__ = {{\n        \'pkg/example.py\': r{tsq}"""Module docstring."""\\nimport re\\n\\nVERSION_RE = re.compile(r\'\\d+\\.\\d+\')\\n\\ndef f() -> int:\\n    return 1\\n{tsq},\n    }}\n\nNote how the inner """Module docstring.""" markers AND the backslash\nescape sequences inside the regex literal r\'\\d+\\.\\d+\' appear INSIDE the\nraw triple-single-quote manifest value, completely unchanged from the\nsource file -- the outer r{tsq} raw-string prefix keeps every backslash\nbyte-for-byte, so the orchestrator parses the manifest into the exact\nbytes that are on disk.\n\nDO NOT (common error modes that will fail validation):\n- DO NOT strip or rewrite the file\'s existing triple-double-quote (""")\n  docstring markers. They are part of the file\'s content and must round-trip\n  verbatim inside the raw triple-single-quote manifest value.\n- DO NOT wrap a file that contains backslash escape sequences in a non-raw\n  {tsq} value (i.e. plain triple-single-quote without the leading r prefix).\n  Without the r prefix, Python\'s string lexer interprets every backslash at\n  parse time -- \\n collapses to a real newline, \\d raises an invalid escape\n  sequence warning / error, and the manifest source itself can become\n  unparseable. Use r{tsq}...{tsq} instead so the backslashes survive.\n- DO NOT add an f-string prefix f{tsq}, concatenate multiple string fragments\n  with ``+``, manually escape inner quotes with backslashes, or truncate the\n  file with ellipses (``...``) instead of including the whole source.\n- If the file\'s source itself contains a literal triple-single-quote ({tsq})\n  sequence at module scope, fall back to r"""...""" (raw triple-double-quote)\n  for that one entry so the outer delimiter does not clash with the inner\n  {tsq} tokens.\n\nRequirements:\n- Provide WHOLE-FILE source for every entry (no diffs, no fragments).\n- Use raw triple-quoted strings (r{tsq}...{tsq} or r"""...""") for values so\n  embedded newlines, quotes, and backslash escape sequences survive\n  verbatim.\n- The submission file MUST contain only this assignment at top level\n  (no other top-level statements, no imports, no decorators).\n- Include every path listed above as a manifest key, using the exact\n  relative paths shown.\n'
+        prompt += f'\nMULTI-FILE DISPATCH ({len(files_touched)} files: {files_repr}):\n\nThis task touches more than one file. The CURRENT on-disk content of each\nexisting target is staged read-only at {{WORK_DIR}}/inbox/targets/<rel>;\nread it there rather than by repo-relative path. Instead of writing\nsingle-file source, emit a single top-level Python dict literal assigned to\n``__JANUSMASK_MANIFEST__`` that maps each rel-path above to that file\'s\nfull source as a string. The exact shape:\n\n    __JANUSMASK_MANIFEST__ = {{\n        \'<rel/path/to/file>\': r{tsq}<file source here>{tsq},\n        \'<rel/path/to/other>\': r{tsq}<file source here>{tsq},\n    }}\n\nVERBATIM file content rule:\n- Each value MUST be the VERBATIM file content as it currently appears on\n  disk -- not a paraphrase, not a summary, not a fragment.\n- {tsq} (triple-single-quote) and """ (triple-double-quote) are DIFFERENT\n  Python string-delimiter tokens; they do NOT conflict with each other.\n  When you wrap the file content in r{tsq}...{tsq}, any """ inside the file\n  (e.g. the module docstring markers at the top of the file) MUST be\n  preserved byte-for-byte. Do not strip, rewrite, or convert them.\n\nRaw-string wrapping rule:\n- The recommended wrapping is r{tsq}...{tsq} (raw triple-single-quote). The r\n  prefix makes the string LITERAL, so backslash escape sequences inside\n  the file content (e.g. \\n, \\t, \\\\, \\x41, \\u0041, and regex literals\n  such as r\'\\d+\\.\\d+\') survive verbatim instead of being re-interpreted\n  by the Python lexer when the orchestrator parses the manifest. Using a\n  non-raw {tsq} would silently convert each \\n in the file content into a\n  real newline and reject \\d / \\. as invalid escape sequences, corrupting\n  the round-tripped source.\n\nConcrete example (a short file beginning with a Module docstring and a\nregex literal whose pattern contains backslash escape sequences):\n\n    __JANUSMASK_MANIFEST__ = {{\n        \'pkg/example.py\': r{tsq}"""Module docstring."""\\nimport re\\n\\nVERSION_RE = re.compile(r\'\\d+\\.\\d+\')\\n\\ndef f() -> int:\\n    return 1\\n{tsq},\n    }}\n\nNote how the inner """Module docstring.""" markers AND the backslash\nescape sequences inside the regex literal r\'\\d+\\.\\d+\' appear INSIDE the\nraw triple-single-quote manifest value, completely unchanged from the\nsource file -- the outer r{tsq} raw-string prefix keeps every backslash\nbyte-for-byte, so the orchestrator parses the manifest into the exact\nbytes that are on disk.\n\nDO NOT (common error modes that will fail validation):\n- DO NOT strip or rewrite the file\'s existing triple-double-quote (""")\n  docstring markers. They are part of the file\'s content and must round-trip\n  verbatim inside the raw triple-single-quote manifest value.\n- DO NOT wrap a file that contains backslash escape sequences in a non-raw\n  {tsq} value (i.e. plain triple-single-quote without the leading r prefix).\n  Without the r prefix, Python\'s string lexer interprets every backslash at\n  parse time -- \\n collapses to a real newline, \\d raises an invalid escape\n  sequence warning / error, and the manifest source itself can become\n  unparseable. Use r{tsq}...{tsq} instead so the backslashes survive.\n- DO NOT add an f-string prefix f{tsq}, concatenate multiple string fragments\n  with ``+``, manually escape inner quotes with backslashes, or truncate the\n  file with ellipses (``...``) instead of including the whole source.\n- If the file\'s source itself contains a literal triple-single-quote ({tsq})\n  sequence at module scope, fall back to r"""...""" (raw triple-double-quote)\n  for that one entry so the outer delimiter does not clash with the inner\n  {tsq} tokens.\n\nRequirements:\n- Provide WHOLE-FILE source for every entry (no diffs, no fragments).\n- Use raw triple-quoted strings (r{tsq}...{tsq} or r"""...""") for values so\n  embedded newlines, quotes, and backslash escape sequences survive\n  verbatim.\n- The submission file MUST contain only this assignment at top level\n  (no other top-level statements, no imports, no decorators).\n- Include every path listed above as a manifest key, using the exact\n  relative paths shown.\n'
     if spec_summary:
         prompt += f'\nBrief overview (full details in current_task.json):\n{spec_summary}\n'
     return prompt
@@ -1276,6 +1284,25 @@ def perform_process_handover(state_dir: Path) -> None:
         logger.critical(f"os.execv handover failed! {e}")
         raise
 
+def _apply_approval_granted(state_dir: Path, task_id: str) -> bool:
+    """AGENT-ISOLATION §1b: True iff an operator approved this task's apply.
+
+    Non-blocking read of ``state/control/decisions/<task_id>.json`` (the same
+    operator-decision channel ``control_gate.await_decision`` consumes). A
+    record whose ``decision`` is ``approve``/``approved`` authorizes committing
+    an accepted submission that targets a protected path (harness/**,
+    config/**, scripts/**). Absent/corrupt/any-other decision -> False, so a
+    sensitive-path apply fails closed until the operator explicitly opts in.
+    """
+    path = state_dir / 'control' / 'decisions' / f'{task_id}.json'
+    try:
+        data = json.loads(path.read_text(encoding='utf-8', errors='replace'))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    return str(data.get('decision', '')).strip().lower() in ('approve', 'approved')
+
 def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -> bool:
     """Copy accepted output to its target and create a scoped git commit.
 
@@ -1434,13 +1461,18 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
 
     # 4. Commit changes inside the staging worktree
     target_abs = str((worktree_root / target_rel).resolve())
+    # AGENT-ISOLATION §1b: scope the apply to the declared files_touched and
+    # gate any harness/**, config/**, scripts/** write behind harness_self_fix
+    # + an explicit operator approval decision.
+    _mtt = task.get('meta_task_type') or (task.get('constraints') or {}).get('meta_task_type')
+    _approval_ok = _apply_approval_granted(state_dir, task_id)
     lock_dir = state_dir / 'control' / 'autowork'
     lock_dir.mkdir(parents=True, exist_ok=True)
     lock_path = lock_dir / 'git_commit.lock'
     with open(lock_path, 'a') as lock_fd:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
         try:
-            result = git_integration.commit_accepted_output(task_id, target_abs, state_dir, worktree_root=staging_path)
+            result = git_integration.commit_accepted_output(task_id, target_abs, state_dir, worktree_root=staging_path, allowed_files=set(files_touched), meta_task_type=_mtt, approval_ok=_approval_ok)
         finally:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
 
@@ -2451,7 +2483,56 @@ def _stage_inbox(work_dir: Path, mode: str, state_dir: str) -> None:
             logger.warning('inbox stage failed src=%s dst=%s: %s', src, inbox / inbox_name, exc)
             return
         logger.info('staged inbox: %s -> %s', src, inbox / inbox_name)
+        # AGENT-ISOLATION §3.5: for synthesis, also stage the CURRENT on-disk
+        # contents of each files_touched target into inbox/targets/<rel> so
+        # partial-edit / manifest tasks can still read their targets after the
+        # agent's CWD is relocated outside the repo (bare repo-relative paths
+        # no longer resolve there).
+        if mode == 'synthesis':
+            _stage_targets(inbox, state_path, inbox / inbox_name)
         return
+
+
+def _stage_targets(inbox: Path, state_path: Path, task_json: Path) -> None:
+    """Copy each resolved files_touched target into ``inbox/targets/<rel>``.
+
+    Best-effort and non-raising: reads the just-staged task.json, resolves
+    files_touched (walking the parent chain for decomposed child tasks), and
+    copies each existing target file from the repo (``state_dir.parent``) into
+    ``inbox/targets/<rel>`` as read context. Missing targets (brand-new files)
+    are simply skipped — the agent then authors them from scratch.
+    """
+    try:
+        task = json.loads(task_json.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return
+    if not isinstance(task, dict):
+        return
+    task_id = task.get('task_id') or os.environ.get('JANUSMASK_TASK_ID', '')
+    try:
+        touched = _resolve_files_touched(state_path, task, task_id)
+    except Exception:
+        touched = task.get('files_touched') or []
+    repo_root = state_path.resolve().parent
+    targets_root = inbox / 'targets'
+    for rel in touched:
+        if not isinstance(rel, str) or not rel:
+            continue
+        try:
+            src = (repo_root / rel).resolve()
+            src.relative_to(repo_root)  # never copy from outside the repo
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if not src.is_file():
+            continue
+        dst = targets_root / rel
+        try:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+        except OSError as exc:
+            logger.warning('inbox target stage failed src=%s dst=%s: %s', src, dst, exc)
+            continue
+        logger.info('staged inbox target: %s -> %s', src, dst)
 "GH1: Stage <work_dir>/inbox/<mode-file> in spawn_agent so Gemini's\nSessionStart hook stops denying every planning + reconciliation spawn.\n\nPure-additive, single-file harness self-fix targeting Report 01 H2.\n\nAdds two module-level entities to ``harness/orchestrator.py``:\n\n* ``_INBOX_SOURCES_BY_MODE``: maps each JANUSMASK_MODE the orchestrator\n  spawns to ``(inbox_filename, candidate_state_dir_relpaths)``. Synthesis\n  copies ``tasks/current_task.json`` -> ``inbox/task.json``; planning\n  copies ``planning/brief.json`` (master layout) or ``../../brief.json``\n  (per-agent layout via ``master/planning/sessions/<agent>``) ->\n  ``inbox/brief.json``; reconciliation copies\n  ``planning/current_diff.json`` (matching reconciliation.py:126's\n  per-agent write site) -> ``inbox/diff_summary.json``. The inbox_name\n  side of each tuple is exactly the filename Gemini's session-start hook\n  expects from ``harness.hooks._env._INBOX_EXPECTATIONS`` (asserted by\n  Subtest 7).\n\n* ``_stage_inbox(work_dir, mode, state_dir)``: creates\n  ``work_dir/inbox`` (parents=True, exist_ok=True), looks up the mode's\n  source candidates, and ``shutil.copy2``'s the first existing file into\n  ``inbox/<inbox_name>``. Failures at every layer -- mkdir OSError,\n  Path.resolve OSError/RuntimeError, copy OSError -- are caught and\n  surface as ``logger.warning`` records; the function never raises so a\n  staging failure cannot regress the orchestrator's terminal state.\n\n``spawn_agent`` is wholesale-replaced (AST merge keys top-level\nFunctionDef by name) to add exactly one new call:\n``_stage_inbox(Path(env['JANUSMASK_WORK_DIR']), env['JANUSMASK_MODE'],\nstate_dir)`` between ``outbox_path.mkdir`` and the prompt\n``.replace(...)`` line. Public signature\n``(agent, prompt, config, round_number=1) -> subprocess.Popen`` is\nbyte-identical.\n\nNo source file outside ``harness/orchestrator.py`` is modified. No new\ntop-level imports: ``shutil`` (line 9), ``pathlib.Path`` (line 14), and\n``logger`` (line 37) are already bound in the target module.\n"
 'G19a-3: Harden the __JANUSMASK_MANIFEST__ prompt block.\n\nSingle-file harness self-fix. Replaces only the MULTI-FILE manifest\nprompt block inside ``prepare_task_prompt``: adds an explicit\nVERBATIM-file-content rule, a concrete docstring-bearing example, and\na DO NOT enumeration of common error modes. Surrounding code (base\nprompt, files_touched extraction, guard, files_repr, spec_summary\ntail, return) is byte-identical with the pre-fix file.\n'
 "G19a-4: prepare_task_prompt manifest block uses raw triple-single-quote.\n\nReverses the G19a-3 anti-raw-triple-single-quote rule. Recommends raw-triple-single-quote raw\ntriple-single-quote wrapping for ``__JANUSMASK_MANIFEST__`` values so\nbackslash escape sequences in the embedded file source survive verbatim\nwithout the agent having to double-escape. Single-file change to\nharness/orchestrator.py; this submission carries only ``prepare_task_prompt``\nfor AST-merge by ``meta_task_type=harness_self_fix``.\n"

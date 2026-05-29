@@ -79,10 +79,13 @@ class TestEnv:
         assert gemini_env.work_dir("any") == tmp_path.resolve()
 
     def test_work_dir_fallback_uses_gemini_prefix(self, tmp_path, monkeypatch):
+        # AGENT-ISOLATION §3.7: fallback now derives from the shared OUTSIDE-repo
+        # workroot (agent_work_dir), not state_dir/workdirs; the gemini prefix
+        # under the workroot is what keeps it distinct from claude.
         monkeypatch.delenv("JANUSMASK_WORK_DIR", raising=False)
-        monkeypatch.setenv("JANUSMASK_STATE_DIR", str(tmp_path))
+        monkeypatch.setenv("JANUSMASK_AGENT_WORKROOT", str(tmp_path))
         got = gemini_env.work_dir("sess-X")
-        assert got == (tmp_path / "workdirs" / "gemini" / "sess-X").resolve()
+        assert got == (tmp_path / "gemini" / "sess-X").resolve()
 
     def test_fallback_prefix_differs_from_claude(self, tmp_path, monkeypatch):
         # The two agents must not share a workdir — otherwise concurrent

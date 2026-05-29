@@ -59,10 +59,13 @@ class TestEnv:
         assert claude_env.work_dir("any") == tmp_path.resolve()
 
     def test_work_dir_fallback_to_state(self, tmp_path, monkeypatch):
+        # AGENT-ISOLATION §3.7: the JANUSMASK_WORK_DIR-absent fallback now derives
+        # from the shared OUTSIDE-the-repo workroot (agent_work_dir), not
+        # state_dir/workdirs.
         monkeypatch.delenv("JANUSMASK_WORK_DIR", raising=False)
-        monkeypatch.setenv("JANUSMASK_STATE_DIR", str(tmp_path))
+        monkeypatch.setenv("JANUSMASK_AGENT_WORKROOT", str(tmp_path))
         got = claude_env.work_dir("sess-X")
-        assert got == (tmp_path / "workdirs" / "claude" / "sess-X").resolve()
+        assert got == (tmp_path / "claude" / "sess-X").resolve()
 
     def test_inbox_outbox_ledger_shape(self, tmp_path, monkeypatch):
         monkeypatch.setenv("JANUSMASK_WORK_DIR", str(tmp_path))

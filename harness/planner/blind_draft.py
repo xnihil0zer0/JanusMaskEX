@@ -27,7 +27,10 @@ def _resolve_outbox_artifact(agent_dir: Path, agent: str, filename: str, round_n
     ``harness/orchestrator.py:189-190``. Returns the most-recently-modified
     match, or ``None`` when no match exists.
     """
-    workdirs_root = agent_dir / 'workdirs' / agent
+    # AGENT-ISOLATION §3.7: outboxes relocated outside the repo; resolve them
+    # from the shared workroot, not agent_dir/workdirs (now dead).
+    from harness.paths import agent_workroot
+    workdirs_root = agent_workroot() / agent
     if not workdirs_root.is_dir():
         return None
     pattern = f'{agent}-r{round_number}-*/outbox/{filename}'

@@ -217,6 +217,9 @@ def test_outbox_path_is_per_agent(monkeypatch, tmp_path):
 
     monkeypatch.setattr(orch_mod.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(orch_mod, "start_stream_threads", lambda *a, **k: [])
+    # AGENT-ISOLATION §3.1: workdirs relocated OUTSIDE the repo; pin the workroot
+    # to tmp so the test stays hermetic and asserts the new layout.
+    monkeypatch.setenv("JANUSMASK_AGENT_WORKROOT", str(tmp_path / "agentwork"))
 
     cfg = _spawn_cfg(tmp_path)
     prompt = "{OUTBOX_PATH}/plan_draft.json"
@@ -224,8 +227,9 @@ def test_outbox_path_is_per_agent(monkeypatch, tmp_path):
     orch_mod.spawn_agent("gemini", prompt, cfg)
 
     assert len(seen) == 2
-    claude_paths = re.findall(r"\S*workdirs/claude/\S*outbox\S*", seen[0])
-    gemini_paths = re.findall(r"\S*workdirs/gemini/\S*outbox\S*", seen[1])
+    # New layout: <workroot>/<agent>/<slug>/outbox (no 'workdirs/' segment).
+    claude_paths = re.findall(r"\S*/claude/\S*outbox\S*", seen[0])
+    gemini_paths = re.findall(r"\S*/gemini/\S*outbox\S*", seen[1])
     assert claude_paths, f"claude spawn missing per-agent outbox: {seen[0]!r}"
     assert gemini_paths, f"gemini spawn missing per-agent outbox: {seen[1]!r}"
     assert set(claude_paths).isdisjoint(set(gemini_paths)), (

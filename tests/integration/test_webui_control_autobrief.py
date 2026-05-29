@@ -121,11 +121,20 @@ def autobrief_sidecar(tmp_path):
     )
     
     ControlHandlers._config_cache = {
-        "autobrief_timeout_sec": 2, 
-        "autobrief_max_rough_draft_bytes": 16384, 
+        "autobrief_timeout_sec": 2,
+        "autobrief_max_rough_draft_bytes": 16384,
         "autobrief_default_agent": "claude"
     }
     ControlHandlers._config_cache_ts = time.time() + 99999
+    # AGENT-ISOLATION §4: the real config.yaml now points agent commands at the
+    # vendored ${PROJECT_ROOT}/.agents/... absolute paths, which bypass the
+    # PATH-staged stubs (stub_binaries). Inject bare, PATH-resolvable commands
+    # via the override seam so these tests still exercise the stub binaries.
+    ControlHandlers._agents_override = {
+        "claude": {"command": "claude", "args": ["-p"]},
+        "gemini": {"command": "gemini", "args": ["-p"]},
+        "antigravity": {"command": "agy", "args": ["-p"]},
+    }
     
     thread = threading.Thread(
         target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True,
@@ -152,8 +161,9 @@ def autobrief_sidecar(tmp_path):
     server.server_close()
     tailer.stop()
     thread.join(timeout=2.0)
-    
+
     ControlHandlers._config_cache_ts = 0
+    ControlHandlers._agents_override = None
 
 def _request(url, path, method="GET", headers=None, body=None, timeout=10.0):
     data = None

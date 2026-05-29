@@ -81,7 +81,8 @@ class TestBootstrapStateMaterialization:
             "state/tasks/processed",
             "state/tasks/blocked",
             "state/sessions",
-            "state/workdirs",
+            # AGENT-ISOLATION §3.7: state/workdirs is no longer created — agent
+            # workdirs were relocated OUTSIDE the repo (<repo>_agentwork).
             "state/hooks",
         ):
             assert (proj / sub).is_dir(), f"missing {sub}"

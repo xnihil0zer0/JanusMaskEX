@@ -31,6 +31,7 @@ streamer behaviour (not model selection).
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import sys
 
@@ -110,7 +111,8 @@ def test_gemini_block_carries_pinned_pro_model(monkeypatch):
     cmd_syn = _build_agent_command("gemini", "P", cfg)
     monkeypatch.setenv("JANUSMASK_MODE", "planning")
     cmd_plan = _build_agent_command("gemini", "P", cfg)
-    if gemini_cmd_name == "agy":
+    # AGENT-ISOLATION §4: gemini's command may be the vendored absolute agy path.
+    if os.path.basename(gemini_cmd_name) == "agy":
         for cmd in (cmd_syn, cmd_plan):
             assert "agy" in cmd or any(x.endswith("agy") for x in cmd)
             assert "opus" not in cmd
@@ -194,8 +196,12 @@ def test_two_authorized_model_pins_in_harness_yaml():
     If Gemini is rewired to antigravity, only one --model pin remains."""
     cfg = load_config(_CFG)
     gemini_cmd_name = cfg.get("agents", {}).get("gemini", {}).get("command", "gemini")
+    # AGENT-ISOLATION §4: gemini's command may be the vendored absolute path
+    # (${PROJECT_ROOT}/.agents/agy/agy); match on the basename so the agy-rewire
+    # branch still fires.
+    gemini_cmd_base = os.path.basename(gemini_cmd_name)
     text = _CFG.read_text(encoding="utf-8")
-    if gemini_cmd_name == "agy":
+    if gemini_cmd_base == "agy":
         assert text.count("--model") == 1, (
             "expected exactly one --model directive in harness/config.yaml "
             "(claude=opus)"

@@ -4,7 +4,7 @@ agents:
     - -p
     - --dangerously-skip-permissions
     - --sandbox
-    command: agy
+    command: ${PROJECT_ROOT}/.agents/agy/agy
   claude:
     args:
     - -p
@@ -20,7 +20,7 @@ agents:
     - --strict-mcp-config
     - --setting-sources
     - ''
-    command: claude
+    command: ${PROJECT_ROOT}/.agents/claude-code/node_modules/.bin/claude
   claude_fallback:
     args:
     - -m
@@ -28,12 +28,12 @@ agents:
     - -p
     - --dangerously-skip-permissions
     - --sandbox
-    command: agy
+    command: ${PROJECT_ROOT}/.agents/agy/agy
   gemini:
     args:
     - -p
     - --sandbox
-    command: agy
+    command: ${PROJECT_ROOT}/.agents/agy/agy
 autowork:
   brief_max_age_seconds: 604800
   brief_max_size_bytes: 50000

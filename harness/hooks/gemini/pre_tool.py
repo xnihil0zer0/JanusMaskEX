@@ -45,7 +45,17 @@ from harness import hooks_equivalence
 _HOOK_NAME = 'BeforeTool'
 ALLOWED_TOOLS: frozenset[str] = frozenset({'write_file', 'replace', 'read_file', 'read_many_files', 'glob', 'grep_search', 'list_directory', 'run_shell_command', 'update_topic'})
 _READ_LIKE: frozenset[str] = frozenset({'read_file', 'read_many_files', 'glob', 'grep_search', 'list_directory'})
-_SHELL_ALLOW = [re.compile('^pytest(\\s|$)'), re.compile('^python3?\\s+-m\\s+pytest(\\s|$)'), re.compile('^python3?\\s+-c\\s+'), re.compile('^python3?\\s+harness/sandbox\\.py(\\s|$)'), re.compile('^cat\\s+(?:-\\s+)?<<'), re.compile('^tee(\\s|$)'), re.compile('^mkdir(\\s|$)'), re.compile('^chmod(\\s|$)'), re.compile('^touch(\\s|$)'), re.compile('^cp(\\s|$)'), re.compile('^mv(\\s|$)'), re.compile('^ln(\\s|$)'), re.compile('^rm\\s+-?[a-zA-Z]*\\s+(?:/tmp/|tests/fixtures/)')]
+# AGENT-ISOLATION §3.3: DEFAULT POSITION — drop the write verbs
+# (tee/cp/mv/ln/cat<<EOF/chmod/rm) and arbitrary-code verbs (python -c,
+# python harness/sandbox.py). Agents submit ONLY via the write_file -> outbox
+# path (gated by _decide_write_or_replace); they do not need shell
+# file-redirection. NOTE: pytest / python -m pytest REMAIN and ARE arbitrary
+# code (conftest/plugins auto-import at collection) — this list is NOT the
+# code-exec barrier; containment rests on CWD-outside-repo (§3.1/§3.2) + the
+# §1b apply-path gate, not on this allowlist. (Also note: for bare `agy` this
+# gate never loads today, so this hardening is defense-for-the-future / for
+# the hook-loading agents, per §5.)
+_SHELL_ALLOW = [re.compile('^pytest(\\s|$)'), re.compile('^python3?\\s+-m\\s+pytest(\\s|$)'), re.compile('^mkdir(\\s|$)'), re.compile('^touch(\\s|$)')]
 
 def _read_allowed_roots(session_id: str | None) -> list[pathlib.Path]:
     project = _paths.project_dir()

@@ -1,8 +1,69 @@
 import ast
+import fnmatch
 import pathlib
 import subprocess
 import shutil
 import logging
+
+# AGENT-ISOLATION §1b: apply-path target-scoping. Any accepted manifest/patch
+# whose target lands under one of these globs is a harness/config/script
+# rewrite — the exact rogue-edit incident vector. It is committed ONLY when the
+# task is a sanctioned ``harness_self_fix`` AND an operator-approval gate fired
+# (see harness/orchestrator.py:_apply_approval_granted). This guard is
+# independent of every CWD/shell isolation control and defends the
+# submission-application boundary regardless of agent isolation.
+_SENSITIVE_APPLY_GLOBS: tuple[str, ...] = ('harness/**', 'config/**', 'scripts/**')
+
+
+def _matches_sensitive(rel_str: str, globs: tuple[str, ...]) -> bool:
+    """True iff ``rel_str`` is inside one of the protected ``globs``.
+
+    ``fnmatch`` does not treat ``**`` as a recursive wildcard, so a
+    ``foo/**`` glob is interpreted as "the directory ``foo`` or anything
+    beneath it" via an explicit prefix test; any other glob falls back to
+    plain ``fnmatch`` matching.
+    """
+    p = rel_str.replace('\\', '/')
+    for g in globs:
+        if g.endswith('/**'):
+            base = g[:-3]
+            if p == base or p.startswith(base + '/'):
+                return True
+        elif fnmatch.fnmatch(p, g):
+            return True
+    return False
+
+
+def _enforce_apply_scope(rel_strs, *, allowed_files, meta_task_type, approval_ok,
+                         sensitive_globs: tuple[str, ...] = _SENSITIVE_APPLY_GLOBS):
+    """Return an error string if any rel path violates apply-path policy, else None.
+
+    AGENT-ISOLATION §1b. Two independent constraints:
+
+    * **membership** — when ``allowed_files`` is not None, every committed
+      rel-path must be a member of the task's resolved ``files_touched``.
+      Callers that pass ``None`` (e.g. low-level unit tests) opt out of the
+      membership check but still get the sensitive-path gate below.
+    * **sensitive** — a rel-path under ``harness/**`` / ``config/**`` /
+      ``scripts/**`` is rejected unless the task is a sanctioned
+      ``harness_self_fix`` AND ``approval_ok`` is True (operator approval).
+    """
+    allowed = None
+    if allowed_files is not None:
+        allowed = {str(f).replace('\\', '/') for f in allowed_files}
+    for rel in rel_strs:
+        reln = str(rel).replace('\\', '/')
+        if allowed is not None and reln not in allowed:
+            return (f'apply-path scope violation: {reln} is not a member of the '
+                    f'declared files_touched {sorted(allowed)}')
+        if _matches_sensitive(reln, sensitive_globs):
+            if not (meta_task_type == 'harness_self_fix' and approval_ok):
+                return (f'apply-path scope violation: {reln} targets a protected path '
+                        f'(harness/**, config/**, scripts/**); requires '
+                        f'meta_task_type=harness_self_fix + operator approval '
+                        f'(got meta_task_type={meta_task_type!r}, approval_ok={approval_ok})')
+    return None
+
 
 def _ast_merge(output_code: str, target_code: str) -> str:
     """Merge output_code into target_code at the top level by name.
@@ -492,7 +553,7 @@ def _is_tracked(file_path: str, cwd: str) -> bool:
     except Exception:
         return False
 
-def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Path, worktree_root: pathlib.Path | None=None) -> dict:
+def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Path, worktree_root: pathlib.Path | None=None, *, allowed_files=None, meta_task_type=None, approval_ok: bool=False) -> dict:
     """Copy validated output to target, then commit it scoped to target_file.
 
     Args:
@@ -570,10 +631,10 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
             logging.getLogger(__name__).warning('Failed to auto-detect and commit untracked test files: %s', e)
         sidecar_path = state_dir / 'output' / f'{task_id}.files.json'
         if sidecar_path.exists():
-            return _commit_accepted_output_multi(task_id, sidecar_path, state_dir, worktree_root, result)
+            return _commit_accepted_output_multi(task_id, sidecar_path, state_dir, worktree_root, result, allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok)
         patches_sidecar = state_dir / 'output' / f'{task_id}.patches.json'
         if patches_sidecar.exists():
-            return _commit_accepted_output_patches(task_id, patches_sidecar, state_dir, worktree_root, result)
+            return _commit_accepted_output_patches(task_id, patches_sidecar, state_dir, worktree_root, result, allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok)
         target_path = pathlib.Path(target_file).resolve()
         if worktree_root is not None:
             parent_output = _run_streamed_command(['git', 'rev-parse', '--show-toplevel'], cwd=str(state_dir), timeout=30, check=True)
@@ -587,6 +648,11 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
             target_path.relative_to(worktree_root)
         except ValueError:
             result['error'] = 'target escapes worktree'
+            return result
+        scope_err = _enforce_apply_scope([str(target_path.relative_to(worktree_root))], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok)
+        if scope_err:
+            logging.getLogger(__name__).error('commit_accepted_output: %s rejected: %s', task_id, scope_err)
+            result['error'] = scope_err
             return result
         is_python_target = str(target_path).endswith('.py')
         output_file = state_dir / 'output' / f'{task_id}.py'
@@ -695,7 +761,7 @@ def _apply_file_to_target(out_code: str, target_path: pathlib.Path, task_id: str
     else:
         target_path.write_text(out_code, encoding='utf-8')
 
-def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, state_dir: pathlib.Path, worktree_root: pathlib.Path, result: dict) -> dict:
+def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, state_dir: pathlib.Path, worktree_root: pathlib.Path, result: dict, *, allowed_files=None, meta_task_type=None, approval_ok: bool=False) -> dict:
     """Multi-file commit driven by a state/output/<task_id>.files.json sidecar.
 
     Reads the sidecar (JSON dict mapping rel-path -> source-code string),
@@ -735,6 +801,13 @@ def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, stat
             result['error'] = f'target escapes worktree: {rel}'
             return result
         rel_str = str(target_path.relative_to(worktree_root))
+        scope_err = _enforce_apply_scope([rel_str], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok)
+        if scope_err:
+            logging.getLogger(__name__).error('_commit_accepted_output_multi: %s rejected: %s', task_id, scope_err)
+            result['committed'] = False
+            result['sha'] = None
+            result['error'] = scope_err
+            return result
         tracked_flags.append(_is_tracked(rel_str, str(worktree_root)))
         try:
             _apply_file_to_target(src, target_path, task_id)
@@ -949,7 +1022,7 @@ def _apply_region_patch(source: str, sentinel: str, new_region: str) -> str:
         new_text += '\n'
     return ''.join(before) + new_text + ''.join(after)
 
-def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, worktree_root, result):
+def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, worktree_root, result, *, allowed_files=None, meta_task_type=None, approval_ok=False):
     """Partial-edit commit driven by a ``state/output/<task_id>.patches.json`` sidecar.
 
     Modeled on ``_commit_accepted_output_multi``: loads the JSON list of
@@ -1014,6 +1087,13 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
             result['error'] = f'target escapes worktree: {rel}'
             return result
         rel_str = str(target_path.relative_to(worktree_root))
+        scope_err = _enforce_apply_scope([rel_str], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok)
+        if scope_err:
+            logging.getLogger(__name__).error('_commit_accepted_output_patches: %s rejected: %s', task_id, scope_err)
+            result['committed'] = False
+            result['sha'] = None
+            result['error'] = scope_err
+            return result
         tracked_flags.append(_is_tracked(rel_str, str(worktree_root)))
         try:
             text = target_path.read_text(encoding='utf-8')

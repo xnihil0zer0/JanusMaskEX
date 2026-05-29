@@ -48,7 +48,12 @@ def _work_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib
         return pathlib.Path(raw).resolve()
     sid = session_id or os.environ.get('JANUSMASK_SESSION_ID') or 'nosession'
     a = _resolve_agent(agent)
-    return (_paths.state_dir() / 'workdirs' / a / sid).resolve()
+    # AGENT-ISOLATION §3.7: when JANUSMASK_WORK_DIR is unset, derive the SAME
+    # outside-repo workdir the orchestrator/daemon created (shared helper), not
+    # the dead state_dir/workdirs path — otherwise a submission is persisted to
+    # one tree and polled from another.
+    from harness.paths import agent_work_dir
+    return agent_work_dir(a, sid).resolve()
 
 def _inbox_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path:
     return _work_dir(session_id, agent=agent) / 'inbox'

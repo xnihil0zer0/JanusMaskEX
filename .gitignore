@@ -6,3 +6,9 @@ __pycache__/
 logs/
 _abandoned/
 _archive/
+# AGENT-ISOLATION §4: vendored, version-pinned agent binaries (reproduce via
+# scripts/setup-agents.sh). Kept out of git — large/host-specific binaries.
+.agents/
+# AGENT-ISOLATION §3.1: per-agent isolated workdirs live OUTSIDE the repo
+# (<repo>_agentwork sibling) so this entry is belt-and-suspenders only.
+JanusMaskJR_agentwork/

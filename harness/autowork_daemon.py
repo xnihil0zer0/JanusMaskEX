@@ -537,7 +537,10 @@ def _get_errors_for_task(state_dir: pathlib.Path, task_id: str) -> str:
         except Exception:
             pass
         errors.extend(ledger_errors[-10:])
-    workdirs_dir = state_dir / 'workdirs'
+    # AGENT-ISOLATION §3.7: agent workdirs relocated outside the repo; read
+    # error reports from the shared workroot, not state_dir/workdirs (dead).
+    from harness.paths import agent_workroot
+    workdirs_dir = agent_workroot()
     if workdirs_dir.exists():
         try:
             for agent in ['claude', 'gemini', 'antigravity']:
@@ -629,7 +632,7 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
             agent_cfg = {'command': 'claude', 'args': ['-p', '--model', 'opus', '--output-format', 'stream-json', '--include-partial-messages', '--settings', '${CONFIG_DIR}/claude_worker.json', '--mcp-config', '${CONFIG_DIR}/claude_mcp.json', '--strict-mcp-config', '--setting-sources', '']}
     command_tmpl = agent_cfg.get('command', 'claude')
     args_tmpl = agent_cfg.get('args', [])
-    from harness.paths import PROJECT_ROOT_STR, CONFIG_DIR_STR, HARNESS_DIR_STR
+    from harness.paths import PROJECT_ROOT_STR, CONFIG_DIR_STR, HARNESS_DIR_STR, agent_work_dir
 
     def subst(s: str) -> str:
         if not isinstance(s, str):
@@ -646,13 +649,19 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
     if agent == 'claude' and '--permission-mode' not in args:
         args = args + ['--permission-mode', 'acceptEdits']
     errors_str = _get_errors_for_task(state_dir, task_id)
-    prompt = f"The task '{task_id}' has exhausted its retry budget. You need to investigate and perform self-healing.\nObjective: {objective}\nFiles touched: {files_touched}\n\n--- Traceback/Fuzz Error Logs ---\n{errors_str}\n\nInstructions:\n1. Draft a new brief hooks file at `brief_hooks_{task_id}_fix.md` outlining the problem and proposed plan.\n2. Append `{task_id}_fix` as a new line to the allowlist file at `state/control/autowork/auto_promote.allowlist` so it can be promoted."
+    # AGENT-ISOLATION §3.8.3: the self-heal agent must write ONLY into its
+    # outbox and must NOT touch the live repo, run git, or edit the auto-promote
+    # allowlist. Promotion is an operator decision (see memory:
+    # ex-phantom-task-no-promote — never auto-append <task>_fix).
+    prompt = f"The task '{task_id}' has exhausted its retry budget. Investigate and propose a self-healing plan.\nObjective: {objective}\nFiles touched: {files_touched}\n\n--- Traceback/Fuzz Error Logs ---\n{errors_str}\n\nInstructions:\n1. Write your diagnosis and a proposed brief to your OUTBOX at {{OUTBOX_PATH}}/brief_hooks_{task_id}_fix.md. Do NOT write anywhere outside your outbox, and do NOT run git.\n2. Do NOT edit the auto-promote allowlist or any file in the live repository; promotion is an operator decision. If you believe '{task_id}_fix' should be promoted, recommend it in your outbox brief for operator review."
     env = dict(os.environ)
     env['JANUSMASK_MODE'] = 'planning'
     env['JANUSMASK_TASK_ID'] = task_id
     env['JANUSMASK_STATE_DIR'] = str(state_dir)
     session_slug = f'{agent}-r1-{task_id}-{uuid.uuid4().hex[:8]}'
-    work_dir = state_dir / 'workdirs' / agent / session_slug
+    # AGENT-ISOLATION §3.8: relocate the daemon self-heal workdir OUTSIDE the
+    # repo via the shared helper (agree with the orchestrator + _env fallback).
+    work_dir = agent_work_dir(agent, session_slug)
     env['JANUSMASK_WORK_DIR'] = str(work_dir)
     outbox_path = work_dir / 'outbox'
     outbox_path.mkdir(parents=True, exist_ok=True)
@@ -671,7 +680,7 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
     except ValueError:
         cmd = [command] + args + ['-p', resolved_prompt]
     try:
-        subprocess.Popen(cmd, env=env)
+        subprocess.Popen(cmd, env=env, cwd=str(work_dir))  # AGENT-ISOLATION §3.8: cwd = isolated outside-repo workdir
     except Exception as exc:
         _emit_telemetry(state_dir, task_id, 'spawn_failed', repr(exc))
 
@@ -1654,7 +1663,7 @@ def _escalate_inactivity(state_dir: pathlib.Path, config: dict) -> None:
             agent_cfg = {'command': 'claude', 'args': ['-p', '--model', 'opus', '--output-format', 'stream-json', '--include-partial-messages', '--settings', '${CONFIG_DIR}/claude_worker.json', '--mcp-config', '${CONFIG_DIR}/claude_mcp.json', '--strict-mcp-config', '--setting-sources', '']}
     command_tmpl = agent_cfg.get('command', 'claude')
     args_tmpl = agent_cfg.get('args', [])
-    from harness.paths import PROJECT_ROOT_STR, CONFIG_DIR_STR, HARNESS_DIR_STR
+    from harness.paths import PROJECT_ROOT_STR, CONFIG_DIR_STR, HARNESS_DIR_STR, agent_work_dir
 
     def subst(s: str) -> str:
         if not isinstance(s, str):
@@ -1670,13 +1679,16 @@ def _escalate_inactivity(state_dir: pathlib.Path, config: dict) -> None:
     args = [rewire.get(a, a) for a in args]
     if agent == 'claude' and '--permission-mode' not in args:
         args = args + ['--permission-mode', 'acceptEdits']
-    prompt = f'The autowork daemon is stuck with unfinished allowlisted work and no agent activity for 20 minutes.\nSynthetic Task: {task_id}\n\nPlease run a self-healing diagnostic to identify why the daemon is stuck, and resolve any blockers.'
+    # AGENT-ISOLATION §3.8.3: outbox-only diagnosis; no live-repo writes, no git.
+    prompt = f'The autowork daemon is stuck with unfinished allowlisted work and no agent activity for 20 minutes.\nSynthetic Task: {task_id}\n\nWrite a self-healing diagnosis identifying why the daemon is stuck to your OUTBOX at {{OUTBOX_PATH}}/diagnosis.md. Do NOT write anywhere outside your outbox, do NOT run git, and do NOT edit the auto-promote allowlist or any file in the live repository — surface recommended fixes in your outbox for operator review.'
     env = dict(os.environ)
     env['JANUSMASK_MODE'] = 'planning'
     env['JANUSMASK_TASK_ID'] = task_id
     env['JANUSMASK_STATE_DIR'] = str(state_dir)
     session_slug = f'{agent}-r1-{task_id}-{uuid.uuid4().hex[:8]}'
-    work_dir = state_dir / 'workdirs' / agent / session_slug
+    # AGENT-ISOLATION §3.8: relocate the daemon self-heal workdir OUTSIDE the
+    # repo via the shared helper (agree with the orchestrator + _env fallback).
+    work_dir = agent_work_dir(agent, session_slug)
     env['JANUSMASK_WORK_DIR'] = str(work_dir)
     outbox_path = work_dir / 'outbox'
     outbox_path.mkdir(parents=True, exist_ok=True)
@@ -1715,7 +1727,7 @@ def _escalate_inactivity(state_dir: pathlib.Path, config: dict) -> None:
         except Exception as err2:
             _ = err2
     try:
-        subprocess.Popen(cmd, env=env)
+        subprocess.Popen(cmd, env=env, cwd=str(work_dir))  # AGENT-ISOLATION §3.8: cwd = isolated outside-repo workdir
     except Exception as exc:
         _emit_telemetry(state_dir, task_id, 'spawn_failed', repr(exc))
 

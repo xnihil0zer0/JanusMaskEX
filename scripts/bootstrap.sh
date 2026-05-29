@@ -46,7 +46,6 @@ mkdir -p \
   "$PROJ/state/tasks/processed" \
   "$PROJ/state/tasks/blocked" \
   "$PROJ/state/sessions" \
-  "$PROJ/state/workdirs" \
   "$PROJ/state/control/autowork" \
   "$PROJ/state/hooks" 2>/dev/null || {
     echo "WARNING: failed to create state/ subdirs under $PROJ" >&2

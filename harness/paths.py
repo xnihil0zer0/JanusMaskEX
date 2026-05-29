@@ -10,6 +10,7 @@ interpolate into YAML/JSON or compare against ``str``-typed ledger rows.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 HARNESS_DIR = Path(__file__).resolve().parent
@@ -22,6 +23,44 @@ PROJECT_ROOT_STR = str(PROJECT_ROOT)
 CONFIG_DIR_STR = str(CONFIG_DIR)
 STATE_DIR_STR = str(STATE_DIR)
 
+
+def agent_workroot() -> Path:
+    """Root directory for per-agent isolated workdirs, OUTSIDE the repo tree.
+
+    AGENT-ISOLATION §3.1: agents are launched with ``cwd=<their workdir>``
+    under this root so (a) ``git`` cannot auto-discover the repo's ``.git`` by
+    walking up from CWD and (b) bare *relative* paths (``harness/orchestrator.py``)
+    no longer resolve into the live source tree. This is a *necessary but not
+    sufficient* barrier — it is NOT a filesystem jail (an agent can still open
+    an absolute repo path). The authoritative apply-time barrier is the §1b
+    target-scoping in ``harness/git_integration.py``.
+
+    Derived from ``PROJECT_ROOT`` (the real repo, fixed at import from
+    ``__file__``) — NOT from any caller-supplied ``state_dir``. Planning spawns
+    pass per-agent session dirs as ``state_dir`` (the ``_PerAgentConfig``
+    trick), so a state-dir-relative root would land *inside* the repo and
+    silently break isolation. Anchoring on ``PROJECT_ROOT`` also guarantees
+    every spawn site and every workdir consumer (the orchestrator, both
+    ``autowork_daemon`` self-heal spawns, the ``harness.hooks._env`` fallback,
+    ``impl_outbox_watcher``, ``planner.blind_draft`` and ``_collect_traceback``)
+    compute the SAME root and never disagree about where a submission landed.
+
+    Override with ``$JANUSMASK_AGENT_WORKROOT`` (absolute path; used by tests so
+    a tmp run does not pollute the real sibling dir).
+    """
+    raw = os.environ.get("JANUSMASK_AGENT_WORKROOT")
+    if raw:
+        # NOTE: deliberately NOT expanduser() — the override must be an absolute
+        # path (keeps harness/ Path.home()-free for clone portability).
+        return Path(raw).resolve()
+    return PROJECT_ROOT.parent / f"{PROJECT_ROOT.name}_agentwork"
+
+
+def agent_work_dir(agent: str, session_slug: str) -> Path:
+    """Per-spawn isolated workdir: ``<agent_workroot>/<agent>/<session_slug>``."""
+    return agent_workroot() / agent / session_slug
+
+
 __all__ = [
     "HARNESS_DIR",
     "PROJECT_ROOT",
@@ -31,4 +70,6 @@ __all__ = [
     "PROJECT_ROOT_STR",
     "CONFIG_DIR_STR",
     "STATE_DIR_STR",
+    "agent_workroot",
+    "agent_work_dir",
 ]

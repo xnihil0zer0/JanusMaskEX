@@ -197,7 +197,11 @@ def _process_submission(
 
 
 def _scan_once(state_dir: pathlib.Path, seen: dict[pathlib.Path, tuple[int, int, int]]) -> int:
-    workdirs_root = state_dir / "workdirs"
+    # AGENT-ISOLATION §3.7: workdirs were relocated OUTSIDE the repo; scan the
+    # shared workroot (NOT state_dir/workdirs, which is now dead) so async
+    # submissions are still picked up after relocation.
+    from harness.paths import agent_workroot
+    workdirs_root = agent_workroot()
     if not workdirs_root.is_dir():
         return 0
     touched = 0
