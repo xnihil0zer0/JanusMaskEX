@@ -1483,7 +1483,7 @@ def main(argv: list[str] | None=None) -> int:
     parser.add_argument('--dry-run', action='store_true', help='Print would-launch JSON without spawning workers.')
     parser.add_argument('--config', type=pathlib.Path, default=pathlib.Path('harness/config.yaml'), help='Path to harness/config.yaml.')
     args = parser.parse_args(argv)
-    state_dir: pathlib.Path = args.state_dir
+    state_dir: pathlib.Path = args.state_dir.resolve()
     repo_root: pathlib.Path = pathlib.Path.cwd()
     config = _load_config(args.config)
     cap = _parallel_cap(config)

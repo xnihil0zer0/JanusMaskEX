@@ -68,7 +68,7 @@ def main() -> int:
     parser.add_argument('--task-id', type=str, required=True, help='Task identifier whose JSON lives in <state>/tasks/.')
     parser.add_argument('--config', type=Path, default=DEFAULT_CONFIG_PATH, help='Path to harness/config.yaml.')
     args = parser.parse_args()
-    state_dir: Path = args.state_dir
+    state_dir: Path = args.state_dir.resolve()
     task_id: str = args.task_id
     config_path: Path = args.config
     tasks_dir = state_dir / 'tasks'
