@@ -62,6 +62,56 @@ def _consume_no_diff_marker(state_dir: Path, task_id: str) -> bool:
         pass
     return False
 
+def _rollback_live_tree(state_dir: Path, files_touched: list[Any], task_id: str) -> None:
+    """CONTAIN C3: restore the live worktree on any non-accept worker outcome.
+
+    AGENT-ISOLATION: an agent subprocess can write the live repo by absolute
+    path -- CWD relocation is NOT a filesystem jail (harness/paths.py:33-36).
+    On an ACCEPTED run the validated submission is applied through the
+    ``<repo>_staging`` worktree and ff-merged, overwriting any stray write; but
+    on a REJECT / timeout / decompose outcome the accept path is never reached,
+    so a stray edit to a ``files_touched`` target would PERSIST (the proximate
+    cause of the GAP_H4 tamper that survived rejection). Mirror the staging-commit
+    scrub (``orchestrator._auto_commit_accepted``) in the LIVE worktree:
+    best-effort ``git checkout HEAD -- <rel>`` + ``git clean -f -- <rel>``, scoped
+    STRICTLY to the resolved targets (R-CONTAIN-3) so the committed oracle and
+    unrelated working-tree drift are never touched. Never raises.
+
+    ``files_touched`` on a reject path holds only the original declared targets:
+    ``_detect_and_append_untracked_tests`` (which appends untracked tests) runs
+    only on accept paths, so this can never delete an operator's untracked WIP.
+    """
+    import subprocess
+    rels = [r for r in (files_touched or []) if isinstance(r, str) and r.strip()]
+    if not rels:
+        return
+    # Resolve the live worktree STRICTLY from state_dir's git toplevel. In
+    # production state_dir is always <repo>/state; if it does not resolve to a
+    # repo there is no live tree to restore, so skip rather than fall back to a
+    # global root (which could touch an unrelated checkout under test).
+    try:
+        top = subprocess.run(['git', 'rev-parse', '--show-toplevel'], cwd=str(state_dir),
+                             capture_output=True, text=True, timeout=30)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return
+    if top.returncode != 0 or not top.stdout.strip():
+        return
+    repo_root = top.stdout.strip()
+    for rel in rels:
+        try:
+            subprocess.run(['git', 'checkout', 'HEAD', '--', rel], cwd=repo_root,
+                           check=False, timeout=30, capture_output=True)
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
+        try:
+            subprocess.run(['git', 'clean', '-f', '--', rel], cwd=repo_root,
+                           check=False, timeout=30, capture_output=True)
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
+    _emit_lifecycle_safe(state_dir, phase='autowork', task_id=task_id,
+                         event='reject_rollback', files=rels)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description='JanusMask single-task orchestrator worker (AW2).')
     parser.add_argument('--state-dir', type=Path, required=True, help='Path to the shared state directory.')
@@ -83,6 +133,7 @@ def main() -> int:
         _print_json_line({'skipped': 'already_claimed', 'task_id': task_id})
         return 0
     exit_code = 2
+    task: dict[str, Any] = {}
     started_emit = False
     _stderr_buf = io.StringIO()
     with contextlib.redirect_stderr(_stderr_buf):
@@ -448,6 +499,11 @@ def main() -> int:
             if started_emit:
                 stderr_tail = _stderr_buf.getvalue()[-256:].encode('unicode_escape').decode('ascii', errors='replace')
                 _emit_lifecycle_safe(state_dir, phase='autowork', task_id=task_id, event='worker_exit', exit_code=exit_code, stderr_tail=stderr_tail)
+            # CONTAIN C3: on any non-accept outcome (reject/timeout/decompose/error)
+            # restore the live tree -- a stray absolute-path agent write to a target
+            # only survives because no accept-path staging merge overwrote it.
+            if exit_code != 0:
+                _rollback_live_tree(state_dir, task.get('files_touched') or [], task_id)
 from harness.task_paths import current_task_spec_path
 import contextlib
 import io

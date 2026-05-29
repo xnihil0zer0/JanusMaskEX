@@ -37,11 +37,7 @@
   },
   "env": {
     "JANUSMASK_AGENT": "claude",
-    "JANUSMASK_MODE": "planning",
-    "JANUSMASK_PROJECT_DIR": "${CLAUDE_PROJECT_DIR}",
-    "JANUSMASK_STATE_DIR": "${CLAUDE_PROJECT_DIR}/state",
-    "JANUSMASK_WORK_DIR": "${CLAUDE_PROJECT_DIR}/state/workdirs/claude/${SESSION_ID}",
-    "PYTHONPATH": "${CLAUDE_PROJECT_DIR}"
+    "JANUSMASK_MODE": "planning"
   },
   "hooks": {
     "SessionStart": [

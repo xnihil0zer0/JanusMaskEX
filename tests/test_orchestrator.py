@@ -333,9 +333,12 @@ class TestSpawnAgent:
             "agents": {
                 "claude": {
                     "command": "claude",
+                    # --settings points at a real PreToolUse-declaring config so the
+                    # CONTAIN C5 fail-closed hook-config assertion is satisfied.
                     "args": ["-p", "--model", "claude-opus-4-6",
                              "--permission-mode", "plan",
                              "--output-format", "json",
+                             "--settings", f"{_REPO_ROOT}/config/claude_worker_hooks.json",
                              "--project-dir", _REPO_ROOT],
                 },
                 "gemini": {

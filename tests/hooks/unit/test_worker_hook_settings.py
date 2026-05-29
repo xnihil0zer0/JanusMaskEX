@@ -73,15 +73,26 @@ class TestEnv:
         for cfg in (synth_cfg, planning_cfg):
             assert cfg["env"]["JANUSMASK_AGENT"] == "claude"
 
-    def test_workdir_template_uses_session_id(self, synth_cfg, planning_cfg):
+    def test_no_claude_project_dir_derived_env(self, synth_cfg, planning_cfg):
+        """CONTAIN C1: the worker hook config must NOT derive JANUSMASK_* or
+        PYTHONPATH from ${CLAUDE_PROJECT_DIR}. CLAUDE_PROJECT_DIR now points at the
+        outside-repo work_dir (closing the project-root leak), so any
+        ${CLAUDE_PROJECT_DIR}-interpolated path here would repoint the harness vars
+        off the repo. The orchestrator process env supplies JANUSMASK_PROJECT_DIR,
+        JANUSMASK_STATE_DIR, JANUSMASK_WORK_DIR and PYTHONPATH explicitly instead."""
         for cfg in (synth_cfg, planning_cfg):
-            wd = cfg["env"]["JANUSMASK_WORK_DIR"]
-            assert "${SESSION_ID}" in wd
-            assert "state/workdirs/claude" in wd
-
-    def test_pythonpath_points_at_project(self, synth_cfg, planning_cfg):
-        for cfg in (synth_cfg, planning_cfg):
-            assert cfg["env"]["PYTHONPATH"] == "${CLAUDE_PROJECT_DIR}"
+            env = cfg["env"]
+            for leaked in ("JANUSMASK_PROJECT_DIR", "JANUSMASK_STATE_DIR",
+                           "JANUSMASK_WORK_DIR", "PYTHONPATH"):
+                assert leaked not in env, (
+                    f"{leaked} must not be set in the worker hook config "
+                    f"(decoupled from ${{CLAUDE_PROJECT_DIR}} by CONTAIN C1)"
+                )
+            # No remaining value may interpolate the (now outside-repo) project dir.
+            for k, v in env.items():
+                assert "${CLAUDE_PROJECT_DIR}" not in str(v), (
+                    f"env[{k}]={v!r} still interpolates ${{CLAUDE_PROJECT_DIR}}"
+                )
 
 
 class TestHooksWiring:

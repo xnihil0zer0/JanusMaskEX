@@ -176,6 +176,14 @@ def _build_agent_command(agent: str, prompt: str, config: dict[str, Any]) -> lis
     rewire = _HOOK_CONFIG_REWIRE_SYNTHESIS if mode == 'synthesis' else _HOOK_CONFIG_REWIRE_PLANNING
     raw_args = [rewire.get(a, a) for a in raw_args]
     if agent == 'claude' and '--permission-mode' not in raw_args:
+        # CONTAIN C4 (deviation, evidenced): keep 'acceptEdits'. The plan called for
+        # 'default', but claude-code >=2.1.114 SILENTLY DROPS hook-granted permission
+        # verbs under headless -p (see tests/adversarial/test_B3_path_b_permission_mode
+        # docstring); the vendored claude is 2.1.156. Under 'default' the PreToolUse
+        # hook's Write-allow is dropped and Write-to-outbox -- the sole submission path
+        # -- is denied, breaking ALL synthesis. The containment that dropping acceptEdits
+        # was meant to buy (it overrode 'defaultMode: denyAll') is instead delivered by
+        # --tools (Bash/Edit are not even presented) + the C2 bwrap jail (repo read-only).
         raw_args = raw_args + ['--permission-mode', 'acceptEdits']
     try:
         p_index = raw_args.index('-p')
@@ -183,6 +191,31 @@ def _build_agent_command(agent: str, prompt: str, config: dict[str, Any]) -> lis
     except ValueError:
         cmd = [command] + raw_args + ['-p', prompt]
     return cmd
+
+def _assert_claude_hook_config(cmd: list[str]) -> None:
+    """CONTAIN C5: fail-closed if the effective claude --settings file does not
+    declare a PreToolUse hook.
+
+    The PreToolUse hook is the (audit-grade) submission-confinement layer; C2 (the
+    bwrap jail) and C4 (--tools) are the load-bearing barriers, but a missing or
+    malformed settings file is a misconfiguration we REFUSE to launch into rather
+    than spawn an agent with no gate at all. Reads the effective (post-rewire)
+    --settings path out of the built argv. Raises RuntimeError on any failure so the
+    caller's spawn-exception handling turns it into a safe rejected/error outcome.
+    """
+    try:
+        i = cmd.index('--settings')
+        settings_path = Path(cmd[i + 1])
+    except (ValueError, IndexError):
+        raise RuntimeError('CONTAIN C5: claude spawn has no --settings argument; refusing to launch un-gated.')
+    if not settings_path.is_file():
+        raise RuntimeError(f'CONTAIN C5: claude --settings file not found: {settings_path}; refusing to launch.')
+    try:
+        data = json.loads(settings_path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f'CONTAIN C5: claude --settings unreadable ({settings_path}): {exc}; refusing to launch.')
+    if not (isinstance(data, dict) and data.get('hooks', {}).get('PreToolUse')):
+        raise RuntimeError(f'CONTAIN C5: claude --settings {settings_path} declares no PreToolUse hook; refusing to launch un-gated.')
 
 def _build_agent_env(agent: str, state_dir: str, round_number: int=1) -> dict[str, str]:
     """Build the environment for an agent process.
@@ -214,7 +247,17 @@ def _build_agent_env(agent: str, state_dir: str, round_number: int=1) -> dict[st
     # so an agent launched with cwd=work_dir cannot reach the live source tree
     # by relative path and git cannot auto-discover the repo .git from CWD.
     work_dir = agent_work_dir(agent, session_slug)
-    env: dict[str, str] = {**os.environ, 'PYTHONHASHSEED': '0', 'CLAUDE_PROJECT_DIR': str(PROJECT_DIR), 'JANUSMASK_PROJECT_DIR': str(PROJECT_DIR), 'GEMINI_CLI_TRUST_WORKSPACE': 'true', 'JANUSMASK_AGENT': agent, 'JANUSMASK_STATE_DIR': state_dir, 'JANUSMASK_ROUND': str(round_number), 'JANUSMASK_MODE': mode, 'JANUSMASK_TASK_ID': task_id, 'JANUSMASK_WORK_DIR': str(work_dir)}
+    # CONTAIN C1: point CLAUDE_PROJECT_DIR at the per-spawn work_dir (OUTSIDE the
+    # repo), not the live repo. Claude resolves its project root / hook discovery /
+    # ${CLAUDE_PROJECT_DIR} permission roots / settings+mcp interpolation from this
+    # var, so leaving it on the repo defeated the outside-repo CWD relocation. The
+    # harness side keeps JANUSMASK_PROJECT_DIR=<repo> (the trusted hook process reads
+    # its roots from it) and PYTHONPATH=<repo> so the worker hooks + janusmask MCP
+    # server still `import harness.*` -- decoupled from CLAUDE_PROJECT_DIR. The
+    # worker hook configs no longer derive these from ${CLAUDE_PROJECT_DIR}.
+    _existing_pp = os.environ.get('PYTHONPATH', '')
+    _pythonpath = str(PROJECT_DIR) if not _existing_pp else str(PROJECT_DIR) + os.pathsep + _existing_pp
+    env: dict[str, str] = {**os.environ, 'PYTHONHASHSEED': '0', 'CLAUDE_PROJECT_DIR': str(work_dir), 'JANUSMASK_PROJECT_DIR': str(PROJECT_DIR), 'PYTHONPATH': _pythonpath, 'GEMINI_CLI_TRUST_WORKSPACE': 'true', 'JANUSMASK_AGENT': agent, 'JANUSMASK_STATE_DIR': state_dir, 'JANUSMASK_ROUND': str(round_number), 'JANUSMASK_MODE': mode, 'JANUSMASK_TASK_ID': task_id, 'JANUSMASK_WORK_DIR': str(work_dir)}
     if agent == 'gemini':
         env['JANUSMASK_GEMINI_SETTINGS'] = os.environ.get('JANUSMASK_GEMINI_SETTINGS', str(PROJECT_DIR / 'config' / 'gemini_settings.json'))
     return env
@@ -292,6 +335,16 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
     except Exception as exc:
         logger.error("Error in pre_invocation interceptor: %s", exc, exc_info=True)
     cmd = _build_agent_command(agent, resolved_prompt, config)
+    # CONTAIN C5: fail-closed hook-config assertion (claude only) before any spawn.
+    if agent == 'claude':
+        _assert_claude_hook_config(cmd)
+    # CONTAIN C2: wrap the spawn in a bwrap jail (repo read-only) when enabled in
+    # config. CWD relocation alone is not a filesystem jail (paths.py:33-36); the
+    # jail makes an absolute-path write to harness/*.py structurally impossible.
+    # Fail-closed: build_jail_argv raises if bwrap is missing while the gate is on.
+    from harness import agent_jail
+    if agent_jail.sandbox_enabled(config):
+        cmd = agent_jail.build_jail_argv(cmd, repo_root=PROJECT_DIR, work_dir=env['JANUSMASK_WORK_DIR'], state_dir=env['JANUSMASK_STATE_DIR'])
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.OK}spawning{_C.RESET} {_C.DIM}{cmd[0]}{_C.RESET}')
     logger.info('Spawning %s: %s', agent, ' '.join(cmd[:6]) + ' ...')
     # AGENT-ISOLATION §3.2: cwd is the isolated, outside-repo workdir.

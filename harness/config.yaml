@@ -20,6 +20,13 @@ agents:
     - --strict-mcp-config
     - --setting-sources
     - ''
+    # CONTAIN C4: bound the available tool set (built-ins not listed are never
+    # presented). Write MUST stay -- it is the sole submission path (outbox).
+    # --disallowedTools is belt-and-suspenders; permissions.deny is unreliable in -p.
+    - --tools
+    - Read,Glob,Grep,Write
+    - --disallowedTools
+    - Bash,Edit,Task,NotebookEdit,WebFetch,WebSearch,Skill,ToolSearch
     command: ${PROJECT_ROOT}/.agents/claude-code/node_modules/.bin/claude
   claude_fallback:
     args:
@@ -34,6 +41,11 @@ agents:
     - -p
     - --sandbox
     command: ${PROJECT_ROOT}/.agents/agy/agy
+agent_sandbox:
+  # CONTAIN C2: bind-mount the repo READ-ONLY around every agent spawn via bwrap
+  # so an agent cannot write harness/*.py by absolute path. work_dir + state/ stay
+  # writable. Fail-closed: spawn aborts if bwrap is missing while this is true.
+  bwrap: true
 autowork:
   brief_max_age_seconds: 604800
   brief_max_size_bytes: 50000
