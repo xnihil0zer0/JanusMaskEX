@@ -8,11 +8,17 @@ wraps the agent argv in ``bwrap`` so the repository is bind-mounted READ-ONLY: a
 write to any tracked source file is denied by the kernel, not by a ``-p``-mode
 hook that may not load.
 
-Writable surfaces are minimised to exactly what a spawn legitimately needs:
+Writable surfaces are minimised to exactly what a spawn legitimately needs
+(C-HARDEN M-1/M-2 narrowed these from the original whole-state / whole-HOME binds):
   * the per-spawn ``work_dir`` (outbox submission + inbox staging),
-  * ``<repo>/state`` (the hook ledger + lifecycle journal write here),
-  * ``$HOME`` (agy registers ``~/.gemini/antigravity-cli/mcp_config.json``; the
-    vendored node runtime lives under ``~/.nvm``; claude writes ``~/.claude``).
+  * ``<repo>/state/sessions/`` ONLY -- the hook ledger + canonical submission
+    record. The rest of ``state/`` (``control/**`` full_stop/decisions/allowlist,
+    ``tasks/**``) is READ-ONLY: the §1b commit-gate does not cover ``state/**``, so
+    a writable state let an agent self-approve / un-halt / queue work via the FS.
+  * three HOME subdirs ONLY: ``~/.nvm`` (vendored node), ``~/.gemini`` (agy OAuth +
+    antigravity-cli), ``~/.claude`` (claude state) -- with every
+    ``~/.claude/projects/*/memory`` ro-overlaid so an agent cannot poison the
+    session-memory that steers future Claude runs. The rest of ``$HOME`` is unbound.
 Everything else (``harness/*.py`` and all other tracked source) is read-only.
 
 Config-gated via ``config.yaml`` ``agent_sandbox.bwrap`` and FAIL-CLOSED: if the
@@ -105,10 +111,30 @@ def build_jail_argv(
         d = str(d)
         if d and os.path.exists(d):
             argv += ["--ro-bind", d, d]
-    # HOME writable FIRST so the later repo ro-bind overlays it (the repo lives
-    # under HOME). Covers ~/.nvm node runtime, ~/.gemini, ~/.claude.
-    if os.path.exists(home):
-        argv += ["--bind", home, home]
+    # CONTAIN C-HARDEN M-2: bind ONLY the specific HOME subdirs an agent legitimately
+    # needs writable -- NOT all of $HOME. Before this, the whole home was rw, so a
+    # jailed agent could write the <repo>_agentwork workroot (poisoned-inbox residue)
+    # or, crucially, ~/.claude/.../memory/*.md (which steers FUTURE Claude sessions).
+    # Covers: ~/.nvm (vendored node runtime), ~/.gemini (agy OAuth + antigravity-cli),
+    # ~/.claude (claude session/project state). Bound FIRST so the later repo ro-bind
+    # overlays any overlap (the repo lives under HOME). (plan rev3.1 M-2 / R-CONTAIN-state/HOME)
+    for _sub in (".nvm", ".gemini", ".claude"):
+        _hp = os.path.join(home, _sub)
+        if os.path.exists(_hp):
+            argv += ["--bind", _hp, _hp]
+    # Protect the operator session-memory store: ro-overlay every
+    # ~/.claude/projects/*/memory (rw-bound just above) so a jailed agent cannot
+    # poison the memory files that steer future Claude sessions. The rest of each
+    # project dir stays writable (claude-code writes its own session/todo state).
+    _claude_projects = os.path.join(home, ".claude", "projects")
+    try:
+        if os.path.isdir(_claude_projects):
+            for _proj in sorted(os.listdir(_claude_projects)):
+                _mem = os.path.join(_claude_projects, _proj, "memory")
+                if os.path.isdir(_mem):
+                    argv += ["--ro-bind", _mem, _mem]
+    except OSError:
+        pass
     # XDG_RUNTIME_DIR (/run/user/<uid>): the D-Bus session bus + keyring socket live
     # here. agy (gemini CLI) validates/refreshes its OAuth credential through the
     # session keyring; without this bind it loops on "authentication timed out" even
@@ -118,9 +144,24 @@ def build_jail_argv(
         argv += ["--bind", xdg, xdg]
     # The load-bearing barrier: repository source READ-ONLY.
     argv += ["--ro-bind", repo_root, repo_root]
-    # state/ writable (overlays the ro repo bind) for the hook ledger + journal.
+    # CONTAIN C-HARDEN M-1: state/ is READ-ONLY except state/sessions/ (the hook
+    # ledger state/sessions/<agent>_<sid>.ledger.jsonl + the canonical submission
+    # record -- the ONLY paths a jailed agent / its in-jail PreToolUse+PostToolUse
+    # hooks write under state). This denies a jailed agent writing state/control/**
+    # (full_stop, decisions/<id>.json self-approval, auto_promote.allowlist) or
+    # state/tasks/** (another task's spec) -- the §1b commit-gate does NOT cover
+    # state/**, so before this an agent could self-approve / un-halt / queue work
+    # purely via the filesystem. The trusted worker (OUTSIDE the jail) still writes
+    # control/tasks/impl_progress.jsonl. (plan rev3.1 M-1 / R-CONTAIN-state/HOME)
     if os.path.exists(state_dir):
-        argv += ["--bind", state_dir, state_dir]
+        argv += ["--ro-bind", state_dir, state_dir]
+        _sessions = os.path.join(state_dir, "sessions")
+        try:
+            os.makedirs(_sessions, exist_ok=True)  # ensure exists so --bind succeeds
+        except OSError:
+            pass
+        if os.path.isdir(_sessions):
+            argv += ["--bind", _sessions, _sessions]
     # Per-spawn work_dir writable (outbox + inbox). Outside the repo tree.
     argv += ["--bind", work_dir, work_dir]
     argv += ["--chdir", work_dir, "--"]
