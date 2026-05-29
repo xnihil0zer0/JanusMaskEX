@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMask/scripts/_audit_test_coverage.py
-# hypothesis_version: 6.152.9
-
-['\nAudit passed.', '*', '--log-file', '--tests-dir', '.md', '.py', 'EXEMPT_RATIO', 'MISSING', 'OK', 'Output JSON log file', 'UNDER', 'UNKNOWN', '__main__', '```', '```json', 'fixtures', 'found', 'found_count', 'gap', 'integration_tests', 'listed_count', 'meta_task_type', 'minimum_test_count', 'name', 'plan-part*.json', 'plan_files', 'property_tests', 'r', 'regression_tests', 'required', 'status', 'task_id', 'tasks', 'test_', 'test_spec', 'tests', 'totals', 'typo_suspected', 'unit_tests', 'utf-8', 'w']

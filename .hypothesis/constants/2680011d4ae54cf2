@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/planner/blind_draft.py
-# hypothesis_version: 6.152.9
-
-[1.0, 10.0, 1800, 'JANUSMASK_MODE', 'agent', 'agents', 'brief.json', 'claude', 'claude_draft.json', 'crashed', 'deliverables', 'env', 'gemini', 'gemini_draft.json', 'inputs', 'invalid', 'non_goals', 'ok', 'plan_draft.json', 'planning', 'r', 'raw_text', 'run_agent_phase', 'scope', 'sessions', 'sha256', 'source_path', 'spawn_agent', 'state_dir', 'synthesis', 'timeout', 'timeout_seconds', 'title', 'utf-8', 'w', 'workdirs']

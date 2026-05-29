@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/planner/reconciliation.py
-# hypothesis_version: 6.152.9
-
-[1800, 'JANUSMASK_MODE', 'a', 'agent', 'agents', 'auto', 'both_agents_silent', 'claude', 'claude_silent', 'concede', 'current_diff.json', 'decision', 'defend', 'diff_item_id', 'drop', 'env', 'flag_for_human', 'gemini', 'gemini_silent', 'logs', 'meta_task_type', 'parse_failed', 'planning', 'policy', 'prefer_claude', 'prefer_gemini', 'r', 'reconciliation', 'reconciliation.json', 'responses', 'run_agent_phase', 'sessions', 'silent_concede', 'spawn_agent', 'stance', 'state_dir', 'synthesis', 'tie', 'tiebreaker', 'timeout_seconds', 'unknown', 'unresolved_policy', 'utf-8', 'w']

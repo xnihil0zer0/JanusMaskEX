@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/claude/pre_tool.py
-# hypothesis_version: 6.152.9
-
-['.md', 'Agent', 'Glob', 'Grep', 'JANUSMASK_MODE', 'PreToolUse', 'Read', 'Read/Glob/Grep', 'Write', '__main__', 'additionalContext', 'allow', 'briefs', 'clarification', 'clarification_', 'clarifications', 'claude', 'content', 'counters', 'deny', 'docs', 'error.md', 'file_path', 'generalist', 'glob', 'grep_search', 'hookEventName', 'hookSpecificOutput', 'invalid', 'list_directory', 'non_dict_tool_input', 'path', 'plan_draft.json', 'planning', 'rate_limited', 'read_file', 'reason', 'reconciliation', 'reconciliation.json', 'session_id', 'submission.py', 'synthesis', 'tool_input', 'tool_input_coerce', 'tool_name', 'type']

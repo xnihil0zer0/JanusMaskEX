@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/rpc/submit_code.py
-# hypothesis_version: 6.152.9
-
-['; ', 'accepted', 'agent_identity', 'ast_rejection', 'ast_valid', 'attempts', 'clean_success', 'code', 'error', 'explanation', 'failures', 'line', 'message', 'rejected', 'round_number', 'rule', 'session_id', 'sessions', 'severity', 'status', 'submission_number', 'synthesis', 'timestamp', 'utf-8', 'violations', 'w', 'warning', 'warnings']

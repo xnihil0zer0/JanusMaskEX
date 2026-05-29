@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/track_record.py
-# hypothesis_version: 6.152.9
-
-[0.0, '.json.tmp', 'a', 'ambiguous_spec', 'antigravity', 'ast_rejection', 'attempts', 'claude', 'clean_success', 'decomposition', 'failures', 'fuzz_round1_fail', 'gemini', 'keys', 'r', 'refactor', 'spec_authorship', 'synthesis', 'track_record.lock', 'version', 'w']

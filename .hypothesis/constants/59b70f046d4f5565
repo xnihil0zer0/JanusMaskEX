@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/scripts/impl_pre_write.py
-# hypothesis_version: 6.152.9
-
-[-150, 600, '*?[', '-', '.', '.claude', '.py', '/', '; ', '?', 'Edit', 'META', 'P5', 'PreToolUse', 'Write', '_', '__main__', 'content', 'current_phase', 'current_task_id', 'deny', 'event', 'file_path', 'harness/', 'harness/config.yaml', 'hookEventName', 'hookSpecificOutput', 'ignore', 'lineno', 'memory', 'new_string', 'offset', 'old_string', 'paths', 'permissionDecision', 'phase', 'phase_gate_pass', 'projects', 'replace_all', 'scope_exception', 'scope_globs', 'scope_revoke', 'test_*.py', 'tests', 'tool_input', 'tool_name', 'ts', 'utf-8']

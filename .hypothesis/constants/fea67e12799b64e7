@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/config_loader.py
-# hypothesis_version: 6.152.9
-
-[5.0, 2000, 'batch_execution', 'enabled', 'enforce', 'enforce_verbs', 'hooks', 'mode', 'off', 'report_error', 'rlimit_nproc', 'seccomp', 'shadow', 'shadow_dir', 'state/hooks/shadow/', 'submit_code', 'submit_plan_draft', 'worker_pool_size']

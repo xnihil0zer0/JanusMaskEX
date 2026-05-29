@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/console.py
-# hypothesis_version: 6.152.9
-
-[200, 300, '\x1b[0m', '\x1b[1m', '\x1b[2m', '\x1b[38;5;117m', '\x1b[38;5;183m', '\x1b[38;5;196m', '\x1b[38;5;208m', '\x1b[38;5;220m', '\x1b[38;5;240m', '\x1b[38;5;245m', '\x1b[38;5;33m', '\x1b[38;5;82m', '...', '?', 'ConsoleStreamer', '_C', '_agent_color', '_agent_label', '_code_preview', '_divider', '_stream', 'accepted', 'args', 'arguments', 'ast_valid', 'claude', 'code', 'code_under_review', 'command', 'constraints', 'content', 'error', 'function_signature', 'id', 'isError', 'message', 'method', 'name', 'params', 'protocolVersion', 'result', 'review_prompt', 'round', 'specification', 'status', 'task_id', 'text', 'tools', 'tools/call', 'unknown', 'violations', 'warnings', '─', '═']

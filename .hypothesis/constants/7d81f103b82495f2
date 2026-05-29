@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/rebuild/discover.py
-# hypothesis_version: 6.152.9
-
-[' -k {unit}', '*.py', '.', '..', '.eggs', '.git', '.hg', '.py', '/', '__init__.py', '__pycache__', '_test.py', 'build', 'build_descriptor', 'conftest.py', 'discover_modules', 'dist', 'module_import_graph', 'node_modules', 'order_modules', 'python -m pytest -q', 'python -m pytest -q ', 'relative_base', 'state', 'test_', 'utf-8']

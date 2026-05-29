@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMask/harness/cross_examiner.py
-# hypothesis_version: 6.151.9
-
-[497, 500, '#', '.', '...', 'JANUSMASK_TASK_ID', 'args', 'claude', 'code_under_review', 'exception', 'exception_message', 'exception_type', 'gemini', 'input', 'kwargs', 'reason', 'result_a', 'result_b', 'return_value', 'review_prompt', 'round', 'sessions', 'status', 'success', 'timeout', 'w']

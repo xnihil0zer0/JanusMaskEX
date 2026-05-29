@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/control_gate.py
-# hypothesis_version: 6.152.9
-
-[0.0, 1.0, 60.0, 1800.0, 'accepted', 'approval_timeout_sec', 'ast_validation', 'auto', 'control', 'cross_examination', 'decision', 'decisions', 'decisions_dir', 'decomposition', 'fuzzing', 'harness.state', 'pause_flag_path', 'paused', 'rejected', 'replace', 'require_approval', 'state', 'synthesis', 'timeout', 'utf-8']

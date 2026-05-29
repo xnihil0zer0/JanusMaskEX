@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/rebuild/job.py
-# hypothesis_version: 6.152.9
-
-['#', '*.json', ', ', '--input', '--job-id', '--name', '--output', '--resume', '--source-root', '--stash', '--state-dir', '--target', '--unit-byte-budget', '-m', '.descriptor.json', 'HEAD', '__main__', 'a', 'attempts', 'autowork', 'brief_path', 'cmd', 'complete', 'control', 'create', 'created_ts', 'current', 'dependencies', 'descriptor', 'descriptor_path', 'done', 'error', 'full_test_command', 'harness.rebuild.loop', 'head_sha', 'input_dir', 'job_id', 'jobs', 'list', 'modules', 'n_tasks', 'n_units', 'name', 'not_found', 'output_dir', 'pending', 'python -m pytest -q', 'rebuild', 'remaining', 'requirements_files', 'rev-parse', 'seed_files', 'source_root', 'stash', 'stash_dir', 'state', 'status', 'tasks', 'test_files', 'total', 'unit_byte_budget', 'unit_test_selector', 'units', 'unknown', 'updated_ts', 'utf-8', 'venv_ready']

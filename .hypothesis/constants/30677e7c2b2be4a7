@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/claude/post_tool.py
-# hypothesis_version: 6.152.9
-
-['%Y-%m-%dT%H:%M:%SZ', '.md', 'PostToolUse', 'Write', '__main__', 'agent_identity', 'allow', 'clarification', 'clarification_', 'clarification_number', 'clarifications', 'claude', 'code', 'constraints', 'default', 'deny', 'deterministic', 'error', 'error.md', 'error_count', 'explanation', 'filePath', 'file_path', 'invalid', 'io_adapter', 'json_decode_error', 'line', 'message', 'meta_task_type', 'persist_error', 'plan_draft', 'plan_draft.json', 'question', 'reason', 'reconciliation', 'reconciliation.json', 'round_number', 'rule', 'schema_error', 'session_id', 'severity', 'sha256:', 'submission.py', 'submission_number', 'submissions', 'submit_code', 'success', 'task_id', 'timestamp', 'tool_input', 'tool_name', 'tool_response', 'utf-8', 'violations']

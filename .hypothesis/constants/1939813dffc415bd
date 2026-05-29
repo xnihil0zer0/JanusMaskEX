@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/planner/plan_validator.py
-# hypothesis_version: 6.152.9
-
-[1.5, '0123456789abcdef', 'acceptance_criteria', 'attribution_metadata', 'attribution_mismatch', 'critical', 'dependencies', 'dependency_cycle', 'diff_resolution', 'duplicate_task_id', 'edge_cases', 'error', 'estimated_complexity', 'files_touched', 'high', 'implementation_notes', 'integration', 'integration_tests', 'interfaces', 'invalid_sha256', 'invalid_structure', 'invalid_wrapper_type', 'low', 'medium', 'meta_task_type', 'minimum_test_count', 'missing_field', 'non_goals', 'note', 'objective', 'parse_error', 'plan', 'plan.tasks', 'priority', 'property_tests', 'proposed_by', 'r', 'reconciled', 'regression_tests', 'source_brief_path', 'source_brief_sha256', 'spec', 'spec_author', 'task_id', 'tasks', 'tasks must be a list', 'test_', 'test_ratio_violation', 'test_spec', 'test_tokens', 'title', 'token_budget_ratio', 'unit_tests', 'utf-8', 'verification_command']

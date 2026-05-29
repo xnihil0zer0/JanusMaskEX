@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/scratch_test_strategy.py
-# hypothesis_version: 6.152.9
-
-['Cs', 'Dict', 'Dict[', 'List', 'List[', 'List[str]', 'Text', '__main__', 'bool', 'builtins.bool', 'builtins.float', 'builtins.int', 'builtins.str', 'dict', 'dict[', 'dict[str, int]', 'float', 'int', 'list', 'list[', 'list[int]', 'socket.AddressFamily', 'str', 'typing.Dict', 'typing.Dict[', 'typing.List', 'typing.List[', 'typing.Text']

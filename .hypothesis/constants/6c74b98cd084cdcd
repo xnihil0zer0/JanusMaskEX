@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/planner/auto_amend.py
-# hypothesis_version: 6.152.9
-
-['add_dependency', 'add_edge_case', 'add_non_goal', 'applied', 'auto_amend_enabled', 'dependencies', 'details', 'edge_cases', 'finding_id', 'findings', 'increase_test_count', 'malformed_critique', 'malformed_patch', 'minimum_test_count', 'no_critique', 'no_patch', 'non_goals', 'op', 'planner', 'planning', 'r', 'reason', 'rolled_back', 'skipped', 'spec', 'suggested_patch', 'task_id', 'task_not_found', 'tasks', 'test_spec', 'tighten_token_budget', 'token_budget_ratio', 'unsupported_op', 'utf-8', 'value', 'w']

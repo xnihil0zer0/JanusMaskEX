@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/task_id_normalizer.py
-# hypothesis_version: 6.152.9
-
-['-boundary', '-compose', '-empty_input', '-general', '-reviewed', '-single_element', '-type_error', '-v', 'COMPOSE-002', 'GIT-COMMIT-001', 'GIT-REFACTOR-042', 'PS-001', 'PS-001-boundary', 'REVIEW-001', 'ROOT', 'TASK-123', 'TASK-123-compose', 'TASK-999', '__main__']

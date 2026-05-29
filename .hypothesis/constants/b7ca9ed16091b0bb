@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMask/harness/planner/brief_loader.py
-# hypothesis_version: 6.151.9
-
-[256, 1024, '\n---', '-', '---\n', '---\r\n', 'Validation failed', '^#{1,6}\\s+(.+)$', '_', '__main__', 'deliverables', 'errno', 'file', 'inputs', 'loop', 'non_goals', 'scope', 'symlink', 'title', 'utf-8']

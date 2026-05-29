@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/gemini/session_start.py
-# hypothesis_version: 6.152.9
-
-[', ', '.gemini', 'CLAUDE_PROJECT_DIR', 'GEMINI_PROJECT_DIR', 'SessionStart', '__main__', 'allow', 'config', 'continue', 'deny', 'gemini', 'gemini_settings.json', 'mode', 'reason', 'session_id', 'session_start', 'settings.json', 'source', 'stopReason', 'systemMessage', 'utf-8']

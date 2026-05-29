@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/rebuild/harvest.py
-# hypothesis_version: 6.152.9
-
-['.', 'Any', 'Dict', 'List', 'None', 'NoneType', 'Optional', 'Path', 'Set', 'Test', 'Tuple', 'Union', '__init__', '__post_init__', 'add', 'append', 'ast', 'async def', 'asyncio', 'bool', 'bytes', 'clear', 'cls', 'datetime', 'def', 'dict', 'difference_update', 'discard', 'extend', 'float', 'input', 'insert', 'int', 'intersection_update', 'list', 'multiprocessing', 'open', 'os', 'pathlib', 'pop', 'popitem', 'random', 'remove', 'requests', 'reverse', 'secrets', 'self', 'set', 'setdefault', 'shutil', 'socket', 'sort', 'str', 'subprocess', 'sys', 'tempfile', 'test', 'test_', 'threading', 'time', 'tuple', 'update', 'urllib', 'uuid']

@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/ast_enforcer.py
-# hypothesis_version: 6.152.9
-
-['Dict', 'FrozenSet', 'List', 'Set', 'Tuple', 'Type', 'datetime', 'dict', 'frozenset', 'list', 'now', 'open', 'os', 'print', 'random', 'set', 'stdout', 'sys', 'time', 'tuple', 'type', 'urandom', 'uuid', 'write']

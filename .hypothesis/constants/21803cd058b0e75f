@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/_paths.py
-# hypothesis_version: 6.152.9
-
-['CLAUDE_PROJECT_DIR', 'JANUSMASK_AGENT', 'JANUSMASK_MODE', 'JANUSMASK_ROUND', 'JANUSMASK_STATE_DIR', 'state', 'synthesis', 'task.json', 'utf-8']

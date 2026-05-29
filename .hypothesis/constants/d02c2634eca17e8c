@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/planner/diff_extractor.py
-# hypothesis_version: 6.152.9
-
-[0.0, 0.25, 0.5, 0.6, 0.75, 0.85, 1.0, 'dependencies', 'edge_cases', 'files_and_title', 'files_jaccard_high', 'files_touched', 'integration', 'integration_tests', 'name', 'non_goals', 'objective', 'priority', 'property', 'property_tests', 'regression', 'regression_tests', 'spec', 'task_id', 'tasks', 'test_spec', 'title', 'title_ratio_solo', 'unit', 'unit_tests']

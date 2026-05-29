@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/control_gate.py
-# hypothesis_version: 6.152.9
-
-[1.0, 60.0, 1800.0, 'accepted', 'ast_validation', 'control', 'cross_examination', 'decomposition', 'fuzzing', 'pause_flag_path', 'rejected', 'synthesis']

@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/sandbox_smoke.py
-# hypothesis_version: 6.152.9
-
-[5.0, '-S', '-c', '/usr/bin:/bin', 'C', 'LANG', 'PATH', 'PYTHONPATH', '__init__.py', 'harness', 'smoke_import', 'utf-8']

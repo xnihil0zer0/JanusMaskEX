@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/gemini/user_prompt_submit.py
-# hypothesis_version: 6.152.9
-
-['BeforeModel', '__main__', 'allow', 'brief', 'brief.json', 'cross_examination', 'decision', 'diff_summary', 'diff_summary.json', 'error', 'feedback.json', 'feedback_read', 'gemini', 'invalid', 'json_decode_error', 'label', 'mode', 'path', 'planning', 'reason', 'reconciliation', 'session_id', 'synthesis', 'systemMessage', 'task', 'task.json', 'task_read', 'utf-8']

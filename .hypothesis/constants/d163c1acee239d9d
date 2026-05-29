@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/tools/webui_auth.py
-# hypothesis_version: 6.152.9
-
-[60.0, 300.0, 3600.0, 384, 1024, ',', '.csrf_nonces.', ':', 'X-Operator-Token', 'a', 'ascii', 'consumed_ts', 'control', 'csrf_nonces.jsonl', 'issued_ts', 'janusmask.webui.auth', 'nonce', 'operator_token', 'r', 'replace', 'utf-8', 'w', 'x-operator-token']

@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/_ledger.py
-# hypothesis_version: 6.152.9
-
-['%Y-%m-%dT%H:%M:%SZ', 'agent', 'allow', 'counters', 'detail', 'digest', 'hook', 'nosession', 'outcome', 'phase', 'round', 'session_id', 'sessions', 'tool', 'ts', 'unknown', 'utf-8', 'verb']

@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/planner/diff_model.py
-# hypothesis_version: 6.152.9
-
-[',', ':', ': ', 'PlanDiff', 'ambiguous_match', 'candidate_near_miss', 'candidates', 'claude_only', 'claude_task', 'convergent', 'dependencies', 'diff_item_id', 'divergent', 'edge_cases', 'field_divergences', 'files_touched', 'gemini_only', 'gemini_task', 'items', 'kind', 'match_reason', 'non_goals', 'priority', 'scope', 'task_id', 'tests', 'utf-8', 'value']

@@ -1,4 +1,0 @@
-# file: /home/xnihil0zer0/JanusMaskJR/harness/hooks/_decide_common.py
-# hypothesis_version: 6.152.9
-
-[1024, '.py', 'DeciderContext', 'allow', 'constraints', 'counters', 'deny', 'deterministic', 'error', 'error_count', 'files_touched', 'invalid', 'io_adapter', 'message', 'meta_task_type', 'non-py target', 'plan_draft', 'rate_limited', 'reason', 'reconciliation', 'responses', 'severity', 'size', 'submissions', 'submit_code', 'task_id', 'test_', 'truncated', 'utf-8', 'violation_count', 'violations']
