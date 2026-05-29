@@ -578,6 +578,12 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
                     objective = task_data.get('objective', '')
         except Exception:
             pass
+    _errs = _get_errors_for_task(state_dir, task_id)
+    _no_errors = (not _errs) or _errs.strip() == 'No traceback or fuzz error logs found.'
+    if (not task_json_path.exists()) or (not str(objective or '').strip() and not files_touched and _no_errors):
+        _reason = 'missing_task_json' if not task_json_path.exists() else 'empty_objective_files_no_errors'
+        _emit_telemetry(state_dir, task_id, 'skip_degenerate_escalation', _reason)
+        return
     config_path = pathlib.Path('harness/config.yaml')
     if not config_path.is_file():
         config_path = state_dir.parent / 'harness' / 'config.yaml'
@@ -1603,6 +1609,33 @@ def _escalate_inactivity(state_dir: pathlib.Path, config: dict) -> None:
     import uuid
     state_dir = pathlib.Path(state_dir)
     task_id = 'daemon_inactivity_stuck'
+    _allowlist_path = state_dir / 'control' / 'autowork' / 'auto_promote.allowlist'
+    _has_allowlisted = False
+    try:
+        if _allowlist_path.exists():
+            for _ln in _allowlist_path.read_text(encoding='utf-8').splitlines():
+                _s = _ln.strip()
+                if _s and not _s.startswith('#'):
+                    _has_allowlisted = True
+                    break
+    except Exception:
+        _has_allowlisted = False
+    _has_queued = False
+    try:
+        _has_queued = any((state_dir / 'tasks').glob('*.json'))
+    except Exception:
+        _has_queued = False
+    _has_live_blocked = False
+    try:
+        for _bp in (state_dir / 'tasks' / 'blocked').glob('*.json'):
+            if not _bp.with_suffix('.exhausted').exists():
+                _has_live_blocked = True
+                break
+    except Exception:
+        _has_live_blocked = False
+    if not (_has_allowlisted or _has_queued or _has_live_blocked):
+        _emit_telemetry(state_dir, task_id, 'skip_degenerate_escalation', 'no_actionable_work')
+        return
     config_path = pathlib.Path('harness/config.yaml')
     if not config_path.is_file():
         config_path = state_dir.parent / 'harness' / 'config.yaml'
