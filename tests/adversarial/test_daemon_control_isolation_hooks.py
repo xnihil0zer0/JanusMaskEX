@@ -548,10 +548,20 @@ def test_TC5_5_decide_write_or_replace_outbox_containment(hook_roots):
 
 
 def test_TC5_6_hook_gate_inert_for_bare_agy_GAP():
-    """GAP (high): the production gemini command is bare ``agy -p --sandbox`` with
-    NO --settings/BeforeTool hook, so _SHELL_ALLOW / _decide_shell NEVER load for
-    the real agent. Group-5 hardening protects only a hypothetical settings-wired
-    invocation. Read the real config.yaml and prove the wiring is absent."""
+    """GAP (high) — ACCEPTED AS DOCUMENTED, NOT a code bug to fix blindly.
+
+    The production gemini command is bare ``agy -p --sandbox`` with NO
+    --settings/BeforeTool hook, so _SHELL_ALLOW / _decide_shell NEVER load for the
+    real agent; Group-5 hardening protects only a hypothetical settings-wired
+    invocation. This is AGENT_ISOLATION §5's OPEN QUESTION (project-scoped agy
+    config), explicitly accepted by JANUSMASKJR_GAP_REMEDIATION_PLAN.md Phase C / H7:
+    Layer C is by-design inert for agy and containment rests on CWD relocation
+    (GAP_H3, paths.agent_workroot) + §1b apply-scope (GAP_H1/H2, git_integration).
+    Resolving §5 couples to _boost_antigravity_mcp_config's HOME read and is its own
+    scoped task, NOT part of this plan's critical path. This stays a PINNED
+    characterization test (it asserts the accepted limitation, must not 'go green'
+    via a partial hook bolt-on). Read the real config.yaml and prove the wiring is
+    absent."""
     cfg = orch.load_config()
     gem = cfg["agents"]["gemini"]
     assert str(gem["command"]).endswith("/agy"), gem["command"]

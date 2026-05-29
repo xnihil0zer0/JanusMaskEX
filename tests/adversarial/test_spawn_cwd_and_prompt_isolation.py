@@ -162,3 +162,23 @@ def test_T13_workroot_takes_no_state_dir_arg():
     # agent_work_dir takes (agent, session_slug) — NOT a state_dir:
     wd_sig = inspect.signature(agent_work_dir)
     assert list(wd_sig.parameters) == ["agent", "session_slug"]
+
+
+# --------------------------------------------------------------------------- #
+# M5 — verify-don't-fix pin: JANUSMASK_TASK_ID is set in the process env BEFORE
+# any staging/spawn on the real worker path, so _stage_inbox/_stage_targets always
+# see the canonical per-task spec (tasks/current_task_<id>.json). If a synthesis
+# path is ever found that stages before setting the global, M5 promotes to a fix.
+# --------------------------------------------------------------------------- #
+def test_M5_worker_sets_task_id_env_before_staging_and_spawn():
+    import re
+    src = (PROJECT_ROOT / "harness" / "orchestrator_worker.py").read_text()
+    set_m = re.search(r"os\.environ\[['\"]JANUSMASK_TASK_ID['\"]\]\s*=", src)
+    assert set_m, "worker no longer sets os.environ['JANUSMASK_TASK_ID']"
+    # Everything that consumes the canonical spec / spawns an agent must come AFTER.
+    consumers = [m.start() for m in re.finditer(
+        r"_stage_inbox|_stage_targets|spawn_agent|run_both_agents|run_synthesis", src)]
+    assert consumers, "no staging/spawn callsite found — test is stale"
+    assert set_m.start() < min(consumers), (
+        "JANUSMASK_TASK_ID is set AFTER a staging/spawn site — M5 silent-empty-context "
+        "regression; the canonical per-task spec would not be staged")
