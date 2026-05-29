@@ -1,5 +1,6 @@
 import ast
 import fnmatch
+import os
 import pathlib
 import subprocess
 import shutil
@@ -23,13 +24,18 @@ def _matches_sensitive(rel_str: str, globs: tuple[str, ...]) -> bool:
     beneath it" via an explicit prefix test; any other glob falls back to
     plain ``fnmatch`` matching.
     """
-    p = rel_str.replace('\\', '/')
+    # GAP_H2: normalize ('./', '..', '//') AND casefold before the prefix test
+    # so 'Harness/x.py' / 'HARNESS/x.py' / './harness/x.py' cannot evade the
+    # protected-root gate while still writing the real (lowercase-ASCII) dir on a
+    # case-insensitive FS. Protected roots are lowercase ASCII, so casefolding the
+    # glob base is safe and preserves the existing '**'-prefix-boundary semantics.
+    p = os.path.normpath(rel_str.replace('\\', '/')).replace('\\', '/').casefold()
     for g in globs:
         if g.endswith('/**'):
-            base = g[:-3]
+            base = g[:-3].casefold()
             if p == base or p.startswith(base + '/'):
                 return True
-        elif fnmatch.fnmatch(p, g):
+        elif fnmatch.fnmatch(p, g.casefold()):
             return True
     return False
 
@@ -48,11 +54,18 @@ def _enforce_apply_scope(rel_strs, *, allowed_files, meta_task_type, approval_ok
       ``scripts/**`` is rejected unless the task is a sanctioned
       ``harness_self_fix`` AND ``approval_ok`` is True (operator approval).
     """
+    # GAP_H1: normalize ('./', '..', '//') BOTH sides before the membership
+    # compare. The candidate rel-path is derived from a .resolve()d relative_to
+    # (already collapsed), so an un-normalized files_touched member like
+    # './pkg/mod.py' or 'pkg/../pkg/mod.py' must be collapsed too or a LEGITIMATE
+    # commit is falsely locked out. Keep rel-vs-rel (do NOT resolve to absolute).
+    def _norm(s):
+        return os.path.normpath(str(s).replace('\\', '/')).replace('\\', '/')
     allowed = None
     if allowed_files is not None:
-        allowed = {str(f).replace('\\', '/') for f in allowed_files}
+        allowed = {_norm(f) for f in allowed_files}
     for rel in rel_strs:
-        reln = str(rel).replace('\\', '/')
+        reln = _norm(rel)
         if allowed is not None and reln not in allowed:
             return (f'apply-path scope violation: {reln} is not a member of the '
                     f'declared files_touched {sorted(allowed)}')

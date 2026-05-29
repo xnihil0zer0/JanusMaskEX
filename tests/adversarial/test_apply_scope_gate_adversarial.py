@@ -61,12 +61,13 @@ def tmp_repo(tmp_path):
 # --------------------------------------------------------------------------- #
 class TestA1Normalization:
     def test_unnormalized_member_in_allowed_files_false_lockout(self, tmp_repo):
-        """GAP: files_touched carrying './pkg/mod.py' does NOT match the
-        resolved rel-path 'pkg/mod.py' -> a LEGITIMATE commit is rejected.
+        """FIX-DETECTOR (GAP_H1 inverted): files_touched carrying './pkg/mod.py'
+        MUST match the resolved rel-path 'pkg/mod.py' -> a LEGITIMATE commit is
+        accepted, not falsely locked out.
 
-        allowed_files is compared verbatim (only \\->/ normalized), but the
-        candidate rel-path is derived from a .resolve()d relative_to, so the
-        './' member never matches its own resolved form.
+        Both sides of the membership compare are now collapsed with
+        os.path.normpath (_enforce_apply_scope), so the './' member matches its
+        own resolved form. Goes red on unfixed code (commit rejected).
         """
         sd = tmp_repo / "state"
         (sd / "output" / "T.files.json").write_text(json.dumps({"pkg/mod.py": "y = 2\n"}))
@@ -75,22 +76,23 @@ class TestA1Normalization:
             "T", str(tmp_repo / "pkg" / "mod.py"), sd,
             worktree_root=tmp_repo, allowed_files={"./pkg/mod.py"},
             meta_task_type=None, approval_ok=False)
-        # Proven gap: the legitimate commit is wrongly rejected.
-        assert r["committed"] is False, (
-            "If this now commits, the normalization-asymmetry lockout was fixed")
-        assert "not a member" in (r["error"] or "")
+        # Fixed: the legitimate commit is no longer falsely rejected.
+        assert r["committed"] is True, (
+            f"normalization-asymmetry lockout NOT fixed: {r.get('error')!r}")
+        assert "not a member" not in (r["error"] or "")
 
     def test_dotdot_member_in_allowed_files_false_lockout(self, tmp_repo):
-        """GAP: 'pkg/../pkg/mod.py' in allowed_files fails to match resolved
-        'pkg/mod.py'."""
+        """FIX-DETECTOR (GAP_H1 inverted): 'pkg/../pkg/mod.py' in allowed_files
+        MUST match resolved 'pkg/mod.py' (both collapsed via normpath)."""
         sd = tmp_repo / "state"
         (sd / "output" / "T2.files.json").write_text(json.dumps({"pkg/mod.py": "y = 3\n"}))
         r = gi.commit_accepted_output(
             "T2", str(tmp_repo / "pkg" / "mod.py"), sd,
             worktree_root=tmp_repo, allowed_files={"pkg/../pkg/mod.py"},
             meta_task_type=None, approval_ok=False)
-        assert r["committed"] is False
-        assert "not a member" in (r["error"] or "")
+        assert r["committed"] is True, (
+            f"dotdot member normalization NOT fixed: {r.get('error')!r}")
+        assert "not a member" not in (r["error"] or "")
 
     def test_normalized_member_accepts(self, tmp_repo):
         """Control: a normalized member commits fine (no false negative)."""
@@ -112,27 +114,31 @@ class TestA2SensitiveCaseEvasion:
             ["harness/x.py"], allowed_files=None, meta_task_type=None, approval_ok=False)
 
     def test_capital_harness_evades_gate(self):
-        """GAP (proven): _matches_sensitive is case-sensitive. 'Harness/x.py'
-        is NOT recognized as sensitive, so on a case-insensitive FS it writes
-        the real harness/ dir while evading the protected-path gate."""
+        """FIX-DETECTOR (GAP_H2 inverted): _matches_sensitive now casefolds, so
+        'Harness/x.py' IS recognized as sensitive and gated. Goes red on unfixed
+        (case-sensitive) code where it would slip through as None."""
         err = gi._enforce_apply_scope(
             ["Harness/x.py"], allowed_files=None, meta_task_type=None, approval_ok=False)
-        assert err is None, (
-            "If non-None, the case-insensitive evasion was fixed (gate now matches Harness/)")
+        assert err is not None, (
+            "case-insensitive evasion NOT fixed: 'Harness/x.py' slipped the gate")
+        assert "protected path" in err
 
     def test_uppercase_harness_evades_gate(self):
         err = gi._enforce_apply_scope(
             ["HARNESS/x.py"], allowed_files=None, meta_task_type=None, approval_ok=False)
-        assert err is None, "HARNESS/ should be caught if case-folding was added"
+        assert err is not None, "HARNESS/ must be caught after case-folding"
+        assert "protected path" in err
 
     def test_dot_slash_harness_evades_helper_directly(self):
-        """GAP: a raw './harness/x.py' fed straight into the helper is NOT
-        matched (prefix is 'harness/', not './harness/'). The single-file
-        commit path resolves first (safe), but the helper itself is leaky."""
+        """FIX-DETECTOR (GAP_H2 inverted): a raw './harness/x.py' is now collapsed
+        by normpath before the prefix test, so the helper gates it. The
+        single-file commit path resolves first (always was safe); this proves the
+        helper itself is no longer leaky."""
         err = gi._enforce_apply_scope(
             ["./harness/x.py"], allowed_files=None, meta_task_type=None, approval_ok=False)
-        assert err is None, (
-            "If non-None, the helper now normalizes leading './' before matching")
+        assert err is not None, (
+            "helper does NOT normalize leading './' before matching")
+        assert "protected path" in err
 
     def test_backslash_harness_is_normalized_and_blocked(self):
         """Control: backslashes ARE normalized to '/', so this is caught."""
