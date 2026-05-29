@@ -104,11 +104,13 @@ def test_TC1_1_spawn_worker_passes_no_cwd_and_is_harness_worker(tmp_path, monkey
     assert pid == 424242
     # The daemon worker spawn passes NO cwd kwarg:
     assert captured["cwd"] is None
+    import sys
     argv = captured["cmd"]
-    assert argv[1:3] == ["-m", "harness.orchestrator_worker"], argv
-    # GAP (low): the worker spawn site is undocumented as "trusted, no cwd" — a
-    # future change routing an agent CLI through here would silently bypass
-    # Layer A. There is no guard asserting argv[2] == orchestrator_worker.
+    # CONTAIN C7 trusted-worker boundary: assert the FULL prefix
+    # [sys.executable, -m, harness.orchestrator_worker] so a future change routing
+    # an agent CLI through this (deliberately un-jailed) site is caught here rather
+    # than silently bypassing the bwrap jail. Companion comment at _spawn_worker.
+    assert argv[0:3] == [sys.executable, "-m", "harness.orchestrator_worker"], argv
 
 
 def test_TC1_2_agent_workroot_override_and_default_outside_repo(workroot, monkeypatch):
@@ -344,32 +346,51 @@ def test_TC3_2_inactivity_prompt_outbox_only(workroot, tmp_path, monkeypatch):
     assert "{OUTBOX_PATH}" not in prompt
 
 
-def test_TC3_3_selfheal_gemini_default_spawns_hookless_agy_GAP(workroot, tmp_path, monkeypatch):
-    """GAP (med): forcing autobrief_default_agent=gemini with no agents.<gemini>
-    config resolves to bare ``agy -p --sandbox`` — NO --settings/BeforeTool hook.
-    The self-heal containment for agy rests ONLY on prompt scrub + cwd + §1b; the
-    _SHELL_ALLOW gate never loads."""
+def test_TC3_3_selfheal_default_is_jailed_and_decoupled(workroot, tmp_path, monkeypatch):
+    """CONTAIN C7 (inverted from the former _GAP oracle): the daemon retry-budget
+    self-heal spawn is now (a) wrapped in the bwrap jail (repo read-only),
+    (b) env-decoupled (CLAUDE_PROJECT_DIR -> the outside-repo work_dir;
+    JANUSMASK_PROJECT_DIR -> the repo), and (c) M9: the ``agents: {}`` fallback
+    resolves to the VENDORED agy under ${PROJECT_ROOT}/.agents, never a bare 'agy'
+    off PATH. Before C7 this Popen site bypassed ALL of CONTAIN (plan rev3.1 §1a)."""
     captured = {}
     _patch_daemon_popen(monkeypatch, captured)
+    # bwrap need not be installed on the test host: make agent_jail observe a fake
+    # one so build_jail_argv emits the wrapper deterministically (the spawn itself
+    # is mocked, so bwrap is never executed).
+    import harness.agent_jail as aj
+    monkeypatch.setattr(aj.shutil, "which",
+                        lambda n: "/usr/bin/bwrap" if n == "bwrap" else None)
     state_dir = tmp_path / "state"
     (state_dir / "tasks" / "blocked").mkdir(parents=True)
     (state_dir / "tasks" / "blocked" / "G.json").write_text(json.dumps(
         {"task_id": "G", "objective": "x", "files_touched": ["pkg/a.py"]}))
-    # config.yaml on disk will be read by _escalate_to_autobrief; to FORCE the
-    # gemini fallback we point it at a tmp config with the gemini default + no
-    # agents entry, by chdir'ing so 'harness/config.yaml' is absent and the
-    # state_dir.parent/harness/config.yaml fallback is our crafted one.
+    # Craft a config read by _escalate_to_autobrief (chdir so cwd-relative
+    # 'harness/config.yaml' is our file): gemini default + empty agents FORCES the
+    # M9 vendored fallback, and agent_sandbox.bwrap=true ARMS the C7 jail.
     crafted = state_dir.parent / "harness"
     crafted.mkdir(parents=True)
     (crafted / "config.yaml").write_text(
-        "control:\n  autobrief_default_agent: gemini\nagents: {}\n")
-    monkeypatch.chdir(tmp_path)  # so cwd-relative 'harness/config.yaml' is absent
+        "control:\n  autobrief_default_agent: gemini\n"
+        "agent_sandbox:\n  bwrap: true\nagents: {}\n")
+    monkeypatch.chdir(tmp_path)
     dae._escalate_to_autobrief(state_dir, "G", "fuzz_fail")
     argv = captured["cmd"]
-    assert argv[0].endswith("agy"), argv
-    assert "--sandbox" in argv
-    assert "--settings" not in argv, "hook gate never wired for bare agy"
-    assert not any("gemini_settings.json" in str(a) for a in argv)
+    # (a) jail wrapper present (repo ro-bind, chdir into the work_dir)
+    assert argv[0].endswith("bwrap"), f"self-heal spawn not jailed: {argv[:3]}"
+    assert "--ro-bind" in argv and "--chdir" in argv, argv
+    # the wrapped agent command follows the bwrap '--' separator
+    sep = argv.index("--")
+    inner = argv[sep + 1:]
+    # (c) M9: vendored agy under .agents, not a bare 'agy'
+    assert inner[0].endswith("agy") and "/.agents/" in inner[0], inner
+    assert "--sandbox" in inner
+    # (b) env decouple: CLAUDE_PROJECT_DIR is the outside-repo work_dir (== cwd);
+    # the repo path lives on JANUSMASK_PROJECT_DIR.
+    env = captured["env"]
+    assert _is_outside_repo(env["CLAUDE_PROJECT_DIR"]), env["CLAUDE_PROJECT_DIR"]
+    assert env["CLAUDE_PROJECT_DIR"] == captured["cwd"]
+    assert env["JANUSMASK_PROJECT_DIR"] == str(PROJECT_ROOT)
 
 
 # --------------------------------------------------------------------------- #

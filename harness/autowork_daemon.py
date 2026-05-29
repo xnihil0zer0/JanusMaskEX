@@ -560,6 +560,39 @@ def _get_errors_for_task(state_dir: pathlib.Path, task_id: str) -> str:
         return combined
     return 'No traceback or fuzz error logs found.'
 
+def _contain_selfheal(cmd: list, env: dict, work_dir, state_dir, config: dict | None) -> list:
+    """CONTAIN C7: apply the C1 env-decouple + C2 bwrap jail to a daemon
+    self-heal agent spawn, mirroring ``orchestrator.spawn_agent``.
+
+    The daemon deliberately does NOT import ``orchestrator`` (it keeps spawn
+    helpers local so it need not load the 127KB module -- see _bump_blocked_sidecar
+    et al.), so the C1/C2 logic is inlined here against ``harness.paths`` +
+    ``harness.agent_jail`` ONLY. Before C7 the two self-heal ``Popen`` sites
+    (retry-budget + inactivity) called ``subprocess.Popen`` directly, bypassing the
+    jail / env-decouple / --tools that CONTAIN closed on the ``spawn_agent`` path
+    (plan rev3.1 §1a; the same uncontained-absolute-path-write class as GAP_H4).
+
+    Mutates ``env`` in place (C1) and returns the possibly jail-wrapped ``cmd`` (C2).
+    """
+    from harness.paths import PROJECT_ROOT_STR
+    work_dir_s = str(work_dir)
+    # C1: point CLAUDE_PROJECT_DIR at the per-spawn OUTSIDE-repo work_dir (not the
+    # live repo claude would otherwise resolve its project root / hook discovery /
+    # ${CLAUDE_PROJECT_DIR} interpolation from). JANUSMASK_PROJECT_DIR stays the repo
+    # (trusted hook read-roots); explicit PYTHONPATH keeps `import harness.*` working.
+    env['CLAUDE_PROJECT_DIR'] = work_dir_s
+    env['JANUSMASK_PROJECT_DIR'] = PROJECT_ROOT_STR
+    _pp = env.get('PYTHONPATH', '')
+    env['PYTHONPATH'] = PROJECT_ROOT_STR if not _pp else PROJECT_ROOT_STR + os.pathsep + _pp
+    # C2: wrap in the bwrap jail (repo read-only) when enabled. Fail-closed:
+    # build_jail_argv raises if bwrap is missing while the gate is on, so a
+    # misconfigured host aborts the self-heal rather than spawning un-jailed.
+    from harness import agent_jail
+    if agent_jail.sandbox_enabled(config):
+        cmd = agent_jail.build_jail_argv(cmd, repo_root=PROJECT_ROOT_STR, work_dir=work_dir_s, state_dir=str(state_dir))
+    return cmd
+
+
 def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: str) -> None:
     import json
     import os
@@ -626,10 +659,16 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
     agents = config.get('agents', {})
     agent_cfg = agents.get(agent, {}) if isinstance(agents, dict) else {}
     if not agent_cfg:
+        # M9 (folded into CONTAIN C7): the bare 'agy'/'claude' fallback is an
+        # uncontrolled binary off PATH (possibly un-sandboxed / not the vendored
+        # build). Use the VENDORED agents under ${PROJECT_ROOT}/.agents/... (resolved
+        # by subst()), mirroring config.yaml's agents.* incl. the C4 --tools allowlist
+        # for claude. M9 alone is necessary but NOT sufficient -- the C7 jail below
+        # is what closes the containment gap.
         if agent == 'gemini':
-            agent_cfg = {'command': 'agy', 'args': ['-p', '--sandbox']}
+            agent_cfg = {'command': '${PROJECT_ROOT}/.agents/agy/agy', 'args': ['-p', '--sandbox']}
         else:
-            agent_cfg = {'command': 'claude', 'args': ['-p', '--model', 'opus', '--output-format', 'stream-json', '--include-partial-messages', '--settings', '${CONFIG_DIR}/claude_worker.json', '--mcp-config', '${CONFIG_DIR}/claude_mcp.json', '--strict-mcp-config', '--setting-sources', '']}
+            agent_cfg = {'command': '${PROJECT_ROOT}/.agents/claude-code/node_modules/.bin/claude', 'args': ['-p', '--model', 'opus', '--output-format', 'stream-json', '--include-partial-messages', '--settings', '${CONFIG_DIR}/claude_worker.json', '--mcp-config', '${CONFIG_DIR}/claude_mcp.json', '--strict-mcp-config', '--setting-sources', '', '--tools', 'Read,Glob,Grep,Write', '--disallowedTools', 'Bash,Edit,Task,NotebookEdit,WebFetch,WebSearch,Skill,ToolSearch']}
     command_tmpl = agent_cfg.get('command', 'claude')
     args_tmpl = agent_cfg.get('args', [])
     from harness.paths import PROJECT_ROOT_STR, CONFIG_DIR_STR, HARNESS_DIR_STR, agent_work_dir
@@ -679,6 +718,9 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
         cmd = [command] + args[:p_index + 1] + [resolved_prompt] + args[p_index + 1:]
     except ValueError:
         cmd = [command] + args + ['-p', resolved_prompt]
+    # CONTAIN C7: decouple CLAUDE_PROJECT_DIR + jail this self-heal spawn (was a
+    # direct Popen that bypassed all of CONTAIN -- plan rev3.1 §1a).
+    cmd = _contain_selfheal(cmd, env, work_dir, state_dir, config)
     try:
         subprocess.Popen(cmd, env=env, cwd=str(work_dir))  # AGENT-ISOLATION §3.8: cwd = isolated outside-repo workdir
     except Exception as exc:
@@ -766,6 +808,11 @@ def _write_pidfile(state_dir: pathlib.Path, task_id: str, pid: int) -> None:
         pass
 
 def _spawn_worker(state_dir: pathlib.Path, task_id: str) -> int | None:
+    # CONTAIN C7 (trusted-worker boundary): this spawns the TRUSTED harness worker
+    # (`python -m harness.orchestrator_worker`), NOT an agent CLI -- so it needs no
+    # bwrap jail. The worker itself routes any agent spawn through
+    # orchestrator.spawn_agent (jailed). Asserted by test_TC1_1; if a future change
+    # ever routes an agent CLI through here it MUST go through _contain_selfheal.
     cmd = [sys.executable, '-m', 'harness.orchestrator_worker', '--state-dir', str(state_dir), '--task-id', task_id]
     try:
         proc = subprocess.Popen(cmd)
@@ -781,6 +828,10 @@ def _rebuild_pid_name(slug: str) -> str:
 
 def _spawn_rebuild_worker(state_dir: pathlib.Path, job: dict) -> int | None:
     from harness.rebuild import job as _job
+    # CONTAIN C7 (trusted-worker boundary): build_loop_command returns the TRUSTED
+    # rebuild loop (`python -m harness.rebuild.loop ...`), NOT an agent CLI; agent
+    # spawns inside the loop route through orchestrator.spawn_agent (jailed). No
+    # bwrap wrap here. A future agent-CLI reroute MUST go through _contain_selfheal.
     cmd = _job.build_loop_command(job)
     try:
         proc = subprocess.Popen(cmd, cwd=_job.parent_root())
@@ -1285,6 +1336,10 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
                 continue
             if requires_claude:
                 _emit_telemetry(state_dir, tid, 'launch_sequential', 'running sequential/claude worker')
+                # CONTAIN C7 (trusted-worker boundary): TRUSTED harness worker, not
+                # an agent CLI -- no jail here; the worker jails its own agent spawns
+                # via orchestrator.spawn_agent. A future agent-CLI reroute MUST go
+                # through _contain_selfheal.
                 cmd = [sys.executable, '-m', 'harness.orchestrator_worker', '--state-dir', str(state_dir), '--task-id', tid]
                 pid = None
                 try:
@@ -1657,10 +1712,16 @@ def _escalate_inactivity(state_dir: pathlib.Path, config: dict) -> None:
     agents = config.get('agents', {})
     agent_cfg = agents.get(agent, {}) if isinstance(agents, dict) else {}
     if not agent_cfg:
+        # M9 (folded into CONTAIN C7): the bare 'agy'/'claude' fallback is an
+        # uncontrolled binary off PATH (possibly un-sandboxed / not the vendored
+        # build). Use the VENDORED agents under ${PROJECT_ROOT}/.agents/... (resolved
+        # by subst()), mirroring config.yaml's agents.* incl. the C4 --tools allowlist
+        # for claude. M9 alone is necessary but NOT sufficient -- the C7 jail below
+        # is what closes the containment gap.
         if agent == 'gemini':
-            agent_cfg = {'command': 'agy', 'args': ['-p', '--sandbox']}
+            agent_cfg = {'command': '${PROJECT_ROOT}/.agents/agy/agy', 'args': ['-p', '--sandbox']}
         else:
-            agent_cfg = {'command': 'claude', 'args': ['-p', '--model', 'opus', '--output-format', 'stream-json', '--include-partial-messages', '--settings', '${CONFIG_DIR}/claude_worker.json', '--mcp-config', '${CONFIG_DIR}/claude_mcp.json', '--strict-mcp-config', '--setting-sources', '']}
+            agent_cfg = {'command': '${PROJECT_ROOT}/.agents/claude-code/node_modules/.bin/claude', 'args': ['-p', '--model', 'opus', '--output-format', 'stream-json', '--include-partial-messages', '--settings', '${CONFIG_DIR}/claude_worker.json', '--mcp-config', '${CONFIG_DIR}/claude_mcp.json', '--strict-mcp-config', '--setting-sources', '', '--tools', 'Read,Glob,Grep,Write', '--disallowedTools', 'Bash,Edit,Task,NotebookEdit,WebFetch,WebSearch,Skill,ToolSearch']}
     command_tmpl = agent_cfg.get('command', 'claude')
     args_tmpl = agent_cfg.get('args', [])
     from harness.paths import PROJECT_ROOT_STR, CONFIG_DIR_STR, HARNESS_DIR_STR, agent_work_dir
@@ -1726,6 +1787,9 @@ def _escalate_inactivity(state_dir: pathlib.Path, config: dict) -> None:
                 f.write(line)
         except Exception as err2:
             _ = err2
+    # CONTAIN C7: decouple CLAUDE_PROJECT_DIR + jail this self-heal spawn (was a
+    # direct Popen that bypassed all of CONTAIN -- plan rev3.1 §1a).
+    cmd = _contain_selfheal(cmd, env, work_dir, state_dir, config)
     try:
         subprocess.Popen(cmd, env=env, cwd=str(work_dir))  # AGENT-ISOLATION §3.8: cwd = isolated outside-repo workdir
     except Exception as exc:
