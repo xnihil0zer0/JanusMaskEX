@@ -62,6 +62,11 @@ def test_retry_budget_exhaustion_exits_with_status_2_use_retry_module(state_dir:
         mock_load_config.return_value = {'synthesis': {'max_ast_retries': 3, 'use_retry_module': True, 'active_agents': ['claude']}}
         mock_mono.side_effect = [0.0, 0.0, 0.0, 400.0, 400.0, 400.0]
         mock_run.return_value = None
-        with pytest.raises(SystemExit) as excinfo:
-            main()
-        assert excinfo.value.code == 2
+        # main() returns its exit code (the only sys.exit is the __main__ guard at
+        # orchestrator_worker.py:640, not reached on a direct main() call). Match the
+        # GREEN non-retry-module sibling's assertion pattern; the prior
+        # pytest.raises(SystemExit) asserted an impossible mechanism (test bug, born
+        # red on its pipeline-authored commit). H4's double-timeout guard makes the
+        # use_retry_module path return 2 here, exactly like the non-retry path.
+        exit_code = main()
+        assert exit_code == 2
