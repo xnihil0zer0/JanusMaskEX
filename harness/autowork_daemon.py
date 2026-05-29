@@ -1280,11 +1280,17 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
                     _emit_telemetry(state_dir, tid, 'launch', f'pid={pid}')
                     launched.append(tid)
                     seq_start = time.time()
+                    synthesis_cfg = cfg.get('synthesis', {}) if isinstance(cfg, dict) else {}
+                    timeout_val = synthesis_cfg.get('timeout_seconds', 900) if isinstance(synthesis_cfg, dict) else 900
+                    try:
+                        watchdog_timeout = max(1800.0, float(timeout_val) + 300.0)
+                    except (TypeError, ValueError):
+                        watchdog_timeout = 1800.0
                     try:
                         while proc.poll() is None:
                             now = time.time()
-                            if now - seq_start > 900:
-                                _emit_telemetry(state_dir, tid, 'timeout', 'sequential worker timed out (15 min)')
+                            if now - seq_start > watchdog_timeout:
+                                _emit_telemetry(state_dir, tid, 'timeout', f'sequential worker timed out ({watchdog_timeout / 60:.0f} min)')
                                 _kill_process_group(state_dir, tid, proc)
                                 proc.wait()
                                 break
