@@ -79,3 +79,87 @@ def test_collect_dispatchable_skips_mismatched_stems(tmp_path: pathlib.Path) -> 
     p.write_text(json.dumps({'task_id': 'RB_JR_tierC_set_phase-conditional_0-reviewed', 'files_touched': ['a.py'], 'dependencies': []}), encoding='utf-8')
     candidates = collect_dispatchable_tasks([], set(), state_dir)
     assert 'RB_JR_tierC_set_phase-conditional_0-reviewed' not in {t['task_id'] for t in candidates}
+
+def test_watchdog_timeout_reads_config(tmp_path: pathlib.Path, monkeypatch) -> None:
+    import time
+    import subprocess
+    import harness.autowork_daemon as ad
+
+    # 1. Mock _decide to return one task
+    monkeypatch.setattr(ad, '_decide', lambda *args: ([{'task_id': 'test-task', 'files_touched': []}], False, 1))
+
+    # 2. Mock Popen to return a mock process
+    class MockProc:
+        pid = 12345
+        def poll(self):
+            return None
+        def wait(self):
+            return 0
+    monkeypatch.setattr(subprocess, 'Popen', lambda *args, **kwargs: MockProc())
+
+    # 3. Mock _kill_process_group
+    killed = []
+    monkeypatch.setattr(ad, '_kill_process_group', lambda sd, tid, proc: killed.append(tid))
+
+    # 4. Mock _emit_telemetry
+    events = []
+    monkeypatch.setattr(ad, '_emit_telemetry', lambda sd, tid, ev, det='': events.append((tid, ev, det)))
+
+    # 5. Mock time.time to simulate timeout
+    time_seq = [1000.0, 1000.0, 3500.0]
+    time_iter = iter(time_seq)
+    def mock_time():
+        try:
+            return next(time_iter)
+        except StopIteration:
+            return 3500.0
+    monkeypatch.setattr(time, 'time', mock_time)
+
+    # 6. Call _iteration with timeout config of 2000s (buffer of 300s -> timeout = 2300s)
+    config = {
+        'synthesis': {
+            'active_agents': ['claude'],
+            'timeout_seconds': 2000
+        }
+    }
+
+    repo_root = tmp_path / 'repo'
+    state_dir = tmp_path / 'state'
+    repo_root.mkdir()
+    state_dir.mkdir()
+
+    monkeypatch.setattr(ad, 'suspend_parallel_workers', lambda *a, **kw: None)
+    monkeypatch.setattr(ad, 'resume_parallel_workers', lambda *a: None)
+    monkeypatch.setattr(ad, '_write_pidfile', lambda *a: None)
+
+    ad._iteration(repo_root, state_dir, 4, dry_run=False, config=config)
+
+    assert 'test-task' in killed
+    timeout_events = [e for e in events if e[1] == 'timeout']
+    assert len(timeout_events) == 1
+    assert "38 min" in timeout_events[0][2]
+
+    # Test the fallback floor of 1800s
+    killed.clear()
+    events.clear()
+    time_seq2 = [1000.0, 1000.0, 2900.0]
+    time_iter2 = iter(time_seq2)
+    def mock_time2():
+        try:
+            return next(time_iter2)
+        except StopIteration:
+            return 2900.0
+    monkeypatch.setattr(time, 'time', mock_time2)
+
+    config_low = {
+        'synthesis': {
+            'active_agents': ['claude'],
+            'timeout_seconds': 500
+        }
+    }
+    ad._iteration(repo_root, state_dir, 4, dry_run=False, config=config_low)
+
+    assert 'test-task' in killed
+    timeout_events = [e for e in events if e[1] == 'timeout']
+    assert len(timeout_events) == 1
+    assert "30 min" in timeout_events[0][2]
