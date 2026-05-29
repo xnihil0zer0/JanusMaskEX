@@ -102,6 +102,7 @@ def main() -> int:
             from harness.task_decomposer import decompose_task, enqueue_subtasks, update_parent_state
             from harness.ast_retry import synthesize_with_retries
             config = orch.load_config(config_path)
+            HARD_TIMEOUT_SECONDS, SYNTHESIS_WINDOW_SECONDS = _compute_timeout_budgets(config)
             config['state_dir'] = str(state_dir)
             state_dir.mkdir(parents=True, exist_ok=True)
             tasks_dir.mkdir(parents=True, exist_ok=True)
@@ -554,7 +555,17 @@ def _precompute_baseline_test_results(state_dir: Path, task: dict[str, Any], tas
         out_path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
     except OSError:
         pass
-HARD_TIMEOUT_SECONDS = 900.0
-SYNTHESIS_WINDOW_SECONDS = 600.0
+RECONCILE_SLACK_SECONDS = 300.0
+
+
+def _compute_timeout_budgets(config: dict) -> tuple[float, float]:
+    """Return (HARD_TIMEOUT_SECONDS, SYNTHESIS_WINDOW_SECONDS) derived from
+    synthesis.timeout_seconds. window = timeout; hard = timeout + slack, so the
+    inner hard budget always sits below the daemon watchdog
+    (max(1800, timeout+300)) with margin."""
+    synthesis_timeout = float((config or {}).get('synthesis', {}).get('timeout_seconds', 600.0))
+    return (synthesis_timeout + RECONCILE_SLACK_SECONDS, synthesis_timeout)
+
+
 if __name__ == '__main__':
     sys.exit(main())
