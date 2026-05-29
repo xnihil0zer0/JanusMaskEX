@@ -57,13 +57,13 @@ def check_true_depth(task_id: str, tasks_dir: Path, max_depth: int=3) -> bool:
             except json.JSONDecodeError as e:
                 logger.warning(f'Invalid JSON in task file {task_file}: {e}')
                 return False
-            
+
             p_val = None
             if 'parent_task' in task_data:
                 p_val = task_data['parent_task']
             elif 'parent_task_id' in task_data:
                 p_val = task_data['parent_task_id']
-            
+
             if p_val is None:
                 break
             if not isinstance(p_val, str) or not p_val:
