@@ -52,7 +52,21 @@ def agent_workroot() -> Path:
     if raw:
         # NOTE: deliberately NOT expanduser() — the override must be an absolute
         # path (keeps harness/ Path.home()-free for clone portability).
-        return Path(raw).resolve()
+        resolved = Path(raw).resolve()
+        # GAP_H3: fail-closed if the override re-anchors agent workdirs INSIDE the
+        # repo. CWD relocation is the *primary* containment after the isolation
+        # fix; an inside-repo override — or a relative one, which .resolve()s
+        # against CWD and lands in the repo when launched from the repo root —
+        # silently defeats Layer A for ALL THREE spawn sites at once. A
+        # misconfigured isolation root must abort the spawn, not weaken it.
+        if resolved == PROJECT_ROOT or PROJECT_ROOT in resolved.parents:
+            raise ValueError(
+                f"JANUSMASK_AGENT_WORKROOT={raw!r} resolves to {resolved}, which is "
+                f"inside the repo ({PROJECT_ROOT}). The agent workroot MUST be an "
+                f"absolute path OUTSIDE the repo tree, or CWD-relocation containment "
+                f"is silently defeated (AGENT-ISOLATION §3.1 / GAP_H3)."
+            )
+        return resolved
     return PROJECT_ROOT.parent / f"{PROJECT_ROOT.name}_agentwork"
 
 

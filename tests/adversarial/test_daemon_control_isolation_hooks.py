@@ -123,24 +123,24 @@ def test_TC1_2_agent_workroot_override_and_default_outside_repo(workroot, monkey
 
 
 def test_TC1_2b_override_inside_repo_is_NOT_rejected_GAP(monkeypatch):
-    """GAP (med): agent_workroot() does NOT validate the override is outside the
-    repo. An env var pointing inside PROJECT_ROOT silently defeats Layer A for
-    ALL spawn sites at once. We assert the helper happily returns an inside-repo
-    path (the bug), proving the missing guard."""
+    """FIX-DETECTOR (GAP_H3 inverted): agent_workroot() now validates the override
+    is outside the repo. An env var pointing inside PROJECT_ROOT must raise
+    ValueError (fail-closed) rather than silently re-anchoring all 3 spawn sites
+    inside the source tree. Goes red on unfixed code (helper accepted it)."""
     inside = PROJECT_ROOT / "state" / "rogue_workroot"
     monkeypatch.setenv("JANUSMASK_AGENT_WORKROOT", str(inside))
-    wd = agent_work_dir("gemini", "s")
-    # The helper accepts it -> isolation silently defeated.
-    assert not _is_outside_repo(wd), "expected the (buggy) inside-repo acceptance"
-    assert str(wd).startswith(str(inside.resolve()))
+    with pytest.raises(ValueError, match="inside the repo"):
+        agent_work_dir("gemini", "s")
 
 
 def test_TC1_2c_relative_override_is_resolved_GAP(monkeypatch, tmp_path):
-    """A relative override is .resolve()'d against CWD (no rejection)."""
+    """FIX-DETECTOR (GAP_H3 inverted): a relative override .resolve()s against CWD
+    (the repo root under test) and lands inside the repo, so it must now be
+    rejected fail-closed rather than silently accepted."""
+    monkeypatch.chdir(PROJECT_ROOT)
     monkeypatch.setenv("JANUSMASK_AGENT_WORKROOT", "rel_workroot")
-    root = agent_workroot()
-    assert root.is_absolute()
-    assert root == (Path.cwd() / "rel_workroot").resolve()
+    with pytest.raises(ValueError, match="inside the repo"):
+        agent_workroot()
 
 
 def test_TC1_3_retry_budget_cwd_outside_repo(workroot, tmp_path, monkeypatch):

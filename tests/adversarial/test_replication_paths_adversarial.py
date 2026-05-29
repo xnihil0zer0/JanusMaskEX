@@ -38,9 +38,13 @@ class TestAgentWorkroot:
         monkeypatch.setenv("JANUSMASK_AGENT_WORKROOT", str(target))
         assert agent_workroot() == target.resolve()
 
-    def test_env_override_does_not_expanduser_tilde(self, monkeypatch):
+    def test_env_override_does_not_expanduser_tilde(self, monkeypatch, tmp_path):
         from harness.paths import agent_workroot
         # A literal '~' is resolved relative to CWD (NOT $HOME) — pin no expanduser.
+        # chdir to an OUT-OF-REPO tmp dir so the relative '~/...' resolves outside
+        # the repo and is not rejected by the GAP_H3 inside-repo guard; the point
+        # of this test is the no-expanduser contract, not the containment guard.
+        monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("JANUSMASK_AGENT_WORKROOT", "~/notexpanded")
         wr = agent_workroot()
         assert "notexpanded" in str(wr)
