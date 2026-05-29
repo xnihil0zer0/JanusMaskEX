@@ -779,7 +779,9 @@ def prepare_task_prompt(task: dict[str, Any]) -> str:
     spec_summary = task.get('specification', task.get('description', ''))
     prompt = f'You are a code synthesis agent. Your goal is to write correct, clean Python code that satisfies the given specification.\n\nFollow these steps exactly:\n\n1. Read the task specification from: {{STATE_DIR}}/tasks/current_task_{task_id}.json\n   Pay attention to the spec, acceptance_criteria, and test_spec fields.\n\n2. Write Python code that satisfies ALL requirements. The code must be self-contained and importable -- define functions as specified, include type hints, and handle edge cases.\n\n3. Submit your final code by writing a single Python file at:\n   {{OUTBOX_PATH}}/submission.py\n   Writing this file IS how you submit; do not invoke any other submission mechanism. The harness intercepts the write via a PostToolUse/AfterTool hook and persists the submission for the orchestrator to pick up.\n\nImportant:\n- Only file read/write operations are available; the MCP janusmask execute tool is NOT registered in this worker session.\n- Make sure your code is syntactically valid Python.\n\nTask reference: {task_id}\n'
     files_touched = task.get('files_touched') or []
-    if task.get('partial_edit'):
+    mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
+    # BYPASS_WHOLE_FILE (2026-05-28): fall back to partial_edit patches for fuzzer-bypassed tasks
+    if task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES:
         pe_files = files_touched if isinstance(files_touched, list) else [files_touched]
         pe_repr = ', '.join((repr(p) for p in pe_files)) if pe_files else '<see current_task.json>'
         prompt += '\nPARTIAL-EDIT DISPATCH (__JANUSMASK_PATCHES__) for ' + pe_repr + f":\n\nThis task edits one or more LARGE existing files IN PLACE. DO NOT\nreproduce the whole file. Emit a single top-level Python list assigned\nto ``__JANUSMASK_PATCHES__`` whose elements each replace exactly ONE\nnamed block. Two entry kinds:\n\n  # replace a top-level def/async def/class (or dotted Outer.method):\n  {{'file': '<rel/path>', 'kind': 'symbol', 'name': '<qualified.Name>',\n   'code': r{tsq}<full replacement def/class source>{tsq}}}\n\n  # replace only the lines between a pair of sentinel comments:\n  {{'file': '<rel/path>', 'kind': 'region', 'marker': '<SENTINEL>',\n   'code': r{tsq}<replacement region body>{tsq}}}\n\nThe exact shape:\n\n    __JANUSMASK_PATCHES__ = [\n        {{'file': '...', 'kind': 'symbol', 'name': '...', 'code': r{tsq}...{tsq}}},\n    ]\n\nRules:\n- Use raw triple-quoted strings (r{tsq}...{tsq}) for ``code`` so newlines,\n  quotes, and backslash escape sequences survive verbatim.\n- For kind 'symbol', ``code`` MUST be exactly ONE def/async def/class\n  whose name matches the leaf of ``name``; every byte outside that block\n  is preserved by the harness.\n- For kind 'region', the file must already contain the sentinel pair\n  ``# JANUSMASK_REGION:<SENTINEL>`` ... ``# JANUSMASK_ENDREGION:<SENTINEL>``;\n  only the lines strictly between them are replaced (sentinels kept).\n- The submission file MUST contain ONLY this ``__JANUSMASK_PATCHES__``\n  assignment at top level (no other statements, imports, or decorators).\n- Replace ONLY the named symbols/regions you must change. Never emit a\n  whole-file manifest for a partial edit.\n"
@@ -895,9 +897,9 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
     and the single-file fallback so the AST-retry loop forces the agent
     to resubmit as a __JANUSMASK_MANIFEST__ dict.
     """
+    mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
     allow_nondet = task.get('constraints', {}).get('deterministic') is False
     if not allow_nondet:
-        mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
         if mtt in {'io_adapter', 'logging_observability', 'harness_plumbing', 'harness_self_fix', 'orchestration', 'planner_tooling', 'hooks_integration', 'validation', 'sandbox_infra', 'mcp_plumbing', 'mcp_server_change'}:
             allow_nondet = True
         elif isinstance(mtt, str) and mtt.startswith('test_'):
@@ -923,7 +925,8 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
             return (False, all_violations)
         logger.info('%s manifest submission (%d files) passed AST validation (%d warnings)', agent, len(manifest), len(all_violations))
         return (True, all_violations)
-    if task.get('partial_edit'):
+    # BYPASS_WHOLE_FILE (2026-05-28): Validate as patches if partial_edit or fuzzer-bypassed
+    if task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES:
         # AW10d/C9.14 partial-edit submission: the agent emits a
         # ``__JANUSMASK_PATCHES__`` list (one entry per replaced symbol), NOT
         # whole-file source. Validating the patch-list ASSIGNMENT as if it were the
