@@ -182,12 +182,19 @@ def _spawn_capture(monkeypatch, tmp_path, agent):
     monkeypatch.setattr(orch_mod.subprocess, "Popen", _FakePopen)
     monkeypatch.setattr(orch_mod, "start_stream_threads", lambda *a, **k: ())
 
+    # CONTAIN C5: claude spawns are fail-closed on a PreToolUse-declaring
+    # --settings file (orchestrator._assert_claude_hook_config, unconditional for
+    # agent=='claude'). Prod claude always carries one; supply the real worker
+    # settings so this env-plumbing fixture exercises the spawn path, not the gate.
+    args = ["-p"]
+    if agent == "claude":
+        args += ["--settings", str(PROJECT_ROOT / "config" / "claude_worker_hooks.json")]
     config = {
         "state_dir": str(tmp_path),
         "agents": {
             agent: {
                 "command": agent,
-                "args": ["-p"],
+                "args": args,
             }
         },
     }

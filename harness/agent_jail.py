@@ -70,7 +70,7 @@ def build_jail_argv(
     repo_root = str(Path(repo_root).resolve())
     work_dir = str(Path(work_dir).resolve())
     state_dir = str(Path(state_dir).resolve())
-    home = str(Path(home or os.environ.get("HOME", "/tmp")).resolve())
+    home = str(Path(home or os.environ.get("HOME", "/tmp")).resolve())  # home-free: allow (jail must bind the operator $HOME so agy ~/.gemini OAuth + ~/.nvm node runtime + ~/.claude resolve; deliberate, documented coupling per AGENT-ISOLATION §8)
 
     # Namespace policy (C6-tuned, empirical): the repo-read-only guarantee comes
     # PURELY from the --ro-bind below, NOT from namespace unsharing (verified: a jail

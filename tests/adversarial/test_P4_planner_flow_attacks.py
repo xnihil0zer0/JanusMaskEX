@@ -107,10 +107,15 @@ def _spawn_cfg(tmp_path: pathlib.Path) -> Dict[str, Any]:
     ``agents[<name>]['args']`` (a list); ``-p <prompt>`` is appended
     after substitution if no '-p' marker is in args.
     """
+    # CONTAIN C5: claude spawns are fail-closed on a PreToolUse-declaring
+    # --settings file (orchestrator._assert_claude_hook_config, unconditional for
+    # agent=='claude'). Supply the real worker settings so these OUTBOX_PATH /
+    # per-agent-isolation fixtures exercise the spawn path, not the C5 gate.
     return {
         "state_dir": str(tmp_path),
         "agents": {
-            "claude": {"command": "echo", "args": []},
+            "claude": {"command": "echo", "args": [
+                "--settings", str(PROJECT_ROOT / "config" / "claude_worker_hooks.json")]},
             "gemini": {"command": "echo", "args": []},
         },
     }

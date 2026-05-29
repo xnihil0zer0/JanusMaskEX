@@ -32,6 +32,24 @@ def test_real_synthesis_config_passes(monkeypatch):
     orch._assert_claude_hook_config(cmd)  # must not raise
 
 
+def test_real_planning_config_passes(monkeypatch):
+    """C-FIX (rev 3.1): C5 must STILL fire (and pass) on the real claude
+    *planning* spawn. Planning rewires claude_worker.json ->
+    claude_worker_planning_hooks.json, which declares PreToolUse. This guards
+    against a future C5-scoping change accidentally skipping the planning path
+    (the gate is intentionally unconditional for agent=='claude', fail-closed).
+    """
+    monkeypatch.setenv("JANUSMASK_MODE", "planning")
+    config = orch.load_config(Path("harness/config.yaml"))
+    cmd = orch._build_agent_command("claude", "P", config)
+    # The effective --settings is the planning hooks file, not the synthesis one.
+    i = cmd.index("--settings")
+    assert cmd[i + 1].endswith("claude_worker_planning_hooks.json"), (
+        f"planning spawn did not rewire to the planning hooks settings: {cmd[i + 1]}"
+    )
+    orch._assert_claude_hook_config(cmd)  # must not raise (planning hooks declare PreToolUse)
+
+
 def test_missing_pretooluse_aborts(tmp_path):
     bad = tmp_path / "no_hooks.json"
     bad.write_text(json.dumps({"permissions": {"allow": ["Write"]}, "hooks": {}}))

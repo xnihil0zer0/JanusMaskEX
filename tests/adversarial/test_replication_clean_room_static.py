@@ -277,9 +277,15 @@ class TestBootstrapDenyAllAllowlist:
 
 class TestBuildAgentEnvSetsProjectDir:
     def test_build_agent_env_exports_claude_project_dir(self) -> None:
-        # Until the env dict in _build_agent_env carries CLAUDE_PROJECT_DIR, a
-        # fresh clone's spawned claude CLI cannot resolve ${CLAUDE_PROJECT_DIR}
-        # in config/claude_mcp.json and config/claude_worker.json.
+        # _build_agent_env must still export CLAUDE_PROJECT_DIR (a bare clone's
+        # ${CLAUDE_PROJECT_DIR} placeholders must resolve), but CONTAIN C1
+        # repoints it at the per-spawn OUTSIDE-repo work_dir, NOT the live repo:
+        # claude resolves its project root / hook discovery / settings+mcp
+        # interpolation from this var, so leaving it on the repo defeated the
+        # outside-repo CWD relocation. The repo path now lives on
+        # JANUSMASK_PROJECT_DIR. See test_agent_env_no_repo_leak.py (the C1
+        # fix-detector this assertion was reconciled against).
+        from pathlib import Path
         from harness import orchestrator
 
         env = orchestrator._build_agent_env("claude", "state", 1)
@@ -287,9 +293,21 @@ class TestBuildAgentEnvSetsProjectDir:
             "_build_agent_env must set CLAUDE_PROJECT_DIR so a bare clone's "
             "${CLAUDE_PROJECT_DIR} placeholders resolve (REPL-8)"
         )
-        assert env["CLAUDE_PROJECT_DIR"], "CLAUDE_PROJECT_DIR must be non-empty"
-        assert env["CLAUDE_PROJECT_DIR"] == str(orchestrator.PROJECT_DIR), (
-            "CLAUDE_PROJECT_DIR should point at the resolved project root"
+        cpd = env["CLAUDE_PROJECT_DIR"]
+        assert cpd, "CLAUDE_PROJECT_DIR must be non-empty"
+        repo = str(orchestrator.PROJECT_DIR)
+        assert cpd != repo, (
+            "CONTAIN C1: CLAUDE_PROJECT_DIR must NOT be the live repo (the leak)"
+        )
+        assert (
+            orchestrator.PROJECT_DIR not in Path(cpd).resolve().parents
+            and Path(cpd).resolve() != orchestrator.PROJECT_DIR
+        ), f"CLAUDE_PROJECT_DIR {cpd} must be OUTSIDE the repo tree (C1)"
+        assert cpd == env["JANUSMASK_WORK_DIR"], (
+            "CLAUDE_PROJECT_DIR should be the per-spawn work_dir"
+        )
+        assert env["JANUSMASK_PROJECT_DIR"] == repo, (
+            "JANUSMASK_PROJECT_DIR must remain the repo (trusted hook read-roots)"
         )
 
     def test_build_agent_env_trusts_gemini_workspace(self) -> None:

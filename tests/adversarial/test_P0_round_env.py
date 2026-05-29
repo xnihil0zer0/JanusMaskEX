@@ -119,7 +119,13 @@ def test_spawn_agent_passes_round_through_to_env(monkeypatch, tmp_path):
         "agents": {
             "claude": {
                 "command": "claude",
-                "args": ["-p", "--model", "sonnet"],
+                # CONTAIN C5: every claude spawn is fail-closed on a --settings
+                # file that declares a PreToolUse hook (orchestrator._assert_claude_hook_config).
+                # Prod claude always carries one; this fixture supplies the real
+                # PreToolUse-declaring worker settings so the assertion passes
+                # (it is unconditional for agent=='claude' by design — fail-closed).
+                "args": ["-p", "--model", "sonnet", "--settings",
+                         str(PROJECT_ROOT / "config" / "claude_worker_hooks.json")],
             }
         },
     }
