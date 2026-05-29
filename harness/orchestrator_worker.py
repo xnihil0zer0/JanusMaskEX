@@ -219,6 +219,19 @@ def main() -> int:
                     else:
                         set_agent_status(state_dir, agent=agent_name, status='submitted')
                         orch._emit_lifecycle(state_dir, event='agent_status', agent=agent_name, status='submitted', task_id=task_id)
+                # GAP_H4: keep the RECONCILE_TIMEOUT_BUDGETS double-timeout protection
+                # on the use_retry_module path too (parity with the non-retry branch's
+                # `both agents timed out` guard). The per-call wall-budget guard now lives
+                # inside synthesize_with_retries (ast_retry.py), so the budget-exhaustion
+                # re-check the non-retry loop does at retry-start is already covered on
+                # this path; the remaining gap was double-timeout handling. Both agents
+                # produced no code => treat as timeout and exit 2 (the daemon retries a
+                # timeout, vs a hard reject) instead of falling through to ast_validation.
+                if agent_a_code is None and agent_b_code is None:
+                    orch._emit_lifecycle(state_dir, event='double_timeout', task_id=task_id, detail='both agents timed out (retry_module); exiting before validation')
+                    _print_json_line({'task_id': task_id, 'outcome': 'timeout', 'reason': 'both_agents_timed_out'})
+                    exit_code = 2
+                    return exit_code
                 set_phase(state_dir, phase='ast_validation')
                 orch._emit_lifecycle(state_dir, event='phase_transition', phase='ast_validation', task_id=task_id, phase_transition={'to': 'ast_validation'})
                 synthesis_success = bool(agent_a_ok and agent_b_ok and agent_a_code and agent_b_code)
