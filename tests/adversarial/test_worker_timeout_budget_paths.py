@@ -119,28 +119,61 @@ def test_T3b_budget_guard_skipped_on_attempt_zero(worker_env, monkeypatch):
     assert rc == 0 and commit_calls, "valid attempt-0 submission should accept"
 
 
-def test_T4_retry_module_path_has_no_budget_check():
-    """GAP: synthesize_with_retries has no monotonic/budget/HARD_TIMEOUT guard.
+def test_T4_retry_module_path_has_budget_guard():
+    """FIX-DETECTOR (GAP_H4 option-a inverted): synthesize_with_retries now derives
+    a per-call wall budget from ``config`` (synthesis.timeout_seconds) and bails
+    before starting a retry window it cannot afford, emitting/returning rather than
+    looping ``max_ast_retries`` full synthesis windows unguarded. The
+    RECONCILE_TIMEOUT_BUDGETS protection (8dac6e1) no longer vanishes when
+    ``use_retry_module=True``. Goes RED on the unguarded source.
 
-    Flipping config synthesis.use_retry_module=True routes the worker through
-    ast_retry.synthesize_with_retries, which loops max_ast_retries full synthesis
-    windows with NO insufficient_time_for_retry guard. The RECONCILE budget work
-    only protects the legacy inline else-branch."""
+    Contract for the reconstruction: the function uses ``import time`` /
+    ``time.monotonic()`` (module-level), so the budget clock is patchable here.
+    """
+    import time as _time
+    import unittest.mock as _mock
+
     src = inspect.getsource(ast_retry.synthesize_with_retries)
-    for token in ("monotonic", "budget", "HARD_TIMEOUT", "worker_start", "remaining"):
-        assert token not in src, (
-            f"unexpected budget token {token!r} found — gap may be closed, "
-            "update this test"
-        )
+    assert "monotonic" in src, "no monotonic clock — per-call budget guard absent"
+    assert ("_compute_timeout_budgets" in src or "timeout_seconds" in src), (
+        "budget not derived from config (expected _compute_timeout_budgets or "
+        "synthesis.timeout_seconds)")
+    assert any(t in src for t in ("remaining", "budget", "SYNTHESIS_WINDOW", "window")), (
+        "no remaining-budget comparison before the retry window")
+    # The module must expose ``time`` for the clock to be patchable (import time).
+    assert hasattr(ast_retry, "time"), (
+        "ast_retry must 'import time' (module-level) so time.monotonic is patchable")
 
-    # And the worker's use_retry_module branch passes no budget params to it:
+    # Behavioral: with the wall budget already blown, the loop bails EARLY instead
+    # of running all max_ast_retries unguarded windows. run_agent_func returns None
+    # so an unguarded loop would call it max_ast_retries times.
+    calls = {"n": 0}
+
+    def run_agent(*a, **k):
+        calls["n"] += 1
+        return None
+
+    cfg = {"synthesis": {"timeout_seconds": 100, "max_ast_retries": 5}}
+    seq = {"i": 0}
+
+    def fake_monotonic():
+        # First two reads (function entry + attempt-0 elapsed) are at t=0 so the
+        # fresh first synthesis is never pre-empted; later reads jump far past the
+        # hard budget so any RETRY check trips the guard.
+        seq["i"] += 1
+        return 0.0 if seq["i"] <= 2 else 10_000.0
+
+    with _mock.patch.object(ast_retry.time, "monotonic", fake_monotonic):
+        ok, code, viol = ast_retry.synthesize_with_retries(
+            "claude", "p", cfg, Path("."), 1, {"task_id": "T"},
+            run_agent, lambda c, t: (False, ["v"]))
+
+    assert ok is False, "exhausted-budget run must report failure"
+    assert 1 <= calls["n"] < 5, (
+        f"budget guard did not curtail the retry loop (ran {calls['n']}/5 windows); "
+        "attempt 0 must run, later retries must be cut off")
+
+    # The worker still calls it (wiring intact); the per-call guard lives INSIDE the
+    # function now, so no budget params need threading at the call site.
     worker_src = inspect.getsource(ow.main)
-    # locate the use_retry_module call sites and confirm they don't thread budgets
     assert "synthesize_with_retries(" in worker_src
-    # the budget locals only appear in the else-branch guard, never on the
-    # synthesize_with_retries call line.
-    for line in worker_src.splitlines():
-        if "synthesize_with_retries(" in line:
-            assert "HARD_TIMEOUT" not in line and "SYNTHESIS_WINDOW" not in line, (
-                "GAP would be closed if budgets were threaded into the retry module"
-            )
