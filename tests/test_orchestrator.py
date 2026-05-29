@@ -1148,3 +1148,185 @@ class TestMainEntryPoint:
         assert state_file.is_file()
         data = json.loads(state_file.read_text())
         assert data["phase"] == "idle"
+
+
+# ── BYPASS_WHOLE_FILE Tests ───────────────────────────────────────────────────
+
+def test_prepare_task_prompt_bypass_type_emits_patches_block():
+    task = {
+        "task_id": "test_bypass",
+        "meta_task_type": "sandbox_infra",
+        "files_touched": ["a.py", "b.py"],
+    }
+    prompt = prepare_task_prompt(task)
+    assert "__JANUSMASK_PATCHES__" in prompt
+    assert "__JANUSMASK_MANIFEST__" not in prompt
+
+
+def test_prepare_task_prompt_partial_edit_still_emits_patches_block():
+    task = {
+        "task_id": "test_pe",
+        "partial_edit": True,
+        "meta_task_type": "cli_tooling",
+        "files_touched": ["a.py", "b.py"],
+    }
+    prompt = prepare_task_prompt(task)
+    assert "__JANUSMASK_PATCHES__" in prompt
+    assert "__JANUSMASK_MANIFEST__" not in prompt
+
+
+def test_prepare_task_prompt_bypass_single_file_emits_patches_not_manifest():
+    task = {
+        "task_id": "test_bypass_single",
+        "meta_task_type": "sandbox_infra",
+        "files_touched": ["a.py"],
+    }
+    prompt = prepare_task_prompt(task)
+    assert "__JANUSMASK_PATCHES__" in prompt
+    assert "__JANUSMASK_MANIFEST__" not in prompt
+
+
+def test_prepare_task_prompt_non_bypass_multifile_still_emits_manifest():
+    task = {
+        "task_id": "test_non_bypass_multi",
+        "meta_task_type": "cli_tooling",
+        "files_touched": ["a.py", "b.py"],
+    }
+    prompt = prepare_task_prompt(task)
+    assert "__JANUSMASK_MANIFEST__" in prompt
+    assert "__JANUSMASK_PATCHES__" not in prompt
+
+
+def test_prepare_task_prompt_meta_task_type_from_constraints_resolved():
+    task = {
+        "task_id": "test_constraints_bypass",
+        "constraints": {"meta_task_type": "sandbox_infra"},
+        "files_touched": ["a.py", "b.py"],
+    }
+    prompt = prepare_task_prompt(task)
+    assert "__JANUSMASK_PATCHES__" in prompt
+
+
+def test_validate_submission_bypass_type_uses_patch_list_validation():
+    task = {
+        "task_id": "test_val_bypass",
+        "meta_task_type": "sandbox_infra",
+        "files_touched": ["a.py"],
+    }
+    code = "__JANUSMASK_PATCHES__ = [{'file': 'a.py', 'kind': 'symbol', 'name': 'f', 'code': 'def f():\\n    pass\\n'}]"
+    valid, violations = _validate_submission(code, "claude", task)
+    assert valid
+    assert len(violations) == 0
+
+
+def test_validate_submission_partial_edit_uses_patch_list_validation():
+    task = {
+        "task_id": "test_val_pe",
+        "partial_edit": True,
+        "meta_task_type": "cli_tooling",
+        "files_touched": ["a.py"],
+    }
+    code = "__JANUSMASK_PATCHES__ = [{'file': 'a.py', 'kind': 'symbol', 'name': 'f', 'code': 'def f():\\n    pass\\n'}]"
+    valid, violations = _validate_submission(code, "claude", task)
+    assert valid
+
+
+def test_validate_submission_non_bypass_multifile_requires_manifest_missing():
+    task = {
+        "task_id": "test_val_non_bypass_multi",
+        "meta_task_type": "cli_tooling",
+        "files_touched": ["a.py", "b.py"],
+    }
+    code = "def f(): pass"
+    valid, violations = _validate_submission(code, "claude", task)
+    assert not valid
+    assert any(v.rule == "manifest_missing" for v in violations)
+
+
+def test_validate_submission_bypass_no_patches_falls_through():
+    task = {
+        "task_id": "test_val_bypass_no_patches",
+        "meta_task_type": "sandbox_infra",
+        "files_touched": ["a.py"],
+    }
+    code = "def f(:"
+    valid, violations = _validate_submission(code, "claude", task)
+    assert not valid
+    assert not any(v.rule == "manifest_missing" for v in violations)
+
+
+def test_bypass_task_prompt_to_validation_roundtrip_uses_patches():
+    task = {
+        "task_id": "test_bypass_roundtrip",
+        "meta_task_type": "sandbox_infra",
+        "files_touched": ["a.py"],
+    }
+    prompt = prepare_task_prompt(task)
+    assert "__JANUSMASK_PATCHES__" in prompt
+    
+    code = "__JANUSMASK_PATCHES__ = [{'file': 'a.py', 'kind': 'symbol', 'name': 'f', 'code': 'def f():\\n    pass\\n'}]"
+    valid, violations = _validate_submission(code, "claude", task)
+    assert valid
+
+
+def test_non_bypass_task_prompt_to_validation_roundtrip_uses_manifest():
+    task = {
+        "task_id": "test_non_bypass_roundtrip",
+        "meta_task_type": "cli_tooling",
+        "files_touched": ["a.py", "b.py"],
+    }
+    prompt = prepare_task_prompt(task)
+    assert "__JANUSMASK_MANIFEST__" in prompt
+    
+    code = "__JANUSMASK_MANIFEST__ = {'a.py': 'def a(): pass\\n', 'b.py': 'def b(): pass\\n'}"
+    valid, violations = _validate_submission(code, "claude", task)
+    assert valid
+
+
+def test_any_meta_task_type_in_bypass_set_triggers_patches_in_both_functions():
+    from harness.planner.taxonomies import BYPASS_FUZZER_TYPES
+    for mtt in BYPASS_FUZZER_TYPES:
+        task = {
+            "task_id": f"test_prop_{mtt}",
+            "meta_task_type": mtt,
+            "files_touched": ["a.py", "b.py"],
+        }
+        prompt = prepare_task_prompt(task)
+        assert "__JANUSMASK_PATCHES__" in prompt
+        
+        code = "__JANUSMASK_PATCHES__ = [{'file': 'a.py', 'kind': 'symbol', 'name': 'f', 'code': 'def f():\\n    pass\\n'}]"
+        valid, violations = _validate_submission(code, "claude", task)
+        assert valid
+
+
+def test_existing_manifest_branch_unchanged_for_plain_multifile():
+    task = {
+        "task_id": "test_plain_multi",
+        "meta_task_type": "cli_tooling",
+        "files_touched": ["a.py", "b.py"],
+    }
+    code = "__JANUSMASK_MANIFEST__ = {'a.py': 'def a(): pass\\n', 'b.py': 'def b(): pass\\n'}"
+    valid, violations = _validate_submission(code, "claude", task)
+    assert valid
+
+
+def test_existing_single_file_ast_validation_unchanged():
+    task = {
+        "task_id": "test_plain_single",
+        "meta_task_type": "cli_tooling",
+        "files_touched": ["a.py"],
+    }
+    code = "def a(): pass"
+    valid, violations = _validate_submission(code, "claude", task)
+    assert valid
+
+
+def test_fuzzer_bypass_smoke_gating_unaffected():
+    from harness.orchestrator import should_bypass_fuzzer, Task
+    from harness.planner.taxonomies import BYPASS_FUZZER_TYPES
+    for mtt in BYPASS_FUZZER_TYPES:
+        t = Task(task_id="t", meta_task_type=mtt)
+        assert should_bypass_fuzzer(t) is True
+    t_non = Task(task_id="t", meta_task_type="cli_tooling")
+    assert should_bypass_fuzzer(t_non) is False
+

@@ -11,6 +11,18 @@ def _stripify(node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
     new_body.append(ast.Raise(exc=ast.Name(id='NotImplementedError', ctx=ast.Load()), cause=None))
     node.body = new_body
 
+def _is_test_function(name: str) -> bool:
+    return name.startswith('test_')
+
+def _is_pytest_class(node: ast.ClassDef) -> bool:
+    if not node.name.startswith('Test'):
+        return False
+    method_defs = [
+        m for m in node.body
+        if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    return any(m.name.startswith('test') for m in method_defs)
+
 def strip_source(source: str) -> str:
     """Return a skeleton of ``source``: every function/method body removed.
 
@@ -22,12 +34,14 @@ def strip_source(source: str) -> str:
     """
     tree = ast.parse(source)
 
-    def _process(body: list[ast.stmt]) -> None:
+    def _process(body: list[ast.stmt], in_pytest_class: bool = False) -> None:
         for node in body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                _stripify(node)
+                if not in_pytest_class and not _is_test_function(node.name):
+                    _stripify(node)
             elif isinstance(node, ast.ClassDef):
-                _process(node.body)
+                is_py_class = _is_pytest_class(node)
+                _process(node.body, in_pytest_class=is_py_class or in_pytest_class)
     _process(tree.body)
     return ast.unparse(tree)
 
