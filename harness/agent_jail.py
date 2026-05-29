@@ -72,11 +72,18 @@ def build_jail_argv(
     state_dir = str(Path(state_dir).resolve())
     home = str(Path(home or os.environ.get("HOME", "/tmp")).resolve())
 
+    # Namespace policy (C6-tuned, empirical): the repo-read-only guarantee comes
+    # PURELY from the --ro-bind below, NOT from namespace unsharing (verified: a jail
+    # with no --unshare-* still denies a write to the ro-bound repo). We deliberately
+    # do NOT unshare any namespace -- both --unshare-all (via --unshare-user's UID
+    # remap on the mode-600 ~/.gemini/oauth_creds.json) AND --unshare-pid drop the agy
+    # (gemini CLI) into an interactive-OAuth loop ("authentication timed out"). The
+    # mount namespace bwrap always creates is sufficient for the filesystem barrier;
+    # net/ipc/pid/user stay shared so agy's credential read + token refresh and the
+    # model-API calls work. CONTAIN's scope is live-tree tamper, not pid/net isolation.
     argv: list[str] = [
         bwrap,
         "--die-with-parent",
-        "--unshare-all",
-        "--share-net",
         "--proc", "/proc",
         "--dev", "/dev",
         "--tmpfs", "/tmp",
@@ -102,6 +109,13 @@ def build_jail_argv(
     # under HOME). Covers ~/.nvm node runtime, ~/.gemini, ~/.claude.
     if os.path.exists(home):
         argv += ["--bind", home, home]
+    # XDG_RUNTIME_DIR (/run/user/<uid>): the D-Bus session bus + keyring socket live
+    # here. agy (gemini CLI) validates/refreshes its OAuth credential through the
+    # session keyring; without this bind it loops on "authentication timed out" even
+    # though ~/.gemini/oauth_creds.json is readable. Bind writable (agy writes sockets).
+    xdg = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    if os.path.isdir(xdg):
+        argv += ["--bind", xdg, xdg]
     # The load-bearing barrier: repository source READ-ONLY.
     argv += ["--ro-bind", repo_root, repo_root]
     # state/ writable (overlays the ro repo bind) for the hook ledger + journal.

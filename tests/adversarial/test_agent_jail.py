@@ -54,8 +54,10 @@ def test_argv_repo_readonly_workdir_writable(tmp_path, monkeypatch):
     # state + work_dir are writable.
     assert (str(state), str(state)) in rw, "state must be rw-bind"
     assert (str(work), str(work)) in rw, "work_dir must be rw-bind"
-    # Network shared (agents call model APIs); chdir into work_dir.
-    assert "--share-net" in argv
+    # No namespace unsharing: --unshare-all/--unshare-pid both break agy's OAuth
+    # (cred read / token refresh). The mount-ns binds alone enforce repo-RO. chdir work_dir.
+    assert "--unshare-all" not in argv, "must not --unshare-all (breaks agy OAuth cred read)"
+    assert "--unshare-pid" not in argv, "must not --unshare-pid (breaks agy OAuth token refresh)"
     assert argv[argv.index("--chdir") + 1] == str(work)
     # The agent command is appended verbatim after the bwrap '--' terminator.
     dd = len(argv) - 1 - argv[::-1].index("--")
