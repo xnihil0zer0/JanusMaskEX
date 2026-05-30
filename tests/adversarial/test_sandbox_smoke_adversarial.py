@@ -13,11 +13,14 @@ def test_clean_stdlib_import_passes():
     src = 'import os\nimport sys\n\ndef f() -> int:\n    return 1\n'
     assert smoke_import('clean_stdlib', src) is None
 
-def test_pytest_top_level_import_fails():
+def test_pytest_top_level_import_passes_venv_aware():
+    # B1 TIGHTEN_SMOKE_GATE: the gate is now venv-aware. pytest is genuinely
+    # installed in the orchestrator's environment (it ran this test), so a
+    # candidate importing it would import cleanly in a real worker too. The
+    # gate must therefore smoke-PASS it rather than spuriously rejecting under
+    # a bare -S interpreter (the pre-B1 characterization that this inverts).
     src = 'import pytest\n\ndef f():\n    return 1\n'
-    err = smoke_import('pytest_top', src)
-    assert err is not None
-    assert 'sandbox import failed' in err
+    assert smoke_import('pytest_top', src) is None
 
 def test_module_level_undefined_name_fails():
     src = '_probe = UNDEFINED_NAME\n'

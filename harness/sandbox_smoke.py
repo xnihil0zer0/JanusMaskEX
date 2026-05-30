@@ -16,19 +16,59 @@ returns ``None`` on clean import, or a short error string prefixed with
 ``sandbox import failed:`` if the subprocess failed.
 
 The scrubbed env is intentionally minimal: only the tempdir (which holds
-the candidate module) is on ``PYTHONPATH``. That means legitimate
-``from harness.<x> import <y>`` imports WILL fail the smoke — caller must
-either inline the dependency into the candidate, or accept that canary
-helpers are stdlib-only by contract (matches current ``BYPASS_FUZZER_TYPES``
-intent).
+the candidate module), the project root, and the project's site-packages
+directories are on ``PYTHONPATH``. The tempdir + project root let
+legitimate ``from harness.<x> import <y>`` imports resolve; the
+site-packages dirs (discovered via :func:`_site_packages_dirs`, mirroring
+``harness/embedded_test_runner.py:_pytest_site_dir``) make the gate
+*venv-aware* so a submission that imports a third-party package which is
+genuinely installed in the project's environment is smoke-tested with that
+package on ``sys.path`` rather than failing spuriously under a bare ``-S``
+interpreter.
+
+This does NOT make the gate fail-open: a genuine import-time crash — an
+``import`` of a package that is not installed anywhere, a module-level
+``NameError``, or a ``SyntaxError`` — still fails the smoke. The gate only
+stops rejecting imports that would in fact succeed in the worker's real
+environment.
 """
 from __future__ import annotations
+import os
 import pathlib
+import site
 import subprocess
 import sys
 import tempfile
 __all__ = ['smoke_import']
 _WORKER_SCRUB_ENV = {'PATH': '/usr/bin:/bin', 'LANG': 'C'}
+
+
+def _site_packages_dirs() -> list[str]:
+    """Return the project's site-packages directories (venv-aware).
+
+    Mirrors ``harness/embedded_test_runner.py:_pytest_site_dir`` in intent:
+    surface the real site-packages dir(s) of the interpreter running the
+    orchestrator so the scrubbed ``-S`` subprocess can import third-party
+    packages that are genuinely installed (e.g. inside the project venv).
+    Uses only the stdlib :mod:`site` module. Returns a de-duplicated list of
+    existing directories; missing/unavailable entries are skipped so the
+    gate degrades to the prior tempdir+root behavior rather than crashing.
+    """
+    dirs: list[str] = []
+    getters = (getattr(site, 'getsitepackages', None), getattr(site, 'getusersitepackages', None))
+    for getter in getters:
+        if getter is None:
+            continue
+        try:
+            result = getter()
+        except Exception:
+            continue
+        if isinstance(result, str):
+            result = [result]
+        for d in result:
+            if d and os.path.isdir(d) and d not in dirs:
+                dirs.append(d)
+    return dirs
 
 def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> str | None:
     """Import ``module_src`` under a scrubbed subprocess; return error on failure.
@@ -52,10 +92,12 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
         mod_path = td_path / f'{module_name}.py'
         mod_path.write_text(module_src, encoding='utf-8')
         env = dict(_WORKER_SCRUB_ENV)
-        env['PYTHONPATH'] = str(td_path)
+        path_parts = [str(td_path)]
         root = _discover_project_root()
         if root is not None:
-            env['PYTHONPATH'] = f'{td_path}{os.pathsep}{root}'
+            path_parts.append(str(root))
+        path_parts.extend(_site_packages_dirs())
+        env['PYTHONPATH'] = os.pathsep.join(path_parts)
         try:
             proc = subprocess.run([sys.executable, '-S', '-c', f'import {module_name}'], cwd=str(td_path), env=env, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -71,4 +113,3 @@ def _discover_project_root() -> pathlib.Path | None:
         if (parent / '.git').exists() or (parent / 'pyproject.toml').exists():
             return parent
     return None
-import os
