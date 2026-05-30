@@ -597,12 +597,26 @@ def _precompute_baseline_test_results(state_dir: Path, task: dict[str, Any], tas
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
     scrubbed_env = {k: v for k, v in os.environ.items() if not k.startswith('JANUSMASK_')}
+    # H5: derive the baseline-precompute timeout from config (mirrors the accept-path
+    # verify cap in orchestrator._auto_commit_accepted). The hardcoded 600 lagged the
+    # 1200s synthesis window, so a slow baseline was recorded as a false 'timeout'.
+    # Prefer synthesis.verification_timeout_seconds, else floor synthesis.timeout_seconds
+    # at 900; load_config failure falls back to 600 (fail-safe, never unbounded).
+    try:
+        from harness.orchestrator import load_config as _load_config
+        _vcfg = _load_config().get('synthesis', {}) or {}
+        verification_timeout = int(_vcfg.get(
+            'verification_timeout_seconds',
+            max(900, int(_vcfg.get('timeout_seconds', 600))),
+        ))
+    except Exception:
+        verification_timeout = 600
     exit_code: int | None
     stdout_tail = ''
     stderr_tail = ''
     outcome: str
     try:
-        res = subprocess.run(['/bin/bash', '-c', f'set -o pipefail; {vcmd}'], cwd=cwd, capture_output=True, text=True, timeout=600, env=scrubbed_env)
+        res = subprocess.run(['/bin/bash', '-c', f'set -o pipefail; {vcmd}'], cwd=cwd, capture_output=True, text=True, timeout=verification_timeout, env=scrubbed_env)
         exit_code = res.returncode
         stdout_tail = (res.stdout or '')[-4000:]
         stderr_tail = (res.stderr or '')[-4000:]
@@ -610,7 +624,7 @@ def _precompute_baseline_test_results(state_dir: Path, task: dict[str, Any], tas
     except subprocess.TimeoutExpired as texc:
         exit_code = None
         outcome = 'timeout'
-        stderr_tail = f'[baseline verification_command timed out after 600s: {texc!r}]'
+        stderr_tail = f'[baseline verification_command timed out after {verification_timeout}s: {texc!r}]'
     except (FileNotFoundError, OSError) as exc:
         exit_code = None
         outcome = 'error'

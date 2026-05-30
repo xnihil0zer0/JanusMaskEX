@@ -1591,9 +1591,24 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
         verify_stdout = ''
         verify_stderr = ''
         timed_out = False
+        # H5: derive the verify-subprocess timeout from config rather than a
+        # hardcoded 600s. synthesis.timeout_seconds was raised to 1200 (28db488)
+        # but the verify cap stayed at 600, so a verify run that legitimately took
+        # >600s was killed -> exit 124 -> spurious reject_rollback. Prefer an
+        # explicit synthesis.verification_timeout_seconds; else floor the synthesis
+        # window at 900s. A load_config failure falls back to the historical 600
+        # (fail-safe -- never an unbounded verify subprocess).
+        try:
+            _vcfg = load_config().get('synthesis', {}) or {}
+            verification_timeout = int(_vcfg.get(
+                'verification_timeout_seconds',
+                max(900, int(_vcfg.get('timeout_seconds', 600))),
+            ))
+        except Exception:
+            verification_timeout = 600
         try:
             # We run the verification command inside staging_path
-            vproc = subprocess.run(f'set -o pipefail; {vcmd}', shell=True, cwd=str(staging_path), capture_output=True, text=True, timeout=600, env=_vcmd_scrubbed_env(), executable='/bin/bash')
+            vproc = subprocess.run(f'set -o pipefail; {vcmd}', shell=True, cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
             verify_exit = vproc.returncode
             verify_stdout = vproc.stdout or ''
             verify_stderr = vproc.stderr or ''
@@ -1610,7 +1625,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                 verify_stderr = partial_err.decode('utf-8', 'replace')
             elif isinstance(partial_err, str):
                 verify_stderr = partial_err
-            verify_stderr = (verify_stderr + '\n' if verify_stderr else '') + f'[verification_command timed out after 600s: {texc!r}]'
+            verify_stderr = (verify_stderr + '\n' if verify_stderr else '') + f'[verification_command timed out after {verification_timeout}s: {texc!r}]'
 
         if verify_exit != 0:
             cmd_preview = vcmd if len(vcmd) <= 200 else vcmd[:200] + '...(truncated)'

@@ -88,29 +88,38 @@ def test_T10b_empty_vcmd_is_verification_missing(repo, monkeypatch):
     assert any(r.get("event") == "verification_missing" for r in rows), rows
 
 
-def test_T10c_verification_timeout_hardcoded_600_not_config_derived():
-    """GAP: the verify subprocess timeout is the literal 600, not derived from
-    synthesis.timeout_seconds (raised to 1200 in 28db488). A >600s verify is
-    killed at 600s -> exit 124 -> reject."""
+def test_T10c_verification_timeout_config_derived_not_hardcoded_600():
+    """H5 (GAP CLOSED): the verify subprocess timeout is derived from config
+    (synthesis.verification_timeout_seconds, floored at the synthesis window),
+    NOT the literal 600. synthesis.timeout_seconds was raised to 1200 (28db488);
+    a >600s verify must no longer be killed at 600s -> exit 124 -> spurious reject."""
     src = inspect.getsource(orch._auto_commit_accepted)
-    # the verify subprocess.run uses timeout=600 literally
-    assert re.search(r"subprocess\.run\(.*timeout=600", src, re.DOTALL), (
-        "expected hardcoded timeout=600 on the verify subprocess.run"
+    # the verify subprocess.run no longer hardcodes timeout=600 ...
+    assert not re.search(r"subprocess\.run\(.*timeout=600", src, re.DOTALL), (
+        "verify subprocess.run must NOT hardcode timeout=600 (H5: config-derived)"
     )
-    # and it is NOT derived from config/timeout_seconds anywhere in the function
-    assert "timeout_seconds" not in src, (
-        "GAP would be closed if the verify timeout were derived from "
-        "synthesis.timeout_seconds"
+    # ... it passes the derived variable instead ...
+    assert "timeout=verification_timeout" in src, (
+        "verify subprocess.run must use the config-derived verification_timeout"
     )
-    # the timeout path stamps exit 124 + a '600s' message
+    # ... and the timeout is derived from synthesis config.
+    assert "timeout_seconds" in src, (
+        "H5: the verify timeout must be derived from synthesis.timeout_seconds / "
+        "verification_timeout_seconds"
+    )
+    assert "verification_timeout_seconds" in src
+    # the timeout path still stamps exit 124 (branch unchanged) + a dynamic message
     assert "verify_exit = 124" in src
-    assert "600s" in src
+    assert "timed out after {verification_timeout}s" in src
 
 
-def test_T10c_baseline_precompute_also_hardcoded_600():
-    """The worker's baseline verification precompute shares the same hardcoded
-    600s timeout (orchestrator_worker._precompute_baseline_test_results)."""
+def test_T10c_baseline_precompute_also_config_derived():
+    """H5: the worker's baseline verification precompute shares the SAME config-
+    derived timeout (orchestrator_worker._precompute_baseline_test_results), no
+    longer the hardcoded 600s."""
     import harness.orchestrator_worker as ow
     src = inspect.getsource(ow._precompute_baseline_test_results)
-    assert "timeout=600" in src
-    assert "after 600s" in src
+    assert "timeout=600" not in src
+    assert "timeout=verification_timeout" in src
+    assert "verification_timeout_seconds" in src
+    assert "timed out after {verification_timeout}s" in src
