@@ -197,3 +197,114 @@ def test_phase_m_pop_conflict_leaves_clean_tree_no_orphan_stash(tmp_path):
     assert _git(["stash", "list"], parent).stdout.strip() == ""
     # Staging worktree removed (M-d still holds).
     assert not staging.exists()
+
+
+
+# ---- M3: G-M2-RESET-UNCHECKED (fail-closed on a failed recovery reset) ----
+def test_phase_m_reset_fail_fails_closed_clean_tree_no_leak(tmp_path, monkeypatch):
+    """G-M2-RESET-UNCHECKED: the pop-conflict resolution `git reset --hard HEAD`
+    can itself fail. Pre-M3 its returncode is IGNORED (check=False) and the
+    function returns NORMALLY, leaving an unmerged (UU) HEAD-moved tree — so the
+    caller (_auto_commit_accepted) skips _mark_blocked and proceeds to
+    _mark_processed + os.execv on a conflicted tree (silent corruption).
+
+    M3 must FAIL-CLOSED: capture the reset rc; on failure (i) do NOT drop the
+    stash — PRESERVE it so the operator's stashed local changes remain
+    recoverable, (ii) restore the parent to the captured pre-merge sha so the
+    tree is CLEAN again (this recovery reset uses argv ['git','reset','--hard',
+    <sha>], DISTINCT from the conflict-resolution ['git','reset','--hard',
+    'HEAD']), (iii) STILL remove the staging worktree (deferred raise / nested
+    finally — no leak), then RAISE so the caller routes the task to blocked/.
+
+    This test forces ONLY the conflict-resolution `reset --hard HEAD` to fail
+    (argv-exact monkeypatch, all other git calls pass through to the real
+    subprocess.run — including the recovery `reset --hard <sha>`).
+
+    MUST FAIL pre-M3 (current code returns normally on a UU tree — no raise, the
+    `merge_staging_to_parent(...)` call returns and pytest.raises sees nothing).
+    MUST PASS after M3 (raises, tree restored clean, worktree gone, stash
+    PRESERVED for operator recovery).
+    """
+    parent, staging = _make_parent_with_staging_commit(
+        tmp_path, base="base\n", staged="base\nmerged\n")
+    # Parent dirty on the SAME tracked file -> the FF succeeds but the stash pop
+    # conflicts, driving execution into the reset-recovery branch.
+    (parent / "target.txt").write_text("base\nLOCAL-EDIT\n", encoding="utf-8")
+    assert _git(["status", "--porcelain"], parent).stdout.strip() != ""
+
+    _real_run = subprocess.run
+    _reset_head = ["git", "reset", "--hard", "HEAD"]
+
+    def _fake_run(args, *a, **k):
+        # Force ONLY the conflict-resolution reset to fail; everything else
+        # (status, stash push/pop, ff merge, the recovery `reset --hard <sha>`,
+        # stash drop, stash show, worktree removal) hits the REAL subprocess.run.
+        if args == _reset_head:
+            return subprocess.CompletedProcess(args, 1, stdout="", stderr="forced reset failure")
+        return _real_run(args, *a, **k)
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    # Fail-closed: the function must RAISE so the caller routes to blocked/.
+    with pytest.raises(Exception):
+        git_integration.merge_staging_to_parent(staging, parent_root=parent)
+
+    monkeypatch.undo()  # restore real subprocess.run for the assertions below
+
+    # The parent tree must be restored CLEAN via the pre_merge_sha recovery reset
+    # (no unmerged UU entries, nothing left over).
+    status = _git(["status", "--porcelain"], parent).stdout
+    assert "UU" not in status, f"conflicted/unmerged tree left after raise: {status!r}"
+    assert status.strip() == "", f"parent tree not clean after fail-closed raise: {status!r}"
+    # The staging worktree must STILL be removed on the raise path (no leak).
+    assert not staging.exists(), "staging worktree leaked on the fail-closed path"
+    # The stash must be PRESERVED (NOT dropped) on a failed reset, so the
+    # operator's stashed local changes remain recoverable. The pre-M3 code drops
+    # it unconditionally (an irrecoverable loss on the fail path); M3 keeps it.
+    stash_list = _git(["stash", "list"], parent).stdout.strip()
+    assert stash_list != "", (
+        "stash must be PRESERVED on the failed-reset path (not dropped) so the "
+        "operator's local changes stay recoverable"
+    )
+    assert len(stash_list.splitlines()) == 1, (
+        f"exactly one preserved recovery stash expected, got: {stash_list!r}"
+    )
+
+
+# ---- M3-c: G-M2-NO-REMOVE-PARENT-TEST (coverage) ----
+def test_phase_m_merge_finally_removes_worktree_with_parent_root():
+    """FIX-DETECTOR (G-M2-NO-REMOVE-PARENT-TEST): the merge `finally` must call
+    remove_staging_worktree with parent_root=parent_root, so worktree
+    de-registration targets the right repo from a relocated daemon CWD.
+
+    Source-level assertion (mirrors test_phase_m_mark_processed_runs_after_merge_in_source):
+    a pure-runtime signature is awkward to pin here, so we pin the structure.
+    """
+    src = inspect.getsource(git_integration.merge_staging_to_parent)
+    assert "remove_staging_worktree" in src, "remove_staging_worktree call missing from merge"
+    assert "parent_root=parent_root" in src, (
+        "the finally must call remove_staging_worktree(..., parent_root=parent_root) "
+        "(G-M2-NO-REMOVE-PARENT-TEST / G-M-REMOVE-PARENT)"
+    )
+
+
+# ---- M3-b: G-M2-UNTRACKED-DROP (LOW, log-only audit trail) ----
+def test_phase_m_dropped_stash_is_logged_for_audit():
+    """FIX-DETECTOR (G-M2-UNTRACKED-DROP): before dropping the stash on the
+    pop-conflict path, the function must emit an audit trail of WHAT is being
+    discarded (e.g. `git stash show --include-untracked --name-only`) so a
+    silently discarded unrelated untracked file is observable.
+
+    M3-b is log-only with no clean runtime tree-signature (the conflict-branch
+    behaviour is otherwise covered by the M2 oracle), so this is a source-level
+    pin: assert the conflict branch references `git stash show` with the
+    --include-untracked --name-only audit args. If you prefer to keep M3-b purely
+    code-reviewed, DELETE this test (it is flagged optional in the brief).
+    """
+    src = inspect.getsource(git_integration.merge_staging_to_parent)
+    assert "stash" in src and "show" in src, (
+        "M3-b: drop path should `git stash show` the discarded stash for an audit trail"
+    )
+    assert "--include-untracked" in src and "--name-only" in src, (
+        "M3-b: the audit log should use `git stash show --include-untracked --name-only`"
+    )
