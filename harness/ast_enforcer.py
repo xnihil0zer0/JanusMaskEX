@@ -224,6 +224,9 @@ def validate_code(code: str, *, allow_nondeterminism: bool=False, declared_signa
             violations.append(Violation(rule='incomplete_ast', severity='error', line=0, message='code must contain at least one FunctionDef, AsyncFunctionDef, ClassDef, ImportFrom, or top-level Assign / AnnAssign that can merge into the target'))
     if declared_signature:
         violations.extend(_check_declared_return_type(code, declared_signature))
+    line_count = len(code.split('\n'))
+    if line_count > 1500:
+        violations.append(Violation(rule='module_too_large', severity='warning', line=0, message=f'Module has {line_count} lines, which exceeds the recommended limit of 1500 lines.'))
     return violations
 
 def _check_declared_return_type(code: str, declared_signature: str) -> list[Violation]:
