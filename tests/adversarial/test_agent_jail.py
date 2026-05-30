@@ -200,3 +200,138 @@ def test_real_bwrap_M2_unbound_home_subdir_denied(tmp_path):
     r = subprocess.run(argv, capture_output=True, text=True, timeout=30)
     assert r.returncode != 0, "write to an unbound HOME path must fail (M-2)"
     assert (home / ".bashrc").read_text() == "export X=1\n"
+
+
+def test_argv_planning_sessions_writable(tmp_path, monkeypatch):
+    """C-HARDEN-2 CH2-2: state/planning/sessions/ joins state/sessions/ in the rw
+    set; the state root and the state/planning root stay read-only."""
+    monkeypatch.setattr(aj.shutil, "which", lambda _x: "/usr/bin/bwrap")
+    repo = tmp_path / "repo"
+    state = repo / "state"
+    work = tmp_path / "wr" / "claude" / "sess"
+    home = tmp_path / "home"
+    for d in (repo, state, work, home):
+        d.mkdir(parents=True, exist_ok=True)
+    argv = aj.build_jail_argv(
+        ["/agent/bin", "-p", "x"],
+        repo_root=repo, work_dir=work, state_dir=state, home=home,
+    )
+    ro = _pairs(argv, "--ro-bind")
+    rw = _pairs(argv, "--bind")
+    sessions = state / "sessions"
+    psessions = state / "planning" / "sessions"
+    assert (str(sessions), str(sessions)) in rw, "state/sessions still rw (M-1)"
+    assert (str(psessions), str(psessions)) in rw, "state/planning/sessions must be rw (CH2-2)"
+    assert (str(state / "planning"), str(state / "planning")) not in rw, "planning root not rw"
+    assert (str(state), str(state)) in ro, "state root ro"
+
+
+@pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap not installed")
+def test_real_bwrap_CH2_3_global_cli_config_readonly(tmp_path):
+    """C-HARDEN-2 CH2-3: ~/.claude/settings*.json, skills, plugins and
+    ~/.gemini/GEMINI.md, config are ro-overlaid -- overwriting any of them would run
+    operator-side code on the NEXT interactive session (stronger than the memory
+    poisoning M-2 closed). The rest of ~/.claude stays writable."""
+    repo = tmp_path / "repo"
+    state = repo / "state"
+    home = tmp_path / "home"
+    claude = home / ".claude"
+    gemini = home / ".gemini"
+    skills = claude / "skills"
+    plugins = claude / "plugins"
+    gconfig = gemini / "config"
+    work = tmp_path / "work"
+    for d in (repo, state, skills, plugins, gconfig, work):
+        d.mkdir(parents=True, exist_ok=True)
+    (claude / "settings.json").write_text('{"hooks": {}}\n')
+    (claude / "settings.local.json").write_text('{"local": true}\n')
+    (skills / "s.md").write_text("trusted skill\n")
+    (plugins / "p.json").write_text("{}\n")
+    (gemini / "GEMINI.md").write_text("trusted gemini md\n")
+    (gconfig / "settings.json").write_text("{}\n")
+
+    for target, sh in (
+        (claude / "settings.json", f"echo evil > {claude}/settings.json"),
+        (claude / "settings.local.json", f"echo evil > {claude}/settings.local.json"),
+        (skills / "s.md", f"echo evil > {skills}/s.md"),
+        (plugins / "p.json", f"echo evil > {plugins}/p.json"),
+        (gemini / "GEMINI.md", f"echo evil > {gemini}/GEMINI.md"),
+        (gconfig / "settings.json", f"echo evil > {gconfig}/settings.json"),
+    ):
+        before = target.read_text()
+        argv = aj.build_jail_argv(
+            ["/bin/sh", "-c", sh],
+            repo_root=repo, work_dir=work, state_dir=state, home=home,
+        )
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+        assert r.returncode != 0, f"overwriting {target} must be denied (CH2-3)"
+        assert target.read_text() == before, f"{target} untouched"
+
+    # A benign write elsewhere under ~/.claude (session/todo state) is ALLOWED.
+    argv_ok = aj.build_jail_argv(
+        ["/bin/sh", "-c", f"echo ok > {claude}/todos.json"],
+        repo_root=repo, work_dir=work, state_dir=state, home=home,
+    )
+    r2 = subprocess.run(argv_ok, capture_output=True, text=True, timeout=30)
+    assert r2.returncode == 0, f"benign ~/.claude write must succeed: {r2.stderr}"
+    assert (claude / "todos.json").read_text().strip() == "ok"
+
+
+@pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap not installed")
+def test_real_bwrap_CH2_2_planning_sessions_writable(tmp_path):
+    """C-HARDEN-2 CH2-2: state/planning/sessions/ is writable (a jailed planning
+    spawn persists its blind-draft / reconciliation there for the planner to read
+    back), while the rest of state/planning/ stays read-only."""
+    repo = tmp_path / "repo"
+    state = repo / "state"
+    planning = state / "planning"
+    psessions = planning / "sessions"
+    work = tmp_path / "work"
+    for d in (repo, psessions, work):
+        d.mkdir(parents=True, exist_ok=True)
+    (planning / "policy.json").write_text("trusted\n")
+
+    # (i) write under state/planning/ but NOT sessions/ -> DENIED (planning root ro)
+    argv = aj.build_jail_argv(
+        ["/bin/sh", "-c", f"echo evil > {planning}/policy.json"],
+        repo_root=repo, work_dir=work, state_dir=state, home=tmp_path / "home",
+    )
+    r = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+    assert r.returncode != 0, "write to state/planning root must be denied (CH2-2)"
+    assert (planning / "policy.json").read_text() == "trusted\n"
+
+    # (ii) write the canonical draft under state/planning/sessions/ -> ALLOWED
+    argv2 = aj.build_jail_argv(
+        ["/bin/sh", "-c", f"echo '{{}}' > {psessions}/claude_draft.json"],
+        repo_root=repo, work_dir=work, state_dir=state, home=tmp_path / "home",
+    )
+    r2 = subprocess.run(argv2, capture_output=True, text=True, timeout=30)
+    assert r2.returncode == 0, f"write to state/planning/sessions must succeed: {r2.stderr}"
+    assert (psessions / "claude_draft.json").exists()
+
+
+@pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap not installed")
+def test_real_bwrap_CH2_1_track_record_telemetry_denied(tmp_path):
+    """C-HARDEN-2 CH2-1 (accepted telemetry loss, guarded): the global track-record
+    book + the shadow-hook log stay READ-ONLY under the jail. Their hook writes are
+    fail-open, so only telemetry pauses; a writable book would reopen a fabricated-
+    event self-influence vector. This pins the decision against accidental
+    re-widening."""
+    repo = tmp_path / "repo"
+    state = repo / "state"
+    shadow = state / "hooks" / "shadow"
+    work = tmp_path / "work"
+    for d in (repo, shadow, work):
+        d.mkdir(parents=True, exist_ok=True)
+    (state / "track_record_events.jsonl").write_text("")
+    for target, sh in (
+        (state / "track_record_events.jsonl",
+         f"echo '{{}}' >> {state}/track_record_events.jsonl"),
+        (shadow / "s.jsonl", f"echo '{{}}' > {shadow}/s.jsonl"),
+    ):
+        argv = aj.build_jail_argv(
+            ["/bin/sh", "-c", sh],
+            repo_root=repo, work_dir=work, state_dir=state, home=tmp_path / "home",
+        )
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+        assert r.returncode != 0, f"telemetry write to {target} must be denied (CH2-1)"

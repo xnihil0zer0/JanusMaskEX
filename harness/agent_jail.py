@@ -11,14 +11,24 @@ hook that may not load.
 Writable surfaces are minimised to exactly what a spawn legitimately needs
 (C-HARDEN M-1/M-2 narrowed these from the original whole-state / whole-HOME binds):
   * the per-spawn ``work_dir`` (outbox submission + inbox staging),
-  * ``<repo>/state/sessions/`` ONLY -- the hook ledger + canonical submission
-    record. The rest of ``state/`` (``control/**`` full_stop/decisions/allowlist,
-    ``tasks/**``) is READ-ONLY: the §1b commit-gate does not cover ``state/**``, so
-    a writable state let an agent self-approve / un-halt / queue work via the FS.
+  * ``<repo>/state/sessions/`` (hook ledger + canonical submission record) AND
+    ``<repo>/state/planning/sessions/`` (blind-draft / reconciliation drafts a jailed
+    planning spawn persists and the planner reads back -- C-HARDEN-2 CH2-2). The rest
+    of ``state/`` (``control/**`` full_stop/decisions/allowlist, ``tasks/**``) is
+    READ-ONLY: the §1b commit-gate does not cover ``state/**``, so a writable state let
+    an agent self-approve / un-halt / queue work via the FS. NOTE (CH2-1): the
+    track-record book (``track_record_events.jsonl`` / ``track_record.lock``) and the
+    shadow-hook log (``state/hooks/shadow/``) are deliberately ro -- those hook writes
+    are fail-open, so this only pauses telemetry under the jail (accepted), and keeping
+    them ro avoids a fabricated-event self-influence vector.
   * three HOME subdirs ONLY: ``~/.nvm`` (vendored node), ``~/.gemini`` (agy OAuth +
     antigravity-cli), ``~/.claude`` (claude state) -- with every
     ``~/.claude/projects/*/memory`` ro-overlaid so an agent cannot poison the
-    session-memory that steers future Claude runs. The rest of ``$HOME`` is unbound.
+    session-memory that steers future Claude runs, AND (C-HARDEN-2 CH2-3) the global
+    CLI config that runs operator-side code re-overlaid read-only:
+    ``~/.claude/settings*.json`` (``hooks`` blocks), ``~/.claude/skills``,
+    ``~/.claude/plugins``, ``~/.gemini/GEMINI.md``, ``~/.gemini/config``. The rest of
+    ``$HOME`` is unbound.
 Everything else (``harness/*.py`` and all other tracked source) is read-only.
 
 Config-gated via ``config.yaml`` ``agent_sandbox.bwrap`` and FAIL-CLOSED: if the
@@ -135,6 +145,26 @@ def build_jail_argv(
                     argv += ["--ro-bind", _mem, _mem]
     except OSError:
         pass
+    # CONTAIN C-HARDEN-2 CH2-3: the ~/.claude / ~/.gemini rw binds above leave the
+    # operator's GLOBAL CLI configuration writable. ~/.claude/settings.json &
+    # settings.local.json each carry a `hooks` block whose `command` executes on the
+    # operator's NEXT interactive Claude-Code session; ~/.claude/skills, .../plugins,
+    # ~/.gemini/GEMINI.md and ~/.gemini/config likewise steer future operator runs.
+    # A jailed agent overwriting any of these is STRICTLY MORE dangerous than the
+    # ~/.claude/.../memory poisoning M-2 closed -- it runs operator-side code, not just
+    # bias text. ro-overlay each (mirroring the memory overlay; later binds win). The
+    # rest of ~/.claude / ~/.gemini stays writable (the CLIs write session/todo/oauth
+    # state). Missing paths are skipped. (plan rev4 CH2-3 / R-CH2-3 -- Phase-A precond)
+    for _ro in (
+        os.path.join(home, ".claude", "settings.json"),
+        os.path.join(home, ".claude", "settings.local.json"),
+        os.path.join(home, ".claude", "skills"),
+        os.path.join(home, ".claude", "plugins"),
+        os.path.join(home, ".gemini", "GEMINI.md"),
+        os.path.join(home, ".gemini", "config"),
+    ):
+        if os.path.exists(_ro):
+            argv += ["--ro-bind", _ro, _ro]
     # XDG_RUNTIME_DIR (/run/user/<uid>): the D-Bus session bus + keyring socket live
     # here. agy (gemini CLI) validates/refreshes its OAuth credential through the
     # session keyring; without this bind it loops on "authentication timed out" even
@@ -155,13 +185,33 @@ def build_jail_argv(
     # control/tasks/impl_progress.jsonl. (plan rev3.1 M-1 / R-CONTAIN-state/HOME)
     if os.path.exists(state_dir):
         argv += ["--ro-bind", state_dir, state_dir]
-        _sessions = os.path.join(state_dir, "sessions")
-        try:
-            os.makedirs(_sessions, exist_ok=True)  # ensure exists so --bind succeeds
-        except OSError:
-            pass
-        if os.path.isdir(_sessions):
-            argv += ["--bind", _sessions, _sessions]
+        # state/ is ro EXCEPT these two subtrees -- the only paths a jailed agent /
+        # its in-jail hooks legitimately write:
+        #   * state/sessions/ -- the hook ledger + canonical submission record (M-1).
+        #   * state/planning/sessions/ -- the blind-draft / reconciliation JSON a jailed
+        #     PLANNING spawn's PostToolUse persists; the planner READS these back
+        #     (blind_draft / adversarial_review), so without this jailed planning
+        #     silently yields an empty draft. (plan rev4 CH2-2 -- Phase-B precond)
+        # CH2-1 (decision: ACCEPT telemetry loss): state/track_record_events.jsonl,
+        # state/track_record.lock and state/hooks/shadow/ are deliberately LEFT ro --
+        # their hook writes are fail-open (submit_code._emit_synthesis_event /
+        # hooks_equivalence.maybe_record_shadow swallow the EROFS), so synthesis is
+        # unaffected; only telemetry recording pauses during a jailed run. No
+        # synthesis-path gate consumes the global track-record book, and rw-overlaying
+        # it would reopen a filesystem self-influence vector (fabricated authorship
+        # events skewing planner weighting) of exactly the class M-1 closed. Keeping
+        # them ro holds the writable surface minimal -- the thesis of this phase.
+        # Pre-created so --bind has a mountpoint; later binds overlay the state ro.
+        for _rw in (
+            os.path.join(state_dir, "sessions"),
+            os.path.join(state_dir, "planning", "sessions"),
+        ):
+            try:
+                os.makedirs(_rw, exist_ok=True)
+            except OSError:
+                pass
+            if os.path.isdir(_rw):
+                argv += ["--bind", _rw, _rw]
     # Per-spawn work_dir writable (outbox + inbox). Outside the repo tree.
     argv += ["--bind", work_dir, work_dir]
     argv += ["--chdir", work_dir, "--"]
