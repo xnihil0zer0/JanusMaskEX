@@ -1267,7 +1267,7 @@ def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Pat
     import logging
     import time
     logger = logging.getLogger(__name__)
-    
+
     # 1. Get HEAD commit of staging
     try:
         res = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=str(staging_path), check=True, capture_output=True, text=True)
@@ -1292,32 +1292,30 @@ def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Pat
             parent_root = pathlib.Path(__file__).resolve().parent.parent
 
     logger.info(f"Merging staging commit {staging_sha} into parent repo at {parent_root}")
-    
+
     stashed = False
     try:
-        # Get files changed in staging HEAD commit
-        res_files = subprocess.run(['git', 'diff-tree', '--no-commit-id', '--name-only', '-r', staging_sha], cwd=str(staging_path), check=True, capture_output=True, text=True)
-        files_in_commit = [line.strip() for line in res_files.stdout.splitlines() if line.strip()]
-        
-        if files_in_commit:
-            # Check which of these files are dirty (modified/untracked) in the parent repo
-            res_status = subprocess.run(['git', 'status', '--porcelain', '--'] + files_in_commit, cwd=str(parent_root), capture_output=True, text=True, check=False)
-            dirty_files = []
-            for line in res_status.stdout.splitlines():
-                if line.strip():
-                    filepath = line[3:].strip().strip('"\'')
-                    dirty_files.append(filepath)
-            
-            if dirty_files:
-                logger.info(f"Parent repository has dirty target files: {dirty_files}; stashing them before merge.")
-                cmd_stash = ['git', 'stash', 'push', '-u', '-m', f'janusmask-auto-stash-{int(time.time())}', '--'] + dirty_files
+        # M-b/M-c: WHOLE-TREE stash (no pathspec). If the parent working tree
+        # has ANY local changes, stash the entire tree -- including untracked
+        # files (-u) -- so the fast-forward merge can never collide with dirty
+        # or untracked content ('untracked working tree files would be
+        # overwritten by merge'). Detect dirtiness with a pathspec-less
+        # `git status --porcelain`.
+        res_status = subprocess.run(['git', 'status', '--porcelain'], cwd=str(parent_root), capture_output=True, text=True, check=False)
+        if res_status.stdout.strip():
+            logger.info("Parent repository working tree is dirty; stashing whole tree before merge.")
+            cmd_stash = ['git', 'stash', 'push', '-u', '-m', f'janusmask-pre-merge-{int(time.time())}']
+            try:
                 stash_res = subprocess.run(cmd_stash, cwd=str(parent_root), capture_output=True, text=True, check=True)
-                if "No local changes to save" not in stash_res.stdout:
-                    stashed = True
-    except Exception as stash_exc:
-        logger.warning(f"Failed to check/stash parent repo dirty files (non-fatal): {stash_exc}")
+            except subprocess.CalledProcessError as stash_exc:
+                # Fail-closed: do NOT swallow the stash failure and proceed into
+                # a doomed merge. Raise BEFORE any merge is attempted; the
+                # finally below removes the staging worktree on the way out.
+                logger.error(f"Failed to stash parent repository working tree before merge: {stash_exc.stderr}")
+                raise RuntimeError(f"Failed to stash parent repository working tree before merge: {stash_exc.stderr}")
+            if "No local changes to save" not in stash_res.stdout:
+                stashed = True
 
-    try:
         subprocess.run(['git', 'merge', '--ff-only', staging_sha], cwd=str(parent_root), check=True, capture_output=True, text=True)
         logger.info("Fast-forward merge successful.")
     except subprocess.CalledProcessError as e:

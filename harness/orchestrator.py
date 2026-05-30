@@ -1486,7 +1486,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     import subprocess
     import sys
     import time
-    
+
     files_touched = _resolve_files_touched(state_dir, task, task_id)
     if not files_touched:
         logger.info('auto-commit: skipped %s (no files_touched resolved)', task_id)
@@ -1517,7 +1517,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     staging_path = worktree_root.parent / f"{worktree_root.name}_staging"
 
     logger.info('auto-commit: using staging worktree at %s for task %s', staging_path, task_id)
-    
+
     # 2. Create the staging worktree
     try:
         git_integration.create_staging_worktree(str(staging_path), parent_root=worktree_root)
@@ -1652,11 +1652,11 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
         if verify_exit != 0:
             cmd_preview = vcmd if len(vcmd) <= 200 else vcmd[:200] + '...(truncated)'
             logger.warning('verification_failed: task=%s exit=%s timeout=%s cmd=%s', task_id, verify_exit, timed_out, cmd_preview)
-            
+
             # Discard staging worktree after rollback
             _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'verification_failed')
             git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
-            
+
             stdout_tail = verify_stdout[-2000:] if verify_stdout else ''
             stderr_tail = verify_stderr[-2000:] if verify_stderr else ''
             try:
@@ -1667,22 +1667,29 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
 
         # Verification succeeded!
         logger.info('auto-commit: SUCCESS in staging for %s -> %s (sha=%s)', task_id, target_rel, result.get('sha'))
-        
-        # 6. Mark the task as processed before merging/handover
-        _mark_processed(state_dir, task_id)
-        
+
         try:
             write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'accepted', 'task_id': task_id, 'event': 'auto_commit', 'commit_sha': result.get('sha'), 'files': [target_rel], 'exit': 0})
         except OSError as exc:
             logger.warning('auto-commit: ledger append failed for %s: %s', task_id, exc)
 
-        # 7. Merge staging changes back to parent and remove worktree
+        # 6. Merge staging changes back to parent and remove worktree
         try:
             git_integration.merge_staging_to_parent(staging_path, worktree_root)
             logger.info("Merged staging commit back to parent repository.")
         except Exception as merge_err:
             logger.error('Failed to merge staging changes: %s', merge_err)
+            # M-a: the merge failed (fail-closed). Do NOT mark the task
+            # processed -- route it to blocked/ (re-claimable, with the retry
+            # sidecar) instead of orphaning the accept in processed/.
+            _mark_blocked(state_dir, task_id, outcome='merge_failed')
             return False
+
+        # 7. Mark the task processed ONLY after a successful merge. This is the
+        # last durable step before handover, so a doomed merge can no longer
+        # leave an accepted task in processed/ with no corresponding parent
+        # commit (the silent-task-loss class Phase M closes).
+        _mark_processed(state_dir, task_id)
 
         # 8. Check if running inside test environment
         if "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ:
