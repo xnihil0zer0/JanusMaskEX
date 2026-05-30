@@ -43,9 +43,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 # ---------------------------------------------------------------------------
-# Stub-binary fixture — mirrors the session-autouse fixture in F7. The two
-# fixtures write identical content to tests/fixtures/autobrief/{claude,gemini};
-# whichever runs first wins. Both prepend the fixtures dir to PATH.
+# Stub-binary fixture — mirrors the session-autouse fixture in F7. Phase F moved
+# these stubs to an isolated per-session tmp_path_factory dir (no shared
+# tests/fixtures/autobrief/ path), so there is no cross-fixture overwrite race —
+# each fixture writes its stub content into its OWN temp dir and prepends that
+# dir to PATH.
 # ---------------------------------------------------------------------------
 
 
