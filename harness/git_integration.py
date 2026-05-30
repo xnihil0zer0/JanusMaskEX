@@ -1323,9 +1323,14 @@ def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Pat
         raise RuntimeError(f"Fast-forward merge failed: {e.stderr}")
     finally:
         if stashed:
-            try:
-                logger.info("Restoring parent repository local changes from stash.")
-                subprocess.run(['git', 'stash', 'pop'], cwd=str(parent_root), capture_output=True, check=True)
-            except Exception as pop_exc:
-                logger.error(f"Failed to pop stash on parent repository: {pop_exc}")
-        remove_staging_worktree(str(staging_path))
+            logger.info("Restoring parent repository local changes from stash.")
+            pop = subprocess.run(['git', 'stash', 'pop'], cwd=str(parent_root), capture_output=True, text=True, check=False)
+            if pop.returncode != 0:
+                # G-M-POPCONFLICT: the local stash conflicts with the just-merged
+                # commit. The merged commit content WINS; discard the conflicted
+                # partial pop and drop the stranded stash so we never hand back an
+                # unmerged (UU) tree or an orphaned stash.
+                logger.error(f"Stash pop conflicted after merge; resolving to merged content (stash dropped): {pop.stderr}")
+                subprocess.run(['git', 'reset', '--hard', 'HEAD'], cwd=str(parent_root), capture_output=True, text=True, check=False)
+                subprocess.run(['git', 'stash', 'drop'], cwd=str(parent_root), capture_output=True, text=True, check=False)
+        remove_staging_worktree(str(staging_path), parent_root=parent_root)
