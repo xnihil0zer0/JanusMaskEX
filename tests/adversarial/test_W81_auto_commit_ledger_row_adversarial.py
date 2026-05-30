@@ -118,3 +118,123 @@ def test_unresolvable_files_touched_does_not_append_row(merge_harness):
     assert committed is False
     rows = _read_rows(state_dir / "impl_progress.jsonl")
     assert [r for r in rows if r.get("event") == "auto_commit"] == []
+
+
+
+# --- Phase L: multi-file partial-edit accept ledger fidelity ------------------
+
+_L_MODULE_A_ORIGINAL = '''def alpha():
+    return 1
+'''
+
+_L_MODULE_A_PATCHED = '''def alpha():
+    return 11
+'''
+
+_L_MODULE_B_ORIGINAL = '''def beta():
+    return 2
+'''
+
+_L_MODULE_B_PATCHED = '''def beta():
+    return 22
+'''
+
+
+@pytest.fixture
+def multifile_patch_harness(tmp_path: Path):
+    """A parent git worktree with TWO tracked .py modules, ready for a
+    multi-file __JANUSMASK_PATCHES__ accept driven through _auto_commit_accepted.
+
+    Mirrors the W81 ``merge_harness`` setup but commits two files so a partial
+    edit can touch both. Returns (state_dir, [rel_a, rel_b]).
+    """
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    _git(worktree, "init", "-q", "-b", "main")
+    _git(worktree, "config", "user.name", "JanusMask Test")
+    _git(worktree, "config", "user.email", "test@janusmask.local")
+    state_dir = worktree / "state"
+    (state_dir / "output").mkdir(parents=True)
+    (state_dir / "tasks" / "processed").mkdir(parents=True)
+    rel_a = "module_a_w81L.py"
+    rel_b = "module_b_w81L.py"
+    (worktree / rel_a).write_text(_L_MODULE_A_ORIGINAL, encoding="utf-8")
+    (worktree / rel_b).write_text(_L_MODULE_B_ORIGINAL, encoding="utf-8")
+    _git(worktree, "add", rel_a, rel_b)
+    _git(worktree, "commit", "-q", "-m", "initial two-file")
+    return state_dir, [rel_a, rel_b]
+
+
+def test_multifile_partial_edit_ledger_records_all_committed_files(multifile_patch_harness):
+    """FIX-DETECTOR (G-M-MULTIFILE-LEDGER): the accepted ledger row must list
+    EVERY file committed by a multi-file __JANUSMASK_PATCHES__ accept, not just
+    files_touched[0].
+
+    Pre-fix harness/orchestrator.py:1672 writes 'files': [target_rel] (a single
+    file), so the second committed module is invisible in the audit trail. The
+    fix writes 'files': files_touched. This test commits a 2-file partial edit
+    and asserts both files appear; it FAILS on the old single-element row and
+    PASSES on the fixed full-list row.
+    """
+    state_dir, (rel_a, rel_b) = multifile_patch_harness
+    task_id = "W81-L-MULTIFILE-LEDGER"
+
+    # Two-entry partial-edit sidecar: one symbol patch per file.
+    patches = [
+        {"file": rel_a, "kind": "symbol", "name": "alpha", "code": _L_MODULE_A_PATCHED},
+        {"file": rel_b, "kind": "symbol", "name": "beta", "code": _L_MODULE_B_PATCHED},
+    ]
+    (state_dir / "output" / f"{task_id}.patches.json").write_text(
+        json.dumps(patches), encoding="utf-8")
+
+    task = {
+        "task_id": task_id,
+        "partial_edit": True,
+        "files_touched": [rel_a, rel_b],
+        "verification_command": "true",
+    }
+
+    committed = _auto_commit_accepted(state_dir, task, task_id)
+    assert committed is True, "multi-file partial-edit accept should commit"
+
+    rows = _read_rows(state_dir / "impl_progress.jsonl")
+    accepted_rows = [r for r in rows if r.get("event") == "auto_commit"]
+    assert len(accepted_rows) == 1, f"expected one accept row, got {accepted_rows}"
+    row = accepted_rows[0]
+    assert row["phase"] == "accepted"
+    assert row["exit"] == 0
+
+    files = row["files"]
+    assert isinstance(files, list)
+    # The core fix-detector: BOTH committed files must be recorded, not just
+    # files_touched[0]. Pre-fix this is exactly [rel_a] and the assertion fails.
+    assert set(files) == {rel_a, rel_b}, (
+        "accepted ledger row must list ALL committed files for a multi-file "
+        f"partial edit (G-M-MULTIFILE-LEDGER); got {files!r}, expected both "
+        f"{rel_a!r} and {rel_b!r}"
+    )
+
+
+def test_single_file_accept_ledger_row_still_lists_exactly_that_file(merge_harness):
+    """Regression guard for the Phase L fix: a single-file whole-file accept's
+    ledger row must STILL record exactly the one committed file.
+
+    The fix ('files': files_touched) must degrade to the single-element case
+    identically to the old 'files': [target_rel] for a one-file task. Reuses the
+    W81 single-file ``merge_harness``.
+    """
+    state_dir, target_rel = merge_harness
+    task_id = "W81-L-SINGLE-LEDGER"
+    (state_dir / "output" / f"{task_id}.py").write_text(
+        OUTPUT_MODULE_DIVERGENT, encoding="utf-8")
+    task = {"task_id": task_id, "files_touched": [target_rel], "verification_command": "true"}
+
+    committed = _auto_commit_accepted(state_dir, task, task_id)
+    assert committed is True
+
+    rows = _read_rows(state_dir / "impl_progress.jsonl")
+    accepted_rows = [r for r in rows if r.get("event") == "auto_commit"]
+    assert len(accepted_rows) == 1
+    assert accepted_rows[0]["files"] == [target_rel], (
+        "single-file accept must record exactly the one committed file"
+    )
