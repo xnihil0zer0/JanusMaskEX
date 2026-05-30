@@ -526,6 +526,10 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
         time.sleep(poll_interval)
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}timed out after {timeout}s{_C.RESET}')
     logger.error('%s agent timed out after %ds', agent, timeout)
+    if read_state(state_dir).get(f'{agent}_status') == 'running':
+        set_agent_status(state_dir, agent=agent, status='timeout')
+        _emit_lifecycle(state_dir, event='agent_status', agent=agent,
+                        status='timeout', task_id=os.environ.get('JANUSMASK_TASK_ID'))
     return None
 
 def run_agent_phase(agent: str, prompt: str, config: dict[str, Any], state_dir: Path, round_number: int, phase_name: str, max_retries: int=3) -> str | None:
