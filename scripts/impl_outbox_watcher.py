@@ -207,12 +207,22 @@ def _scan_once(state_dir: pathlib.Path, seen: dict[pathlib.Path, tuple[int, int,
     # shared workroot (NOT state_dir/workdirs, which is now dead) so async
     # submissions are still picked up after relocation.
     from harness.paths import agent_workroot
+    # H6 GAP-1 (2nd half): the old (claude|gemini)-only guard silently dropped
+    # claude_fallback (synthesis fallback) and antigravity (default autobrief
+    # agent) outbox submissions. Widen to the full spawn-agent set. Derive the
+    # canonical agents from state.VALID_AGENTS (imported function-locally so no
+    # module-level import is added) unioned with claude_fallback.
+    try:
+        from harness.state import VALID_AGENTS
+        accepted = set(VALID_AGENTS) | {"claude_fallback"}
+    except Exception:  # pragma: no cover - defensive fallback to inline set
+        accepted = {"claude", "gemini", "antigravity", "claude_fallback"}
     workdirs_root = agent_workroot()
     if not workdirs_root.is_dir():
         return 0
     touched = 0
     for agent_dir in workdirs_root.iterdir():
-        if not agent_dir.is_dir() or agent_dir.name not in ("claude", "gemini"):
+        if not agent_dir.is_dir() or agent_dir.name not in accepted:
             continue
         for session_dir in agent_dir.iterdir():
             if not session_dir.is_dir():
