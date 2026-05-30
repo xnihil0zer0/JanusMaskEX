@@ -1316,12 +1316,18 @@ def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Pat
             if "No local changes to save" not in stash_res.stdout:
                 stashed = True
 
+        # M3 EDIT 1: capture the parent's pre-merge HEAD BEFORE the FF advances
+        # it, so the fail-closed path can restore the tree to a clean pre-merge
+        # state (HEAD is no longer a safe reset target once the FF moves it).
+        pre_merge_sha = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=str(parent_root), capture_output=True, text=True, check=False).stdout.strip()
         subprocess.run(['git', 'merge', '--ff-only', staging_sha], cwd=str(parent_root), check=True, capture_output=True, text=True)
         logger.info("Fast-forward merge successful.")
     except subprocess.CalledProcessError as e:
         logger.error(f"Fast-forward merge failed: {e.stderr}")
         raise RuntimeError(f"Fast-forward merge failed: {e.stderr}")
     finally:
+        reset_failed = False
+        reset_res = None
         if stashed:
             logger.info("Restoring parent repository local changes from stash.")
             pop = subprocess.run(['git', 'stash', 'pop'], cwd=str(parent_root), capture_output=True, text=True, check=False)
@@ -1331,6 +1337,23 @@ def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Pat
                 # partial pop and drop the stranded stash so we never hand back an
                 # unmerged (UU) tree or an orphaned stash.
                 logger.error(f"Stash pop conflicted after merge; resolving to merged content (stash dropped): {pop.stderr}")
-                subprocess.run(['git', 'reset', '--hard', 'HEAD'], cwd=str(parent_root), capture_output=True, text=True, check=False)
-                subprocess.run(['git', 'stash', 'drop'], cwd=str(parent_root), capture_output=True, text=True, check=False)
+                reset_res = subprocess.run(['git', 'reset', '--hard', 'HEAD'], cwd=str(parent_root), capture_output=True, text=True, check=False)
+                if reset_res.returncode != 0:
+                    # G-M2-RESET-UNCHECKED: the conflict-resolution reset itself
+                    # failed -> the tree is still UU and HEAD has already moved.
+                    # FAIL-CLOSED: do NOT drop the stash; restore the parent to the
+                    # captured pre-merge sha (a clean tree), defer the raise until
+                    # AFTER remove_staging_worktree so the worktree is not leaked,
+                    # and route the task to blocked/ via the raise.
+                    logger.error(f"Conflict-resolution `git reset --hard HEAD` failed (rc={reset_res.returncode}); restoring parent to pre-merge sha {pre_merge_sha} and failing closed: {reset_res.stderr}")
+                    subprocess.run(['git', 'reset', '--hard', pre_merge_sha], cwd=str(parent_root), capture_output=True, text=True, check=False)
+                    reset_failed = True
+                else:
+                    # M3-b (G-M2-UNTRACKED-DROP): record what the dropped stash
+                    # contained before discarding it, for an audit trail.
+                    show = subprocess.run(['git', 'stash', 'show', '--include-untracked', '--name-only'], cwd=str(parent_root), capture_output=True, text=True, check=False)
+                    logger.warning(f"Dropping conflicted pre-merge stash; discarded paths:\n{show.stdout}")
+                    subprocess.run(['git', 'stash', 'drop'], cwd=str(parent_root), capture_output=True, text=True, check=False)
         remove_staging_worktree(str(staging_path), parent_root=parent_root)
+        if reset_failed:
+            raise RuntimeError(f"Stash-pop conflict recovery failed: `git reset --hard HEAD` returned {reset_res.returncode}; restored parent to pre-merge sha {pre_merge_sha} and removed staging worktree, routing to blocked/: {reset_res.stderr}")
