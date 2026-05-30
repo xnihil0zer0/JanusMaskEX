@@ -132,6 +132,18 @@ def build_jail_argv(
         _hp = os.path.join(home, _sub)
         if os.path.exists(_hp):
             argv += ["--bind", _hp, _hp]
+    # claude-code's PRIMARY config is ``$HOME/.claude.json`` -- a FILE at HOME root,
+    # NOT under ``~/.claude/`` -- so the ``.claude`` subdir bind above does NOT cover
+    # it. Without it the jailed claude aborts at startup ("Claude configuration file
+    # not found at ~/.claude.json") and never submits -- the gap that made EVERY prior
+    # jailed claude probe fail (M-2 narrowed HOME to subdirs and missed this root file).
+    # Bind READ-ONLY: it carries the operator's project list + account info, so a jailed
+    # agent must not rewrite it (poisoning), but it must be readable for claude to start.
+    # No new exfil surface -- the OAuth credential is already readable via
+    # ``~/.claude/.credentials.json``; this jail is a write boundary, not an exfil one.
+    _claude_json = os.path.join(home, ".claude.json")
+    if os.path.exists(_claude_json):
+        argv += ["--ro-bind", _claude_json, _claude_json]
     # Protect the operator session-memory store: ro-overlay every
     # ~/.claude/projects/*/memory (rw-bound just above) so a jailed agent cannot
     # poison the memory files that steer future Claude sessions. The rest of each

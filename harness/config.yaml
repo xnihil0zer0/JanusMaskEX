@@ -14,6 +14,12 @@ agents:
     - opus
     - --output-format
     - stream-json
+    # H6/claude-jail-fix: claude-code 2.1.156 REQUIRES --verbose for stream-json under
+    # --print/-p (errors "stream-json requires --verbose" otherwise). The vendored claude
+    # was updated past the version this config was written for; without it every jailed
+    # claude spawn aborts before submitting. agy-backed agents (gemini/claude_fallback)
+    # do not need it.
+    - --verbose
     - --include-partial-messages
     - --settings
     - ${CONFIG_DIR}/claude_worker.json

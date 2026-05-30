@@ -335,3 +335,38 @@ def test_real_bwrap_CH2_1_track_record_telemetry_denied(tmp_path):
         )
         r = subprocess.run(argv, capture_output=True, text=True, timeout=30)
         assert r.returncode != 0, f"telemetry write to {target} must be denied (CH2-1)"
+
+
+@pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap not installed")
+def test_real_bwrap_claude_json_readable_but_readonly(tmp_path):
+    """claude-jail-fix: $HOME/.claude.json (claude-code's PRIMARY config -- a HOME-root
+    file the ~/.claude subdir bind misses) is bound READ-ONLY. It must be READABLE so
+    the jailed claude can start (without it claude aborts "configuration file not found"
+    -- the gap that broke every prior jailed claude probe), but NOT writable (the
+    operator's project list + account state must not be poisoned)."""
+    repo = tmp_path / "repo"
+    state = repo / "state"
+    home = tmp_path / "home"
+    work = tmp_path / "work"
+    for d in (repo, state, home, work):
+        d.mkdir(parents=True, exist_ok=True)
+    (home / ".claude.json").write_text('{"trusted": true}\n')
+
+    # (i) readable inside the jail (claude must be able to load it)
+    argv_r = aj.build_jail_argv(
+        ["/bin/sh", "-c", f"cat {home}/.claude.json"],
+        repo_root=repo, work_dir=work, state_dir=state, home=home,
+    )
+    r = subprocess.run(argv_r, capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0 and "trusted" in r.stdout, (
+        f"~/.claude.json must be readable inside the jail: {r.stderr}"
+    )
+
+    # (ii) writing it is DENIED (ro-bind -- no operator-config poisoning)
+    argv_w = aj.build_jail_argv(
+        ["/bin/sh", "-c", f"echo poison > {home}/.claude.json"],
+        repo_root=repo, work_dir=work, state_dir=state, home=home,
+    )
+    r2 = subprocess.run(argv_w, capture_output=True, text=True, timeout=30)
+    assert r2.returncode != 0, "writing ~/.claude.json must be denied (ro-bind)"
+    assert (home / ".claude.json").read_text() == '{"trusted": true}\n'
