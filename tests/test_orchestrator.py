@@ -821,9 +821,15 @@ class TestPipelineStateTransitions:
             with pytest.raises(StopIteration):
                 run_pipeline(pipeline_config, pipeline_state_dir)
 
-        # Assert prepare_exam_packets was called with the fallback description
+        # Assert prepare_exam_packets was called with the fallback description.
+        # B3 (AUTO_PROMOTE_FUZZ_FAILURES): on round-1 divergence the boundary
+        # hints are folded into task['specification'] before cross-examination,
+        # so the exam packet's spec now STARTS WITH the fallback description
+        # (specification was None -> description is the base) and additionally
+        # carries the promoted-fuzz-tests block.
         assert mock_prep_exam.call_args is not None
-        assert mock_prep_exam.call_args[0][2] == "Fallback desc"
+        assert mock_prep_exam.call_args[0][2].startswith("Fallback desc")
+        assert "JANUSMASK_PROMOTED_FUZZ_TESTS" in mock_prep_exam.call_args[0][2]
 
 
     @patch("harness.orchestrator.run_both_agents")

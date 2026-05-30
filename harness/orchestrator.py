@@ -1731,6 +1731,68 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
         git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
     return False
 
+def _promote_fuzz_failures_to_tests(task: dict, failures: list, state_dir: Path) -> None:
+    """B3 (AUTO_PROMOTE_FUZZ_FAILURES): ADDITIVE, FAIL-SAFE spec sharpener.
+
+    Turn each divergent ``FuzzFailure`` into a deterministic boundary-case hint
+    and APPEND it to ``task['specification']`` as COMMENT HINTS (never executable
+    asserts -- inputs can be ast-nodes / Paths that don't eval), then re-persist
+    BOTH on-disk task files so the next dispatch surfaces the sharper spec via
+    ``prepare_task_prompt`` / ``_stage_inbox``.
+
+    Mirrors ``rebuild/task.py::probe_oracle_contracts``: the whole body is wrapped
+    so it NEVER raises and NEVER changes the pipeline's terminal state. It only
+    ever APPENDS (never overwrites) and is idempotent via the embedded marker.
+    """
+    MARKER = '# JANUSMASK_PROMOTED_FUZZ_TESTS'
+    try:
+        if not failures:
+            return
+        existing = task.get('specification') or task.get('description') or ''
+        if MARKER in existing:                       # idempotency: round-1 + round-2 / re-dispatch
+            return
+        # Re-derive the target name from the SAME source fuzz_from_task uses.
+        import re
+        sig = (task.get('constraints') or {}).get('function_signature', '') or ''
+        m = re.match(r'def\s+(\w+)\s*\(', sig) if isinstance(sig, str) else None
+        fname = m.group(1) if m else 'target'
+        lines = [
+            '',
+            MARKER,
+            'Differential-fuzzing boundary hints (reproduce this behavior EXACTLY '
+            'so the differential fuzzer does not diverge on these inputs):',
+        ]
+        for i, f in enumerate(failures[:8]):         # CAP to bound spec growth
+            try:
+                args_repr = ', '.join(repr(a) for a in (getattr(f, 'input_args', None) or []))
+                kw_repr = ', '.join(f'{k}={v!r}' for k, v in (getattr(f, 'input_kwargs', None) or {}).items())
+                call = ', '.join(x for x in (args_repr, kw_repr) if x)
+                exp = getattr(getattr(f, 'result_a', None), 'return_repr', '') or ''
+                reason = getattr(f, 'reason', '') or ''
+                # COMMENT HINT, not an executable assert (return_repr / arg reprs
+                # may be non-eval-able, e.g. '<ast.FunctionDef object at 0x...>').
+                lines.append(f'    # boundary {i}: {fname}({call})  -> result == {exp}  (reason: {reason})')
+            except Exception:
+                continue
+        block = '\n'.join(lines)
+        task['specification'] = existing + '\n' + block   # APPEND only; never overwrite
+        # Re-persist so inbox staging + (deferred) daemon re-read see the enriched spec.
+        task_id = task.get('task_id', 'unknown')
+        tasks_dir = state_dir / 'tasks'
+        payload = json.dumps(task, indent=2)
+        try:
+            (tasks_dir / f'current_task_{task_id}.json').write_text(payload, encoding='utf-8')
+        except OSError:
+            pass
+        for p in tasks_dir.glob(f'*{task_id}.json.processing'):
+            try:
+                p.write_text(payload, encoding='utf-8')
+            except OSError:
+                continue
+    except Exception as exc:
+        logger.warning('fuzz-promotion best-effort failed for %s: %s', task.get('task_id'), exc)
+        return
+
 def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
     """Main pipeline loop implementing the full JanusMask task lifecycle.
 
@@ -2002,6 +2064,7 @@ def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
                 logger.warning('=== Round %d complete (rejected: auto-commit failed) ===\n', round_number)
             continue
         logger.info('DIVERGENT after round 1 (%d failures out of %d inputs)', len(fuzz_result.failures), fuzz_result.total_inputs)
+        _promote_fuzz_failures_to_tests(task, fuzz_result.failures, state_dir)  # B3: fold divergent boundaries into the spec
         set_phase(state_dir, phase='cross_examination')
         _emit_lifecycle(state_dir, event='phase_transition', phase='cross_examination', task_id=task_id, phase_transition={'to': 'cross_examination'})
         logger.info('Phase -> cross_examination')
