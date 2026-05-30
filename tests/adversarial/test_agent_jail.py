@@ -338,12 +338,13 @@ def test_real_bwrap_CH2_1_track_record_telemetry_denied(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap not installed")
-def test_real_bwrap_claude_json_readable_but_readonly(tmp_path):
-    """claude-jail-fix: $HOME/.claude.json (claude-code's PRIMARY config -- a HOME-root
-    file the ~/.claude subdir bind misses) is bound READ-ONLY. It must be READABLE so
-    the jailed claude can start (without it claude aborts "configuration file not found"
-    -- the gap that broke every prior jailed claude probe), but NOT writable (the
-    operator's project list + account state must not be poisoned)."""
+def test_real_bwrap_claude_json_writable_copy_real_file_untouched(tmp_path):
+    """Phase J1: $HOME/.claude.json (claude-code's PRIMARY config -- a HOME-root file
+    the ~/.claude subdir bind misses) is bound as a per-spawn WRITABLE THROWAWAY COPY,
+    NOT read-only. claude must be able to READ it (start-up) AND WRITE it (it updates
+    lastSessionId / mcp cache / usage on a normal session; a ro-bind would EROFS-abort
+    a full agentic run), while the operator's REAL ~/.claude.json stays byte-for-byte
+    unchanged (no project-list / account poisoning). Replaces the former ro-bind test."""
     repo = tmp_path / "repo"
     state = repo / "state"
     home = tmp_path / "home"
@@ -362,11 +363,47 @@ def test_real_bwrap_claude_json_readable_but_readonly(tmp_path):
         f"~/.claude.json must be readable inside the jail: {r.stderr}"
     )
 
-    # (ii) writing it is DENIED (ro-bind -- no operator-config poisoning)
+    # (ii) WRITABLE inside the jail (claude rewrites its config during a session)
     argv_w = aj.build_jail_argv(
-        ["/bin/sh", "-c", f"echo poison > {home}/.claude.json"],
+        ["/bin/sh", "-c", f"echo '{{\"poisoned\": true}}' > {home}/.claude.json"],
         repo_root=repo, work_dir=work, state_dir=state, home=home,
     )
     r2 = subprocess.run(argv_w, capture_output=True, text=True, timeout=30)
-    assert r2.returncode != 0, "writing ~/.claude.json must be denied (ro-bind)"
-    assert (home / ".claude.json").read_text() == '{"trusted": true}\n'
+    assert r2.returncode == 0, (
+        f"writing ~/.claude.json inside the jail must SUCCEED (writable copy): {r2.stderr}"
+    )
+
+    # (iii) the operator's REAL file on the host is byte-for-byte UNCHANGED -- the jail
+    # wrote only the throwaway copy under work_dir, never the operator's real file.
+    assert (home / ".claude.json").read_text() == '{"trusted": true}\n', (
+        "the operator's real ~/.claude.json must not be modified by the jailed write"
+    )
+
+    # (iv) the writable copy lives under the per-spawn work_dir (outside the repo) and
+    # DID receive the in-jail write.
+    copy = work / ".claude.json.jail"
+    assert copy.is_file(), "expected per-spawn throwaway copy at work_dir/.claude.json.jail"
+    assert '"poisoned"' in copy.read_text(), (
+        "the in-jail write must have landed in the throwaway copy, not the real file"
+    )
+
+
+@pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap not installed")
+def test_real_bwrap_claude_json_absent_is_skipped(tmp_path):
+    """Phase J1 edge: if the operator has no ~/.claude.json, build_jail_argv must skip
+    the copy/bind gracefully (no crash, no .claude.json bind, no throwaway copy)."""
+    repo = tmp_path / "repo"
+    state = repo / "state"
+    home = tmp_path / "home"
+    work = tmp_path / "work"
+    for d in (repo, state, home, work):
+        d.mkdir(parents=True, exist_ok=True)
+    # NOTE: no (home / ".claude.json") created.
+    argv = aj.build_jail_argv(
+        ["/bin/true"],
+        repo_root=repo, work_dir=work, state_dir=state, home=home,
+    )
+    assert str(home / ".claude.json") not in argv, (
+        "no ~/.claude.json bind should be emitted when the operator file is absent"
+    )
+    assert not (work / ".claude.json.jail").exists()

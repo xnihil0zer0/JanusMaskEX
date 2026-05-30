@@ -169,6 +169,10 @@ def test_TC1_4_inactivity_cwd_outside_repo(workroot, tmp_path, monkeypatch):
     (state_dir / "tasks" / "Q.json").write_text(json.dumps({"task_id": "Q"}))
     cfg = {"control": {"autobrief_default_agent": "claude"},
            "agents": {"claude": {"command": "claude", "args": ["-p"]}}}
+    # J3 (C7-R): this toy claude config carries no --settings; these tests cover
+    # cwd/prompt/sidecar isolation, NOT the hook gate (which is covered by TC3_4 pass
+    # + TC3_5 fail-closed), so stub the C7-R assertion the daemon path now enforces.
+    monkeypatch.setattr(orch, "_assert_claude_hook_config", lambda cmd: None)
     dae._escalate_inactivity(state_dir, cfg)
     assert captured.get("cwd") is not None
     assert _is_outside_repo(captured["cwd"])
@@ -286,6 +290,10 @@ def test_TC2_6_inactivity_exhausted_sidecar_not_live(workroot, tmp_path, monkeyp
     (state_dir / "tasks" / "blocked" / "B.exhausted").unlink()
     cfg = {"control": {"autobrief_default_agent": "claude"},
            "agents": {"claude": {"command": "claude", "args": ["-p"]}}}
+    # J3 (C7-R): this toy claude config carries no --settings; these tests cover
+    # cwd/prompt/sidecar isolation, NOT the hook gate (which is covered by TC3_4 pass
+    # + TC3_5 fail-closed), so stub the C7-R assertion the daemon path now enforces.
+    monkeypatch.setattr(orch, "_assert_claude_hook_config", lambda cmd: None)
     dae._escalate_inactivity(state_dir, cfg)
     assert "cmd" in captured
 
@@ -336,6 +344,10 @@ def test_TC3_2_inactivity_prompt_outbox_only(workroot, tmp_path, monkeypatch):
     (state_dir / "tasks" / "Q.json").write_text(json.dumps({"task_id": "Q"}))
     cfg = {"control": {"autobrief_default_agent": "claude"},
            "agents": {"claude": {"command": "claude", "args": ["-p"]}}}
+    # J3 (C7-R): this toy claude config carries no --settings; these tests cover
+    # cwd/prompt/sidecar isolation, NOT the hook gate (which is covered by TC3_4 pass
+    # + TC3_5 fail-closed), so stub the C7-R assertion the daemon path now enforces.
+    monkeypatch.setattr(orch, "_assert_claude_hook_config", lambda cmd: None)
     dae._escalate_inactivity(state_dir, cfg)
     argv = captured["cmd"]
     p_idx = argv.index("-p")
@@ -391,6 +403,120 @@ def test_TC3_3_selfheal_default_is_jailed_and_decoupled(workroot, tmp_path, monk
     assert _is_outside_repo(env["CLAUDE_PROJECT_DIR"]), env["CLAUDE_PROJECT_DIR"]
     assert env["CLAUDE_PROJECT_DIR"] == captured["cwd"]
     assert env["JANUSMASK_PROJECT_DIR"] == str(PROJECT_ROOT)
+
+
+@pytest.mark.parametrize("agents_present", [False, True])
+def test_TC3_4_selfheal_claude_path_verbose_and_writable_claude_json(
+        workroot, tmp_path, monkeypatch, agents_present):
+    """Phase J (J1+J2): forcing the CLAUDE daemon self-heal path asserts
+      (J2) the daemon-path claude argv carries --verbose, and
+      (J1) ~/.claude.json is bound as a WRITABLE per-spawn copy (--bind, not --ro-bind).
+    Covered both WITH config['agents']['claude'] present and WITHOUT (the M9 vendored
+    fallback). The C7 oracle TC3_3 exercises the gemini/agy fallback, never claude;
+    this is the only coverage of the claude daemon-path argv. J3's hook assertion is
+    stubbed to a no-op here so the test exercises argv shape deterministically (J3
+    fail-closed behavior is covered by TC3_5)."""
+    captured = {}
+    _patch_daemon_popen(monkeypatch, captured)
+    # fake bwrap so build_jail_argv emits the wrapper (spawn is mocked anyway)
+    import harness.agent_jail as aj
+    monkeypatch.setattr(aj.shutil, "which",
+                        lambda n: "/usr/bin/bwrap" if n == "bwrap" else None)
+    # neutralise J3's fail-closed hook assertion for this argv-shape test (it is
+    # imported lazily from harness.orchestrator inside _contain_selfheal at call time)
+    monkeypatch.setattr(orch, "_assert_claude_hook_config", lambda cmd: None)
+
+    # give the jail an operator ~/.claude.json to copy (HOME pinned to tmp)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir(parents=True)
+    (fake_home / ".claude.json").write_text('{"trusted": true}\n')
+    monkeypatch.setenv("HOME", str(fake_home))
+    home_res = str(Path(fake_home).resolve())
+    claude_json = str(Path(home_res) / ".claude.json")
+
+    state_dir = tmp_path / "state"
+    (state_dir / "tasks" / "blocked").mkdir(parents=True)
+    (state_dir / "tasks" / "blocked" / "G.json").write_text(json.dumps(
+        {"task_id": "G", "objective": "x", "files_touched": ["pkg/a.py"]}))
+
+    crafted = state_dir.parent / "harness"
+    crafted.mkdir(parents=True)
+    cfg = ("control:\n  autobrief_default_agent: claude\n"
+           "agent_sandbox:\n  bwrap: true\n")
+    if agents_present:
+        # explicit claude agent block (NOT the M9 fallback) -- also carries --verbose
+        cfg += ("agents:\n  claude:\n"
+                "    command: ${PROJECT_ROOT}/.agents/claude-code/node_modules/.bin/claude\n"
+                "    args: ['-p', '--model', 'opus', '--output-format', 'stream-json',"
+                " '--include-partial-messages', '--verbose',"
+                " '--settings', '${CONFIG_DIR}/claude_worker.json']\n")
+    else:
+        cfg += "agents: {}\n"   # forces the M9 vendored claude fallback
+    (crafted / "config.yaml").write_text(cfg)
+    monkeypatch.chdir(tmp_path)
+
+    dae._escalate_to_autobrief(state_dir, "G", "fuzz_fail")
+    argv = captured["cmd"]
+
+    # jail wrapper present
+    assert argv[0].endswith("bwrap"), f"claude self-heal not jailed: {argv[:3]}"
+    sep = argv.index("--")
+    inner = argv[sep + 1:]
+    # vendored claude, not a bare 'claude' off PATH
+    assert inner[0].endswith("claude") and "/.agents/" in inner[0], inner
+    # (J2) --verbose present in the daemon-path claude argv
+    assert "--verbose" in inner, f"daemon-path claude argv missing --verbose: {inner}"
+
+    # (J1) ~/.claude.json bound WRITABLE (--bind src dst), NOT --ro-bind
+    rw_pairs, ro_pairs = [], []
+    for i, tok in enumerate(argv):
+        if tok == "--bind" and i + 2 < len(argv):
+            rw_pairs.append((argv[i + 1], argv[i + 2]))
+        if tok == "--ro-bind" and i + 2 < len(argv):
+            ro_pairs.append((argv[i + 1], argv[i + 2]))
+    rw_dsts = {dst for _src, dst in rw_pairs}
+    ro_dsts = {dst for _src, dst in ro_pairs}
+    assert claude_json in rw_dsts, f"~/.claude.json must be rw-bound (writable copy): {rw_pairs}"
+    assert claude_json not in ro_dsts, f"~/.claude.json must NOT be ro-bound: {ro_pairs}"
+    # the rw bind SOURCE is the throwaway copy under the (outside-repo) work_dir
+    src = next(s for s, d in rw_pairs if d == claude_json)
+    assert src.endswith(".claude.json.jail"), src
+    assert _is_outside_repo(src), src
+
+
+def test_TC3_5_selfheal_claude_failclosed_on_missing_pretooluse_hook(
+        workroot, tmp_path, monkeypatch):
+    """Phase J3 (C7-R): a claude self-heal whose --settings declares no PreToolUse
+    hook must FAIL CLOSED (no spawn), mirroring orchestrator.spawn_agent's C5 gate.
+    _contain_selfheal now calls _assert_claude_hook_config for agent=='claude'."""
+    captured = {}
+    _patch_daemon_popen(monkeypatch, captured)
+    import harness.agent_jail as aj
+    monkeypatch.setattr(aj.shutil, "which",
+                        lambda n: "/usr/bin/bwrap" if n == "bwrap" else None)
+
+    state_dir = tmp_path / "state"
+    (state_dir / "tasks" / "blocked").mkdir(parents=True)
+    (state_dir / "tasks" / "blocked" / "G.json").write_text(json.dumps(
+        {"task_id": "G", "objective": "x", "files_touched": ["pkg/a.py"]}))
+    # a settings file WITHOUT hooks.PreToolUse -> _assert_claude_hook_config raises
+    bad_settings = tmp_path / "bad_settings.json"
+    bad_settings.write_text(json.dumps({"hooks": {}}))
+    crafted = state_dir.parent / "harness"
+    crafted.mkdir(parents=True)
+    (crafted / "config.yaml").write_text(
+        "control:\n  autobrief_default_agent: claude\n"
+        "agent_sandbox:\n  bwrap: true\n"
+        "agents:\n  claude:\n"
+        "    command: /bin/true\n"
+        f"    args: ['-p', '--settings', '{bad_settings}']\n")
+    monkeypatch.chdir(tmp_path)
+
+    # the C5 RuntimeError propagates out of _escalate_to_autobrief (the
+    # _contain_selfheal call sits before the Popen try/except). Either way: NO spawn.
+    with pytest.raises(RuntimeError, match="PreToolUse"):
+        dae._escalate_to_autobrief(state_dir, "G", "fuzz_fail")
+    assert "cmd" not in captured, "fail-closed: claude must not have spawned"
 
 
 # --------------------------------------------------------------------------- #

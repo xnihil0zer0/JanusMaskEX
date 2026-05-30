@@ -137,13 +137,29 @@ def build_jail_argv(
     # it. Without it the jailed claude aborts at startup ("Claude configuration file
     # not found at ~/.claude.json") and never submits -- the gap that made EVERY prior
     # jailed claude probe fail (M-2 narrowed HOME to subdirs and missed this root file).
-    # Bind READ-ONLY: it carries the operator's project list + account info, so a jailed
-    # agent must not rewrite it (poisoning), but it must be readable for claude to start.
-    # No new exfil surface -- the OAuth credential is already readable via
-    # ``~/.claude/.credentials.json``; this jail is a write boundary, not an exfil one.
+    #
+    # Phase J1: claude WRITES ~/.claude.json during a normal session (lastSessionId,
+    # mcp cache, project bookkeeping, usage counters). A pure --ro-bind makes those
+    # writes EROFS, which a full agentic run surfaces as a fatal "unable to update
+    # config" abort -- exactly the "claude never actually finished" failure-class the
+    # claude-jail-fix just closed, only deferred to mid-run. So instead of ro-binding
+    # the operator's real file we COPY it into the per-spawn (outside-repo) work_dir
+    # and rw-bind that THROWAWAY copy at ~/.claude.json inside the jail: the jailed
+    # claude reads + freely writes its ephemeral copy, while the operator's real
+    # ~/.claude.json stays byte-for-byte unchanged (no project-list / account
+    # poisoning, no EROFS abort). The copy dies with the per-spawn work_dir (same GC
+    # as outbox/inbox). No new exfil surface -- the OAuth credential is already
+    # readable via ``~/.claude/.credentials.json``; this jail is a write boundary, not
+    # an exfil one. Skipped gracefully if the operator file is absent; on copy failure
+    # we fall back to the read-only bind so claude can at least start.
     _claude_json = os.path.join(home, ".claude.json")
     if os.path.exists(_claude_json):
-        argv += ["--ro-bind", _claude_json, _claude_json]
+        _claude_json_copy = os.path.join(work_dir, ".claude.json.jail")
+        try:
+            shutil.copyfile(_claude_json, _claude_json_copy)
+            argv += ["--bind", _claude_json_copy, _claude_json]
+        except OSError:
+            argv += ["--ro-bind", _claude_json, _claude_json]
     # Protect the operator session-memory store: ro-overlay every
     # ~/.claude/projects/*/memory (rw-bound just above) so a jailed agent cannot
     # poison the memory files that steer future Claude sessions. The rest of each

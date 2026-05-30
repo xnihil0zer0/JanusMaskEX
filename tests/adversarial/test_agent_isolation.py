@@ -129,6 +129,10 @@ def test_daemon_inactivity_spawn_cwd_outside_repo(workroot, tmp_path, monkeypatc
     (state_dir / "tasks" / "SOME_QUEUED.json").write_text(json.dumps({"task_id": "SOME_QUEUED"}))
     config = {"control": {"autobrief_default_agent": "claude"},
               "agents": {"claude": {"command": "claude", "args": ["-p"]}}}
+    # J3 (C7-R): this toy claude config carries no --settings; this test covers cwd
+    # isolation, NOT the hook gate the daemon claude path now enforces (covered by
+    # test_daemon_control_isolation_hooks TC3_4/TC3_5), so stub the C7-R assertion.
+    monkeypatch.setattr(orch, "_assert_claude_hook_config", lambda cmd: None)
     dae._escalate_inactivity(state_dir, config)
     assert captured.get("cwd") is not None, "inactivity self-heal must pass cwd="
     assert _is_outside_repo(Path(captured["cwd"])), \

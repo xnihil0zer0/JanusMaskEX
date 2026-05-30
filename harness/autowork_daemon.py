@@ -560,7 +560,7 @@ def _get_errors_for_task(state_dir: pathlib.Path, task_id: str) -> str:
         return combined
     return 'No traceback or fuzz error logs found.'
 
-def _contain_selfheal(cmd: list, env: dict, work_dir, state_dir, config: dict | None) -> list:
+def _contain_selfheal(cmd: list, env: dict, work_dir, state_dir, config: dict | None, agent: str = '') -> list:
     """CONTAIN C7: apply the C1 env-decouple + C2 bwrap jail to a daemon
     self-heal agent spawn, mirroring ``orchestrator.spawn_agent``.
 
@@ -588,6 +588,18 @@ def _contain_selfheal(cmd: list, env: dict, work_dir, state_dir, config: dict | 
     # build_jail_argv raises if bwrap is missing while the gate is on, so a
     # misconfigured host aborts the self-heal rather than spawning un-jailed.
     from harness import agent_jail
+    # J3 (C7-R): fail-closed hook-config parity with orchestrator.spawn_agent
+    # (orchestrator.py:339-340). For a claude self-heal, assert the effective
+    # --settings file declares a PreToolUse hook BEFORE wrapping in the jail (the
+    # assertion reads --settings out of the RAW agent argv; the bwrap wrap buries it
+    # after the '--' separator). Lazy import keeps the 127KB orchestrator module off
+    # the daemon's hot path (the no-import-orchestrator rule in this fn's docstring);
+    # it only loads when a claude self-heal actually fires. Raises RuntimeError on a
+    # missing/hookless settings file -- the caller's spawn-exception handling (or the
+    # bwrap-missing FileNotFoundError already raised below) turns it into a no-spawn.
+    if agent == 'claude':
+        from harness.orchestrator import _assert_claude_hook_config
+        _assert_claude_hook_config(cmd)
     if agent_jail.sandbox_enabled(config):
         cmd = agent_jail.build_jail_argv(cmd, repo_root=PROJECT_ROOT_STR, work_dir=work_dir_s, state_dir=str(state_dir))
     return cmd
@@ -668,7 +680,12 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
         if agent == 'gemini':
             agent_cfg = {'command': '${PROJECT_ROOT}/.agents/agy/agy', 'args': ['-p', '--sandbox']}
         else:
-            agent_cfg = {'command': '${PROJECT_ROOT}/.agents/claude-code/node_modules/.bin/claude', 'args': ['-p', '--model', 'opus', '--output-format', 'stream-json', '--include-partial-messages', '--settings', '${CONFIG_DIR}/claude_worker.json', '--mcp-config', '${CONFIG_DIR}/claude_mcp.json', '--strict-mcp-config', '--setting-sources', '', '--tools', 'Read,Glob,Grep,Write', '--disallowedTools', 'Bash,Edit,Task,NotebookEdit,WebFetch,WebSearch,Skill,ToolSearch']}
+            # J2: --verbose is REQUIRED for `--output-format stream-json` under -p in the
+            # vendored claude-code (else it aborts "stream-json requires --verbose" before
+            # submitting -- the same claude-jail-fix failure-class). The config-derived
+            # path (config.yaml agents.claude.args) already carries it; this M9 vendored
+            # fallback (used when config['agents']['claude'] is absent) must carry it too.
+            agent_cfg = {'command': '${PROJECT_ROOT}/.agents/claude-code/node_modules/.bin/claude', 'args': ['-p', '--model', 'opus', '--output-format', 'stream-json', '--include-partial-messages', '--verbose', '--settings', '${CONFIG_DIR}/claude_worker.json', '--mcp-config', '${CONFIG_DIR}/claude_mcp.json', '--strict-mcp-config', '--setting-sources', '', '--tools', 'Read,Glob,Grep,Write', '--disallowedTools', 'Bash,Edit,Task,NotebookEdit,WebFetch,WebSearch,Skill,ToolSearch']}
     command_tmpl = agent_cfg.get('command', 'claude')
     args_tmpl = agent_cfg.get('args', [])
     from harness.paths import PROJECT_ROOT_STR, CONFIG_DIR_STR, HARNESS_DIR_STR, agent_work_dir
@@ -720,7 +737,7 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
         cmd = [command] + args + ['-p', resolved_prompt]
     # CONTAIN C7: decouple CLAUDE_PROJECT_DIR + jail this self-heal spawn (was a
     # direct Popen that bypassed all of CONTAIN -- plan rev3.1 §1a).
-    cmd = _contain_selfheal(cmd, env, work_dir, state_dir, config)
+    cmd = _contain_selfheal(cmd, env, work_dir, state_dir, config, agent)
     try:
         subprocess.Popen(cmd, env=env, cwd=str(work_dir))  # AGENT-ISOLATION §3.8: cwd = isolated outside-repo workdir
     except Exception as exc:
@@ -1721,7 +1738,12 @@ def _escalate_inactivity(state_dir: pathlib.Path, config: dict) -> None:
         if agent == 'gemini':
             agent_cfg = {'command': '${PROJECT_ROOT}/.agents/agy/agy', 'args': ['-p', '--sandbox']}
         else:
-            agent_cfg = {'command': '${PROJECT_ROOT}/.agents/claude-code/node_modules/.bin/claude', 'args': ['-p', '--model', 'opus', '--output-format', 'stream-json', '--include-partial-messages', '--settings', '${CONFIG_DIR}/claude_worker.json', '--mcp-config', '${CONFIG_DIR}/claude_mcp.json', '--strict-mcp-config', '--setting-sources', '', '--tools', 'Read,Glob,Grep,Write', '--disallowedTools', 'Bash,Edit,Task,NotebookEdit,WebFetch,WebSearch,Skill,ToolSearch']}
+            # J2: --verbose is REQUIRED for `--output-format stream-json` under -p in the
+            # vendored claude-code (else it aborts "stream-json requires --verbose" before
+            # submitting -- the same claude-jail-fix failure-class). The config-derived
+            # path (config.yaml agents.claude.args) already carries it; this M9 vendored
+            # fallback (used when config['agents']['claude'] is absent) must carry it too.
+            agent_cfg = {'command': '${PROJECT_ROOT}/.agents/claude-code/node_modules/.bin/claude', 'args': ['-p', '--model', 'opus', '--output-format', 'stream-json', '--include-partial-messages', '--verbose', '--settings', '${CONFIG_DIR}/claude_worker.json', '--mcp-config', '${CONFIG_DIR}/claude_mcp.json', '--strict-mcp-config', '--setting-sources', '', '--tools', 'Read,Glob,Grep,Write', '--disallowedTools', 'Bash,Edit,Task,NotebookEdit,WebFetch,WebSearch,Skill,ToolSearch']}
     command_tmpl = agent_cfg.get('command', 'claude')
     args_tmpl = agent_cfg.get('args', [])
     from harness.paths import PROJECT_ROOT_STR, CONFIG_DIR_STR, HARNESS_DIR_STR, agent_work_dir
@@ -1789,7 +1811,7 @@ def _escalate_inactivity(state_dir: pathlib.Path, config: dict) -> None:
             _ = err2
     # CONTAIN C7: decouple CLAUDE_PROJECT_DIR + jail this self-heal spawn (was a
     # direct Popen that bypassed all of CONTAIN -- plan rev3.1 §1a).
-    cmd = _contain_selfheal(cmd, env, work_dir, state_dir, config)
+    cmd = _contain_selfheal(cmd, env, work_dir, state_dir, config, agent)
     try:
         subprocess.Popen(cmd, env=env, cwd=str(work_dir))  # AGENT-ISOLATION §3.8: cwd = isolated outside-repo workdir
     except Exception as exc:
