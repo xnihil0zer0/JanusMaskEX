@@ -10,12 +10,26 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import harness.rebuild.harvest as _harvest
 import harness.rebuild.loop as _loop
+import harness.rebuild.task as _task
 from harness.rebuild.target import TargetDescriptor
 
 _REAL = "def add(a: int, b: int) -> int:\n    return a + b\n"
 _STUB = "def add(a: int, b: int) -> int:\n    raise NotImplementedError\n"
+
+
+@pytest.fixture(autouse=True)
+def _no_signature_probe(monkeypatch):
+    # B2 (DYNAMIC_SIGNATURE_PROBING): build_unit_task now runs an isolated
+    # subprocess probe of the original oracle. These tests count the EXACT number
+    # of ``subprocess.run`` calls in reconstruct_unit's retry loop, so the probe's
+    # one extra call (it shares the globally-patched ``subprocess.run``) would
+    # corrupt the count. The probe is orthogonal to retry mechanics -- neutralize
+    # it so these tests keep pinning the retry semantics they were written for.
+    monkeypatch.setattr(_task, "probe_oracle_contracts", lambda *a, **k: None)
 
 
 def _setup(tmp_path):

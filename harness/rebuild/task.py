@@ -10,9 +10,168 @@ so ``harness`` and ``pytest`` import inside the output repo.
 
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
+
 from harness.rebuild import venv as _venv
 from harness.rebuild.harvest import Unit
 from harness.rebuild.target import TargetDescriptor
+
+# B2 (DYNAMIC_SIGNATURE_PROBING): how long the isolated probe subprocess may run
+# before we abandon it and fall back to the static spec. Deliberately short -- the
+# probe imports ONE trusted original module and calls one function on a handful of
+# boundary inputs; anything slower is a hang we must not let block task-building.
+_PROBE_TIMEOUT_SEC = 8.0
+# Boundary values fed to each oracle parameter, one at a time (every other param
+# left to its default / a benign None). These are the standard "invalid input"
+# probes the brief calls for; the goal is to observe whether the ORIGINAL returns
+# a sentinel or raises, not to exercise correctness.
+_PROBE_BOUNDARY_VALUES = (None, 0, '', [], {})
+
+
+# The probe BODY runs in a throwaway subprocess so the original module's import
+# side-effects (and any per-call state mutation) never touch the task-builder
+# process. It is a STATIC string -- no agent / untrusted text is ever interpolated
+# into it; the only inputs (module path, unit name) arrive as argv and are only
+# ever used as a file path and an attribute name. It reads the ALREADY-TRUSTED
+# original codebase, introspects the function with ``inspect.signature``, and
+# probes it with fixed stdlib boundary literals (no eval/exec of observed output).
+_PROBE_RUNNER = r'''
+import importlib.util
+import inspect
+import json
+import sys
+from importlib.machinery import SourceFileLoader
+
+_path, _unit = sys.argv[1], sys.argv[2]
+_out = {"signature": None, "contracts": []}
+try:
+    # The stash file is named ``<module>.py.orig`` -- its ``.orig`` suffix is NOT a
+    # recognized source extension, so spec_from_file_location returns None. Force a
+    # SourceFileLoader so the original Python is exec'd regardless of the suffix.
+    _loader = SourceFileLoader("_janusmask_probe_mod", _path)
+    _spec = importlib.util.spec_from_loader("_janusmask_probe_mod", _loader)
+    _mod = importlib.util.module_from_spec(_spec)
+    _loader.exec_module(_mod)
+    _fn = getattr(_mod, _unit, None)
+    if _fn is None or not callable(_fn):
+        print(json.dumps(_out))
+        sys.exit(0)
+    try:
+        _sig = inspect.signature(_fn)
+        _out["signature"] = "%s%s" % (_unit, _sig)
+        _params = [
+            p for p in _sig.parameters.values()
+            if p.name not in ("self", "cls")
+            and p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
+        ]
+    except (ValueError, TypeError):
+        _params = []
+    _BOUNDARY = (None, 0, "", [], {})
+    _seen = set()
+    for _p in _params:
+        for _v in _BOUNDARY:
+            try:
+                if _p.kind == _p.KEYWORD_ONLY:
+                    _rv = _fn(**{_p.name: _v})
+                else:
+                    _rv = _fn(_v)
+                _obs = "returns %r" % (_rv,)
+            except BaseException as _exc:  # noqa: BLE001 - record ANY raise as a contract
+                _obs = "raises %s" % (type(_exc).__name__,)
+            _key = (_p.name, repr(_v), _obs)
+            if _key in _seen:
+                continue
+            _seen.add(_key)
+            _out["contracts"].append(
+                {"param": _p.name, "input": repr(_v), "observed": _obs}
+            )
+    print(json.dumps(_out))
+except BaseException:  # noqa: BLE001 - the probe is fully fail-safe
+    print(json.dumps({"signature": None, "contracts": []}))
+'''
+
+
+def _oracle_skip(unit: Unit) -> bool:
+    """Mirror build_unit_task's oracle-skip predicate. A unit whose merged==original
+    oracle is unusable (impure / dep / untyped / whole-class / rel-import /
+    self-mutating / unfuzzable) is exactly the ``oracle_skip`` set the brief's
+    Non-Goals exclude from probing (no probing impure/nondeterministic functions)."""
+    return (
+        bool(getattr(unit, 'impure', False))
+        or bool(getattr(unit, 'needs_deps', False))
+        or bool(getattr(unit, 'untyped', False))
+        or bool(getattr(unit, 'whole_class', False))
+        or bool(getattr(unit, 'rel_import', False))
+        or bool(getattr(unit, 'self_mutating', False))
+        or bool(getattr(unit, 'unfuzzable', False))
+    )
+
+
+def probe_oracle_contracts(oracle_original_path: str, unit: Unit) -> str | None:
+    """B2 (DYNAMIC_SIGNATURE_PROBING): probe the ORIGINAL oracle function for its
+    observed signature + boundary/exception behavior, returning a spec section.
+
+    Imports the trusted original module (``oracle_original_path``) in a SHORT-LIVED,
+    timeout-bounded subprocess (to isolate any import side-effects), introspects the
+    target function with ``inspect.signature``, and records what it returns / raises
+    for each standard boundary value (``None``, ``0``, ``''``, ``[]``, ``{}``). The
+    result is a ``Boundary & Exception Contracts`` block the spec appends so synthesis
+    agents reproduce the original's invalid-input behavior (preventing fuzzer
+    false-divergence).
+
+    FAIL-SAFE by construction: returns ``None`` (caller keeps the existing static
+    spec) when the unit is oracle-skip, the original is missing, the unit is a
+    method/class (not a top-level function), the subprocess errors / times out, or
+    nothing observable is produced. It NEVER raises and NEVER blocks task-building.
+    """
+    try:
+        # Only probe top-level functions with a usable oracle: methods/whole-class
+        # units aren't resolvable by a bare module attribute, and oracle-skip units
+        # are the brief's excluded impure/nondeterministic set.
+        if not oracle_original_path or unit.cls is not None:
+            return None
+        if getattr(unit, 'whole_class', False) or _oracle_skip(unit):
+            return None
+        proc = subprocess.run(
+            [sys.executable, '-c', _PROBE_RUNNER, oracle_original_path, unit.name],
+            capture_output=True, text=True, timeout=_PROBE_TIMEOUT_SEC,
+        )
+        if proc.returncode != 0 or not proc.stdout.strip():
+            return None
+        data = json.loads(proc.stdout.strip().splitlines()[-1])
+    except Exception:
+        # Any failure -- import error, timeout, malformed output, etc. -- falls back
+        # to the static spec. The probe is strictly additive; it must never crash
+        # task-building nor leave the spec empty.
+        return None
+    if not isinstance(data, dict):
+        return None
+    observed_sig = data.get('signature')
+    contracts = data.get('contracts') or []
+    if not observed_sig and not contracts:
+        return None
+    lines = [
+        '',
+        'Boundary & Exception Contracts (probed from the original; reproduce this '
+        'behavior EXACTLY so the differential fuzzer does not diverge on invalid '
+        'inputs):',
+    ]
+    if observed_sig:
+        lines.append(f'    Observed signature: {observed_sig}')
+    for c in contracts:
+        if not isinstance(c, dict):
+            continue
+        param = c.get('param')
+        inp = c.get('input')
+        obs = c.get('observed')
+        if param is None or inp is None or obs is None:
+            continue
+        lines.append(f'    {param}={inp} -> {obs}')
+    if len(lines) <= 2 and not observed_sig:
+        return None
+    return '\n'.join(lines)
 
 
 def _build_spec(
@@ -325,6 +484,14 @@ def build_unit_task(
         cross_signatures=cross_signatures,
         partial_edit=partial_edit, module_rel=module_rel,
     )
+    # B2 (DYNAMIC_SIGNATURE_PROBING): probe the ORIGINAL oracle function for its
+    # actual signature + boundary/exception behavior and fold it into the spec text.
+    # Fully fail-safe: probe_oracle_contracts returns None (no change) on any error,
+    # timeout, oracle-skip unit, or method/class unit, so the spec keeps its static
+    # form. This sharpens the blind contract WITHOUT revealing the body.
+    _contracts = probe_oracle_contracts(oracle_original_path, unit)
+    if _contracts:
+        spec = spec + '\n' + _contracts
     config_abs = f'{parent_root}/harness/config.yaml'
     # Scoped pytest runs under the replicant's OWN venv python when one has been
     # provisioned (descriptor.python_exe, or a ready ``<out>/.venv``), so the
