@@ -167,3 +167,33 @@ def test_phase_m_merge_failure_routes_to_blocked_not_processed(tmp_path, monkeyp
     sidecar = tasks_dir / "blocked" / f"{task_id}.retry.json"
     assert sidecar.exists()
     assert json.loads(sidecar.read_text())["last_outcome"] == "merge_failed"
+
+
+# ---- M2: G-M-POPCONFLICT (stash-pop conflict resolution) ----
+def test_phase_m_pop_conflict_leaves_clean_tree_no_orphan_stash(tmp_path):
+    """G-M-POPCONFLICT: parent dirty on the SAME tracked file the staging commit
+    modifies -> the FF merge succeeds but the best-effort `git stash pop` CONFLICTS.
+    Pre-M2 this leaves an unmerged (UU) working tree + an orphaned stash while the
+    function returns normally, so the orchestrator hands over on a conflicted tree.
+    M2 must resolve deterministically (merged commit content wins): a CLEAN tree
+    (no UU), the file at the merged content, and NO orphaned stash.
+    """
+    parent, staging = _make_parent_with_staging_commit(
+        tmp_path, base="base\n", staged="base\nmerged\n")
+    # Make the parent dirty on the SAME tracked file, with content that will
+    # conflict with the merged result when the stash is popped back.
+    (parent / "target.txt").write_text("base\nLOCAL-EDIT\n", encoding="utf-8")
+    assert _git(["status", "--porcelain"], parent).stdout.strip() != ""
+
+    git_integration.merge_staging_to_parent(staging, parent_root=parent)
+
+    # Tree must be CLEAN — no unmerged (UU) entries, nothing left over.
+    status = _git(["status", "--porcelain"], parent).stdout
+    assert "UU" not in status, f"conflicted/unmerged tree after merge: {status!r}"
+    assert status.strip() == "", f"working tree not clean after merge: {status!r}"
+    # Merged commit content wins.
+    assert (parent / "target.txt").read_text(encoding="utf-8") == "base\nmerged\n"
+    # No orphaned stash left behind.
+    assert _git(["stash", "list"], parent).stdout.strip() == ""
+    # Staging worktree removed (M-d still holds).
+    assert not staging.exists()
