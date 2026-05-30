@@ -122,9 +122,12 @@ def test_T12c_non_py_target_skips_astparse_and_promotes(state, tmp_path, monkeyp
         "non-.py target must bypass ast.parse and still promote"
 
 
-def test_T12d_stale_running_state_self_timeouts_fresh_poll(state, tmp_path, monkeypatch):
-    """GAP: a stale 'running' status with an old epoch immediately times out a
-    fresh poll even though the FakePopen is alive and no submission exists yet."""
+def test_T12d_stale_running_state_does_not_self_timeout_fresh_poll(state, tmp_path, monkeypatch):
+    """FIX (M7): a stale 'running' status with an ancient epoch from a prior
+    task must NOT self-time-out a brand-new poll. The watchdog only honors a
+    status epoch written DURING this poll, so the poll runs its own timeout
+    window (no instant return) when the process is alive and no submission
+    exists yet."""
     from harness.state import init_state
     init_state(state)
     # seed a stale running status from a prior task
@@ -141,9 +144,13 @@ def test_T12d_stale_running_state_self_timeouts_fresh_poll(state, tmp_path, monk
     _patch_registry(monkeypatch, reg)
 
     proc = _FakePopen(tmp_path / "nowd_d")  # alive forever, no submission
-    code = orch.poll_for_submission("claude", state, 1, proc, timeout=5)
-    assert code is None, (
-        "GAP confirmed: a stale 'running' status with an old "
-        "status_updated_at_epoch self-times-out a brand-new poll despite the "
-        "process being alive and within its own timeout window."
+    t0 = time.monotonic()
+    code = orch.poll_for_submission("claude", state, 1, proc, timeout=2)
+    elapsed = time.monotonic() - t0
+    assert code is None
+    # Fix-detector: the poll consumed (most of) its own 2s window rather than
+    # self-timing-out instantly off the stale epoch.
+    assert elapsed >= 1.8, (
+        f"poll returned after only {elapsed:.2f}s — the stale 'running' epoch "
+        "still self-times-out a fresh poll (M7 regression)"
     )

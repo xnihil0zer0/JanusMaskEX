@@ -210,11 +210,10 @@ class TestA4PatchesSensitive:
 # --------------------------------------------------------------------------- #
 class TestA5MultiAtomicity:
     def test_partial_on_disk_write_when_later_entry_fails_scope(self, tmp_repo):
-        """GAP (proven): _commit_accepted_output_multi applies file-by-file and
-        checks scope per rel BEFORE write, but the in-scope entry processed
-        FIRST is already written to the staging worktree even though the
-        function returns committed=False on the later out-of-scope entry.
-        No transaction / rollback of the on-disk write."""
+        """FIX (M1): _commit_accepted_output_multi validates apply-scope for ALL
+        manifest entries BEFORE writing any of them. A scope violation on a
+        LATER entry must reject the whole commit and leave EARLIER (in-scope)
+        entries unwritten on disk — the multi-path is transactional."""
         sd = tmp_repo / "state"
         a_before = (tmp_repo / "pkg" / "a.py").read_text()
         # Ordered dict: in-scope pkg/a.py first, out-of-scope pkg/evil.py second.
@@ -225,12 +224,14 @@ class TestA5MultiAtomicity:
             allowed_files={"pkg/a.py"}, meta_task_type=None, approval_ok=False)
         assert r["committed"] is False
         assert "not a member" in (r["error"] or "")
-        # Document the dirty-staging leak: pkg/a.py WAS written despite reject.
+        # Fix-detector: pkg/a.py is UNCHANGED — the earlier in-scope entry was
+        # NOT written because the later entry failed scope (scope-all-first).
         a_after = (tmp_repo / "pkg" / "a.py").read_text()
-        assert a_after != a_before, (
-            "If a.py is unchanged, the multi-path became transactional (gap fixed)")
-        assert "a = 999" in a_after
-        # But no commit was created (HEAD unchanged) — INV-3 commit-side holds.
+        assert a_after == a_before, (
+            "earlier in-scope entry was written despite a later scope reject "
+            "(multi-path is not transactional — M1 regression)")
+        assert "a = 999" not in a_after
+        # And no commit was created (HEAD unchanged) — INV-3 commit-side holds.
         log = _git(["log", "--oneline"], tmp_repo).stdout
         assert log.count("\n") == 1, "a commit was created despite scope reject"
 

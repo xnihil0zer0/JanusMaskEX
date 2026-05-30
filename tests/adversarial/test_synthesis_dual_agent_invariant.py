@@ -169,14 +169,15 @@ def test_T11_fallback_both_none_does_not_accept(monkeypatch):
     # synthesis_success = bool(... and a and b) => False. Invariant holds.
 
 
-def test_T11_fallback_asymmetry_gap_when_claude_is_agent_b(monkeypatch):
-    """GAP: fallback only fires for agent_a=='claude'. Reorder active_agents so
-    claude is agent_b -> the None claude slot gets NO fallback (config-fragile)."""
+def test_T11_fallback_asymmetry_fixed_when_claude_is_agent_b(monkeypatch):
+    """FIX (M6): claude_fallback fires for WHICHEVER slot holds 'claude'.
+    Reorder active_agents so claude is agent_b -> a None claude slot still
+    triggers claude_fallback (no longer hard-wired to the agent_a slot)."""
     calls = []
 
     def _fake_phase(agent, prompt, config, state_dir, round_number, phase_name, **k):
         calls.append(agent)
-        return {"gemini": "codeA", "claude": None}.get(agent)
+        return {"gemini": "codeA", "claude": None, "claude_fallback": "codeB"}.get(agent)
 
     monkeypatch.setattr(orch, "run_agent_phase", _fake_phase)
     cfg = {"synthesis": {"antigravity_mode": True,
@@ -184,8 +185,9 @@ def test_T11_fallback_asymmetry_gap_when_claude_is_agent_b(monkeypatch):
                          "timeout_seconds": 600}}
     code_a, code_b = orch.run_both_agents("pa", "pb", cfg, Path("/tmp/x"), 1, "synthesis")
     assert code_a == "codeA"
-    assert code_b is None, "claude as agent_b returned None"
-    assert "claude_fallback" not in calls, (
-        "GAP confirmed: claude_fallback never fires when claude is the SECOND "
-        "active agent — the fallback is hard-wired to the agent_a slot."
+    assert code_b == "codeB", "claude-as-agent_b None must be filled by claude_fallback"
+    assert calls.count("claude_fallback") == 1, (
+        "FIX: claude_fallback must fire exactly once when claude is the SECOND "
+        "active agent and returns None — the fallback keys on the claude slot, "
+        "not a hard-wired agent_a position."
     )

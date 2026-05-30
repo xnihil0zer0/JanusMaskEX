@@ -686,8 +686,15 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
                     final_code = ast.unparse(ast.parse(out_code))
                 target_path.write_text(final_code, encoding='utf-8')
             except Exception as merge_exc:
-                logging.getLogger(__name__).warning('commit_accepted_output: AST merge failed for %s (%s); falling back to copy2', task_id, merge_exc)
-                shutil.copy2(str(output_file), str(target_path))
+                # Fail-CLOSED (M3): a whole-file shutil.copy2 fallback would
+                # silently discard the target's other top-level symbols on a
+                # transient parse/merge error (data loss). Refuse the commit
+                # instead of overwriting; the target on disk is left untouched.
+                logging.getLogger(__name__).error('commit_accepted_output: AST merge failed for %s (%s); refusing whole-file copy fallback (fail-closed)', task_id, merge_exc)
+                result['committed'] = False
+                result['sha'] = None
+                result['error'] = f'merge_failed: refusing whole-file overwrite to avoid data loss: {merge_exc}'
+                return result
         else:
             shutil.copy2(str(output_file), str(target_path))
         rel_target = target_path.relative_to(worktree_root)
@@ -799,6 +806,10 @@ def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, stat
         return result
     rel_targets: list[str] = []
     tracked_flags: list[bool] = []
+    # Atomicity: validate (worktree-escape + apply-scope) ALL entries FIRST so a
+    # scope violation on a later entry cannot leave earlier entries already
+    # written to the worktree. Only after every entry passes do we apply writes.
+    validated: list[tuple[str, pathlib.Path]] = []
     for rel, src in manifest.items():
         if not isinstance(rel, str) or not isinstance(src, str):
             result['committed'] = False
@@ -821,13 +832,15 @@ def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, stat
             result['sha'] = None
             result['error'] = scope_err
             return result
+        validated.append((rel_str, target_path))
+    for (rel_str, target_path), src in zip(validated, manifest.values()):
         tracked_flags.append(_is_tracked(rel_str, str(worktree_root)))
         try:
             _apply_file_to_target(src, target_path, task_id)
         except OSError as exc:
             result['committed'] = False
             result['sha'] = None
-            result['error'] = f'write failed for {rel}: {exc}'
+            result['error'] = f'write failed for {rel_str}: {exc}'
             return result
         rel_targets.append(rel_str)
     try:
@@ -1090,6 +1103,10 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
         grouped[rel].append(entry)
     rel_targets: list[str] = []
     tracked_flags: list[bool] = []
+    # Atomicity: validate (worktree-escape + apply-scope) ALL rels FIRST so a
+    # scope violation on a later entry cannot leave earlier entries already
+    # written to the worktree. Only after every rel passes do we apply patches.
+    validated: list[tuple[str, str, pathlib.Path]] = []
     for rel in order:
         target_path = (worktree_root / rel).resolve()
         try:
@@ -1107,6 +1124,8 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
             result['sha'] = None
             result['error'] = scope_err
             return result
+        validated.append((rel, rel_str, target_path))
+    for rel, rel_str, target_path in validated:
         tracked_flags.append(_is_tracked(rel_str, str(worktree_root)))
         try:
             text = target_path.read_text(encoding='utf-8')

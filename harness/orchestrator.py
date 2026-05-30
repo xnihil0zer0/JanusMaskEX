@@ -438,6 +438,7 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
     sub_path = sessions_dir / filename
     work_dir = getattr(proc, '_work_dir', None)
     deadline = time.monotonic() + timeout
+    poll_start_wall = time.time()
     poll_interval = 0.5
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.INFO}waiting for submission...{_C.RESET}')
     while time.monotonic() < deadline:
@@ -510,7 +511,10 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
             current_state = read_state(state_dir)
             agent_status = current_state.get(f'{agent}_status')
             updated_at = current_state.get('status_updated_at_epoch') or current_state.get('status_updated_at')
-            if agent_status == 'running' and updated_at is not None:
+            # M7: only honor the running-watchdog for a status freshly written
+            # during THIS poll. A stale 'running' epoch left over from a prior
+            # task must not self-time-out a brand-new poll whose process is alive.
+            if agent_status == 'running' and updated_at is not None and updated_at >= poll_start_wall:
                 if time.time() - updated_at > timeout:
                     set_agent_status(state_dir, agent=agent, status='timeout')
                     _emit_lifecycle(state_dir, event='agent_status', agent=agent, status='timeout', task_id=os.environ.get('JANUSMASK_TASK_ID'))
@@ -564,7 +568,7 @@ def run_both_agents(prompt_claude: str, prompt_gemini: str, config: dict[str, An
     if config.get('synthesis', {}).get('antigravity_mode', True):
         _con(f'  {_orch_tag()} Running agents sequentially (Antigravity Mode)')
         code_a = run_agent_phase(agent_a, prompt_claude, config, state_dir, round_number, phase_name)
-        if agent_a == 'claude' and code_a is None:
+        if 'claude' == agent_a and code_a is None:
             _con(f'  {_orch_tag()} {_C.WARN}Claude failed or returned None. Running fallback: claude_fallback{_C.RESET}')
             try:
                 code_a = run_agent_phase('claude_fallback', prompt_claude, config, state_dir, round_number, phase_name)
@@ -572,6 +576,13 @@ def run_both_agents(prompt_claude: str, prompt_gemini: str, config: dict[str, An
                 logger.exception('Error in claude_fallback agent phase')
                 code_a = None
         code_b = run_agent_phase(agent_b, prompt_gemini, config, state_dir, round_number, phase_name)
+        if 'claude' == agent_b and code_b is None:
+            _con(f'  {_orch_tag()} {_C.WARN}Claude failed or returned None (slot b). Running fallback: claude_fallback{_C.RESET}')
+            try:
+                code_b = run_agent_phase('claude_fallback', prompt_gemini, config, state_dir, round_number, phase_name)
+            except Exception:
+                logger.exception('Error in claude_fallback agent phase')
+                code_b = None
         return (code_a, code_b)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -588,13 +599,20 @@ def run_both_agents(prompt_claude: str, prompt_gemini: str, config: dict[str, An
                 logger.exception('Error in %s agent phase', agent_name)
                 results[agent_name] = None
 
-    if agent_a == 'claude' and results[agent_a] is None:
+    if 'claude' == agent_a and results[agent_a] is None:
         _con(f'  {_orch_tag()} {_C.WARN}Claude failed or returned None (parallel). Running fallback: claude_fallback{_C.RESET}')
         try:
             results[agent_a] = run_agent_phase('claude_fallback', prompt_claude, config, state_dir, round_number, phase_name)
         except Exception:
             logger.exception('Error in claude_fallback agent phase')
             results[agent_a] = None
+    if 'claude' == agent_b and results[agent_b] is None:
+        _con(f'  {_orch_tag()} {_C.WARN}Claude failed or returned None (parallel, slot b). Running fallback: claude_fallback{_C.RESET}')
+        try:
+            results[agent_b] = run_agent_phase('claude_fallback', prompt_gemini, config, state_dir, round_number, phase_name)
+        except Exception:
+            logger.exception('Error in claude_fallback agent phase')
+            results[agent_b] = None
 
     _con(f'  {_orch_tag()} {agent_a}={"submitted" if results[agent_a] else "NONE"}  {agent_b}={"submitted" if results[agent_b] else "NONE"}')
     return (results[agent_a], results[agent_b])

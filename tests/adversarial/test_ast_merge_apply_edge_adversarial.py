@@ -100,30 +100,34 @@ class TestB2ImportPreservation:
 # --------------------------------------------------------------------------- #
 class TestB3CopyFallbackDataLoss:
     def test_unparseable_target_triggers_whole_file_copy_dropping_other_symbols(self, tmp_repo):
-        """GAP (proven, documented): when the EXISTING target on disk is not
-        parseable, _ast_merge raises and commit_accepted_output falls back to
-        shutil.copy2, which whole-file-replaces — silently DISCARDING the
-        target's other top-level symbols. A single-file submission can thereby
-        drop unrelated code on a transient parse error.
+        """FIX (M3): when the EXISTING target on disk is not parseable,
+        _ast_merge raises. commit_accepted_output must FAIL-CLOSED — refuse the
+        commit rather than fall back to a whole-file shutil.copy2 that would
+        silently DISCARD the target's other top-level symbols. The target on
+        disk must be left untouched (survivor() preserved).
 
         Scope gate still applies first, so this is bounded to non-sensitive
         in-scope targets."""
         sd = tmp_repo / "state"
         # seed a non-sensitive target that is NOT parseable but holds extra code
         broken = tmp_repo / "pkg" / "broken.py"
-        broken.write_text("def survivor():\n    return 1\ndef =:  # syntax error\n")
+        original = "def survivor():\n    return 1\ndef =:  # syntax error\n"
+        broken.write_text(original)
         _git(["add", "pkg/broken.py"], tmp_repo)
         _git(["commit", "-qm", "broken"], tmp_repo)
         (sd / "output" / "B.py").write_text("def replacement():\n    return 2\n")
         r = gi.commit_accepted_output(
             "B", str(broken), sd, worktree_root=tmp_repo,
             allowed_files={"pkg/broken.py"}, meta_task_type=None, approval_ok=False)
-        assert r["committed"] is True, r
+        # fail-closed: commit refused, error surfaced.
+        assert r["committed"] is False, r
+        assert "merge_failed" in (r["error"] or ""), r
         final = broken.read_text()
-        # data-loss: survivor() is gone, only the verbatim output remains.
-        assert "survivor" not in final, (
-            "If survivor() survives, the fallback became a real merge (gap fixed)")
-        assert final == "def replacement():\n    return 2\n"
+        # no data-loss: the target is untouched, survivor() preserved.
+        assert "survivor" in final, (
+            "survivor() was dropped — the whole-file copy fallback is still live "
+            "(M3 regression)")
+        assert final == original
 
 
 # --------------------------------------------------------------------------- #

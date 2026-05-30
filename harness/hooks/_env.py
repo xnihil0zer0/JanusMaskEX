@@ -30,6 +30,8 @@ import pathlib
 from . import _paths
 _INBOX_EXPECTATIONS: dict[str, tuple[str, ...]] = {'synthesis': ('task.json',), 'planning': ('brief.json', 'diff_summary.json'), 'reconciliation': ('diff_summary.json',)}
 
+_UNKNOWN_AGENT = 'unknown'
+
 def _resolve_agent(agent: str | None) -> str:
     """Pick the agent identity: explicit arg wins, else ``_paths.agent()``.
 
@@ -37,10 +39,16 @@ def _resolve_agent(agent: str | None) -> str:
     verbatim so the workdir prefix stays stable even when
     ``JANUSMASK_AGENT`` is unset (e.g. unit tests that only configure
     ``JANUSMASK_STATE_DIR``).
+
+    M8: when neither the explicit arg nor ``JANUSMASK_AGENT`` resolves an
+    identity, return a stable non-empty sentinel (``'unknown'``) instead of
+    ``''``. An empty segment collapses ``<workroot>/<agent>/<sid>`` to
+    ``<workroot>//<sid>``, a split-brain that diverges from the
+    orchestrator's path; a sentinel keeps the path shape consistent.
     """
     if agent:
         return agent
-    return _paths.agent() or ''
+    return _paths.agent() or _UNKNOWN_AGENT
 
 def _work_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path:
     raw = os.environ.get('JANUSMASK_WORK_DIR')

@@ -494,6 +494,12 @@ def _fuzz_sequential(code_a: str, code_b: str, func_name: str, config: dict[str,
     finally:
         sandbox_a.cleanup()
         sandbox_b.cleanup()
+    if total == 0:
+        # Fail-CLOSED (M4): zero inputs fuzzed means input generation failed or
+        # timed out (see _generate_inputs swallowing exceptions/timeouts). An
+        # empty failure list must NOT surface as equivalent=True (INV-5).
+        logger.error('Fuzzing produced ZERO inputs for %r; failing closed (no agreement)', func_name)
+        return FuzzResult(equivalent=False, total_inputs=0, matching_inputs=0, failures=failures, error='fuzz produced zero inputs (generation failed/timed out); failing closed')
     equivalent = len(failures) == 0
     logger.info('Fuzzing complete: %d/%d matching, %d failures, equivalent=%s', matching, total, len(failures), equivalent)
     return FuzzResult(equivalent=equivalent, total_inputs=total, matching_inputs=matching, failures=failures)
@@ -515,6 +521,11 @@ def _fuzz_batch(code_a: str, code_b: str, func_name: str, config: dict[str, Any]
     except (ValueError, SyntaxError) as exc:
         return FuzzResult(equivalent=False, error=f'Failed to build input strategy from code_a: {exc}')
     inputs = _generate_inputs(strategy, num_inputs, seed)
+    if not inputs:
+        # Fail-CLOSED (M4): zero inputs generated must never surface as
+        # equivalent=True (INV-5) — mirrors the sequential path guard.
+        logger.error('Batch fuzzing produced ZERO inputs for %r; failing closed (no agreement)', func_name)
+        return FuzzResult(equivalent=False, total_inputs=0, matching_inputs=0, failures=[], error='fuzz produced zero inputs (generation failed/timed out); failing closed')
     batch_inputs = [{'args': list(args), 'kwargs': kwargs} for args, kwargs in inputs]
     worker_pool_size = config.get('batch_execution', {}).get('worker_pool_size', 1)
     failures = []

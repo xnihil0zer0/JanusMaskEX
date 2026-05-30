@@ -611,17 +611,19 @@ def test_TC6_1_fallback_outside_repo_not_dead_state_workdirs(workroot, tmp_path,
     assert shared_env._work_dir("s", agent="gemini") == (tmp_path / "explicit").resolve()
 
 
-def test_TC6_2_empty_agent_segment_split_brain_GAP(workroot, monkeypatch):
-    """GAP (med): when both the agent arg AND JANUSMASK_AGENT are absent,
-    _resolve_agent('') -> '' and the fallback workdir gets an EMPTY agent segment
-    (<workroot>//<sid>), diverging from the orchestrator's <workroot>/<agent>/<sid>.
-    Latent split-brain if any hook calls _work_dir without an explicit agent."""
+def test_TC6_2_empty_agent_segment_split_brain_FIXED(workroot, monkeypatch):
+    """FIX (M8): when both the agent arg AND JANUSMASK_AGENT are absent,
+    _resolve_agent('') returns a stable non-empty sentinel ('unknown') instead
+    of '', so the fallback workdir keeps the <workroot>/<agent>/<sid> shape and
+    never collapses to <workroot>//<sid>. No split-brain empty segment."""
     monkeypatch.delenv("JANUSMASK_WORK_DIR", raising=False)
     monkeypatch.delenv("JANUSMASK_AGENT", raising=False)
     wd = shared_env._work_dir("sid")  # no agent kwarg, no env
-    # the empty agent segment collapses: <workroot>//sid -> parts show empty agent
-    expected = (agent_workroot() / "" / "sid").resolve()
+    # the agent segment must be a stable non-empty sentinel, not collapsed.
+    expected = (agent_workroot() / "unknown" / "sid").resolve()
     assert wd == expected
-    # contrast: the orchestrator-side path with a real agent differs
-    real = (agent_workroot() / "gemini" / "sid").resolve()
-    assert wd != real, "empty-agent fallback diverges from orchestrator path"
+    assert wd.parent.name == "unknown" and wd.parent.name != "", (
+        "empty agent segment collapsed the path (M8 regression)")
+    # collapsed empty-segment path is NOT what we get anymore
+    collapsed = (agent_workroot() / "" / "sid").resolve()
+    assert wd != collapsed
