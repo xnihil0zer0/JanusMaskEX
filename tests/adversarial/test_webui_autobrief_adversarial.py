@@ -50,9 +50,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 @pytest.fixture(scope="session", autouse=True)
-def stub_binaries():
-    fixtures_dir = REPO_ROOT / "tests" / "fixtures" / "autobrief"
-    fixtures_dir.mkdir(parents=True, exist_ok=True)
+def stub_binaries(tmp_path_factory):
+    fixtures_dir = tmp_path_factory.mktemp("autobrief_stubs")
 
     # NOTE: use printf '%s\n' (not echo) — dash's builtin echo treats the
     # literal `\n` in single-quoted JSON strings as a real newline, producing

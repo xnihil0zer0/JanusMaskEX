@@ -21,11 +21,10 @@ if REPO_ROOT.name == "outbox":
         REPO_ROOT = Path("/home/xnihil0zer0/JanusMask")
 
 @pytest.fixture(scope="session", autouse=True)
-def stub_binaries():
+def stub_binaries(tmp_path_factory):
     """Provide a session-scope autouse fixture that stages stub claude and gemini executables."""
-    fixtures_dir = REPO_ROOT / "tests" / "fixtures" / "autobrief"
-    fixtures_dir.mkdir(parents=True, exist_ok=True)
-    
+    fixtures_dir = tmp_path_factory.mktemp("autobrief_stubs")
+
     # NOTE: use printf '%s\\n' (not echo) to suppress dash's XSI-conformant
     # escape interpretation — dash's builtin `echo` converts the literal `\\n`
     # in single-quoted JSON strings into real newlines, producing invalid JSON.
@@ -76,14 +75,14 @@ fi
     claude_path = fixtures_dir / "claude"
     gemini_path = fixtures_dir / "gemini"
     agy_path = fixtures_dir / "agy"
-    
+
     for path in (claude_path, gemini_path, agy_path):
         path.write_text(stub_content)
         path.chmod(0o755)
-        
+
     old_path = os.environ.get("PATH", "")
     os.environ["PATH"] = f"{fixtures_dir}:{old_path}"
-    
+
     prompt_file = REPO_ROOT / "tools" / "webui_autobrief_prompt.txt"
     created_prompt = False
     if not prompt_file.exists():
@@ -91,7 +90,7 @@ fi
         created_prompt = True
 
     yield fixtures_dir
-    
+
     os.environ["PATH"] = old_path
     if created_prompt:
         try:
