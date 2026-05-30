@@ -511,16 +511,19 @@ def test_TC5_1_dropped_write_verbs_denied(cmd):
     assert d["decision"] == "deny", cmd
 
 
-def test_TC5_1b_deny_reason_string_is_stale_GAP():
-    """GAP (low): the deny reason still advertises the OLD allowlist
-    (tee/cp/mv/ln/cat<</python3 -c/sandbox.py/rm -rf) after §3.3 dropped them.
-    Decision is correct; the message lies to the agent."""
+def test_TC5_1b_deny_reason_string_matches_current_allowlist():
+    """L6 (was GAP-low): the deny reason now advertises ONLY the verbs that
+    §3.3 actually retained (pytest/python3 -m pytest/mkdir/touch + read-only
+    cat). The previously-advertised dropped verbs (tee/cp/mv/ln/python3 -c/
+    sandbox.py/rm -rf) must NOT appear, so the message no longer lies."""
     d = gpt._decide_shell({"command": "cp a b"})
     assert d["decision"] == "deny"
     reason = d.get("reason", "")
-    # The stale advertisement is still present -> documents the UX/doc bug.
-    assert "tee" in reason and "cp" in reason and "rm -rf" in reason
-    assert "python3 -c" in reason and "harness/sandbox.py" in reason
+    # Retained verbs are advertised.
+    assert "pytest" in reason and "mkdir" in reason and "touch" in reason
+    # Dropped verbs are no longer advertised.
+    for stale in ("tee", " cp", " mv", " ln", "python3 -c", "harness/sandbox.py", "rm -rf"):
+        assert stale not in reason, f"stale verb still advertised: {stale!r}"
 
 
 @pytest.mark.parametrize("cmd", [

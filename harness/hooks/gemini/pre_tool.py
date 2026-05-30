@@ -157,7 +157,7 @@ def _decide_shell(tool_input: dict[str, Any], session_id: str | None=None) -> di
     for pat in _SHELL_ALLOW:
         if pat.match(command):
             return _common.decision_payload('allow')
-    return _common.decision_payload('deny', reason=f'Shell command not in allow-list: {command!r}. Allowed prefixes: pytest, python3 -m pytest, python3 -c, python3 harness/sandbox.py, cat <<, tee, mkdir, chmod, touch, cp, mv, ln, rm -rf (restricted to /tmp/ + tests/fixtures/).')
+    return _common.decision_payload('deny', reason=f'Shell command not in allow-list: {command!r}. Allowed prefixes: pytest, python3 -m pytest, mkdir, touch (plus read-only cat restricted to the read-allowed roots).')
 
 def _reconstruct_replace(target_path: str, old_string: str, new_string: str) -> str:
     try:

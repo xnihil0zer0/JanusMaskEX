@@ -81,14 +81,14 @@ class TestBashInterceptorForeignFallback:
         # validate_command returns allow(None)/warn/deny — any is fine; key is no crash.
         assert out is None or out.get("decision") in ("allow", "deny")
 
-    def test_source_still_hardcodes_foreign_path(self):
+    def test_source_uses_project_root_not_foreign_path(self):
+        """L9 (was GAP-4): the bash interceptor's workspace fallback now uses
+        PROJECT_ROOT_STR, not the hardcoded foreign '/home/xnihil0zer0/NobleJanus'."""
         import inspect
         src = inspect.getsource(BashSafetyInterceptor.pre_tool_use)
-        assert "/home/xnihil0zer0/NobleJanus" in src, (
-            "GAP-4 source pin: if this fails the foreign hardcoded fallback was "
-            "fixed — update or drop this characterization assertion"
+        assert "/home/xnihil0zer0/NobleJanus" not in src, (
+            "the foreign hardcoded fallback must be gone (L9)"
         )
-        from harness.paths import PROJECT_ROOT_STR
-        assert PROJECT_ROOT_STR not in src, (
-            "bash interceptor still does NOT use PROJECT_ROOT for its fallback"
+        assert "PROJECT_ROOT_STR" in src, (
+            "bash interceptor must use PROJECT_ROOT_STR for its workspace fallback"
         )

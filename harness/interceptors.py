@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from harness.paths import PROJECT_ROOT_STR
 from services.neurosymbolic.ast_verifier import ASTVerifier
 from services.neurosymbolic.bash_validator import validate_command, PermissionMode
 
@@ -92,7 +93,7 @@ class BashSafetyInterceptor(BaseInterceptor):
         if not command or not isinstance(command, str):
             return None
 
-        workspace = Path(os.environ.get("JANUSMASK_PROJECT_DIR", "/home/xnihil0zer0/NobleJanus"))
+        workspace = Path(os.environ.get("JANUSMASK_PROJECT_DIR", PROJECT_ROOT_STR))
         mode_str = os.environ.get("JANUSMASK_PERMISSION_MODE", "WORKSPACE_WRITE")
 
         try:
