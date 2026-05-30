@@ -37,7 +37,13 @@ from harness.session_namer import generate_submission_filename  # noqa: E402
 
 logger = logging.getLogger("impl_outbox_watcher")
 
-_SESSION_RE = re.compile(r"^(claude|gemini)-r(\d+)-(.+)-([0-9a-f]{8})$")
+# H6 (:40, hand-edit -- module-constant, §3.10 wall): the session slug may carry a
+# fallback identity. claude_fallback (synthesis fallback, orchestrator.py) and
+# antigravity (default autobrief agent) are REAL spawn agents whose outbox slugs
+# were silently rejected by the old (claude|gemini)-only pattern. Widen to the full
+# spawn-agent set (state.VALID_AGENTS + claude_fallback). claude_fallback precedes
+# claude so the longer alternative is preferred on the shared prefix.
+_SESSION_RE = re.compile(r"^(claude_fallback|claude|gemini|antigravity)-r(\d+)-(.+)-([0-9a-f]{8})$")
 _POLL_INTERVAL = 0.5
 _shutdown = False
 

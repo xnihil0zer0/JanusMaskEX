@@ -68,47 +68,53 @@ def _ledger_rows(state_dir: pathlib.Path) -> list[dict]:
     return rows
 
 
-# --------------------------------------------------------- CASE-D (silent drop)
+# --------------------------------------------------- CASE-D (H6: fallback persisted)
 
 
 class TestSilentDropFallbackIdentities:
-    def test_claude_fallback_submission_silently_dropped(self, tmp_path):
-        """GAP-1: a valid claude_fallback outbox submission is never picked up.
+    """H6 fix-detectors (was characterization of the silent-drop GAP-1). The
+    watcher now accepts the full spawn-agent set: _SESSION_RE (:40, hand-edit)
+    parses the fallback slug and _scan_once's dir filter (:209, pipeline) accepts
+    the fallback agent dir, so a claude_fallback / antigravity submission is
+    persisted end-to-end (canonical JSON + allow ledger row)."""
 
-        characterization: this FAILS once the watcher filter is widened to
-        include claude_fallback (the intended fix). Until then it documents
-        the silent drop."""
+    def test_claude_fallback_submission_persisted(self, tmp_path):
+        """H6: a valid claude_fallback outbox submission is picked up end-to-end."""
         state_dir = tmp_path / "state"
         state_dir.mkdir()
         _stage_submission("claude_fallback", _VALID_CODE)
         rc = watcher.main(["--state-dir", str(state_dir), "--once"])
         assert rc == 0
-        # BUG: nothing persisted — the agent dir name failed the (claude|gemini) filter.
-        assert _sessions_jsons(state_dir) == [], (
-            "claude_fallback submission was persisted — filter widened? "
-            "this characterization test should now be converted to a fix-detector"
+        assert len(_sessions_jsons(state_dir)) == 1, (
+            "claude_fallback submission must be persisted (filter + regex widened)"
         )
-        assert _ledger_rows(state_dir) == [], "unexpected ledger row for claude_fallback"
+        allow = [r for r in _ledger_rows(state_dir) if r.get("outcome") == "allow"]
+        assert len(allow) == 1
+        assert allow[0]["detail"]["source"] == "outbox_watcher"
+        assert allow[0]["agent"] == "claude_fallback"
 
-    def test_antigravity_submission_silently_dropped(self, tmp_path):
-        """GAP-1 companion: antigravity (default autobrief agent) also dropped."""
+    def test_antigravity_submission_persisted(self, tmp_path):
+        """H6 companion: antigravity (default autobrief agent) also persisted."""
         state_dir = tmp_path / "state"
         state_dir.mkdir()
         _stage_submission("antigravity", _VALID_CODE)
         rc = watcher.main(["--state-dir", str(state_dir), "--once"])
         assert rc == 0
-        assert _sessions_jsons(state_dir) == [], (
-            "antigravity submission was persisted — filter widened?"
+        assert len(_sessions_jsons(state_dir)) == 1, (
+            "antigravity submission must be persisted (filter + regex widened)"
         )
-        assert _ledger_rows(state_dir) == []
+        allow = [r for r in _ledger_rows(state_dir) if r.get("outcome") == "allow"]
+        assert len(allow) == 1 and allow[0]["agent"] == "antigravity"
 
-    def test_session_regex_rejects_fallback_slug(self):
-        """Even if the dir filter were widened, _SESSION_RE (line 40) still
-        rejects the claude_fallback/antigravity prefixes — the regex is the
-        SECOND half of GAP-1."""
-        assert watcher._parse_session("claude_fallback-r1-T1-deadbeef") is None
-        assert watcher._parse_session("antigravity-r1-T1-deadbeef") is None
-        # control: claude/gemini parse fine
+    def test_session_regex_accepts_fallback_slug(self):
+        """H6 (:40): _SESSION_RE now parses the claude_fallback / antigravity
+        prefixes (the regex half of the fix)."""
+        assert watcher._parse_session("claude_fallback-r1-T1-deadbeef") is not None
+        assert watcher._parse_session("antigravity-r1-T1-deadbeef") is not None
+        # claude_fallback parses as its own agent, not as a "claude" prefix match.
+        parsed = watcher._parse_session("claude_fallback-r1-T1-deadbeef")
+        assert parsed[0] == "claude_fallback"
+        # control: claude/gemini still parse fine
         assert watcher._parse_session("claude-r1-T1-deadbeef") is not None
         assert watcher._parse_session("gemini-r2-T9-abcd1234") is not None
 
