@@ -2082,8 +2082,9 @@ def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
             logger.info('=== Round %d complete (Synthesis/AST failure) ===\n', round_number)
             continue
         mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
-        if mtt in BYPASS_FUZZER_TYPES:
-            if mtt not in SKIP_SMOKE_GATE_TYPES:
+        _skip_ifz = (mtt == 'test_authoring') and META_TASK_POLICY.get('test_authoring', {}).get('skip_interface_fuzz')
+        if mtt in BYPASS_FUZZER_TYPES or _skip_ifz:
+            if mtt not in SKIP_SMOKE_GATE_TYPES and not _skip_ifz:
                 smoke_err = smoke_import('_smoke_candidate', claude_code)
                 if smoke_err is not None:
                     logger.error('Smoke rejected bypass-eligible %s (mtt=%s): %s', task_id, mtt, smoke_err)
@@ -2256,6 +2257,7 @@ def main() -> None:
         sys.exit(1)
 from harness.planner.taxonomies import BYPASS_FUZZER_TYPES
 from harness.planner.taxonomies import SKIP_SMOKE_GATE_TYPES
+from harness.planner.taxonomies import META_TASK_POLICY
 
 @dataclass
 class Task:

@@ -144,7 +144,7 @@ def main() -> int:
             from concurrent.futures import ThreadPoolExecutor, as_completed
             from harness import orchestrator as orch
             from harness.state import init_state, locked_read_modify_write, set_agent_status, set_phase
-            from harness.planner.taxonomies import BYPASS_FUZZER_TYPES, SKIP_SMOKE_GATE_TYPES
+            from harness.planner.taxonomies import BYPASS_FUZZER_TYPES, SKIP_SMOKE_GATE_TYPES, META_TASK_POLICY
             from harness.sandbox_smoke import smoke_import
             from harness.embedded_test_runner import run_embedded_tests
             from harness.narrow_fuzz import run_narrow_fuzz
@@ -317,8 +317,9 @@ def main() -> int:
                 exit_code = 1
                 return exit_code
             mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
-            if mtt in BYPASS_FUZZER_TYPES:
-                if mtt not in SKIP_SMOKE_GATE_TYPES:
+            _skip_ifz = (mtt == 'test_authoring') and META_TASK_POLICY.get('test_authoring', {}).get('skip_interface_fuzz')
+            if mtt in BYPASS_FUZZER_TYPES or _skip_ifz:
+                if mtt not in SKIP_SMOKE_GATE_TYPES and not _skip_ifz:
                     smoke_err = smoke_import('_smoke_candidate', agent_a_code)
                     if smoke_err is not None:
                         set_phase(state_dir, phase='rejected')
