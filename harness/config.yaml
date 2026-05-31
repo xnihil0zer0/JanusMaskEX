@@ -109,7 +109,12 @@ synthesis:
   clarification_timeout_sec: 60
   max_ast_retries: 3
   max_clarification_requests: 2
-  timeout_seconds: 1200
+  # Synthesis window per agent per round. Widened 1200->1800 (2026-05-31): the
+  # hardened A-TEST (read-first grounding mandate) makes claude's thorough
+  # whole-file authoring take ~23min, which overran the old 1200s window and
+  # tripped 'TimeoutError(1 of 2 futures unfinished)'. HARD budget = 2*window+slack
+  # scales with this; fast tasks finish early (window is a ceiling, not a duration).
+  timeout_seconds: 1800
   # H5: cap for the verification_command subprocess on BOTH the accept path
   # (_auto_commit_accepted) and the baseline precompute (_precompute_baseline_test_results).
   # Decoupled from timeout_seconds so the verify cap can be tuned independently;
