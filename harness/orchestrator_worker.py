@@ -643,11 +643,16 @@ RECONCILE_SLACK_SECONDS = 300.0
 
 def _compute_timeout_budgets(config: dict) -> tuple[float, float]:
     """Return (HARD_TIMEOUT_SECONDS, SYNTHESIS_WINDOW_SECONDS) derived from
-    synthesis.timeout_seconds. window = timeout; hard = timeout + slack, so the
-    inner hard budget always sits below the daemon watchdog
-    (max(1800, timeout+300)) with margin."""
+    synthesis.timeout_seconds. window == timeout (unchanged); hard ==
+    2*timeout + slack so that after consuming one full synthesis window the
+    remaining budget (window + slack) still covers a full retry window,
+    permitting exactly one retry, while a second retry is refused (remaining
+    == slack < window), capping the worker at <= 2 attempts. Under DAEMON
+    dispatch the daemon watchdog max(1800.0, timeout + 300.0)
+    (autowork_daemon.py:1373) may bind first, so the full 2-window hard
+    budget is realized on FOREGROUND runs."""
     synthesis_timeout = float((config or {}).get('synthesis', {}).get('timeout_seconds', 600.0))
-    return (synthesis_timeout + RECONCILE_SLACK_SECONDS, synthesis_timeout)
+    return (synthesis_timeout * 2 + RECONCILE_SLACK_SECONDS, synthesis_timeout)
 
 
 if __name__ == '__main__':
