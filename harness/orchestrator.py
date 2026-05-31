@@ -348,6 +348,58 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.OK}spawning{_C.RESET} {_C.DIM}{cmd[0]}{_C.RESET}')
     logger.info('Spawning %s: %s', agent, ' '.join(cmd[:6]) + ' ...')
     # AGENT-ISOLATION §3.2: cwd is the isolated, outside-repo workdir.
+    # AGY-FIX (STDIN synthesis): agy-backed agents (config keys gemini /
+    # claude_fallback / antigravity, command basename 'agy') run an agentic
+    # cascade that tries to WRITE the read-only jailed repo instead of
+    # submitting code, producing {"code": "# Placeholder"} and timing out.
+    # For those agents, route the prompt over STDIN with a no-file-write tail
+    # and parse a single fenced python block into the outbox submission. The
+    # jail (above) is kept; stdin/stdout compose through bwrap. The real
+    # 'claude' command (basename 'claude') falls through to the original
+    # streamed Popen path below, UNTOUCHED (no stdin).
+    _is_agy = os.path.basename(config['agents'][agent]['command']) == 'agy'
+    if _is_agy:
+        agy_cmd = list(cmd)
+        # The prompt now goes over STDIN, so strip the `-p <prompt>` positional
+        # that _build_agent_command inserted (works post-jail-wrap or pre-jail).
+        try:
+            _p_index = agy_cmd.index('-p')
+            del agy_cmd[_p_index:_p_index + 2]
+        except ValueError:
+            pass
+        _no_write_tail = (
+            '\n\nDo NOT write, create, or edit any file. Do NOT use any '
+            'file-editing or shell tool. Output ONLY the complete solution as a '
+            'single fenced ```python code block — the full contents of the '
+            'target file — no prose before or after.'
+        )
+        stdin_prompt = resolved_prompt + _no_write_tail
+        proc = subprocess.Popen(agy_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, start_new_session=True, cwd=str(Path(env['JANUSMASK_WORK_DIR'])))
+        proc._work_dir = Path(env['JANUSMASK_WORK_DIR'])
+        _timeout = config.get('synthesis', {}).get('timeout_seconds', 1200)
+        try:
+            out, _err = proc.communicate(input=stdin_prompt, timeout=_timeout)
+        except subprocess.TimeoutExpired:
+            # Graceful fail: kill the process group and write NO submission so
+            # the gate rejects this round.
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+            return proc
+        from harness.test_author import _extract_python_block
+        block = _extract_python_block(out)
+        if block.strip() and block.strip() != '# Placeholder':
+            sub_path = outbox_path / 'submission.py'
+            try:
+                tmp = sub_path.with_suffix(sub_path.suffix + '.tmp')
+                tmp.write_text(block)
+                tmp.replace(sub_path)
+            except OSError:
+                logger.warning('AGY-FIX: outbox submission write failed for %s', sub_path)
+        # proc has already exited; poll_for_submission promotes the outbox on its
+        # first loop iteration and kill_agent early-returns (proc.poll() is set).
+        return proc
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, start_new_session=True, cwd=str(Path(env['JANUSMASK_WORK_DIR'])))
     proc._work_dir = Path(env['JANUSMASK_WORK_DIR'])
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.DIM}pid={proc.pid}{_C.RESET}')
