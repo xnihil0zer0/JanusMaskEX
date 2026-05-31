@@ -168,6 +168,10 @@ def _extract_python_block(text: str) -> str:
             out.append(line)
     if out:
         return '\n'.join(out).rstrip() + '\n'
+    try:
+        ast.parse(text)
+    except Exception:
+        return ''
     return text.strip() + '\n'
 
 def _default_gen_fn(prompt: str, *, session_dir, attempt: int):
