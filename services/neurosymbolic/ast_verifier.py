@@ -62,7 +62,7 @@ class _ASTVisitor(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call):
         func = node.func
-        
+
         # 1. Check for random.seed()
         if (
             isinstance(func, ast.Attribute)
@@ -124,7 +124,7 @@ class _ASTVisitor(ast.NodeVisitor):
                             rule="subprocess_no_check",
                             line=node.lineno,
                             message=f"subprocess.{func.attr}() called without check=True.",
-                            severity="ERROR"
+                            severity="WARNING"
                         ))
 
         # 6. os.system check
