@@ -1668,6 +1668,66 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
         # Verification succeeded!
         logger.info('auto-commit: SUCCESS in staging for %s -> %s (sha=%s)', task_id, target_rel, result.get('sha'))
 
+        # PHASE B (G-MUTATION-GATE): non-vacuity / fix-detector gate for
+        # agent-authored tests. Verification PASSED against the correct staged
+        # code above; a genuine detector must ALSO fail against a declared
+        # mutant. Re-run vcmd in a throwaway COPY of staging with each mutant
+        # applied; reject (rollback) if any mutant still passes (a vacuous test).
+        # Engages for meta_task_type 'test_authoring' (which MUST declare a
+        # mutant -> fail-closed) and for any task declaring mutations/
+        # mutation_target; no-op for all other tasks (preserves existing accept).
+        _mut_specs = list(task.get('mutations') or [])
+        _mut_target = task.get('mutation_target')
+        if _mtt == 'test_authoring' or _mut_specs or _mut_target:
+            if not _mut_specs and not _mut_target:
+                logger.warning('mutation_gate_missing: task=%s declares no mutant -- rejected fail-closed', task_id)
+                _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'mutation_gate_missing')
+                git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
+                try:
+                    write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'mutation_gate_missing', 'commit_sha': result.get('sha'), 'files': files_touched, 'reason': 'test_authoring task must declare mutation_target or mutations[]'})
+                except OSError as _exc:
+                    logger.warning('mutation_gate_missing: ledger append failed for %s: %s', task_id, _exc)
+                return False
+            import tempfile
+            _mut_all = list(_mut_specs)
+            if _mut_target:
+                _mut_all.append({'stub_target': _mut_target})
+            for _mi, _mut in enumerate(_mut_all):
+                _mtmp = tempfile.mkdtemp(prefix='jm_mutgate_')
+                _mvacuous = True
+                try:
+                    _mcopy = os.path.join(_mtmp, 'staging')
+                    shutil.copytree(str(staging_path), _mcopy, symlinks=True, ignore=shutil.ignore_patterns('.git', '__pycache__', '*.pyc'))
+                    _applied = True
+                    if _mut.get('stub_target'):
+                        from harness import test_author
+                        _sf = os.path.join(_mcopy, _mut['stub_target'].replace('.', '/') + '.py')
+                        with open(_sf, 'r', encoding='utf-8') as _rf:
+                            _osrc = _rf.read()
+                        with open(_sf, 'w', encoding='utf-8') as _wf:
+                            _wf.write(test_author.stub_for(_osrc))
+                    elif _mut.get('apply'):
+                        _ap = subprocess.run(f"set -o pipefail; {_mut['apply']}", shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
+                        _applied = (_ap.returncode == 0)
+                    else:
+                        _applied = False
+                    if _applied:
+                        _mproc = subprocess.run(f'set -o pipefail; {vcmd}', shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
+                        _mvacuous = (_mproc.returncode == 0)
+                    # _applied False (un-appliable mutant) -> _mvacuous stays True -> reject fail-closed
+                finally:
+                    shutil.rmtree(_mtmp, ignore_errors=True)
+                if _mvacuous:
+                    logger.warning('mutation_gate_failed: task=%s mutant #%d did not break verification (vacuous test) -- staging rolled back', task_id, _mi)
+                    _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'mutation_gate_failed')
+                    git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
+                    try:
+                        write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'mutation_gate_failed', 'commit_sha': result.get('sha'), 'files': files_touched, 'mutant_index': _mi})
+                    except OSError as _exc:
+                        logger.warning('mutation_gate_failed: ledger append failed for %s: %s', task_id, _exc)
+                    return False
+            logger.info('mutation_gate: task=%s passed %d mutant(s)', task_id, len(_mut_all))
+
         try:
             write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'accepted', 'task_id': task_id, 'event': 'auto_commit', 'commit_sha': result.get('sha'), 'files': files_touched, 'exit': 0})
         except OSError as exc:
