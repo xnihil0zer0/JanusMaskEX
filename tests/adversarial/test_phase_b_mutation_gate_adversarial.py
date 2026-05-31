@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -324,4 +325,91 @@ def test_phase_b_normal_task_unaffected(tmp_path):
     merged = (worktree / _TARGET_REL).read_text(encoding="utf-8")
     assert "feature_touched" in merged, (
         "the normal accept must merge the agent's added symbol into the parent"
+    )
+
+
+# ---------------------------------------------------------------------------
+# (H1-1) MALFORMED mutation_target -> REJECT mutation_gate_error (no raise)
+# ---------------------------------------------------------------------------
+def test_phase_b_malformed_mutation_target_rejected(tmp_path):
+    """RED on current HEAD (no target validation → the malformed
+    target either crashes or is mis-handled, so no `mutation_gate_error` row);
+    GREEN post-H1.
+    """
+    state_dir, worktree = _make_parent(tmp_path, module_src=_MODULE_GOOD, test_src=_TEST_GENUINE)
+    parent_head_before = _git(worktree, "rev-parse", "HEAD").stdout.strip()
+
+    task_id = "PHASE_B_MALFORMED_TARGET"
+    (state_dir / "output" / f"{task_id}.py").write_text(_MODULE_OUTPUT, encoding="utf-8")
+    task = {
+        "task_id": task_id,
+        "meta_task_type": "test_authoring",
+        "files_touched": [_TARGET_REL],
+        "verification_command": _VCMD,
+        "mutation_target": "feature_mod.py",
+    }
+
+    try:
+        committed = _auto_commit_accepted(state_dir, task, task_id)
+    except Exception as e:
+        pytest.fail(f"the H1 gate must catch target validation errors and return False, not raise: {e}")
+
+    assert committed is False, "malformed mutation_target must be rejected fail-closed"
+
+    rows = _read_rows(state_dir / "impl_progress.jsonl")
+    err_rows = [r for r in rows if r.get("event") == "mutation_gate_error"]
+    assert len(err_rows) >= 1, f"expected mutation_gate_error event, got rows={rows}"
+    assert err_rows[0]["phase"] == "rejected"
+    assert [r for r in rows if r.get("event") == "auto_commit"] == []
+
+    parent_head_after = _git(worktree, "rev-parse", "HEAD").stdout.strip()
+    assert parent_head_after == parent_head_before, "parent HEAD must be unchanged on target rejection"
+    assert (worktree / _TARGET_REL).read_text(encoding="utf-8") == _MODULE_GOOD, (
+        "parent target file must be untouched on target rejection"
+    )
+
+
+# ---------------------------------------------------------------------------
+# (H1-2) UNEXPECTED gate exception -> caught, rolled back, return False (no raise)
+# ---------------------------------------------------------------------------
+def test_phase_b_gate_exception_rolls_back_and_does_not_raise(tmp_path, monkeypatch):
+    """RED on current HEAD (no try/except → the OSError propagates and
+    the test errors / the staging commit is left un-rolled-back, and there is no
+    `mutation_gate_error` row); GREEN post-H1 (caught, rolled back, returns False).
+    """
+    state_dir, worktree = _make_parent(tmp_path, module_src=_MODULE_GOOD, test_src=_TEST_GENUINE)
+    parent_head_before = _git(worktree, "rev-parse", "HEAD").stdout.strip()
+
+    task_id = "PHASE_B_GATE_EXC"
+    (state_dir / "output" / f"{task_id}.py").write_text(_MODULE_OUTPUT, encoding="utf-8")
+    task = {
+        "task_id": task_id,
+        "meta_task_type": "test_authoring",
+        "files_touched": [_TARGET_REL],
+        "verification_command": _VCMD,
+        "mutations": [{"apply": _MUTANT_APPLY, "expect": "fail"}],
+    }
+
+    def _boom(*args, **kwargs):
+        raise OSError("simulated ENOSPC")
+
+    monkeypatch.setattr(shutil, "copytree", _boom)
+
+    try:
+        committed = _auto_commit_accepted(state_dir, task, task_id)
+    except Exception as e:
+        pytest.fail(f"the H1 gate must catch the exception and return False, not raise: {e}")
+
+    assert committed is False
+
+    rows = _read_rows(state_dir / "impl_progress.jsonl")
+    err_rows = [r for r in rows if r.get("event") == "mutation_gate_error"]
+    assert len(err_rows) >= 1, f"expected mutation_gate_error event, got rows={rows}"
+    assert err_rows[0]["phase"] == "rejected"
+    assert [r for r in rows if r.get("event") == "auto_commit"] == []
+
+    parent_head_after = _git(worktree, "rev-parse", "HEAD").stdout.strip()
+    assert parent_head_after == parent_head_before, "parent HEAD must be unchanged on exception"
+    assert (worktree / _TARGET_REL).read_text(encoding="utf-8") == _MODULE_GOOD, (
+        "parent target file must be untouched on exception"
     )
