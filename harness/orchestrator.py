@@ -1348,6 +1348,9 @@ def _rollback_rejected_commit(worktree_root: Path, sha: str | None, target_rel: 
     if not head_sha:
         logger.error('%s rollback: empty HEAD for %s; skipping rollback to avoid corrupting worktree', kind, task_id)
         return
+    if not sha:
+        logger.error('%s rollback: no sha recorded for %s; skipping rollback to avoid a destructive HEAD~1 reset', kind, task_id)
+        return
     if sha and head_sha != sha:
         try:
             rev = subprocess.run(['git', 'revert', '--no-edit', sha], cwd=str(worktree_root), capture_output=True, text=True, timeout=30)
