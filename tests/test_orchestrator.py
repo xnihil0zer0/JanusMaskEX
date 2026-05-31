@@ -1339,3 +1339,96 @@ def test_fuzzer_bypass_smoke_gating_unaffected():
     t_non = Task(task_id="t", meta_task_type="cli_tooling")
     assert should_bypass_fuzzer(t_non) is False
 
+
+class TestSpawnAgentAgyStdin:
+    @pytest.fixture
+    def agent_config_agy(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("JANUSMASK_AGENT_WORKROOT", str(tmp_path / "agentwork"))
+        return {
+            "synthesis": {"timeout_seconds": 1200},
+            "state_dir": str(tmp_path / "test_state"),
+            "agent_sandbox": {"bwrap": False},
+            "agents": {
+                "claude": {
+                    "command": "claude",
+                    "args": ["-p", "--model", "claude-opus-4-6",
+                             "--permission-mode", "plan",
+                             "--output-format", "json",
+                             "--settings", f"{_REPO_ROOT}/config/claude_worker_hooks.json",
+                             "--project-dir", _REPO_ROOT],
+                },
+                "gemini": {
+                    "command": "/some/path/agy",
+                    "args": ["-p", "--approval-mode", "yolo",
+                             "--format", "json"],
+                },
+            },
+        }
+
+    @patch("harness.orchestrator.subprocess.Popen")
+    def test_agy_command_routes_via_stdin(self, mock_popen, agent_config_agy):
+        mock_proc = MagicMock()
+        mock_proc.pid = 1
+        mock_proc.poll.return_value = 0
+        mock_proc.communicate.return_value = ("```python\ndef f():\n    return 1\n```\n", "")
+        mock_popen.return_value = mock_proc
+
+        res = spawn_agent("gemini", "PROMPT", agent_config_agy, 1)
+
+        assert mock_popen.call_args[1].get("stdin") is subprocess.PIPE
+
+        cmd = mock_popen.call_args[0][0]
+        if "-p" in cmd:
+            p_idx = cmd.index("-p")
+            if p_idx + 1 < len(cmd):
+                assert cmd[p_idx + 1] != "PROMPT"
+        assert "PROMPT" not in cmd
+
+        comm_call = mock_proc.communicate.call_args
+        assert comm_call is not None
+        comm_kwargs = comm_call[1]
+        stdin_input = comm_kwargs.get("input", "")
+        assert "PROMPT" in stdin_input
+        assert "code block" in stdin_input or "single fenced" in stdin_input or "Do NOT write" in stdin_input
+        assert comm_kwargs.get("timeout") == 1200
+
+        cwd = mock_popen.call_args[1]["cwd"]
+        sub_path = Path(cwd) / "outbox" / "submission.py"
+        assert sub_path.exists()
+        text = sub_path.read_text()
+        assert "def f():" in text
+        assert "```" not in text
+        assert res is mock_proc
+
+    @patch("harness.orchestrator.subprocess.Popen")
+    def test_agy_placeholder_writes_no_submission(self, mock_popen, agent_config_agy):
+        mock_proc = MagicMock()
+        mock_proc.pid = 1
+        mock_proc.poll.return_value = 0
+        mock_proc.communicate.return_value = ("# Placeholder\n", "")
+        mock_popen.return_value = mock_proc
+
+        spawn_agent("gemini", "PROMPT", agent_config_agy, 1)
+
+        # This branch must exercise the agy STDIN route (RED on HEAD: the route does
+        # not exist yet, so Popen is called without stdin=PIPE / communicate is never
+        # invoked). On the fixed harness the route exists but a '# Placeholder' body
+        # must NOT be promoted to a submission.
+        assert mock_popen.call_args[1].get("stdin") is subprocess.PIPE
+        mock_proc.communicate.assert_called_once()
+        cwd = mock_popen.call_args[1]["cwd"]
+        sub = Path(cwd) / "outbox" / "submission.py"
+        assert (not sub.exists()) or (not sub.read_text().strip())
+
+    @patch("harness.orchestrator.start_stream_threads")
+    @patch("harness.orchestrator.subprocess.Popen")
+    def test_claude_path_unchanged_no_stdin(self, mock_popen, mock_stream, agent_config_agy):
+        mock_proc = MagicMock()
+        mock_proc.pid = 2
+        mock_popen.return_value = mock_proc
+
+        spawn_agent("claude", "do task", agent_config_agy)
+
+        assert "stdin" not in mock_popen.call_args[1]
+        mock_stream.assert_called_once()
+        assert mock_popen.call_args[1].get("start_new_session") is True
