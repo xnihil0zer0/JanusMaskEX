@@ -47,7 +47,7 @@ def test_retry_budget_exhaustion_exits_with_status_2(state_dir: Path) -> None:
     argv = ['--state-dir', str(state_dir), '--task-id', task_id]
     with patch('sys.argv', [''] + argv), patch('harness.orchestrator.load_config') as mock_load_config, patch('harness.orchestrator.run_both_agents') as mock_run_both, patch('harness.orchestrator_worker._precompute_baseline_test_results'), patch('harness.orchestrator._clear_stale_submissions'), patch('time.monotonic') as mock_mono:
         mock_load_config.return_value = {'synthesis': {'max_ast_retries': 3, 'use_retry_module': False, 'active_agents': ['claude', 'gemini']}}
-        mock_mono.side_effect = [0.0, 400.0, 400.0]
+        mock_mono.side_effect = [0.0, 1000.0, 1000.0]
         mock_run_both.return_value = (None, 'code')
         exit_code = main()
         assert exit_code == 2
