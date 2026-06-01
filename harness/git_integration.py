@@ -1292,7 +1292,18 @@ def create_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
         raise
 
 def remove_staging_worktree(staging_path: str, parent_root: str | pathlib.Path | None=None) -> None:
-    """Removes the staging worktree cleanly."""
+    """Removes the staging worktree cleanly.
+
+    PHASE_STAGING_RM_NOTIMEOUT: the `git worktree remove -f` invocation is
+    wrapped in a bounded, fixed-count retry loop and EACH subprocess.run
+    carries a bounded positive timeout= so a busy/locked staging worktree
+    fails fast instead of hanging the pipeline. Both subprocess.TimeoutExpired
+    and subprocess.CalledProcessError are caught and logged per attempt and
+    never propagated; on persistent failure the function logs an error and
+    falls through to the shutil.rmtree(ignore_errors=True) fallback. The retry
+    is a deterministic fixed-count loop with per-call timeouts -- no time.sleep
+    / wall-clock backoff is introduced.
+    """
     import logging
     import shutil
     import pathlib
@@ -1301,7 +1312,7 @@ def remove_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
     staging_path_obj = pathlib.Path(staging_path).resolve()
     if parent_root is None:
         try:
-            res = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=True)
+            res = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=True, timeout=30)
             parent_root_obj = pathlib.Path(res.stdout.strip()).resolve()
         except Exception:
             parent_root_obj = pathlib.Path(__file__).resolve().parent.parent
@@ -1309,18 +1320,24 @@ def remove_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
         parent_root_obj = pathlib.Path(parent_root).resolve()
     cwd_str = str(parent_root_obj)
     try:
-        subprocess.run(['git', 'worktree', 'prune'], cwd=cwd_str, check=False, capture_output=True)
+        subprocess.run(['git', 'worktree', 'prune'], cwd=cwd_str, check=False, capture_output=True, timeout=30)
     except Exception:
         pass
-    try:
-        subprocess.run(['git', 'worktree', 'remove', '-f', str(staging_path_obj)], cwd=cwd_str, check=True, capture_output=True, text=True)
-        logger.info(f'Removed staging worktree reference for {staging_path}')
-    except subprocess.CalledProcessError as e:
-        logger.warning(f'git worktree remove failed: {e.stderr}')
+    removed = False
+    for attempt in range(3):
         try:
-            subprocess.run(['git', 'worktree', 'prune'], cwd=cwd_str, check=True, capture_output=True)
-        except Exception:
-            pass
+            subprocess.run(['git', 'worktree', 'remove', '-f', str(staging_path_obj)], cwd=cwd_str, check=True, capture_output=True, text=True, timeout=60)
+            logger.info(f'Removed staging worktree reference for {staging_path}')
+            removed = True
+            break
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
+            logger.warning(f'git worktree remove attempt {attempt + 1}/3 failed: {e}')
+            try:
+                subprocess.run(['git', 'worktree', 'prune'], cwd=cwd_str, check=False, capture_output=True, timeout=30)
+            except Exception:
+                pass
+    if not removed:
+        logger.error(f'git worktree remove failed after 3 attempts for {staging_path}; falling back to rmtree')
     if staging_path_obj.exists():
         shutil.rmtree(staging_path_obj, ignore_errors=True)
         logger.info(f'Deleted staging directory at {staging_path}')
