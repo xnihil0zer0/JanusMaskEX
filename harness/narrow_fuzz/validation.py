@@ -173,9 +173,14 @@ def _exec_module(module_name: str, module_src: str) -> dict[str, Any] | None:
     # sys.path, imports candidate, reports discovered callables + their
     # _narrow_fuzz_meta, then services JSON request lines from stdin.
     # ONLY framed JSON lines go to stdout (diagnostics would go to stderr)
-    # to avoid stdin/stdout deadlock. Uses no backslash escapes; newlines
-    # are emitted via chr(10).
-    _driver = """import sys, os, json, traceback
+    # to avoid stdin/stdout deadlock. Candidate output is isolated from the
+    # framed-JSON protocol stream: stdout is redirected to sys.stderr (which
+    # is DEVNULL at spawn) around candidate import and every invocation via
+    # contextlib.redirect_stdout, so a candidate cannot spoof or corrupt the
+    # readline-based messaging stream; only driver-controlled _emit calls,
+    # made outside the redirect, reach the real sys.stdout. Uses no
+    # backslash escapes; newlines are emitted via chr(10).
+    _driver = """import sys, os, json, traceback, contextlib
 _WD = os.path.dirname(os.path.abspath(__file__))
 if _WD not in sys.path:
     sys.path.insert(0, _WD)
@@ -190,7 +195,8 @@ def _emit(obj):
 
 
 try:
-    import candidate
+    with contextlib.redirect_stdout(sys.stderr):
+        import candidate
 except BaseException as _exc:
     _emit({'status': 'error', 'exc_type': type(_exc).__name__, 'exc_msg': str(_exc)})
     sys.exit(0)
@@ -221,7 +227,8 @@ for _line in sys.stdin:
         _emit({'status': 'ok'})
         continue
     try:
-        _fn(**_req.get('kwargs', {}))
+        with contextlib.redirect_stdout(sys.stderr):
+            _fn(**_req.get('kwargs', {}))
         _emit({'status': 'ok'})
     except BaseException as _exc:
         _emit({'status': 'exc', 'exc_type': type(_exc).__name__, 'exc_msg': str(_exc), 'tb': traceback.format_exc(limit=3)})
