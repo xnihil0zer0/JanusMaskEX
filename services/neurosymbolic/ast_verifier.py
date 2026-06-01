@@ -158,11 +158,16 @@ class _ASTVisitor(ast.NodeVisitor):
     def visit_ExceptHandler(self, node: ast.ExceptHandler):
         # Bare except: except:
         if node.type is None:
+            # Parity with harness/ast_enforcer.py: only an exactly-`except: pass`
+            # body is a blocking ERROR. A bare except whose body does real work is
+            # accepted at commit time, so downgrade it to a non-blocking WARNING to
+            # restore the submit ⊆ commit invariant (still reported, not deleted).
+            is_bare_pass = len(node.body) == 1 and isinstance(node.body[0], ast.Pass)
             self.violations.append(Violation(
                 rule="bare_except",
                 line=node.lineno,
                 message="Bare `except:` catches all exceptions including system signals. Use specific exceptions.",
-                severity="ERROR"
+                severity="ERROR" if is_bare_pass else "WARNING"
             ))
         else:
             # Check except Exception/BaseException with pass
