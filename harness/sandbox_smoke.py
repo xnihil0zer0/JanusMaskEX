@@ -109,7 +109,11 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
         if agent_jail.sandbox_enabled(load_config()):
             repo_root = root if root is not None else pathlib.Path(__file__).resolve().parents[1]
             state_dir = repo_root / 'state'
-            extra_ro = [sys.base_prefix] + _site_packages_dirs()
+            # Bind both the real interpreter tree (sys.base_prefix, which holds
+            # the binary the venv python3 symlink targets) and the venv prefix
+            # (sys.prefix, which supplies bin/python3) so the jailed python3
+            # launches as the venv's interpreter rather than bare system python.
+            extra_ro = [sys.base_prefix, sys.prefix] + _site_packages_dirs()
             try:
                 # Use a jail-resolvable interpreter ('python3', not
                 # sys.executable) so it resolves from the ro-bound /usr,/bin and
@@ -122,6 +126,11 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
                     state_dir=state_dir,
                     extra_ro=extra_ro,
                 )
+                # Prepend the venv bin dir to PATH so bare 'python3' inside the
+                # jail resolves to the venv's 3.13 interpreter (not system
+                # python3 < 3.11, which triggers pytest's py310 exceptiongroup
+                # shim and false-rejects the smoke). Only on the jailed path.
+                env['PATH'] = os.pathsep.join([os.path.join(sys.prefix, 'bin'), env['PATH']])
             except FileNotFoundError:
                 # bwrap absent on the host -> fall back to the unjailed cmd.
                 # A TypeError (call-site bug) must NOT be swallowed: fail closed.
