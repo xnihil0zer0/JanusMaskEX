@@ -109,6 +109,13 @@ def run_embedded_tests(
     if not _MODULE_NAME_RE.match(module_name):
         return f"embedded tests rejected: invalid module_name {module_name!r}"
 
+    # Lazy in-body imports (no new module-level imports / top-level symbols).
+    from harness.orchestrator import load_config
+    from harness.agent_jail import build_jail_argv, sandbox_enabled
+    from harness.paths import PROJECT_ROOT, STATE_DIR
+
+    sandboxed = sandbox_enabled(load_config())
+
     pytest_site = _pytest_site_dir()
 
     with tempfile.TemporaryDirectory() as td:
@@ -118,8 +125,15 @@ def run_embedded_tests(
         env = dict(_WORKER_SCRUB_ENV)
         env["PYTHONPATH"] = f"{td_path}{os.pathsep}{pytest_site}"
 
+        # When sandboxing, the subprocess runs a bare ``python3`` inside the
+        # bwrap jail; prepend the venv bin dir so it resolves to the
+        # pytest-bearing venv interpreter rather than /usr/bin/python3.
+        python = "python3" if sandboxed else sys.executable
+        if sandboxed:
+            env["PATH"] = f"{os.path.join(sys.prefix, 'bin')}{os.pathsep}{env['PATH']}"
+
         collect_argv = [
-            sys.executable,
+            python,
             "-S",
             "-m",
             "pytest",
@@ -127,6 +141,14 @@ def run_embedded_tests(
             "-q",
             f"{module_name}.py",
         ]
+        if sandboxed:
+            collect_argv = build_jail_argv(
+                collect_argv,
+                repo_root=PROJECT_ROOT,
+                work_dir=str(td_path),
+                state_dir=STATE_DIR,
+                extra_ro=[sys.base_prefix, sys.prefix],
+            )
         try:
             proc = subprocess.run(
                 collect_argv,
@@ -147,7 +169,7 @@ def run_embedded_tests(
             return f"embedded tests collect failed: {msg}"
 
         run_argv = [
-            sys.executable,
+            python,
             "-S",
             "-m",
             "pytest",
@@ -156,6 +178,14 @@ def run_embedded_tests(
             "-q",
             f"{module_name}.py",
         ]
+        if sandboxed:
+            run_argv = build_jail_argv(
+                run_argv,
+                repo_root=PROJECT_ROOT,
+                work_dir=str(td_path),
+                state_dir=STATE_DIR,
+                extra_ro=[sys.base_prefix, sys.prefix],
+            )
         try:
             proc = subprocess.run(
                 run_argv,
