@@ -1542,6 +1542,20 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     disabled, all three runs fall back to the ORIGINAL ``shell=True`` /
     ``executable='/bin/bash'`` behavior byte-for-byte.
 
+    SEC-3 (FAIL_CLOSED_VERIFY): the verify try/except previously caught only
+    ``subprocess.TimeoutExpired``, so when sandboxing is ENABLED but bwrap is
+    ABSENT the ``build_jail_argv`` / ``subprocess.run`` raised
+    ``FileNotFoundError`` that escaped UNCAUGHT and crashed the worker. The
+    verify run now ALSO catches ``FileNotFoundError`` (only when
+    ``agent_jail.sandbox_enabled(load_config())`` is True): it logs a clear
+    ``verification_sandbox_error`` warning, rolls back the staging commit via
+    ``_rollback_rejected_commit``, removes the staging worktree via
+    ``git_integration.remove_staging_worktree``, writes a rejected ledger row,
+    and returns ``False`` CLEANLY -- it NEVER re-raises and NEVER falls through
+    to an unjailed run. When sandboxing is DISABLED a FileNotFoundError is
+    re-raised so the historical (no-handler) behavior of the unjailed
+    shell=True branch is preserved byte-for-byte.
+
     SEC-5c (VERIFY_EXTRA_BINDS): on top of the SEC-2 prefix binds, every jailed
     ``build_jail_argv`` call now widens ``extra_ro`` with the config-driven
     ``agent_sandbox.verify_extra_ro`` allowlist and gains an ``extra_rw`` from
@@ -1815,6 +1829,27 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
             elif isinstance(partial_err, str):
                 verify_stderr = partial_err
             verify_stderr = (verify_stderr + '\n' if verify_stderr else '') + f'[verification_command timed out after {verification_timeout}s: {texc!r}]'
+        except FileNotFoundError as fnf:
+            # SEC-3 (FAIL_CLOSED_VERIFY): when sandboxing is ENABLED the verify
+            # run is routed through agent_jail.build_jail_argv, whose bubblewrap
+            # binary (bwrap) may be ABSENT on the host. In that case
+            # build_jail_argv / subprocess.run raises FileNotFoundError which
+            # previously escaped UNCAUGHT and crashed the worker. Fail CLOSED:
+            # roll back the staging commit, remove the staging worktree, write a
+            # rejected ledger row, and return False -- NEVER fall through to an
+            # unjailed run. When sandboxing is DISABLED a FileNotFoundError is
+            # re-raised to preserve the historical (no-handler) behavior of the
+            # unjailed shell=True branch byte-for-byte.
+            if agent_jail.sandbox_enabled(load_config()):
+                logger.warning('verification_sandbox_error: task=%s -- sandbox enabled but bwrap/jail unavailable (%r); staging rolled back fail-closed (never run unjailed)', task_id, fnf)
+                _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'verification_sandbox_error')
+                git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
+                try:
+                    write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'verification_sandbox_error', 'commit_sha': result.get('sha'), 'files': [target_rel], 'reason': str(fnf)})
+                except OSError as exc:
+                    logger.warning('verification_sandbox_error: ledger append failed for %s: %s', task_id, exc)
+                return False
+            raise
 
         if verify_exit != 0:
             cmd_preview = vcmd if len(vcmd) <= 200 else vcmd[:200] + '...(truncated)'
