@@ -973,10 +973,23 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
     that block, preserving every byte outside it. For a nested target the
     replacement is re-indented to the located node's ``col_offset``.
 
-    *new_block* must itself ``ast.parse`` to exactly one def/class node whose
-    leaf name equals *qualname*'s leaf -- otherwise ``ValueError`` (prevents
-    an agent silently renaming the symbol or smuggling extra top-level
-    statements). Raises ``KeyError`` when *qualname* is not found.
+    *new_block* must ``ast.parse`` to EXACTLY ONE primary def/class node
+    whose leaf name equals *qualname*'s leaf -- otherwise ``ValueError``
+    (zero or >1 name-matching def/class nodes is rejected).
+
+    PHASE_R_ANCHORED_PATCH: a BOUNDED set of EXTRA top-level nodes may
+    accompany the primary, but ONLY for a 1-part (top-level) qualname.
+    Each extra must be one of ``ast.Import`` / ``ast.ImportFrom`` /
+    ``ast.FunctionDef`` / ``ast.AsyncFunctionDef`` / ``ast.ClassDef`` (any
+    other node kind -> ``ValueError``); an extra def/class whose name
+    collides with *leaf_name* or with an existing top-level def/class/
+    async-def name in *source* -> ``ValueError``; any extra on a 2-part
+    ``Outer.inner`` qualname -> ``ValueError`` (no mis-scoped module-level
+    insertion into a class body). Extras are emitted at COLUMN 0 (via
+    ``ast.unparse``, joined by blank lines, trailing newline) and inserted
+    IMMEDIATELY BEFORE the spliced primary block. When *new_block* carries
+    NO extras (the common case) the result is BYTE-IDENTICAL to today's
+    single-def replacement. Raises ``KeyError`` when *qualname* is not found.
     """
     tree = ast.parse(source)
     parts = qualname.split('.')
@@ -1014,11 +1027,36 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
         nb_tree = ast.parse(new_block)
     except SyntaxError as exc:
         raise ValueError(f'new_block is not parseable Python: {exc}')
-    nb_defs = [n for n in nb_tree.body if _is_def(n)]
-    if len(nb_tree.body) != 1 or len(nb_defs) != 1:
-        raise ValueError('new_block must be exactly one def/class node')
-    if nb_defs[0].name != leaf_name:
-        raise ValueError(f'new_block defines {nb_defs[0].name!r}, expected {leaf_name!r}')
+    primaries = [n for n in nb_tree.body if _is_def(n) and n.name == leaf_name]
+    if len(primaries) != 1:
+        raise ValueError(f'new_block must contain exactly one def/class named {leaf_name!r}, found {len(primaries)}')
+    primary = primaries[0]
+    extras = [n for n in nb_tree.body if n is not primary]
+    if not extras:
+        # No-extras path: byte-identical to HEAD (verbatim single-block replace).
+        new_target_text = new_block
+        extras_text = ''
+    else:
+        if len(parts) != 1:
+            raise ValueError('extra top-level nodes are only permitted for a 1-part top-level qualname')
+        existing_names = {n.name for n in tree.body if _is_def(n)}
+        allowed_extra = (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        for ex in extras:
+            if not isinstance(ex, allowed_extra):
+                raise ValueError(f'disallowed extra top-level node kind: {type(ex).__name__}')
+            if isinstance(ex, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if ex.name == leaf_name or ex.name in existing_names:
+                    raise ValueError(f'extra node name collides with an existing top-level symbol: {ex.name!r}')
+        extras_text = '\n\n'.join(ast.unparse(ex) for ex in extras) + '\n'
+        # Slice ONLY the primary def's own text out of new_block so the agent's
+        # exact formatting of the primary is preserved; same lineno / decorator
+        # extension as the located-target splice below.
+        nb_lines = new_block.splitlines(keepends=True)
+        p_start = primary.lineno
+        p_decorators = getattr(primary, 'decorator_list', None)
+        if p_decorators:
+            p_start = min((d.lineno for d in p_decorators))
+        new_target_text = ''.join(nb_lines[p_start - 1:primary.end_lineno])
     start_lineno = located.lineno
     decorators = getattr(located, 'decorator_list', None)
     if decorators:
@@ -1028,7 +1066,7 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
     before = lines[:start_lineno - 1]
     replaced = lines[start_lineno - 1:end_lineno]
     after = lines[end_lineno:]
-    new_text = new_block
+    new_text = new_target_text
     col_offset = getattr(located, 'col_offset', 0) or 0
     if col_offset > 0:
         indent = ' ' * col_offset
@@ -1036,7 +1074,7 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
     orig_ends_nl = bool(replaced) and replaced[-1].endswith('\n')
     if (after or orig_ends_nl) and (not new_text.endswith('\n')):
         new_text += '\n'
-    return ''.join(before) + new_text + ''.join(after)
+    return ''.join(before) + extras_text + new_text + ''.join(after)
 
 def _apply_region_patch(source: str, sentinel: str, new_region: str) -> str:
     """Replace the lines strictly between a sentinel-delimited region.
