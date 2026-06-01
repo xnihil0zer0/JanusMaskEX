@@ -386,6 +386,19 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
             except (ProcessLookupError, PermissionError, OSError):
                 pass
+            # AGY2A: the group SIGKILL signals the children, but the direct
+            # child is still a zombie until we reap it. proc.kill() + a bounded
+            # proc.wait() collect the exit status so the worker neither hangs
+            # nor leaks a defunct process. Both are fail-safe: a stuck or
+            # already-gone child must not propagate out of the timeout path.
+            try:
+                proc.kill()
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+            try:
+                proc.wait(timeout=5)
+            except (subprocess.TimeoutExpired, ProcessLookupError, PermissionError, OSError):
+                pass
             return proc
         from harness.test_author import _extract_python_block
         block = _extract_python_block(out)
