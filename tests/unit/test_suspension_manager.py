@@ -83,8 +83,10 @@ def test_watchdog_timeout(mock_kill, mock_suspend, mock_resume, mock_write_pid, 
         config = {'synthesis': {'antigravity_mode': True}}
         harness.autowork_daemon._iteration(repo_root, state_dir, 4, dry_run=False, config=config)
 
-        # Watchdog should have killed the suspended pid (67890)
-        mock_kill.assert_any_call(67890, signal.SIGTERM)
+        # Watchdog should have killed the suspended pid (67890) with SIGKILL
+        # (SUSPEND-LEAK fix a93f6bd: SIGTERM is deferred for a T-state pid that
+        # is then dropped from _suspended_pids, so the watchdog now SIGKILLs).
+        mock_kill.assert_any_call(67890, signal.SIGKILL)
         assert 67890 not in harness.autowork_daemon._suspended_pids
         
         # Verify the sequential worker was started
