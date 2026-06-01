@@ -72,14 +72,15 @@ def _exec_module(module_name: str, module_src: str) -> dict[str, Any] | None:
     # Candidate module code must NEVER be exec'd in-process on the host
     # orchestrator. Instead we write the candidate source to a host-level
     # temp dir and run a small command-loop driver in a SEPARATE python
-    # subprocess, jailed via bubblewrap when available. All imports here
-    # are lazy/in-body so the module surface gains no new top-level symbol
-    # or module-level import.
+    # subprocess, jailed via bubblewrap when the operator config enables the
+    # sandbox. All imports here are lazy/in-body so the module surface gains
+    # no new top-level symbol or module-level import.
     import json
     import shutil
     import subprocess
     import tempfile
-    from harness.agent_jail import build_jail_argv, bwrap_available
+    from harness.agent_jail import build_jail_argv, bwrap_available, sandbox_enabled
+    from harness.orchestrator import load_config
 
     _here = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.dirname(os.path.dirname(_here))
@@ -236,29 +237,35 @@ for _line in sys.stdin:
     driver_src = _driver.replace('__REPO_ROOT__', repr(repo_root))
 
     proc = None
+
+    # Jail decision keys on the CANONICAL operator config gate
+    # (sandbox_enabled), NOT merely on bwrap presence. The interpreter MUST
+    # be a bare name resolvable from the jail's ro-bound /usr and /bin (NOT
+    # sys.executable, whose venv symlink chain is not bound inside the jail);
+    # the driver is referenced by basename and the cwd is the writable temp
+    # work dir. build_jail_argv appends the inner command itself, so we MUST
+    # NOT append it again, and its repo_root/work_dir/state_dir params are
+    # keyword-only. This gate is intentionally OUTSIDE the launch try below
+    # so a TypeError (a call-site bug) from build_jail_argv PROPAGATES and is
+    # never swallowed. When the sandbox is ENABLED but bwrap is ABSENT,
+    # build_jail_argv raises FileNotFoundError: we FAIL CLOSED -- the
+    # candidate driver is never spawned unjailed; we clean up and return None
+    # (no namespace => the candidate is simply not fuzzed, and crucially not
+    # run). When the sandbox is DISABLED, the driver runs unjailed.
+    if sandbox_enabled(load_config()):
+        try:
+            argv = build_jail_argv(['python3', 'driver.py'], repo_root=repo_root, work_dir=work_dir, state_dir=state_dir)
+        except FileNotFoundError:
+            shutil.rmtree(work_dir, ignore_errors=True)
+            return None
+    else:
+        argv = ['python3', 'driver.py']
+
     try:
         with open(os.path.join(work_dir, 'candidate.py'), 'w', encoding='utf-8') as _cf:
             _cf.write(module_src)
         with open(os.path.join(work_dir, 'driver.py'), 'w', encoding='utf-8') as _df:
             _df.write(driver_src)
-
-        # Launch a JAILED subprocess when bubblewrap is available. The
-        # interpreter MUST be a bare name resolvable from the jail's
-        # ro-bound /usr and /bin (NOT sys.executable, whose venv symlink
-        # chain is not bound inside the jail); the driver is referenced by
-        # basename and the cwd is the writable temp work dir. build_jail_argv
-        # appends the inner command itself, so we MUST NOT append it again,
-        # and its repo_root/work_dir/state_dir params are keyword-only. A
-        # TypeError here would mean a call-site bug and must NOT be swallowed;
-        # the only legitimate fallback is FileNotFoundError (bwrap absent),
-        # in which case we run the SAME driver unjailed.
-        if bwrap_available():
-            try:
-                argv = build_jail_argv(['python3', 'driver.py'], repo_root=repo_root, work_dir=work_dir, state_dir=state_dir)
-            except FileNotFoundError:
-                argv = ['python3', 'driver.py']
-        else:
-            argv = ['python3', 'driver.py']
 
         proc = subprocess.Popen(
             argv,
