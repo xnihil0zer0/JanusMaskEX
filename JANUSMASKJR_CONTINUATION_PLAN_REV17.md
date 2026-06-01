@@ -12,8 +12,10 @@
 > Re-verify each anchor again before action. **This plan will be adversarially re-reviewed by Claude agents next
 > session; trust the verdicts only after that re-verification**, exactly as rev-16 did with its panel.
 >
-> **Read this first (state):** master HEAD `4dff083`, **== `origin/master`** (this session's 6 commits were
-> pushed). Full suite **6323 passed / 1 failed** — the 1 fail
+> **Read this first (state):** code-HEAD `4dff083`; this plan was committed on top as `d44ed07` (= current
+> `origin/master` / `git HEAD`) — production code is byte-identical between the two (the d44ed07 commit adds only
+> this `.md`), so every code anchor below is checkable at the live HEAD. (This session's 6 code commits were
+> pushed.) Full suite **6323 passed / 1 failed** — the 1 fail
 > (`test_track_record_events::test_sequence_of_random_appends_roundtrips`) PASSES in isolation = a pre-existing
 > flaky randomized test in an untouched area, **NOT a regression**. All 5 rev-16 pre-existing failures (ESCMOCK×3
 > + FAKEPOPEN×2) are now fixed. Hard invariants re-verified intact (per-file greps, §4): `synthesis_success =
@@ -38,13 +40,24 @@ byte-checked after each. Panel R1 confirmed integrate-diff integrity and oracle 
 | `ddf2525` | BWRAP-PATH-MOCK | brittle hardcoded bwrap path | `test_sec5` `mock_which` → `original_which("bwrap") or "/usr/bin/bwrap"`. The 3 `build_jail_argv` STUBS (:90/:158/:216) left untouched (not `shutil.which` mocks). tests/**, no §1b. |
 | `4dff083` | FAKEPOPEN-2 | `test_T5` AttributeError on func-local `_P` | **WHOLE-FILE `partial_edit:false` route** (the rev-16 suggested alternative; partial-edit cannot target a function-local class). Added `communicate` to `_P`. tests/**, no §1b. **CAVEAT (verified, R1/R4): the whole-file route let the agent cosmetically reformat (double→single quotes, dropped comment banners, import split; net −47 lines), incl. a PEP-701 nested-same-quote f-string at `:66`. Functionally identical (10 passed); 3.13-only project so PEP-701 is a non-issue, but the byte-identity criterion is NOT harness-enforced — see §1 whole-file guard.** |
 
-**C13/H-WORKER-DAEMON refutation = STANDS as a verification result (no commit).** Re-verified at `4dff083`: a
-SIGSTOP'd *sequential* worker runs no code (its retry-only monotonic budget check `orchestrator_worker.py:244`
-can never fire while stopped) AND is externally bounded by the daemon watchdog `autowork_daemon.py:1373`
-(`max(1800, 2*timeout+600)`) → `_kill_process_group` SIGKILL (`:1381→:1884`); SIGKILL **is** delivered to stopped
-processes. Prod config is sequential (`active_agents=[claude,gemini]`, `antigravity_mode:false`,
-`config.yaml:105-108` → `requires_claude=True` at `:1328`). **R3 did NOT overturn this** — it pivoted to a
-DIFFERENT, parallel-suspension bug cluster (now tracked as DAEMON-SUSPEND-LEAK in §1).
+**C13/H-WORKER-DAEMON refutation = STANDS as a verification result (no commit) — but the MECHANISM was
+mis-stated and is corrected here (rev-17 Claude panel, consensus R1+R3).** The verdict holds; the *reason* in the
+rev-16/early-rev-17 text ("a SIGSTOP'd sequential worker is bounded because SIGKILL is delivered to stopped
+processes") is **wrong**. Re-verified at `4dff083`: the *sequential* worker is **never SIGSTOP'd** —
+`suspend_parallel_workers` is called with `exclude_pid=pid` (`:1366`) and skips the just-launched pid (`:1274`),
+so the foreground worker is never in `_suspended_pids`. It is the foreground `proc`, bounded by the wall-clock
+watchdog loop `max(1800, 2*timeout+600)` (`autowork_daemon.py:1373`) → `_kill_process_group` SIGKILL of **that
+`proc`** (`:1379-1382→:1884`). So the SIGSTOP-budget scenario simply **cannot arise** in sequential prod — not
+because SIGKILL reaches a stopped process, but because the watched worker is never stopped. Prod config is
+sequential (`active_agents=[claude,gemini]`, `antigravity_mode:false`, `config.yaml:105-108` →
+`requires_claude=True` at `:1328`). **Two scope caveats (do not drop):** (1) this watchdog/SIGKILL bound exists
+**ONLY in the `requires_claude` sequential branch**; the parallel `_spawn_worker` path (`:1411`) has **no
+per-worker watchdog at all** — a hung/stopped worker there is unbounded until daemon-shutdown drain, so flipping
+`antigravity_mode:true` / parallel **re-opens C13** (pin this alongside the `antigravity_mode:false` invariant).
+(2) The SIGTERM-to-stopped-pid path (`:1388`) that the old refutation conflated with a bound is **itself the
+DAEMON-SUSPEND-LEAK bug** — C13 and DAEMON-SUSPEND-LEAK are the SAME `:1388` code viewed two ways, not independent
+findings. **R3 did NOT overturn the verdict** — it correctly identified that this `:1388` SIGTERM is ineffective
+on a `T`-state pid (tracked as DAEMON-SUSPEND-LEAK in §1).
 
 **MUT-HARNESS-ISO = DEFERRED this session** (low value; the `config.yaml` comment-strip noise is the uncontained
 agy process, not this test, which already has crash-recovery snapshot/restore). **R2 argues it is actually
@@ -60,12 +73,12 @@ claims are 【marked】.
 
 | Finding | Sev | Route | Overseer cross-check verdict |
 |---------|-----|-------|------------------------------|
-| **DAEMON-SUSPEND-LEAK** (R3 Path 1/2) | MED | **PIPELINE→likely hand-edit** | **REAL.** `autowork_daemon.py:1388` sends `SIGTERM` to a suspended (T-state) parallel pid, then drops it from `_suspended_pids` (`:1393-1395`) so `resume_parallel_workers` (`:1283-1292`, SIGCONT) never reaches it; a T-state process defers SIGTERM until SIGCONT → pid leaks in `T`, slot held. Also: daemon death between SIGSTOP/SIGCONT leaves a fresh daemon with empty `_suspended_pids` → no resume. **Contingent on parallel workers actually being suspended (rare in pure-sequential prod), so daemon-stability hygiene, not Phase-A-gating.** Fix: SIGKILL (not SIGTERM) the over-aged suspended pid, or keep it in the set / SIGCONT-then-SIGTERM. |
+| **DAEMON-SUSPEND-LEAK** (R3 Path 1/2) | MED | **PIPELINE→likely hand-edit** | **REAL.** `autowork_daemon.py:1388` sends `SIGTERM` to a suspended (T-state) parallel pid, then drops it from `_suspended_pids` (`:1393-1395`) so `resume_parallel_workers` (`:1283-1292`, SIGCONT) never reaches it; a T-state process defers SIGTERM until SIGCONT → pid leaks in `T`, slot held. Also: daemon death between SIGSTOP/SIGCONT leaves a fresh daemon with empty `_suspended_pids` → no resume. **Contingent on parallel workers actually being suspended (rare in pure-sequential prod). NOT gating for the (i) owner-supervised single run; it IS the residual gating gap for (ii) UNATTENDED autonomous operation (consistent with §2(ii), which lists it).** (Earlier text called it simply "not Phase-A-gating" — that was ambiguous; it gates (ii), not (i).) Fix: SIGKILL (not SIGTERM) the over-aged suspended pid, or keep it in the set / SIGCONT-then-SIGTERM. |
 | **DAEMON-SELFHEAL-UNTRACKED** (R3 Path 4) | LOW | **PIPELINE** | **REAL.** Inactivity self-heal spawn `autowork_daemon.py:1816` is `subprocess.Popen` with NO pidfile → `_reap_running`/`_drain_running` don't track it; a hung planning agent leaks. (It IS jailed via `_contain_selfheal`, and it's a planner not a slot-holding worker, so LOW.) Fix: write a pidfile / track it. |
 | **PARITY-2 (bare_except)** (R4) | MED | **PIPELINE** | **REAL, same class as PARITY-1.** Submit-time `services/neurosymbolic/ast_verifier.py:160` flags ANY bare `except:` as ERROR; commit-time `harness/ast_enforcer.py:101-103` flags ERROR only when the body is exactly `pass`. So `except: log()` is DENIED at submit but ALLOWED at commit → interceptor ⊄ enforcer (interceptor too strict, blocks valid submissions). Fix: downgrade the verifier's non-`pass` bare-except to WARNING (or align to enforcer's `body==[Pass]` test). services/+tests/, no §1b. |
 | **PARITY-NONDET (note only)** (R4) | LOW | observe | **REAL but OPPOSITE direction** (commit stricter than submit): enforcer rejects `import random`/`uuid` (`ast_enforcer.py:48-52`), verifier only flags unseeded random *calls*. This causes wasted late-stage AST-retry failures, not a safety bypass; it does NOT violate `submit ⊆ commit`. Optional alignment; not gating. R4's credential-rule divergence is similar (late-fail, not a bypass). |
 | **MUT-HARNESS-ISO-PIPELINE** (R2) | MED | **PIPELINE** | **PLAUSIBLE — route corrected.** `_apply_symbol_patch` (`git_integration.py:993/995`) rejects extra body nodes / renames but DOES allow function-local imports inside a replaced symbol body. R2's `git worktree`-based isolation needs only function-local `import tempfile/shutil/subprocess` inside existing symbols (`_run_eval_suite`/`_apply_and_check_killed`) → no R-anchored-patch required. Verify the worktree approach is sound under a jailed worker before relying on it. |
-| **WHOLE-FILE-DRIFT-GUARD** (R4) | MED | **PIPELINE (new oracle)** | **REAL gap.** The `partial_edit:false` whole-file route (used by FAKEPOPEN-2) merges via `_ast_merge` → `ast.unparse` (`git_integration.py` merge tail) which strips comments + normalizes layout across the WHOLE file and can append dead nodes on rename. No diff-scope/diff-size gate exists. Add a commit-time guard (line-diff threshold OR AST-node-set-vs-`files_touched` check) so whole-file submissions can't silently rewrite unrelated scopes. |
+| **WHOLE-FILE-DRIFT-GUARD** (R4) | MED | **PIPELINE (new oracle)** | **REAL gap — mechanism corrected (consensus R1+R2).** The `partial_edit:false` whole-file route (used by FAKEPOPEN-2) merges via `_ast_merge` (a NAME-KEYED wholesale symbol-replace, NOT a blind whole-file overwrite: `git_integration.py:684`) → `ast.unparse`, which re-emits the merged tree and therefore strips comments + normalizes layout for **every symbol the agent re-emitted, even on a single-symbol change** (truly-unrelated symbols absent from the submission are preserved; the drift is comment-loss/reformat of re-emitted symbols + possible dead-node append on rename, not arbitrary unrelated-scope rewrites). No diff-scope gate exists. **A line-diff/size threshold is NOT viable** — `ast.unparse` comment-loss makes even a legitimate single-symbol whole-file submission a large diff. Add a commit-time guard using an **AST-node-set-vs-`files_touched`** check, located in **`commit_accepted_output` (post-`_ast_merge`)** — NOT `_validate_submission`, which runs at submit-time and never sees the merged AST. |
 | 【VALIDATOR-SIG region "FLAW"】 (R1) | LOW | **REFUTED / optional** | **OVER-STATED by agy.** R1 claims a `kind:'region'` patch now bypasses return-type validation. But (a) the per-block return-type check was the very false-positive being fixed; (b) there is NO commit-time return-type enforcement at all (`declared_signature`/`validate_return_type` appear nowhere in `git_integration.py`) — it is a contract convenience, not a security boundary; (c) a region patch is a marker-scoped fragment, not a complete `def F`. Behavior is gated by the oracle + acceptance criteria + scoped tests. NOT a safety regression. Optional hardening only (VALIDATOR-SIG-2: also gate matching-name region patches). |
 | 【FAKEPOPEN-2 PEP-701 "FLAW"】 (R1) | INFO | none | **CORRECT-but-moot.** `:66` `f'cwd {captured['cwd']} ...'` is PEP-701 (3.12+). Project is 3.13-only → no action. Captured in the WHOLE-FILE-DRIFT-GUARD item above. |
 
@@ -123,11 +136,13 @@ sub-agent during a worker run; restore `config.yaml` if agy strips comments.
 4. **DAEMON-SELFHEAL-UNTRACKED** — write+track a pidfile for the inactivity self-heal spawn
    (`autowork_daemon.py:1816`) so `_reap_running`/`_drain_running` can reap it. §1b (`harness/**`). Oracle: assert
    a pidfile is created for the self-heal child. PIPELINE.
-5. **WHOLE-FILE-DRIFT-GUARD** — add a commit-time diff-scope/diff-size gate in `_validate_submission` or
-   `commit_accepted_output` rejecting whole-file submissions that mutate AST nodes outside `files_touched`'s
-   declared symbols (or exceed a line-diff threshold) unless the task is flagged whole-file/new-file. §1b
-   (`harness/**`). Oracle: a whole-file submission that edits an unrelated function is rejected; the legitimate
-   single-symbol whole-file case is accepted. PIPELINE.
+5. **WHOLE-FILE-DRIFT-GUARD** — add a commit-time gate in **`commit_accepted_output` (post-`_ast_merge`)** — NOT
+   `_validate_submission`, which is submit-time and never sees the merged AST — rejecting whole-file submissions
+   that mutate AST nodes (functions/classes) **outside `files_touched`'s declared symbols** unless the task is
+   flagged whole-file/new-file. Use an **AST-node-set-vs-`files_touched`** check, NOT a line-diff/size threshold
+   (`ast.unparse` comment-loss makes even a legit single-symbol whole-file submission a large diff → a size gate
+   would false-trip). §1b (`harness/**`). Oracle: a whole-file submission that edits an unrelated function is
+   rejected; the legitimate single-symbol whole-file case is accepted. PIPELINE.
 6. **DAEMON-SUSPEND-LEAK** — fix the SIGTERM-to-stopped-pid leak: SIGKILL (not SIGTERM) the over-aged suspended
    pid at `autowork_daemon.py:1388`, OR keep it in `_suspended_pids` until SIGCONT then SIGTERM; and on daemon
    start, SIGCONT/reap any orphaned `T`-state workers. §1b. **Attempt PIPELINE (whole-symbol replace of the
@@ -150,11 +165,14 @@ sub-agent during a worker run; restore `config.yaml` if agy strips comments.
    REFUSED; control run with unfiltered bus succeeds). **MUST re-run the agy-auth smoke
    (`~/janusmask_briefs/agy_jail_smoke.py`) after and REVERT if agy auth breaks** (the proxy filter can starve
    gnome-keyring/portal names agy needs). Deserves a dedicated session. §1b.
-9. **ROLLB-D** (try/finally over the ~360-line `_auto_commit_accepted` body), **ROLLB-E** (13 non-contiguous
-   `_mark_processed` sites in `run_pipeline`). R2 argues both are whole-symbol-replace pipeline-viable now;
-   attempt the whole-symbol partial-edit route FIRST (`orchestrator.py` `_auto_commit_accepted` ~`:1716-2084`,
-   `run_pipeline` `_mark_processed` ~`:2326-2476`). If gemini truncates the long function sum or the applier
-   rejects the reindent → permanent blocker → hand-edit. §1b.
+9. **ROLLB-D** (try/finally over the `_auto_commit_accepted` body — which is **~613 lines, def `:1473-2086`**, NOT
+   the ~360-line / `:1716-2084` figure earlier text used; the `:1716` anchor is ~243 lines INTO the function, so a
+   try/finally must wrap from the body start near `:1473` through `:2085` to actually protect the staging-worktree
+   setup), **ROLLB-E** (13 non-contiguous `_mark_processed` sites in `run_pipeline`). R2 argued both are
+   whole-symbol-replace pipeline-viable; attempt the whole-symbol partial-edit route FIRST (`orchestrator.py`
+   `_auto_commit_accepted` `:1473-2086`, `run_pipeline` `_mark_processed` ~`:2326-2476`). **For a 613-line symbol,
+   expect gemini-truncation of the long function sum or applier reindent-rejection → permanent blocker → hand-edit
+   as the LIKELY outcome, not a remote fallback.** §1b.
 
 **Phase A (OWNER-ONLY):** see §2.
 
@@ -205,8 +223,9 @@ sub-agent during a worker run; restore `config.yaml` if agy strips comments.
 - `harness/orchestrator.py`: `_validate_submission` per-patch `declared_signature` **:1105-1120** (sig-scope at
   1108-1118) [VALIDATOR-SIG]; whole-file fallback validation **:1128-1153** / save **:1174**; `kill_agent` final
   wait guard **:446-449** [KILL-REAP]; `_auto_commit_accepted` staging **~:1710**, jailed binds
-  **:1834/1959/1983/1997**, SEC-3 verify catch **:1854-1874**, MUT-MASK baseline-in-copy **:1944-1963**, body span
-  for ROLLB-D **~:1716-2084**, ROLLB-E `_mark_processed` sites in `run_pipeline` **~:2326-2476** (+ single site
+  **:1834/1959/1983/1997**, SEC-3 verify catch **:1854-1874**, MUT-MASK baseline-in-copy **:1944-1963**; `_auto_commit_accepted`
+  def/body span for ROLLB-D **:1473-2086 (~613 lines)** (the **~:1710** staging anchor is mid-function, NOT the
+  def); ROLLB-E `_mark_processed` sites in `run_pipeline` **~:2326-2476** (+ single site
   **~:2045**); `verify_extra_ro/rw` reads **:1677-1678**; four-gate `synthesis_success = True` **:2320** (×1);
   `_skip_ifz` **:2331** (×1).
 - `harness/orchestrator_worker.py`: `synthesis_success = True` **:309** (×1); `_skip_ifz` **:320** (×1); monotonic
