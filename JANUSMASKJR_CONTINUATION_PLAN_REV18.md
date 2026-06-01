@@ -13,7 +13,15 @@
 > panel's anchors drift. **This plan will be adversarially re-reviewed by Claude agents next session; trust the
 > verdicts only after that re-verification**, exactly as rev-16/rev-17 did.
 >
-> **Read this first (state):** HEAD `e2554a2` (= `origin/master`). The 5 REV17 landings + the regression fix are
+> **Round-2 update (same day):** a SECOND 4-agent review (reports `~/janusmask_briefs/review_rev18b/R{1..4}_*.md`)
+> re-checked this plan AND researched **external-project capability restoration** (owner-requested — see new §3B).
+> agy went rogue that round (ignored the SEED, edited a test, wrote no reports), so 4 **Opus** agents produced the
+> round-2 reports (ground-truth, anchored). Round-2 corrections are folded in below (ROLLB-D is **~675 lines**,
+> `STAGING-RM` is `:1294`, new gap PARALLEL-WORKER-PGID; R1 regression suite **251 passed/0 fail**).
+>
+> **Read this first (state):** code-HEAD `e2554a2`; this plan was committed on top as `573cf6c` (= current
+> `origin/master`) — production code is byte-identical between them (the commit adds only this `.md`), so every
+> code anchor is checkable at the live HEAD. The 5 REV17 landings + the regression fix are
 > in history `8ce100c..e2554a2`. Hard invariants re-verified intact (R4, per-file greps, §4): `synthesis_success
 > = True` ×1 each; `skip_interface_fuzz` on `test_authoring` only (×1 each in 3 files); `_SENSITIVE_APPLY_GLOBS =
 > ('harness/**','config/**','scripts/**')`; `BYPASS_FUZZER_TYPES` unnarrowed; `verify_extra_ro/rw` absent in
@@ -46,10 +54,10 @@ a non-standard host shows RED.
 
 | Finding | Sev | Route | Overseer cross-check verdict |
 |---------|-----|-------|------------------------------|
-| **DAEMON-STARTUP-ORPHAN + PARALLEL-WORKER-WATCHDOG** (R1, R3) | MED | **PIPELINE** | **[verified-real]** Two residuals of the minimal SUSPEND-LEAK fix: (a) the parallel `_spawn_worker` branch (`autowork_daemon.py` ~:1411) has **no watchdog** — a suspended/hung parallel worker leaks its slot unbounded; (b) `_suspended_pids` is an in-memory global (~:37) — a daemon crash/restart between SIGSTOP/SIGCONT orphans the T-state pid (on restart `_reap_running`'s `waitpid(WNOHANG)` returns `(0,0)` for a stopped child → treated as live → pidfile never cleared). **Gates (ii) unattended, NOT (i) supervised.** Fix: on daemon start, scan `running/*.pid` for T-state pids and `SIGCONT`+reap (or SIGKILL over-aged); add a per-worker watchdog (or a global suspended-age sweep) to the parallel branch. §1b. Pipeline-viable; a startup-scan helper can be added via R-ANCHORED-PATCH extras. |
+| **DAEMON-STARTUP-ORPHAN + PARALLEL-WORKER-WATCHDOG + PARALLEL-WORKER-PGID** (R1, R3, R2-rev18b) | MED | **PIPELINE** | **[verified-real]** Residuals of the minimal SUSPEND-LEAK fix: (a) the parallel `_spawn_worker` branch (`autowork_daemon.py` ~:1410-1417) has **no watchdog** — a suspended/hung parallel worker leaks its slot unbounded; (b) `_suspended_pids` is an in-memory global (~:37) — a daemon crash/restart between SIGSTOP/SIGCONT orphans the T-state pid (on restart `_reap_running` `:296` `waitpid(WNOHANG)` — **without `WUNTRACED`** — returns `(0,0)` for a stopped child → treated as live → pidfile never cleared); (c) **PARALLEL-WORKER-PGID [new, R2-rev18b]:** `_spawn_worker` (~:835) lacks `start_new_session=True` (the sequential launch `:1363` HAS it), so `_kill_process_group` (`:1879-1889`) cannot safely group-kill a parallel worker. **Gates (ii) unattended, NOT (i) supervised.** Fix: on daemon start, scan `running/*.pid` for T-state pids and `SIGCONT`+reap (or SIGKILL over-aged); add a suspended-age sweep + `start_new_session=True` to the parallel branch; consider `WUNTRACED` in the reap probe. §1b. Pipeline-viable; a startup-scan helper can be added via R-ANCHORED-PATCH extras. |
 | **SELFHEAL-UNTRACKED-2** (`_escalate_to_autobrief`) (R3) | LOW-MED | **PIPELINE** | **[verified-real]** `autowork_daemon.py:_escalate_to_autobrief` (def `:608`) does a bare `subprocess.Popen` at `:742` with **no `_write_pidfile`** — the SAME class as the landed `_escalate_inactivity` fix but a DIFFERENT function (the `:571` docstring even admits these paths "called subprocess.Popen directly, bypassing…"). My REV17 fix only covered `_escalate_inactivity`. Fix: capture the handle + `_write_pidfile` with a distinct stem, exactly like `a4fbbab`. §1b. Easy single-symbol win. **Also fold in SELFHEAL-STEM-COLLISION** [verified]: `_escalate_inactivity`'s `task_id` resolves to the static `'daemon_inactivity_stuck'`, so the `selfheal_{agent}_daemon_inactivity_stuck.pid` stem is overwritten across repeated inactivity escalations → older self-heal orphaned. Add a uniquifier (pid/counter/timestamp passed via args — `Date.now()`-equivalent must come from the daemon clock, not a literal). |
 | **PARITY-3 (credential_leak)** (R4) | MED | **PIPELINE** | **[verified-real], same class as PARITY-1/2.** Submit-time `services/neurosymbolic/ast_verifier.py:~202-208` flags ANY string literal matching `CREDENTIAL_PATTERNS` as `credential_leak` severity **ERROR**; commit-time `harness/ast_enforcer.py:~74-87` only flags `security` ERROR on an *assignment whose target variable name* matches `(?i)(password|secret|key)`. So a credential-pattern string NOT bound to a credential-named var → DENIED at submit, ALLOWED at commit → interceptor ⊄ enforcer (blocks valid submissions; can stall pipeline runs containing test fixtures/example keys). Fix: downgrade the verifier's string-literal `credential_leak` to WARNING (or align to the enforcer's variable-name test). services/+tests/, no §1b. Easy win (mirror PARITY-2). |
-| **STAGING-RM-NOTIMEOUT** (R2) | LOW-MED | **PIPELINE** | **【agy-claimed; verify-first】** `git_integration.remove_staging_worktree` (anchor agy-cited `~:1420` — VERIFY) reportedly has no retry/timeout, so a jailed subprocess holding a handle → `git worktree remove`/`rmtree` `EBUSY`/hang locks future runs. Plausible reliability gap; pairs with ROLLB-D. Verify the function lacks a timeout, then add a bounded retry + sub-timeout. §1b. |
+| **STAGING-RM-NOTIMEOUT** (R2) | LOW-MED | **PIPELINE** | **[verified] anchor corrected to `git_integration.remove_staging_worktree` `:1294`** (NOT the agy-cited `~:1420`). No retry/timeout, so a jailed subprocess holding a handle → `git worktree remove`/`rmtree` `EBUSY`/hang locks future runs. Reliability gap; pairs with ROLLB-D. Add a bounded retry + sub-timeout. §1b. |
 | **SEC-ENV (host-env leak)** (R2) | MED | **PIPELINE, agy-auth-risky** | **[verified]** `orchestrator.py:_build_agent_env` (`:220`, env built at `:260`) uses `{**os.environ, …}` → copies the FULL operator environment (incl. any `GITHUB_TOKEN`/cloud creds) into the jailed agent process env. Real exposure. **But the agents need auth/HOME/PATH** → naive whitelisting can break claude/agy auth. Fix: allowlist required keys (PATH, HOME, LANG, TERM, the agent's own auth vars) + explicit JANUSMASK_*; **MUST re-run the agy/claude auth smoke after and REVERT if auth breaks.** Treat like SEC-1 (careful, smoke-gated). §1b. |
 | **KEYRING-UNFILTERED** (R2, R3) | LOW-MED | observe / pair-with-SEC-1 | **[verified] the keyring socket IS RW-bound** (`agent_jail.py:~242-245` binds `<XDG>/keyring`). An agent could query gnome-keyring secret collections. **Direct tension with SEC-1/agy auth** (agy needs the secret service). Do NOT blindly restrict — design jointly with SEC-1's xdg-dbus-proxy (a mock/throwaway keyring backend), behind the same auth-smoke gate. |
 | **WFDG-2 (drift-guard coverage limits)** (R1, R4) | LOW | **PIPELINE (optional, caution)** | **[verified-real but low value].** The landed WHOLE-FILE-DRIFT-GUARD only counts modified-existing top-level **named** nodes, so it does NOT catch: module-level `Assign`/`Import` changes (no `.name`), renames (intersection empty), nested-symbol edits (only the parent counts as 1), or comment-loss (ast.dump-identical); and it is absent from the multi-file/patches dispatch paths. **CAUTION:** broadening risks false-trips on legitimate multi-symbol whole-file merges, and the patches/multi-file paths have their OWN scope gates (`_enforce_apply_scope`, `_apply_symbol_patch` shape). This is defense-in-depth on a rarely-used legacy path — only harden if a concrete abuse appears; do NOT over-engineer. |
@@ -96,12 +104,15 @@ changed code path in the `verification_command` (the SUSPMGR regression came fro
    handle + `_write_pidfile` with a distinct stem; **fold in SELFHEAL-STEM-COLLISION** (uniquify the
    `_escalate_inactivity` stem with the spawn pid). §1b. Single-symbol; mirror `a4fbbab`. Oracle: both self-heal
    spawns write a tracked, collision-free pidfile.
-3. **DAEMON-STARTUP-ORPHAN + PARALLEL-WORKER-WATCHDOG** — on daemon start, sweep `running/*.pid` and
-   `SIGCONT`+reap/SIGKILL any orphaned T-state pid; add a suspended-age sweep to the parallel `_spawn_worker`
-   branch (~:1411). §1b. May need a small startup-scan helper → add it as an R-ANCHORED-PATCH **extra**
-   (top-level qualname) in the same patch as the launch-block edit. Oracle: a seeded orphaned T-state pidfile is
-   resumed/reaped on the next iteration; a suspended parallel worker past threshold is killed.
-4. **STAGING-RM-NOTIMEOUT** — verify `remove_staging_worktree` lacks a timeout (agy-claimed `~:1420`), then add a
+3. **DAEMON-STARTUP-ORPHAN + PARALLEL-WORKER-WATCHDOG + PARALLEL-WORKER-PGID** — on daemon start, sweep
+   `running/*.pid` and `SIGCONT`+reap/SIGKILL any orphaned T-state pid; add a suspended-age sweep to the parallel
+   `_spawn_worker` branch (~:1410-1417) **and `start_new_session=True` to `_spawn_worker` (~:835)** so
+   `_kill_process_group` (`:1879-1889`) can group-kill it (sequential `:1363` already has it); consider
+   `os.WUNTRACED` in the `_reap_running` (`:296`) probe so stopped children aren't read as live. §1b. May need a
+   small startup-scan helper → add it as an R-ANCHORED-PATCH **extra** (top-level qualname) in the same patch as
+   the launch-block edit. Oracle: a seeded orphaned T-state pidfile is resumed/reaped on the next iteration; a
+   suspended parallel worker past threshold is killed; a parallel worker is spawned in its own session.
+4. **STAGING-RM-NOTIMEOUT** — `remove_staging_worktree` (`git_integration.py:1294`) has no timeout/retry; add a
    bounded retry + sub-timeout around `git worktree remove`/`rmtree`. §1b. Oracle: a busy/locked worktree removal
    fails fast (bounded) instead of hanging.
 
@@ -115,8 +126,9 @@ changed code path in the `verification_command` (the SUSPMGR regression came fro
    (`~/janusmask_briefs/agy_jail_smoke.py`) after and REVERT if agy/claude auth breaks** (the proxy filter can
    starve gnome-keyring/portal names). Pair the KEYRING-UNFILTERED decision here. §1b. HIGH security; deserves
    focused care.
-6. **ROLLB-D / ROLLB-E** — try/finally over `_auto_commit_accepted` (`orchestrator.py` ~`:1473-2086`, **~614
-   lines**) and crash-safety over `run_pipeline`'s 13 `_mark_processed` sites (~`:2149-2479`, **~331 lines**).
+6. **ROLLB-D / ROLLB-E** — try/finally over `_auto_commit_accepted` (`orchestrator.py` ~`:1473-2148`, **~675
+   lines** — round-2 R2 re-measured; bigger than the ~614 first cited, which *strengthens* hand-edit-first) and
+   crash-safety over `run_pipeline`'s 13 `_mark_processed` sites (~`:2149-2479`, **~331 lines**).
    R2 proposes decomposing each via R-ANCHORED extras (thin wrapper + a new top-level helper). **Correction
    (over-claim):** the EXTRACTION patch still emits the full ~590-line body in one `new_block` → gemini
    truncation is NOT eliminated, only relocated. Pragmatic route: **(a)** attempt the whole-symbol/decompose
@@ -133,6 +145,74 @@ R-ANCHORED forward-ref ordering, SEC-ENV env allowlist (agy-auth-risky → smoke
 > 4 (git_integration), 5 (agent_jail) are independent files. Run serially; re-ground each against the prior HEAD.
 > Do SEC-1 (5) and SEC-ENV in dedicated, smoke-gated steps. Always serialize repo-touching work; never run
 > agy/a sub-agent during a worker run; revert any agy `config.yaml` comment-strip.
+
+---
+
+## 3B. External-project capability restoration — PIPELINE-FIRST (NEW, owner-requested)
+
+> **Goal:** restore JanusMask to a mode where it autonomously works INSIDE an EXTERNAL project (not its own
+> repo). The strict gates today exist ONLY for self-build / self-replication safety; when a caller sets an
+> external **target project directory**, those self-protection gates must NOT restrict work on that external
+> project — they stay active ONLY when the target IS the JanusMask repo. For whatever project is targeted, JM
+> should bootstrap (idempotently): a primary **git repo**, a **staging worktree** (for the blue/green
+> `os.execv` handoff), and a **`.venv`**. (Round-2 R3+R4, Opus ground-truth, anchors verified.)
+
+**Architecture (verified @ HEAD).** The harness has TWO root anchors:
+- **Dynamic `state_dir` anchor — already external-ready.** Every live-tree git op derives `repo_root` from `git
+  rev-parse --show-toplevel` with `cwd=state_dir`/`state_dir.parent` (`orchestrator.py:~1700`,
+  `git_integration.py:~600`, `orchestrator_worker.py:93`). So **placing `state_dir` inside an external repo
+  already makes commits/worktrees land there** — no change needed for the commit path itself.
+- **Static `PROJECT_ROOT` anchor (`paths.py:17`, from `__file__`) — the self-pin.** It hardcodes "project == own
+  repo" in a SMALL ENUMERABLE set: the jail repo ro-bind (`orchestrator.py:347` passes `repo_root=PROJECT_DIR`),
+  `agent_workroot()` (`paths.py:~51`), `PYTHONPATH`/`JANUSMASK_PROJECT_DIR`, config-token interpolation, and —
+  **critically — the §1b sensitive-glob gate.** `_SENSITIVE_APPLY_GLOBS` (`git_integration.py:16`) are matched
+  **relative to `worktree_root`** (`_enforce_apply_scope:43` — verified), so an external project that happens to
+  contain a `harness/`/`config/`/`scripts/` dir would be WRONGLY blocked. That gate is the one self-guard that
+  needs an explicit, **fail-safe** bypass.
+
+**SAFETY BOUNDARY (the hinge — do not get this wrong).** The self-build gates must bypass for external targets
+but stay ON for self-edits. Derive the decision from the **RESOLVED `worktree_root` vs `PROJECT_ROOT`, NOT from
+the env var alone.** Add `effective_target_root()` + a fail-safe predicate `_target_is_self(root)` in `paths.py`
+that returns **True (gates ON) whenever the resolved target `== PROJECT_ROOT` or `PROJECT_ROOT in
+root.parents`** — mirroring the existing GAP_H3 guard at `paths.py:62`. A mis-set / relative / repo-inside target
+**fail-safes to "self" (fully gated)**. Only an unambiguously-external resolved root flips gates OFF. `full_stop`
+stays keyed to `state_dir` (operator control — keep it; it is not a self-build artifact).
+
+**Phase 3B-A — scoping override (R3; PIPELINE-FIRST, §1b, serialize):**
+- **T1** — add `effective_target_root()` + `_target_is_self()` to `paths.py` (resolver reads
+  `JANUSMASK_TARGET_PROJECT` env / config key; fail-safe to PROJECT_ROOT). New top-level symbols in a sensitive
+  file → add via **R-ANCHORED-PATCH extras** on an existing 1-part symbol, or a new-file/manifest route. Oracle:
+  external dir → resolves to it; unset/relative/inside-repo → resolves to PROJECT_ROOT (gates ON).
+- **T2** — gate the §1b sensitive-glob check on `_target_is_self(worktree_root)`: when the resolved target is
+  external, `_enforce_apply_scope` does NOT treat `harness/**` etc. as sensitive (those globs are JM's own).
+  Oracle: an external `harness/x.py` edit is allowed; a self `harness/x.py` edit still requires §1b.
+- **T3** — re-point the jail bind: `build_jail_argv(..., repo_root=effective_target_root())` at
+  `orchestrator.py:347` (ro-bind the TARGET, not PROJECT_DIR). Oracle: jail argv binds the external root when set.
+- **T4** — re-point `agent_workroot()`/work_dir + `JANUSMASK_PROJECT_DIR` to the resolved target (keep the
+  outside-repo isolation invariant relative to the TARGET). Oracle: agent cwd is outside the target repo.
+  *(Each Tn is a single-symbol partial edit where possible; the `__all__` export append in `paths.py` may need a
+  region/manifest route rather than a symbol patch — R3 flagged.)*
+
+**Phase 3B-B — target bootstrap (R4; PIPELINE-FIRST then one gate-bearing hand-edit):**
+- New module `harness/target_bootstrap.py` (NEW FILE → new-file commit route, not symbol-patch), decomposed into
+  idempotent single-symbol functions, each with a non-vacuous oracle:
+  **B0** `git init` if no repo; **B1** make an initial commit if the repo has no HEAD (worktrees REQUIRE a HEAD);
+  **B2** `python -m venv .venv` **using `sys.executable`** if absent (so the jail `extra_ro=[base_prefix,
+  prefix]` binds resolve) + ensure `pytest`; **B3** create the staging worktree via the existing
+  `create_staging_worktree` and smoke `merge_staging_to_parent` preconditions; **B4** write/ensure a
+  `.gitignore` (`state/`, `.venv/`, `*_staging/`) so the dirty-parent fail-closed merge doesn't stash-churn;
+  **B5** a top-level idempotent `bootstrap_target(root)` orchestrating B0–B4 (no-op when all present).
+- **Hook (HAND-EDIT, gate-bearing):** a one-time `bootstrap_target(effective_target_root())` call at daemon
+  startup in `run_daemon` + an optional `--bootstrap-target <dir>` CLI flag. (Gate-bearing daemon entrypoint →
+  expect §1b + a hand-edit after a pipeline attempt.)
+
+**RISKS (carry into execution):** (1) external venv jail binds — create the venv with `sys.executable` so
+`base_prefix`/`prefix` match the binds; (2) the `os.execv` blue/green re-exec keeps the HARNESS interpreter —
+fine, but the re-exec'd worker must still resolve the external `state_dir`/target; (3) `merge_staging_to_parent`
+fail-closes on a dirty parent (stash + drop-on-conflict) → could discard an operator's UNCOMMITTED external work
+— bootstrap must `.gitignore` JM artifacts and warn on a dirty target; (4) sibling-dir writability for the
+`<name>_<task_id>_staging` worktree; (5) the §1b bypass MUST fail-safe to "self" on any ambiguity. **All of 3B is
+(ii)-class autonomy work and orthogonal to Phase A — it does not lift `full_stop`.**
 
 ---
 
@@ -158,6 +238,11 @@ R-ANCHORED forward-ref ordering, SEC-ENV env allowlist (agy-auth-risky → smoke
   checkout` in prior runs — ALWAYS confirm HEAD unchanged after agy.
 - Never add `*_fix`/any `<task>_fix` to the allowlist. `full_stop` stays present until owner-gated Phase A. §1b
   (`_apply_approval_granted`) is the autonomous-commit boundary. Agents tree-isolated ONLY via the bwrap jail.
+- **External-target safety boundary (§3B):** any self-build-gate bypass for an external target MUST be derived
+  from the RESOLVED `worktree_root` vs `PROJECT_ROOT` (never the env var alone) and MUST fail-safe to "self"
+  (gates ON) when the resolved target `== PROJECT_ROOT` or `PROJECT_ROOT in root.parents` (mirror
+  `paths.py:62`). Editing JanusMask's own `harness/`/`config/`/`scripts/` stays §1b-gated regardless of any
+  target override. A relative/unset/ambiguous target resolves to PROJECT_ROOT = fully gated.
 
 ---
 
@@ -170,13 +255,21 @@ R-ANCHORED forward-ref ordering, SEC-ENV env allowlist (agy-auth-risky → smoke
   def **:608**, bare Popen (no pidfile) **:742** [SELFHEAL-UNTRACKED-2]; `_write_pidfile` **:819**;
   `_escalate_inactivity` **~:1683** (static task_id `'daemon_inactivity_stuck'`) [SELFHEAL-STEM-COLLISION];
   `_iteration` watchdog SIGKILL **:1388**; sequential launch/suspend **~:1354-1409**; parallel `_spawn_worker`
-  (no watchdog) **~:1411** [PARALLEL-WORKER-WATCHDOG]; `full_stop` checks **:1238 / :1517**.
-- `harness/orchestrator.py`: `_build_agent_env` **:220** (env `{**os.environ}` **:260**) [SEC-ENV];
-  `_auto_commit_accepted` **~:1473-2086 (~614 lines)** [ROLLB-D]; `run_pipeline` **~:2149-2479 (~331 lines)**,
+  (no watchdog) **~:1410-1417**, `_spawn_worker` **~:835** (no `start_new_session=True`) [PARALLEL-WORKER-WATCHDOG/PGID];
+  sequential launch `start_new_session` **:1363**; `_kill_process_group` **:1879-1889**; `_reap_running`
+  **:296** (WNOHANG, no WUNTRACED); `daemon repo_root = Path.cwd()` **~:1574**; `full_stop` checks **:1238 / :1517**.
+- `harness/orchestrator.py`: `_build_agent_env` **:220** (env `{**os.environ}` **:260**) [SEC-ENV]; jail bind
+  `repo_root=PROJECT_DIR` **:347** [external-target re-point T3]; staging path `<name>_<task_id>_staging` **~:1710**,
+  `.venv` symlink into staging **~:1721-1728**, `os.execv` blue/green re-exec **~:1411-1452**;
+  `_auto_commit_accepted` **~:1473-2148 (~675 lines, round-2)** [ROLLB-D]; `run_pipeline` **~:2149-2479 (~331 lines)**,
   13× `_mark_processed` [ROLLB-E]; `synthesis_success = True` **:2320**; `_skip_ifz` **:2331**.
-- `harness/git_integration.py`: `_SENSITIVE_APPLY_GLOBS` **:16**; `_ast_merge` **:81**; `commit_accepted_output`
-  **:569** (legacy whole-file merge `:684`, WHOLE-FILE-DRIFT-GUARD just after); `_apply_symbol_patch` **:964**
-  (R-ANCHORED extras logic); `remove_staging_worktree` **agy-cited ~:1420 (VERIFY)** [STAGING-RM-NOTIMEOUT].
+- `harness/git_integration.py`: `_SENSITIVE_APPLY_GLOBS` **:16**; `_enforce_apply_scope` glob-match-vs-worktree_root
+  **:43**; `_ast_merge` **:81**; `commit_accepted_output` **:569** (legacy whole-file merge `:684`,
+  WHOLE-FILE-DRIFT-GUARD just after); `_apply_symbol_patch` **:964** (R-ANCHORED extras logic);
+  `create/remove/merge_staging_to_parent` **~:1245-1423** (`remove_staging_worktree` **:1294**
+  [STAGING-RM-NOTIMEOUT]; merge fail-closed on dirty parent).
 - `harness/agent_jail.py`: XDG tmpfs + `bus`/`keyring` `--bind` **~:239-245** [SEC-1, KEYRING-UNFILTERED];
   `build_jail_argv` **:65** (SEC-1 target); `extra_ro/rw` binds **:121-133**.
+- `harness/paths.py`: `PROJECT_ROOT = HARNESS_DIR.parent` **:17**; GAP_H3 inside-repo fail-safe **:62**
+  (pattern for `_target_is_self`); `agent_workroot()` **~:51** [external-target T1/T4].
 - `state/control/autowork/full_stop`: **PRESENT** (`halted`).
