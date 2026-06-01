@@ -216,11 +216,23 @@ def build_jail_argv(
             argv += ["--ro-bind", "/dev/null", _ro]
     # XDG_RUNTIME_DIR (/run/user/<uid>): the D-Bus session bus + keyring socket live
     # here. agy (gemini CLI) validates/refreshes its OAuth credential through the
-    # session keyring; without this bind it loops on "authentication timed out" even
-    # though ~/.gemini/oauth_creds.json is readable. Bind writable (agy writes sockets).
+    # session keyring; without these the auth loops on "authentication timed out".
+    #
+    # H-JAIL_C: binding the ENTIRE XDG_RUNTIME_DIR read-write exposes the systemd user
+    # PRIVATE socket (and every other live runtime socket) to the jailed agent -- a
+    # containment-escape vector (the agent can talk to the user's systemd manager,
+    # start transient units / scopes outside the jail). Instead mount a fresh TMPFS
+    # over XDG_RUNTIME_DIR so the dir resolves but is EMPTY, then rw-bind back ONLY the
+    # minimal sockets/dirs agy's OAuth needs: the session bus (``<xdg>/bus``) and the
+    # keyring (``<xdg>/keyring``). Each is bound only if it exists on the host;
+    # otherwise it is skipped (a bind over an absent source would fail bwrap boot).
     xdg = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
     if os.path.isdir(xdg):
-        argv += ["--bind", xdg, xdg]
+        argv += ["--tmpfs", xdg]
+        for _xdg_sub in ("bus", "keyring"):
+            _xp = os.path.join(xdg, _xdg_sub)
+            if os.path.exists(_xp):
+                argv += ["--bind", _xp, _xp]
     # The load-bearing barrier: repository source READ-ONLY.
     argv += ["--ro-bind", repo_root, repo_root]
     # CONTAIN C-HARDEN M-1: state/ is READ-ONLY except state/sessions/ (the hook
