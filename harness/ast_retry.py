@@ -31,12 +31,13 @@ def synthesize_with_retries(agent_name: str, base_prompt: str, config: dict, sta
     max_ast_retries = config.get('synthesis', {}).get('max_ast_retries', 3)
     # GAP_H4 per-call wall-budget guard: derive the budget from config so we never
     # START a retry synthesis window we cannot finish within the hard budget
-    # (synthesis_timeout + 300s). The worker-level RECONCILE_TIMEOUT_BUDGETS
-    # protection vanished on the use_retry_module path; this restores it INSIDE the
-    # function. Clock is time.monotonic() (module-level import, so tests can patch it).
+    # (synthesis_timeout * 2 + 300s, matching the orchestrator worker's actual hard
+    # budget). The worker-level RECONCILE_TIMEOUT_BUDGETS protection vanished on the
+    # use_retry_module path; this restores it INSIDE the function. Clock is
+    # time.monotonic() (module-level import, so tests can patch it).
     start = time.monotonic()
     synthesis_timeout = float(config.get('synthesis', {}).get('timeout_seconds', 600.0))
-    HARD = synthesis_timeout + 300.0
+    HARD = synthesis_timeout * 2 + 300.0
     WINDOW = synthesis_timeout
     current_prompt = base_prompt
     code = None
