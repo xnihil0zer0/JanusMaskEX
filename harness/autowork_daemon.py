@@ -833,7 +833,7 @@ def _spawn_worker(state_dir: pathlib.Path, task_id: str) -> int | None:
     # ever routes an agent CLI through here it MUST go through _contain_selfheal.
     cmd = [sys.executable, '-m', 'harness.orchestrator_worker', '--state-dir', str(state_dir), '--task-id', task_id]
     try:
-        proc = subprocess.Popen(cmd)
+        proc = subprocess.Popen(cmd, start_new_session=True)
         return proc.pid
     except (OSError, ValueError) as exc:
         _emit_telemetry(state_dir, task_id, 'spawn_failed', repr(exc))
@@ -1265,7 +1265,7 @@ def _decide(repo_root: pathlib.Path, state_dir: pathlib.Path, running_task_ids: 
 
 def suspend_parallel_workers(state_dir: pathlib.Path, exclude_pid: int) -> None:
     global _suspended_pids, _suspension_start_times
-    rdir = state_dir / 'running'
+    rdir = _running_dir(state_dir)
     if not rdir.exists():
         return
     daemon_pid = os.getpid()
@@ -1294,6 +1294,37 @@ def resume_parallel_workers(state_dir: pathlib.Path) -> None:
 
 def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dry_run: bool, config: dict | None=None) -> dict:
     running = _reap_running(state_dir)
+    # PARALLEL-WORKER-WATCHDOG: the parallel _spawn_worker branch is fire-and-forget
+    # (no watchdog, unlike the sequential branch), so a hung/suspended parallel worker
+    # would leak its slot forever. Sweep running/ pidfiles whose mtime (~spawn time;
+    # written once, never rewritten) is older than the 1800s hang threshold AND whose
+    # pid is still alive (os.kill(pid, 0) -- NOT waitpid, the worker may be an inherited
+    # orphan), SIGKILL them and unlink the pidfile. Sequential pidfiles live and die
+    # inside one blocking _iteration call so they are never aged out here. Wrapped so a
+    # sweep failure never breaks the iteration.
+    try:
+        rdir = _running_dir(state_dir)
+        if rdir.exists():
+            now = time.time()
+            for pidfile in rdir.glob('*.pid'):
+                try:
+                    if now - pidfile.stat().st_mtime <= 1800:
+                        continue
+                    pid = int(pidfile.read_text(encoding='utf-8').strip())
+                    try:
+                        os.kill(pid, 0)
+                    except OSError:
+                        continue
+                    os.kill(pid, signal.SIGKILL)
+                    try:
+                        pidfile.unlink()
+                    except OSError:
+                        pass
+                    _emit_telemetry(state_dir, pidfile.stem, 'watchdog_kill', f'hung parallel worker pid={pid} (>1800s)')
+                except (OSError, ValueError):
+                    continue
+    except Exception as exc:
+        _emit_telemetry(state_dir, '', 'skip', f'parallel watchdog error: {exc!r}')
     try:
         _reclaim_orphan_processing(state_dir, running)
     except Exception as exc:
@@ -1400,7 +1431,7 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
                 except Exception as exc:
                     _emit_telemetry(state_dir, tid, 'spawn_failed', repr(exc))
                 finally:
-                    rdir = state_dir / 'running'
+                    rdir = _running_dir(state_dir)
                     pid_file = rdir / f'{tid}.pid'
                     if pid_file.exists():
                         try:
