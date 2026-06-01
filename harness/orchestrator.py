@@ -1682,6 +1682,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     required verification command exited zero.
     """
     from harness import agent_jail
+    from harness.dbus_proxy import proxied_session_bus
     from harness import git_integration
     from harness._journal import write_jsonl_row
     from harness.orchestrator import _resolve_files_touched, _resolve_verification_command, _vcmd_scrubbed_env, logger
@@ -1866,7 +1867,13 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                 # SEC-5c: widen extra_ro with verify_extra_ro and add extra_rw.
                 _vfull = f'set -o pipefail; {vcmd}'
                 if agent_jail.sandbox_enabled(load_config()):
-                    vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw)), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                    try:
+                        with proxied_session_bus() as _sock:
+                            vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                    except subprocess.TimeoutExpired:
+                        raise
+                    except Exception:
+                        vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=None), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
                 else:
                     vproc = subprocess.run(_vfull, shell=True, cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                 verify_exit = vproc.returncode
@@ -1991,7 +1998,13 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                             # verify_extra_ro/extra_rw widening as every jailed site.
                             _bfull = f'set -o pipefail; {vcmd}'
                             if agent_jail.sandbox_enabled(load_config()):
-                                _bproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _bfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw)), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                try:
+                                    with proxied_session_bus() as _sock:
+                                        _bproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _bfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                except subprocess.TimeoutExpired:
+                                    raise
+                                except Exception:
+                                    _bproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _bfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=None), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
                             else:
                                 _bproc = subprocess.run(_bfull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                             if _bproc.returncode != 0:
@@ -2015,7 +2028,13 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                 # SEC-5c: widen extra_ro/extra_rw like every site.
                                 _afull = f"set -o pipefail; {_mut['apply']}"
                                 if agent_jail.sandbox_enabled(load_config()):
-                                    _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw)), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                    try:
+                                        with proxied_session_bus() as _sock:
+                                            _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                    except subprocess.TimeoutExpired:
+                                        raise
+                                    except Exception:
+                                        _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=None), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
                                 else:
                                     _ap = subprocess.run(_afull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                                 _applied = (_ap.returncode == 0)
@@ -2029,7 +2048,13 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                 # extra_ro/extra_rw like every jailed site.
                                 _rfull = f'set -o pipefail; {vcmd}'
                                 if agent_jail.sandbox_enabled(load_config()):
-                                    _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw)), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                    try:
+                                        with proxied_session_bus() as _sock:
+                                            _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                    except subprocess.TimeoutExpired:
+                                        raise
+                                    except Exception:
+                                        _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=None), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
                                 else:
                                     _mproc = subprocess.run(_rfull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                                 _mvacuous = (_mproc.returncode == 0)
