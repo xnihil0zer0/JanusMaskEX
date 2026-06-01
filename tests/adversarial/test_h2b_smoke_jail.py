@@ -99,11 +99,27 @@ def test_smoke_import_unjailed_when_sandbox_disabled():
 
 
 def test_smoke_import_unjailed_fallback_when_bwrap_missing():
-    """Graceful degradation: sandbox on but bwrap absent -> FileNotFoundError caught, unjailed fallback."""
-    argv = _capture_smoke_argv(bwrap_enabled=True, which_return=None,
-                               module_name="test_mymod_h2b_fallback")
+    """Fail-closed: sandbox on but bwrap absent -> FileNotFoundError caught, NO
+    unjailed fallback. smoke_import returns a non-None rejection string and
+    dispatches no subprocess."""
+    run_calls = []
 
-    assert isinstance(argv, list), f"Expected list argv, got {type(argv).__name__}: {argv!r}"
-    assert argv[0] == sys.executable, \
-        f"Expected fallback argv[0] to be sys.executable ({sys.executable!r}), got {argv[0]!r}"
-    assert "bwrap" not in " ".join(str(a) for a in argv), f"Expected no bwrap in fallback argv, got {argv!r}"
+    def mock_run(argv, *args, **kwargs):
+        run_calls.append(argv)
+        proc = mock.MagicMock()
+        proc.returncode = 0
+        proc.stdout = ""
+        proc.stderr = ""
+        return proc
+
+    cfg = {"agent_sandbox": {"bwrap": True}}
+
+    with mock.patch("harness.sandbox_smoke.subprocess.run", side_effect=mock_run), \
+         mock.patch("harness.orchestrator.load_config", return_value=cfg), \
+         mock.patch("shutil.which", return_value=None):
+        result = smoke_import("test_mymod_h2b_fallback", "x = 1")
+
+    assert len(run_calls) == 0, \
+        f"Expected NO subprocess dispatched on fail-closed path, got {run_calls!r}"
+    assert isinstance(result, str) and result, \
+        f"Expected a non-None rejection string, got {result!r}"

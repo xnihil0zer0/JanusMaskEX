@@ -132,9 +132,15 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
                 # shim and false-rejects the smoke). Only on the jailed path.
                 env['PATH'] = os.pathsep.join([os.path.join(sys.prefix, 'bin'), env['PATH']])
             except FileNotFoundError:
-                # bwrap absent on the host -> fall back to the unjailed cmd.
-                # A TypeError (call-site bug) must NOT be swallowed: fail closed.
-                cmd = [sys.executable, '-S', '-c', f'import {module_name}']
+                # bwrap absent on the host while the sandbox is ENABLED -> FAIL
+                # CLOSED: refuse to import the candidate unjailed rather than
+                # silently dropping the bubblewrap barrier. Return a clear
+                # rejection string and dispatch NO subprocess. A TypeError
+                # (call-site bug) is intentionally NOT caught here so it still
+                # propagates (fail-closed on call-site bug).
+                return ('sandbox import failed: agent_sandbox.bwrap is enabled '
+                        'but bwrap is not on PATH; refusing to import the '
+                        'candidate unjailed (fail-closed)')
         try:
             proc = subprocess.run(cmd, cwd=str(td_path), env=env, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
