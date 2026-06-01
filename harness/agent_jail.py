@@ -71,6 +71,7 @@ def build_jail_argv(
     home: str | Path | None = None,
     extra_ro: Iterable[str | Path] = (),
     extra_rw: Iterable[str | Path] = (),
+    dbus_proxy_socket: str | None = None,
 ) -> list[str]:
     """Wrap ``cmd`` in a ``bwrap`` argv that makes ``repo_root`` read-only.
 
@@ -241,7 +242,12 @@ def build_jail_argv(
         argv += ["--tmpfs", xdg]
         for _xdg_sub in ("bus", "keyring"):
             _xp = os.path.join(xdg, _xdg_sub)
-            if os.path.exists(_xp):
+            if _xdg_sub == "bus" and dbus_proxy_socket is not None:
+                # SEC-1b: when a dbus proxy socket is supplied, bind THAT mediated
+                # socket at the in-jail ``<xdg>/bus`` path instead of the host's real
+                # session bus -- the jailed agent talks only to the filtering proxy.
+                argv += ["--bind", dbus_proxy_socket, _xp]
+            elif os.path.exists(_xp):
                 argv += ["--bind", _xp, _xp]
     # The load-bearing barrier: repository source READ-ONLY.
     argv += ["--ro-bind", repo_root, repo_root]
