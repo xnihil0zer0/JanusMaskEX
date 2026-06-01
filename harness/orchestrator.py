@@ -1577,6 +1577,26 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     throwaway-copy ``shutil.copytree`` ignore set is widened to also skip
     ``state``, ``samples``, ``.pytest_cache``, and ``*.egg-info``.
 
+    MUT-MASK (MUTANT_INFRA_VS_ASSERTION): a mutant rerun can exit NON-ZERO for
+    an INFRA reason rather than a genuine assertion failure -- the
+    verification_command may touch a path the throwaway ``copytree`` DROPPED
+    (e.g. ``samples/`` or ``state/`` per the H1-widened ignore set). The bare
+    ``_mvacuous = (_mproc.returncode == 0)`` interpretation would MISREAD that
+    infra fluke as 'mutant caught' and silently ACCEPT a vacuous test. To
+    distinguish infra-fail from genuine assertion-fail, a BASELINE-IN-COPY
+    guard (Option A, prep-validated) re-runs the UNMUTATED ``vcmd`` inside the
+    fresh ``_mcopy`` -- through the SAME jail/shell discipline, pipefail
+    wrapper, ``cwd``, ``extra_ro``, and scrubbed env as the mutant rerun --
+    immediately after the ``copytree`` and BEFORE the mutant is applied. If
+    that baseline-in-copy run exits NON-ZERO the copy is structurally unable to
+    run the unmutated verify (a path dropped by the ignore set), so the mutant
+    rerun cannot be trusted: a ``RuntimeError`` is raised, caught by the
+    existing H1 try/except, rolled back, and recorded as
+    ``mutation_gate_error`` -- it is NEVER credited as a mutant catch. When the
+    baseline-in-copy passes (exit 0), behavior is byte-identical to before:
+    the mutant is applied and ``_mvacuous = (_mproc.returncode == 0)`` still
+    decides catch-vs-vacuous.
+
     ROLLB-A (TASK-SCOPED STAGING): the staging worktree path is now scoped by
     ``task_id`` -- ``worktree_root.parent / f"{worktree_root.name}_{task_id}_staging"``
     -- so concurrent pipeline runs on distinct task IDs derive distinct
@@ -1843,6 +1863,25 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                     try:
                         _mcopy = os.path.join(_mtmp, 'staging')
                         shutil.copytree(str(staging_path), _mcopy, symlinks=True, ignore=shutil.ignore_patterns('.git', '__pycache__', '*.pyc', 'state', 'samples', '.pytest_cache', '*.egg-info'))
+                        # MUT-MASK (MUTANT_INFRA_VS_ASSERTION): BASELINE-IN-COPY
+                        # guard. Before applying the mutant, re-run the UNMUTATED
+                        # vcmd inside the fresh _mcopy through the SAME jail/shell
+                        # discipline used for the mutant rerun below (same
+                        # pipefail wrapper, cwd=_mcopy, extra_ro, scrubbed env).
+                        # If the unmutated verify does NOT pass in the copy, the
+                        # copytree dropped a path the verification_command needs
+                        # (e.g. samples/ or state/), so a NON-ZERO mutant rerun
+                        # would be an INFRA failure -- NOT a genuine assertion
+                        # catch. Raise so the enclosing H1 try/except rolls back
+                        # and records mutation_gate_error; never credit the
+                        # mutant as caught on an infra fluke.
+                        _bfull = f'set -o pipefail; {vcmd}'
+                        if agent_jail.sandbox_enabled(load_config()):
+                            _bproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _bfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix]), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                        else:
+                            _bproc = subprocess.run(_bfull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
+                        if _bproc.returncode != 0:
+                            raise RuntimeError(f'mutation_gate baseline-in-copy failed for mutant #{_mi}: the unmutated verification_command exits {_bproc.returncode} inside the mutant copy (a path dropped by the copytree ignore set); the mutant rerun cannot be trusted as a catch')
                         _applied = True
                         if _mut.get('stub_target'):
                             _st = _mut.get('stub_target')
