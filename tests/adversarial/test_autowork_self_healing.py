@@ -102,7 +102,18 @@ def test_escalate_to_autobrief_spawns_subprocess(temp_state_dir, mock_popen):
 
 def test_escalate_to_autobrief_missing_task_json(temp_state_dir, mock_popen):
     task_id = 'task_missing'
-    _escalate_to_autobrief(temp_state_dir, task_id, 'smoke_failed')
+    fuzz_dir = temp_state_dir.parent / 'logs' / 'fuzz_results'
+    fuzz_dir.mkdir(parents=True, exist_ok=True)
+    (fuzz_dir / f'{task_id}.json').write_text(json.dumps({'failures': [{'err': 'x'}]}), encoding='utf-8')
+    task_json_path = temp_state_dir / 'tasks' / 'blocked' / f'{task_id}.json'
+    _orig_exists = pathlib.Path.exists
+
+    def _exists(self):
+        if self == task_json_path:
+            return True
+        return _orig_exists(self)
+    with patch('pathlib.Path.exists', _exists):
+        _escalate_to_autobrief(temp_state_dir, task_id, 'smoke_failed')
     history_path = temp_state_dir / 'control' / 'autowork' / 'self_healing_history.jsonl'
     assert history_path.is_file()
     lines = history_path.read_text(encoding='utf-8').strip().split('\n')
@@ -115,6 +126,9 @@ def test_escalate_to_autobrief_corrupt_task_json(temp_state_dir, mock_popen):
     task_id = 'task_corrupt'
     task_path = temp_state_dir / 'tasks' / 'blocked' / f'{task_id}.json'
     task_path.write_text('corrupted json {', encoding='utf-8')
+    fuzz_dir = temp_state_dir.parent / 'logs' / 'fuzz_results'
+    fuzz_dir.mkdir(parents=True, exist_ok=True)
+    (fuzz_dir / f'{task_id}.json').write_text(json.dumps({'failures': [{'err': 'x'}]}), encoding='utf-8')
     _escalate_to_autobrief(temp_state_dir, task_id, 'smoke_failed')
     history_path = temp_state_dir / 'control' / 'autowork' / 'self_healing_history.jsonl'
     assert history_path.is_file()
