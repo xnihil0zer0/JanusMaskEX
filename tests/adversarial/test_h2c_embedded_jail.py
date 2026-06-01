@@ -83,12 +83,29 @@ def test_h2c_embedded_tests_run_unjailed_when_sandbox_disabled():
 
 
 def test_h2c_embedded_tests_fail_closed_when_bwrap_unavailable_but_sandbox_enabled():
-    """Prove that if bwrap is missing but sandbox is enabled, the run fails closed."""
+    """Prove that if bwrap is missing but sandbox is enabled, the run fails closed.
+
+    SEC-3: fail-closed now means a clean non-empty rejection STRING (no raised
+    crash), and crucially that NO unjailed subprocess is ever dispatched.
+    """
     cfg = {"agent_sandbox": {"bwrap": True}}
     src = "def test_dummy():\n    pass\n"
+    run_calls = []
+
+    def mock_run(cmd, *args, **kwargs):
+        run_calls.append(cmd)
+        proc = mock.MagicMock()
+        proc.returncode = 0
+        proc.stdout = ""
+        proc.stderr = ""
+        return proc
 
     with mock.patch("harness.orchestrator.load_config", return_value=cfg), \
+         mock.patch("harness.embedded_test_runner.subprocess.run", side_effect=mock_run), \
          mock.patch("shutil.which", return_value=None):
-        
-        with pytest.raises(FileNotFoundError, match="refusing to spawn an un-jailed agent"):
-            run_embedded_tests("dummy_module", src)
+
+        result = run_embedded_tests("dummy_module", src)
+
+    assert isinstance(result, str), f"Expected a rejection string, got: {result!r}"
+    assert result, "Expected a non-empty rejection string"
+    assert run_calls == [], f"Expected NO unjailed subprocess dispatch, got: {run_calls!r}"

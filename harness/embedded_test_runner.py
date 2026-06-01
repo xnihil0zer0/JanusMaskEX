@@ -151,14 +151,24 @@ def run_embedded_tests(
             f"{module_name}.py",
         ]
         if sandboxed:
-            collect_argv = build_jail_argv(
-                collect_argv,
-                repo_root=PROJECT_ROOT,
-                work_dir=str(td_path),
-                state_dir=STATE_DIR,
-                extra_ro=[sys.base_prefix, sys.prefix, *_verify_extra_ro],
-                extra_rw=_verify_extra_rw,
-            )
+            # SEC-3 fail-closed: build_jail_argv raises FileNotFoundError when
+            # the sandbox is enabled but bwrap is not on PATH. Catch it and
+            # return a clean rejection string instead of letting it propagate
+            # and crash; critically, NO unjailed subprocess is dispatched.
+            try:
+                collect_argv = build_jail_argv(
+                    collect_argv,
+                    repo_root=PROJECT_ROOT,
+                    work_dir=str(td_path),
+                    state_dir=STATE_DIR,
+                    extra_ro=[sys.base_prefix, sys.prefix, *_verify_extra_ro],
+                    extra_rw=_verify_extra_rw,
+                )
+            except FileNotFoundError:
+                return (
+                    "embedded tests failed: agent_sandbox.bwrap is enabled but "
+                    "bwrap is not on PATH; refusing to run unjailed (fail-closed)"
+                )
         try:
             proc = subprocess.run(
                 collect_argv,
@@ -189,14 +199,21 @@ def run_embedded_tests(
             f"{module_name}.py",
         ]
         if sandboxed:
-            run_argv = build_jail_argv(
-                run_argv,
-                repo_root=PROJECT_ROOT,
-                work_dir=str(td_path),
-                state_dir=STATE_DIR,
-                extra_ro=[sys.base_prefix, sys.prefix, *_verify_extra_ro],
-                extra_rw=_verify_extra_rw,
-            )
+            # SEC-3 fail-closed (symmetric to the collect_argv guard above).
+            try:
+                run_argv = build_jail_argv(
+                    run_argv,
+                    repo_root=PROJECT_ROOT,
+                    work_dir=str(td_path),
+                    state_dir=STATE_DIR,
+                    extra_ro=[sys.base_prefix, sys.prefix, *_verify_extra_ro],
+                    extra_rw=_verify_extra_rw,
+                )
+            except FileNotFoundError:
+                return (
+                    "embedded tests failed: agent_sandbox.bwrap is enabled but "
+                    "bwrap is not on PATH; refusing to run unjailed (fail-closed)"
+                )
         try:
             proc = subprocess.run(
                 run_argv,
