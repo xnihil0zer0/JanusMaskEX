@@ -1525,6 +1525,64 @@ def _maybe_push_and_rebase_pin(repo_root: pathlib.Path, state_dir: pathlib.Path)
         _emit_telemetry(state_dir, '', 'push_error', repr(exc))
     return out
 
+def _resume_or_kill_orphaned_workers(state_dir: pathlib.Path, config: dict) -> None:
+    """DAEMON-STARTUP-ORPHAN: sweep running/ pidfiles once at daemon startup.
+
+    A crash/restart between SIGSTOP and SIGCONT strands a parallel worker in T
+    (stopped) state with its pidfile still under _running_dir(state_dir). The
+    in-memory _suspended_pids does not survive a restart, and _reap_running's
+    os.kill(pid, 0) liveness probe SUCCEEDS for a live-but-stopped pid, so the
+    orphan is treated as live, never reaped, and its parallel slot leaks
+    forever while the T-state worker never makes progress.
+
+    This best-effort sweep probes each pidfile with os.kill(pid, 0) -- NOT
+    os.waitpid, because an inherited orphan is NOT a child of the restarted
+    daemon. A dead pid (ProcessLookupError / non-Permission OSError) has its
+    pidfile unlinked; a PermissionError pidfile is left alone (someone else
+    owns it); a live pid is resumed with SIGCONT so the stranded worker runs to
+    completion and frees its slot. Per-pidfile work is wrapped so the sweep
+    never raises.
+    """
+    rdir = _running_dir(state_dir)
+    if not rdir.exists():
+        return
+    try:
+        entries = list(rdir.glob('*.pid'))
+    except OSError:
+        return
+    for p in entries:
+        try:
+            try:
+                pid = int(p.read_text(encoding='utf-8').strip())
+            except (OSError, ValueError):
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+                continue
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+                continue
+            except PermissionError:
+                continue
+            except OSError:
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+                continue
+            try:
+                os.kill(pid, signal.SIGCONT)
+            except OSError:
+                pass
+            _emit_telemetry(state_dir, p.stem, 'resume_orphan', f'pid={pid}')
+        except Exception:
+            continue
 def run_daemon(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -> int:
     """Run the polling loop. Returns 0 on clean shutdown."""
     global _shutdown_requested
@@ -1536,6 +1594,10 @@ def run_daemon(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -
     global _daemon_start_time
     _daemon_start_time = time.time()
     _emit_telemetry(state_dir, '', 'daemon_start', f'cap={cap} poll={poll} heartbeat={heartbeat}')
+    try:
+        _resume_or_kill_orphaned_workers(state_dir, config)
+    except Exception as exc:
+        _emit_telemetry(state_dir, '', 'skip', f'orphan sweep error: {exc!r}')
     try:
         marker_path = pathlib.Path(state_dir) / 'control' / 'autowork' / 'inactivity_escalated.json'
         if marker_path.exists():
