@@ -4,7 +4,7 @@
 > landings, 0 hand-edits) and then adversarially re-reviewed by a 4-agent Antigravity/Gemini panel
 > (reports in `~/janusmask_briefs/review/R{1..4}_*.md`), with every panel claim re-verified by the
 > overseer against live code at HEAD `187b681`.**
-> Supersedes `JANUSMASKJR_CONTINUATION_PLAN_REV13.md` (rev-14 content). Governing rule (owner directive,
+> Supersedes `JANUSMASKJR_CONTINUATION_PLAN_REV14.md`. Governing rule (owner directive,
 > carried): **use the PIPELINE for every change wherever possible; HAND-EDIT only after a pipeline attempt
 > fails with a PERMANENT blocker (never a timeout, never a re-groundable verification failure).**
 >
