@@ -69,13 +69,240 @@ def _build_strategies(sig: dict[str, str]) -> dict[str, st.SearchStrategy[Any]] 
     return strategies
 
 def _exec_module(module_name: str, module_src: str) -> dict[str, Any] | None:
-    ns: dict[str, Any] = {'__name__': module_name}
+    # Candidate module code must NEVER be exec'd in-process on the host
+    # orchestrator. Instead we write the candidate source to a host-level
+    # temp dir and run a small command-loop driver in a SEPARATE python
+    # subprocess, jailed via bubblewrap when available. All imports here
+    # are lazy/in-body so the module surface gains no new top-level symbol
+    # or module-level import.
+    import json
+    import shutil
+    import subprocess
+    import tempfile
+    from harness.agent_jail import build_jail_argv, bwrap_available
+
+    _here = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.dirname(os.path.dirname(_here))
+    state_dir = os.path.join(repo_root, 'state')
     try:
-        compiled = compile(module_src, f'<narrow_fuzz_{module_name}>', 'exec')
-        exec(compiled, ns)
+        os.makedirs(state_dir, exist_ok=True)
     except Exception:
+        pass
+
+    # The host temp dir is the only freely-writable surface inside the jail
+    # (build_jail_argv ro-binds /usr /bin ... + repo root and binds work_dir
+    # writable). Candidate + driver live here.
+    work_dir = tempfile.mkdtemp(prefix='narrow_fuzz_')
+
+    class ProxyCallable:
+        """Host-side stand-in for a candidate validator function.
+
+        It is callable and carries a real ``_narrow_fuzz_meta`` dict (as
+        reported by the subprocess) so the §10.3 skip/timeout opt-out keeps
+        working. Each call is forwarded to the running subprocess; a crash
+        is re-raised on the host as a dynamically synthesized exception
+        whose ``__class__.__name__`` matches the subprocess exception type
+        so Hypothesis can shrink it and the error string keeps the name.
+        """
+
+        def __init__(self, proc: Any, fname: str, meta: Any) -> None:
+            self._proc = proc
+            self._fname = fname
+            self._narrow_fuzz_meta = meta if isinstance(meta, dict) else {}
+
+        def __call__(self, **kwargs: Any) -> None:
+            proc = self._proc
+            try:
+                payload = json.dumps({'func': self._fname, 'kwargs': kwargs})
+            except (TypeError, ValueError):
+                return None
+            try:
+                proc.stdin.write(payload + chr(10))
+                proc.stdin.flush()
+            except Exception:
+                return None
+            resp_line = proc.stdout.readline()
+            if not resp_line:
+                return None
+            try:
+                resp = json.loads(resp_line)
+            except Exception:
+                return None
+            if resp.get('status') == 'exc':
+                exc_name = str(resp.get('exc_type') or 'Exception')
+                exc_msg = resp.get('exc_msg', '')
+                synthesized = type(exc_name, (Exception,), {})
+                raise synthesized(exc_msg)
+            return None
+
+    class CleanDict(dict):
+        """Namespace mapping returned to ``fuzz``.
+
+        On garbage collection it guarantees the subprocess is terminated
+        and the temp work dir is removed, preventing leakage of file
+        handles or stale files.
+        """
+
+        _proc: Any = None
+        _work_dir: Any = None
+
+        def __del__(self) -> None:
+            proc = getattr(self, '_proc', None)
+            if proc is not None:
+                try:
+                    if proc.stdin is not None:
+                        proc.stdin.close()
+                except Exception:
+                    pass
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+                try:
+                    proc.wait(timeout=2)
+                except Exception:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+            wd = getattr(self, '_work_dir', None)
+            if wd:
+                shutil.rmtree(wd, ignore_errors=True)
+
+    # Driver script: it puts the workspace dir and the repo root on
+    # sys.path, imports candidate, reports discovered callables + their
+    # _narrow_fuzz_meta, then services JSON request lines from stdin.
+    # ONLY framed JSON lines go to stdout (diagnostics would go to stderr)
+    # to avoid stdin/stdout deadlock. Uses no backslash escapes; newlines
+    # are emitted via chr(10).
+    _driver = """import sys, os, json, traceback
+_WD = os.path.dirname(os.path.abspath(__file__))
+if _WD not in sys.path:
+    sys.path.insert(0, _WD)
+_REPO = __REPO_ROOT__
+if _REPO and _REPO not in sys.path:
+    sys.path.insert(0, _REPO)
+
+
+def _emit(obj):
+    sys.stdout.write(json.dumps(obj) + chr(10))
+    sys.stdout.flush()
+
+
+try:
+    import candidate
+except BaseException as _exc:
+    _emit({'status': 'error', 'exc_type': type(_exc).__name__, 'exc_msg': str(_exc)})
+    sys.exit(0)
+
+_funcs = {}
+for _name in dir(candidate):
+    if _name.startswith('__'):
+        continue
+    _obj = getattr(candidate, _name)
+    if callable(_obj):
+        _meta = getattr(_obj, '_narrow_fuzz_meta', {})
+        if not isinstance(_meta, dict):
+            _meta = {}
+        _funcs[_name] = _meta
+
+_emit({'status': 'ready', 'functions': _funcs})
+
+for _line in sys.stdin:
+    _line = _line.strip()
+    if not _line:
+        continue
+    try:
+        _req = json.loads(_line)
+    except Exception:
+        continue
+    _fn = getattr(candidate, _req.get('func'), None)
+    if not callable(_fn):
+        _emit({'status': 'ok'})
+        continue
+    try:
+        _fn(**_req.get('kwargs', {}))
+        _emit({'status': 'ok'})
+    except BaseException as _exc:
+        _emit({'status': 'exc', 'exc_type': type(_exc).__name__, 'exc_msg': str(_exc), 'tb': traceback.format_exc(limit=3)})
+"""
+    driver_src = _driver.replace('__REPO_ROOT__', repr(repo_root))
+
+    proc = None
+    try:
+        with open(os.path.join(work_dir, 'candidate.py'), 'w', encoding='utf-8') as _cf:
+            _cf.write(module_src)
+        with open(os.path.join(work_dir, 'driver.py'), 'w', encoding='utf-8') as _df:
+            _df.write(driver_src)
+
+        # Launch a JAILED subprocess when bubblewrap is available. The
+        # interpreter MUST be a bare name resolvable from the jail's
+        # ro-bound /usr and /bin (NOT sys.executable, whose venv symlink
+        # chain is not bound inside the jail); the driver is referenced by
+        # basename and the cwd is the writable temp work dir. build_jail_argv
+        # appends the inner command itself, so we MUST NOT append it again,
+        # and its repo_root/work_dir/state_dir params are keyword-only. A
+        # TypeError here would mean a call-site bug and must NOT be swallowed;
+        # the only legitimate fallback is FileNotFoundError (bwrap absent),
+        # in which case we run the SAME driver unjailed.
+        if bwrap_available():
+            try:
+                argv = build_jail_argv(['python3', 'driver.py'], repo_root=repo_root, work_dir=work_dir, state_dir=state_dir)
+            except FileNotFoundError:
+                argv = ['python3', 'driver.py']
+        else:
+            argv = ['python3', 'driver.py']
+
+        proc = subprocess.Popen(
+            argv,
+            cwd=work_dir,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            bufsize=1,
+            encoding='utf-8',
+        )
+
+        status_line = proc.stdout.readline()
+        if not status_line:
+            raise RuntimeError('candidate driver produced no output')
+        status = json.loads(status_line)
+        if status.get('status') != 'ready':
+            # Import/compile failure inside the candidate -> behave like the
+            # old in-process exec failure: return None.
+            raise RuntimeError('candidate import failed')
+        functions = status.get('functions', {})
+        if not isinstance(functions, dict):
+            functions = {}
+    except Exception:
+        if proc is not None:
+            try:
+                if proc.stdin is not None:
+                    proc.stdin.close()
+            except Exception:
+                pass
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        shutil.rmtree(work_dir, ignore_errors=True)
         return None
-    return ns
+
+    namespace = CleanDict()
+    namespace['__name__'] = module_name
+    namespace._proc = proc
+    namespace._work_dir = work_dir
+    for _fname, _meta in functions.items():
+        namespace[_fname] = ProxyCallable(proc, _fname, _meta)
+    return namespace
 
 def _meta_for(fn: Callable[..., Any]) -> dict[str, Any]:
     meta = getattr(fn, '_narrow_fuzz_meta', None)
