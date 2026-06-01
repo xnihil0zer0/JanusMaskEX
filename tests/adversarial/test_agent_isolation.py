@@ -46,6 +46,10 @@ class _FakePopen:
     def poll(self):
         return None
 
+    def communicate(self, input=None, timeout=None):
+        self.returncode = 0
+        return ('', '')
+
 
 def _is_outside_repo(p: Path) -> bool:
     p = Path(p).resolve()
