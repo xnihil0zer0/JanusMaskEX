@@ -43,7 +43,7 @@ def test_build_jail_argv_extra_rw(tmp_path):
     original_which = shutil.which
     def mock_which(cmd):
         if cmd == "bwrap":
-            return "/usr/bin/bwrap"
+            return original_which("bwrap") or "/usr/bin/bwrap"
         return original_which(cmd)
 
     with mock.patch("shutil.which", mock_which):
