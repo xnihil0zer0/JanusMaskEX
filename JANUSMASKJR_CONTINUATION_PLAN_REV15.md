@@ -8,7 +8,10 @@
 > carried): **use the PIPELINE for every change wherever possible; HAND-EDIT only after a pipeline attempt
 > fails with a PERMANENT blocker (never a timeout, never a re-groundable verification failure).**
 >
-> **Read this first (one-paragraph state):** **HEAD `187b681`, synced to `origin/master`.** All four rev-14
+> **Read this first (one-paragraph state):** **Code-frozen at `187b681`; current HEAD is `57ef680`, synced to
+> `origin/master`.** The two commits past `187b681` (`34efe05`, `57ef680`) touch ONLY the rev-14/rev-15 plan
+> `.md` files — `git diff 187b681..HEAD -- harness/ services/ tests/ config/ scripts/` is empty — so every
+> code line-anchor below remains valid. All four rev-14
 > Phase-A gating blockers are CLOSED via the pipeline: FIX-TESTS (C12), H-FUZZ (C10), H-JAIL_A/B/C (C9/C9/C8),
 > H2A/H2B/H2C (C7/C11), plus H2B-FIX (a self-caught smoke-interpreter regression). The dual-agent four-gate
 > invariant is byte-intact (`synthesis_success = True` ×1 per file), §1b was respected (per-task decisions only;
@@ -66,13 +69,23 @@ are marked. **Trust the verdict column, not the raw panel claim.**
 |---|-------------|--------------------------------------|-----|------------------|
 | **SEC-1** | D-Bus session `bus` socket bound rw → jailed agent reaches `org.freedesktop.systemd1.StartTransientUnit` → host exec (bwrap doesn't unshare IPC). `agent_jail.py:231-235`. | **CONFIRMED — real residual.** Known/accepted tradeoff (agy OAuth needs the bus); H-JAIL_C narrowed XDG from whole-dir rw to bus+keyring but the bus residual remains. NOT a regression. | **HIGH** | Partially — needs `xdg-dbus-proxy` (new subprocess) ⇒ likely hand-edit after a pipeline attempt. |
 | **SEC-2** | H2A verify+mutant use `extra_ro=[sys.base_prefix]` only, missing `sys.prefix` (H2C uses both). `orchestrator.py:1727/1834/1847`. | **CONFIRMED.** Works today only because the venv lives under `repo_root` (ro-bound); fragile for any venv outside repo_root. | **MED** | YES — single-symbol `_auto_commit_accepted` edit: `extra_ro=[sys.base_prefix, sys.prefix]`. |
-| **SEC-3** | Fail-open/fail-closed inconsistency: `H2A`/`H2C` don't catch `FileNotFoundError` from `build_jail_argv` (crash if bwrap missing+enabled); smoke/`H-FUZZ` may fall back unjailed. | **CONFIRMED (dormant — bwrap present here).** Harmonize to fail-CLOSED: a missing bwrap while sandbox enabled must reject the run, never run unjailed and never crash the worker. | **MED** | YES — per-symbol guards. |
-| **SEC-4** | H-FUZZ driver does not redirect the *candidate's* stdout, so a candidate `print('{"status":"ok"}')` could corrupt the JSON protocol and mask a crash. `narrow_fuzz/validation.py`. | **PLAUSIBLE — needs driver-source confirm.** grep shows the driver writes framed JSON to stdout and sends diagnostics to stderr, but no explicit `sys.stdout` redirect was found around the candidate call. Confirm, then harden. | **MED** | YES — single-symbol `_exec_module` edit: redirect candidate stdout to devnull/stderr in the driver before any candidate call. |
+| **SEC-3** | Fail-open/fail-closed inconsistency: `H2A`/`H2C` don't catch `FileNotFoundError` from `build_jail_argv` (crash if bwrap missing+enabled); smoke/`H-FUZZ` may fall back unjailed. | **CONFIRMED — the two halves fail OPPOSITE ways (panel sharpened).** `smoke_import` (`sandbox_smoke.py:134-137`) and `_exec_module` (`validation.py:251-252`) catch `FileNotFoundError` and fall back to running candidate code **UNJAILED** (fail-OPEN); worse, the H-FUZZ gate keys on `bwrap_available()` NOT `sandbox_enabled(config)` (`validation.py:248`), so an operator-enabled sandbox is silently downgraded whenever bwrap is absent. Meanwhile `_auto_commit_accepted` (`:1727/1834/1847`) and `run_embedded_tests` catch only `TimeoutExpired`, so a missing-bwrap-while-enabled **crashes** the worker. Dormant only because bwrap is present on this host. Harmonize ALL FOUR to fail-CLOSED: switch the H-FUZZ gate to `sandbox_enabled(config)`, and when sandbox is enabled but bwrap is absent, reject the run cleanly (never unjailed, never crash). | **MED-HIGH** | YES — per-symbol guards. |
+| **SEC-4** | H-FUZZ driver does not redirect the *candidate's* stdout, so a candidate `print('{"status":"ok"}')` could corrupt the JSON protocol and mask a crash. `narrow_fuzz/validation.py`. | **CONFIRMED (panel re-review).** The in-jail driver invokes the candidate (`validation.py:~224`, `_fn(**kwargs)`) with NO stdout redirect and shares `sys.stdout` with the framed-JSON `_emit` (`:187-189`); stderr is `DEVNULL` (`:261`) and the host reads one line via `readline()` (`:124/:267`). A candidate `print('{"status":"ok"}')` can spoof/mask the crash protocol. Harden inside the in-jail driver text (host-side redirect is insufficient). | **MED** | YES — single-symbol `_exec_module` edit: redirect candidate stdout to devnull/stderr in the driver before any candidate call. |
 | **SEC-5** | Jailed verification (H2A) false-rejects legitimate future fixes whose `verification_command` needs paths the jail doesn't bind (`~/.local`, `/var/run` sockets, `/tmp`, network, editable installs). | **CONFIRMED — real operational risk.** Could stall the pipeline on valid work once jailing is the default. | **MED-HIGH** | YES — add a config-driven `agent_sandbox.verify_extra_ro`/`extra_rw` allowlist consumed by `_auto_commit_accepted` / `run_embedded_tests`. |
-| MUT-MASK | (R2 Rank 1) Jailed mutant rerun failing for *infra* reasons (`returncode!=0`) is misread as "mutant caught" → masks a vacuous test. `orchestrator.py:1850`. | **DOWNGRADED to LOW.** The BASELINE verify is also jailed (same config, same `_mcopy`); an infra failure fails the baseline first → task rejected, not masked. Residual only if a mutant uniquely trips an infra limit. | LOW | YES (optional hardening — distinguish assertion-fail from infra-fail). |
+| MUT-MASK | (R2 Rank 1) Jailed mutant rerun failing for *infra* reasons (`returncode!=0`) is misread as "mutant caught" → masks a vacuous test. `orchestrator.py:1850`. | **CONFIRMED — re-rated MED; the prior LOW downgrade rested on a FACTUALLY WRONG premise.** The downgrade claimed "the baseline verify is also jailed (same `_mcopy`)" — but the baseline verify runs in `staging_path` (full worktree, incl. `state/`/`samples/`/`.git`; `orchestrator.py:1727`), while the mutant apply+rerun run in `_mcopy`, a `copytree` that EXCLUDES `state`/`samples`/`.git`/`*.egg-info` (`:1815`). The environments are NOT identical, so the baseline does NOT "fail first": a mutant rerun that fails for an infra reason (a path the copytree dropped → `returncode!=0`) is misread as `_mvacuous=False` == "mutant caught" (`:1850`), **silently accepting a vacuous test.** Reachable in normal operation whenever a verification_command touches `state/`/`samples/`/egg-info. Fix: distinguish assertion/collection-fail from infra-fail in the mutant rerun, OR give the mutant the same inclusion set as the baseline. | MED | YES — move into Phase 1. |
 | GATE-1 | (R2 Rank 3) `harness_self_fix` commits CLAUDE only; gemini is AST-syntax-only ⇒ 8/9 harness changes effectively single-author. | **CONFIRMED — design tradeoff.** Mitigated by §1b operator approval on every harness change. Worth strengthening (e.g. require gemini's submission to also pass the verification_command, or a differential check) but NOT a regression. | LOW/strategic | Needs design (route change) ⇒ hand-edit/strategic. |
 | FP-1 | (R3) "the 7 suite failures are regressions introduced this session." | **REFUTED.** All 7 fail identically at base `2a8eb88` (overseer ran them there). Pre-existing. R4 concurs. | n/a | — |
 | OK-1 | (R4) A-TEST `test_phase_a_selfheal_jail_writedenial.py` is non-vacuous (bwrap-flip mutant → 7 FAILURES, not skips). | **CONFIRMED** — supports the owner's Phase-A 8-point review. | n/a | — |
+
+### 1a. rev-15 7-agent re-review addendum (two dropped rev-14 items, each carried 4/7 consensus)
+
+A second adversarial pass (4-agent panel + overseer + 2 dedicated refutation agents = 7 reviewers) re-examined two
+items that rev-14 tracked and rev-15 had silently dropped. Both reached **4/7 CONFIRM** and are re-instated:
+
+| # | Item | Verdict (4/7) | Sev | Pipeline-viable? |
+|---|------|---------------|-----|------------------|
+| **PARITY-1** | The submit-time AST **interceptor** is stricter than the commit-time **enforcer**: `services/neurosymbolic/ast_verifier.py:189` flags `except Exception:`/`except BaseException:` with a `pass`/docstring-only body as `except_exception_pass` **severity ERROR**; `harness/ast_enforcer.py:100-104` only flags truly-bare `except:` (typed `except Exception` is NOT caught). `harness/interceptors.py:56-59` returns `decision='deny'` on any ERROR, and it sits on the unconditional submission path (`orchestrator.py:497-557`). | **CONFIRMED — same mechanism as the rev-11/H-INT `subprocess_no_check` saga; rev-14 line 109 flagged it UNVERIFIED and rev-15 dropped it.** **Scope (per refutation agent #7 — important):** reachable ONLY for **whole-file submissions of non-bypass mtts** (`io_adapter`/`refactor`/`logging_observability`/`cli_tooling`/`test_authoring`). NOT reachable for `harness_self_fix`/`__JANUSMASK_PATCHES__`/manifest submissions — there the `except` body lives inside a string literal so `ASTVerifier` never walks it (empirically `has_errors=False`). The AGY2A example (`orchestrator.py:385-388`) is a typed **tuple** and does NOT match the rule. | **LOW-MED** | YES — 1-line ERROR→WARNING in `services/neurosymbolic/ast_verifier.py:189` (`services/**` = no §1b; same fix shape as H-INT), restoring interceptor⊆enforcer parity. |
+| **ATEST-STDERR** | rev-14 R2-F5: the A-TEST negative controls (`tests/adversarial/test_phase_a_selfheal_jail_writedenial.py:230-231/240-244/252-253/264-266`) assert only `returncode!=0` + content-unchanged — **no `r.stderr` substring check** (`'Read-only file system'`/`'Permission denied'`). rev-14 recommended adding one (and named the Phase-A review "w/ stderr checks"); rev-15 omitted it entirely. | **CONFIRMED as a real, dropped item — but NON-GATING.** Both refutation agents judged it MED defense-in-depth, NOT a Phase-A blocker: the positive controls (rc==0 via the SAME probe machinery) + content-equality already close the wide failure modes, and the unquoted-path false-pass is not realizable (pytest `tmp_path` has no spaces). It does NOT subsume / is not subsumed by OK-1's bwrap-flip mutant (orthogonal: "jail applied" vs "denial reason is EROFS/EACCES"). | **MED (optional; NOT a go/no-go gate)** | YES — add `assert 'Read-only file system' in r.stderr or 'Permission denied' in r.stderr` to each negative control. |
 
 ---
 
@@ -102,12 +115,13 @@ are marked. **Trust the verdict column, not the raw panel claim.**
 The 7 pre-existing fails break the suite as a clean regression signal. Fix them so future pipeline runs that
 include the full suite get a green baseline. (Root-causes per R3/R4; verified pre-existing by the overseer.)
 
-- **5×** `test_escalate_to_autobrief_*` (`test_autowork_self_healing.py`, `test_autowork_escalation.py`): the
+- **5×** `test_escalate_to_autobrief_*` (`tests/adversarial/test_autowork_self_healing.py` ×4 + `tests/test_autowork_escalation.py` ×1): the
   tests mock `builtins.open` globally so the daemon reads YAML where it expects the task JSON → empty
   `objective`/`files_touched` → the degenerate-escalation guard (`autowork_daemon.py:~631`) aborts before the
   mock `Popen`. Fix the TESTS (scope the `open` mock / populate non-empty task fields). **PIPELINE** (test edits,
   no §1b).
-- **2×** `test_spawn_agent_cwd_relocated_outside_repo`, `test_T5_spawn_cwd...`: the agy STDIN path (prior-session
+- **2×** `test_spawn_agent_cwd_relocated_outside_repo` (`tests/adversarial/test_agent_isolation.py`), `test_T5_spawn_cwd...`
+  (`tests/adversarial/test_spawn_cwd_and_prompt_isolation.py`): the agy STDIN path (prior-session
   AGY-FIX) calls `proc.communicate(...)`, but the tests' `_FakePopen`/`_P` mocks lack `communicate()`. Fix the
   TESTS (add a `communicate` to the fakes). **PIPELINE** (test edits, no §1b).
 
@@ -124,16 +138,22 @@ add, or a genuinely multi-file/whole-body reindent change — NOT a re-groundabl
 **Phase 1 — pipeline-viable (do these first):**
 1. Regression-signal cleanup (§3): 2 test-fix tasks (escalation mocks; `_FakePopen.communicate`). Gets a green
    full suite so subsequent runs have a clean signal.
+1b. **PARITY-1** (§1a) — `services/neurosymbolic/ast_verifier.py:189` `except_exception_pass` ERROR→WARNING
+    (restore interceptor⊆enforcer parity; `services/**` = no §1b). Do early: prevents spurious submit-time denials
+    on any future **whole-file non-bypass-mtt** edit (does NOT affect `harness_self_fix` bypass/patches submissions).
 2. **SEC-2** — H2A/mutant `extra_ro=[sys.base_prefix, sys.prefix]` (harmonize with H2C). Easy, removes fragility.
 3. **C6/H3** — `ast_retry.py:39` `HARD = synthesis_timeout*2 + 300.0` + update mock asserts.
 4. **C2/ROLLB-A** — task-specific `staging_path`.
 5. **C5/AGY2D** — widen watchdog formula + update mock test.
 6. **AGY2A** — `proc.kill()`+`proc.wait(timeout=5)` reap fallback.
 7. **G-METADATA**, **G-UNTRACKED**, **C4/ROLLB-C** — three small git_integration/orchestrator edits.
-8. **SEC-3** — fail-closed harmonization (catch `FileNotFoundError`→reject, never unjailed) across
-   `_auto_commit_accepted`/`run_embedded_tests`/`smoke_import`/`_exec_module`.
+8. **SEC-3** — fail-closed harmonization across `_auto_commit_accepted`/`run_embedded_tests`/`smoke_import`/`_exec_module`:
+   switch the H-FUZZ gate from `bwrap_available()` to `sandbox_enabled(config)`, and on missing-bwrap-while-enabled
+   reject cleanly (never run unjailed [closes the fail-OPEN half], never crash the worker).
 9. **SEC-5** — config-driven `agent_sandbox.verify_extra_ro`/`extra_rw` allowlist consumed by the jailed verify.
-10. **SEC-4** — redirect candidate stdout in the H-FUZZ driver (after confirming the gap).
+10. **SEC-4** — redirect candidate stdout inside the in-jail H-FUZZ driver text (gap CONFIRMED; host-side redirect insufficient).
+10b. **ATEST-STDERR** (§1a) — add `assert 'Read-only file system' in r.stderr or 'Permission denied' in r.stderr`
+    to each A-TEST negative control. MED defense-in-depth; **does NOT gate owner Phase-A** (4/7 agreed non-blocking).
 
 **Phase 2 — hand-edit ONLY after a failed pipeline attempt with a permanent blocker:**
 11. **SEC-1** — `xdg-dbus-proxy`-filtered bus (restrict to `org.freedesktop.secrets`, block `systemd1`); requires
@@ -159,6 +179,9 @@ owner go/no-go; `rm state/control/autowork/full_stop`. **Do NOT automate.**
   §1b is the human backstop — do not silently widen this.)
 - Never narrow `BYPASS_FUZZER_TYPES`; `test_authoring` stays `bypass_fuzzer:False`; the set is only ADDED to.
 - Never grant `skip_interface_fuzz` to any type other than `test_authoring` (`grep -c` == 1).
+- Keep the submit-time AST interceptor (`ast_verifier.py`) ⊆ the commit-time enforcer (`ast_enforcer.py`): a rule
+  must not be ERROR in the interceptor while absent/WARNING in the enforcer (else valid whole-file submissions are
+  spuriously DENIED — the rev-11/H-INT class). See PARITY-1 (§1a). Audit on every new AST rule.
 - agy-backed agents route submission via STDIN; never revert to argv `-p`+file-write in the jail.
 - Never add `*_fix`/any `<task>_fix` to the allowlist. Deny-all.
 - `full_stop` stays present until owner-gated Phase A. §1b (`_apply_approval_granted`) is the autonomous-commit
@@ -171,7 +194,7 @@ owner go/no-go; `rm state/control/autowork/full_stop`. **Do NOT automate.**
 
 ---
 
-## Appendix — file:line index (anchored to HEAD `187b681`)
+## Appendix — file:line index (anchored to code at `187b681`; current HEAD `57ef680` is doc-only commits since)
 
 - `harness/orchestrator.py`: `spawn_agent` jail wrap **:347**; agy STDIN branch **:360-402** (timeout killpg
   **:385-388** [AGY2A]); `_rollback_rejected_commit` redundant checkout **:~1372** [ROLLB-C]; `_auto_commit_accepted`
@@ -181,7 +204,7 @@ owner go/no-go; `rm state/control/autowork/full_stop`. **Do NOT automate.**
 - `harness/orchestrator_worker.py`: four gates + `synthesis_success = True` **:309** (×1); bypass save
   `_save_final_output(...,agent_a_code)` **:351** [GATE-1]; monotonic budget **:244** [H-WORKER-DAEMON].
 - `harness/agent_jail.py`: nvm `--ro-bind` **:138-143** [H-JAIL_A]; `/dev/null` missing-overlay **:205-216**
-  [H-JAIL_B]; XDG `--tmpfs`+bus/keyring **:229-235** [H-JAIL_C / SEC-1]; repo ro-bind **:~224**; state ro-bind
+  [H-JAIL_B]; XDG `--tmpfs`+bus/keyring **:229-235** [H-JAIL_C / SEC-1]; repo ro-bind **:237**; state ro-bind
   **:~248**; sessions rw-bind **:266-275**.
 - `harness/narrow_fuzz/validation.py`: `_exec_module` jailed driver **:71-300**; framed-JSON stdout **:175-189**;
   host readline **:124/267** [SEC-4]; gate uses `bwrap_available()` not `sandbox_enabled()` **:~248-254** [SEC-3].
