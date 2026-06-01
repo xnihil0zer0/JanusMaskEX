@@ -98,8 +98,36 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
             path_parts.append(str(root))
         path_parts.extend(_site_packages_dirs())
         env['PYTHONPATH'] = os.pathsep.join(path_parts)
+        cmd = [sys.executable, '-S', '-c', f'import {module_name}']
+        # Route the smoke-import subprocess through the bubblewrap jail when the
+        # sandbox is enabled. load_config is the canonical loader (resolves
+        # HARNESS_DIR/config.yaml, interpolates paths) used by every other jail
+        # call site; importing orchestrator lazily here avoids the module-level
+        # circular import (orchestrator imports smoke_import at import time).
+        from harness.orchestrator import load_config
+        from harness import agent_jail
+        if agent_jail.sandbox_enabled(load_config()):
+            repo_root = root if root is not None else pathlib.Path(__file__).resolve().parents[1]
+            state_dir = repo_root / 'state'
+            extra_ro = [sys.base_prefix] + _site_packages_dirs()
+            try:
+                # Use a jail-resolvable interpreter ('python3', not
+                # sys.executable) so it resolves from the ro-bound /usr,/bin and
+                # the ro-bound sys.base_prefix interpreter tree. cmd is the only
+                # positional argument; build_jail_argv self-appends it.
+                cmd = agent_jail.build_jail_argv(
+                    ['python3', '-S', '-c', f'import {module_name}'],
+                    repo_root=repo_root,
+                    work_dir=td_path,
+                    state_dir=state_dir,
+                    extra_ro=extra_ro,
+                )
+            except FileNotFoundError:
+                # bwrap absent on the host -> fall back to the unjailed cmd.
+                # A TypeError (call-site bug) must NOT be swallowed: fail closed.
+                cmd = [sys.executable, '-S', '-c', f'import {module_name}']
         try:
-            proc = subprocess.run([sys.executable, '-S', '-c', f'import {module_name}'], cwd=str(td_path), env=env, capture_output=True, text=True, timeout=timeout)
+            proc = subprocess.run(cmd, cwd=str(td_path), env=env, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
             return 'sandbox import timed out'
     if proc.returncode != 0:
