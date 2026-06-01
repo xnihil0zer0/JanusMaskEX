@@ -70,6 +70,7 @@ def build_jail_argv(
     state_dir: str | Path,
     home: str | Path | None = None,
     extra_ro: Iterable[str | Path] = (),
+    extra_rw: Iterable[str | Path] = (),
 ) -> list[str]:
     """Wrap ``cmd`` in a ``bwrap`` argv that makes ``repo_root`` read-only.
 
@@ -121,6 +122,15 @@ def build_jail_argv(
         d = str(d)
         if d and os.path.exists(d):
             argv += ["--ro-bind", d, d]
+    # SEC-5a: config-driven read-WRITE allowlist (agent_sandbox.verify_extra_rw,
+    # threaded in by run_embedded_tests / the orchestrator verify path). Mirrors the
+    # extra_ro loop above but emits a read-write --bind so a verify spawn can persist
+    # into an explicitly-allowlisted host path. Non-existent or empty paths are
+    # skipped gracefully -- a bind over an absent source would fail bwrap boot.
+    for d in extra_rw:
+        d = str(d)
+        if d and os.path.exists(d):
+            argv += ["--bind", d, d]
     # CONTAIN C-HARDEN M-2: bind ONLY the specific HOME subdirs an agent legitimately
     # needs writable -- NOT all of $HOME. Before this, the whole home was rw, so a
     # jailed agent could write the <repo>_agentwork workroot (poisoned-inbox residue)

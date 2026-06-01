@@ -114,7 +114,16 @@ def run_embedded_tests(
     from harness.agent_jail import build_jail_argv, sandbox_enabled
     from harness.paths import PROJECT_ROOT, STATE_DIR
 
-    sandboxed = sandbox_enabled(load_config())
+    config = load_config()
+    sandboxed = sandbox_enabled(config)
+
+    # SEC-5a: config-driven verify allowlists. Read with safe .get() + [] defaults
+    # so configs omitting agent_sandbox.verify_extra_ro / verify_extra_rw stay
+    # backward compatible. verify_extra_ro is ADDED to the existing
+    # sys.base_prefix / sys.prefix ro binds; verify_extra_rw becomes the rw allowlist.
+    _sb = config.get("agent_sandbox", {})
+    _verify_extra_ro = list(_sb.get("verify_extra_ro", []))
+    _verify_extra_rw = list(_sb.get("verify_extra_rw", []))
 
     pytest_site = _pytest_site_dir()
 
@@ -147,7 +156,8 @@ def run_embedded_tests(
                 repo_root=PROJECT_ROOT,
                 work_dir=str(td_path),
                 state_dir=STATE_DIR,
-                extra_ro=[sys.base_prefix, sys.prefix],
+                extra_ro=[sys.base_prefix, sys.prefix, *_verify_extra_ro],
+                extra_rw=_verify_extra_rw,
             )
         try:
             proc = subprocess.run(
@@ -184,7 +194,8 @@ def run_embedded_tests(
                 repo_root=PROJECT_ROOT,
                 work_dir=str(td_path),
                 state_dir=STATE_DIR,
-                extra_ro=[sys.base_prefix, sys.prefix],
+                extra_ro=[sys.base_prefix, sys.prefix, *_verify_extra_ro],
+                extra_rw=_verify_extra_rw,
             )
         try:
             proc = subprocess.run(
