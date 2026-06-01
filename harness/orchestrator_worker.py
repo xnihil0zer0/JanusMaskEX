@@ -112,6 +112,7 @@ def _rollback_live_tree(state_dir: Path, files_touched: list[Any], task_id: str)
                          event='reject_rollback', files=rels)
 
 
+
 def main() -> int:
     parser = argparse.ArgumentParser(description='JanusMask single-task orchestrator worker (AW2).')
     parser.add_argument('--state-dir', type=Path, required=True, help='Path to the shared state directory.')
@@ -518,6 +519,19 @@ def main() -> int:
             # only survives because no accept-path staging merge overwrote it.
             if exit_code != 0:
                 _rollback_live_tree(state_dir, task.get('files_touched') or [], task_id)
+                # ROLLB-E (CRASH_SAFE_TERMINAL): if an UNEXPECTED exception left the
+                # task still CLAIMED as <id>.json.processing (no body terminal ran
+                # _mark_processed/_mark_blocked), route it to blocked/ here so the
+                # worker self-heals instead of depending solely on the daemon's
+                # out-of-band _reclaim_orphan_processing sweep. No-op once a body
+                # terminal already consumed the .processing file, so a cleanly
+                # rejected task is NOT double-bumped. Never raises out of finally.
+                try:
+                    if processing.exists():
+                        from harness import orchestrator as _orch
+                        _orch._mark_blocked(state_dir, task_id, 'worker_crash_orphan')
+                except Exception as _orphan_exc:
+                    sys.stderr.write(f'orchestrator_worker: ROLLB-E orphan-route failed for {task_id}: {_orphan_exc!r}\n')
 from harness.task_paths import current_task_spec_path
 import contextlib
 import io

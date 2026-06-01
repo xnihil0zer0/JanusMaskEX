@@ -2163,6 +2163,7 @@ def _promote_fuzz_failures_to_tests(task: dict, failures: list, state_dir: Path)
         logger.warning('fuzz-promotion best-effort failed for %s: %s', task.get('task_id'), exc)
         return
 
+
 def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
     """Main pipeline loop implementing the full JanusMask task lifecycle.
 
@@ -2206,293 +2207,306 @@ def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
         round_number += 1
         task_id = task.get('task_id', f'round-{round_number}')
         os.environ['JANUSMASK_TASK_ID'] = task_id
-        logger.info('=== Round %d | Task %s ===', round_number, task_id)
-        synthesis_success = False
-        claude_code = None
-        gemini_code = None
-        base_prompt = prepare_task_prompt(task)
+        try:
+            logger.info('=== Round %d | Task %s ===', round_number, task_id)
+            synthesis_success = False
+            claude_code = None
+            gemini_code = None
+            base_prompt = prepare_task_prompt(task)
 
-        def _set_task_state(state: dict[str, Any]) -> dict[str, Any]:
-            state['task_id'] = task_id
-            state['round'] = round_number
-            state['phase'] = 'synthesis'
-            for agent_name in active_agents:
-                state[f'{agent_name}_status'] = 'running'
-            state['status_updated_at_epoch'] = time.time()
-            state['fuzz_results'] = None
-            state['cross_exam_round'] = 0
-            return state
-        if use_retry_module:
-            locked_read_modify_write(_set_task_state, state_dir)
-            logger.info('Phase -> synthesis (ast_retry per-agent module)')
-            results: dict[str, tuple[bool, str | None]] = {}
-            if config.get('synthesis', {}).get('antigravity_mode', True):
-                # Sequential execution
-                for agent_name in (agent_a, agent_b):
-                    try:
-                        ok, code, _violations = synthesize_with_retries(agent_name, base_prompt, config, state_dir, round_number, task, run_agent_phase, (lambda a: lambda code, t: _validate_submission(code, a, t))(agent_name))
-                    except Exception as e:
-                        logger.exception('ast_retry failed for %s', agent_name)
-                        ok, code = (False, None)
-                    results[agent_name] = (ok, code)
-            else:
-                with ThreadPoolExecutor(max_workers=2) as executor:
-                    futures = {executor.submit(synthesize_with_retries, agent_name, base_prompt, config, state_dir, round_number, task, run_agent_phase, (lambda a: lambda code, t: _validate_submission(code, a, t))(agent_name)): agent_name for agent_name in (agent_a, agent_b)}
-                    for future in as_completed(futures):
-                        agent_name = futures[future]
+            def _set_task_state(state: dict[str, Any]) -> dict[str, Any]:
+                state['task_id'] = task_id
+                state['round'] = round_number
+                state['phase'] = 'synthesis'
+                for agent_name in active_agents:
+                    state[f'{agent_name}_status'] = 'running'
+                state['status_updated_at_epoch'] = time.time()
+                state['fuzz_results'] = None
+                state['cross_exam_round'] = 0
+                return state
+            if use_retry_module:
+                locked_read_modify_write(_set_task_state, state_dir)
+                logger.info('Phase -> synthesis (ast_retry per-agent module)')
+                results: dict[str, tuple[bool, str | None]] = {}
+                if config.get('synthesis', {}).get('antigravity_mode', True):
+                    # Sequential execution
+                    for agent_name in (agent_a, agent_b):
                         try:
-                            ok, code, _violations = future.result()
-                        except Exception:
+                            ok, code, _violations = synthesize_with_retries(agent_name, base_prompt, config, state_dir, round_number, task, run_agent_phase, (lambda a: lambda code, t: _validate_submission(code, a, t))(agent_name))
+                        except Exception as e:
                             logger.exception('ast_retry failed for %s', agent_name)
                             ok, code = (False, None)
                         results[agent_name] = (ok, code)
-            claude_ok, claude_code = results.get(agent_a, (False, None))
-            gemini_ok, gemini_code = results.get(agent_b, (False, None))
-            for agent_name, code in [(agent_a, claude_code), (agent_b, gemini_code)]:
-                if code is None:
-                    set_agent_status(state_dir, agent=agent_name, status='timeout')
-                    _emit_lifecycle(state_dir, event='agent_status', agent=agent_name, status='timeout', task_id=task_id)
                 else:
-                    set_agent_status(state_dir, agent=agent_name, status='submitted')
-                    _emit_lifecycle(state_dir, event='agent_status', agent=agent_name, status='submitted', task_id=task_id)
-            set_phase(state_dir, phase='ast_validation')
-            _emit_lifecycle(state_dir, event='phase_transition', phase='ast_validation', task_id=task_id, phase_transition={'to': 'ast_validation'})
-            logger.info('Phase -> ast_validation (validated inline by ast_retry)')
-            synthesis_success = bool(claude_ok and gemini_ok and claude_code and gemini_code)
-        else:
-            ast_retries = 0
-            claude_prompt = base_prompt
-            gemini_prompt = base_prompt
-            while ast_retries < max_ast_retries:
-                locked_read_modify_write(_set_task_state, state_dir)
-                logger.info('Phase -> synthesis')
-                claude_code, gemini_code = run_both_agents(claude_prompt, gemini_prompt, config, state_dir, round_number, phase_name='synthesis')
-                for agent, code in [(agent_a, claude_code), (agent_b, gemini_code)]:
+                    with ThreadPoolExecutor(max_workers=2) as executor:
+                        futures = {executor.submit(synthesize_with_retries, agent_name, base_prompt, config, state_dir, round_number, task, run_agent_phase, (lambda a: lambda code, t: _validate_submission(code, a, t))(agent_name)): agent_name for agent_name in (agent_a, agent_b)}
+                        for future in as_completed(futures):
+                            agent_name = futures[future]
+                            try:
+                                ok, code, _violations = future.result()
+                            except Exception:
+                                logger.exception('ast_retry failed for %s', agent_name)
+                                ok, code = (False, None)
+                            results[agent_name] = (ok, code)
+                claude_ok, claude_code = results.get(agent_a, (False, None))
+                gemini_ok, gemini_code = results.get(agent_b, (False, None))
+                for agent_name, code in [(agent_a, claude_code), (agent_b, gemini_code)]:
                     if code is None:
-                        set_agent_status(state_dir, agent=agent, status='timeout')
-                        _emit_lifecycle(state_dir, event='agent_status', agent=agent, status='timeout', task_id=task_id)
+                        set_agent_status(state_dir, agent=agent_name, status='timeout')
+                        _emit_lifecycle(state_dir, event='agent_status', agent=agent_name, status='timeout', task_id=task_id)
                     else:
-                        set_agent_status(state_dir, agent=agent, status='submitted')
-                        _emit_lifecycle(state_dir, event='agent_status', agent=agent, status='submitted', task_id=task_id)
-                if not claude_code and (not gemini_code):
-                    logger.error('Neither agent submitted code. Retrying.')
-                    ast_retries += 1
-                    claude_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
-                    gemini_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
-                    continue
-                if not claude_code or not gemini_code:
-                    submitter = agent_a if claude_code else agent_b
-                    logger.warning('Only %s submitted code. Retrying.', submitter)
-                    ast_retries += 1
-                    if not claude_code:
-                        claude_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
-                    else:
-                        claude_prompt = base_prompt
-                    if not gemini_code:
-                        gemini_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
-                    else:
-                        gemini_prompt = base_prompt
-                    continue
+                        set_agent_status(state_dir, agent=agent_name, status='submitted')
+                        _emit_lifecycle(state_dir, event='agent_status', agent=agent_name, status='submitted', task_id=task_id)
                 set_phase(state_dir, phase='ast_validation')
                 _emit_lifecycle(state_dir, event='phase_transition', phase='ast_validation', task_id=task_id, phase_transition={'to': 'ast_validation'})
-                logger.info('Phase -> ast_validation')
-                claude_valid, claude_violations = _validate_submission(claude_code, agent_a, task)
-                gemini_valid, gemini_violations = _validate_submission(gemini_code, agent_b, task)
-                if not claude_valid:
-                    repaired_claude = _try_auto_repair(claude_code, claude_violations, agent_a, task_id)
-                    if repaired_claude is not None:
-                        revalid_ok, revalid_violations = _validate_submission(repaired_claude, agent_a, task)
-                        if revalid_ok:
-                            logger.info('auto_repair: %s submission re-validated after repair (task=%s)', agent_a, task_id)
-                            claude_code = repaired_claude
-                            claude_valid = True
-                            claude_violations = revalid_violations
+                logger.info('Phase -> ast_validation (validated inline by ast_retry)')
+                synthesis_success = bool(claude_ok and gemini_ok and claude_code and gemini_code)
+            else:
+                ast_retries = 0
+                claude_prompt = base_prompt
+                gemini_prompt = base_prompt
+                while ast_retries < max_ast_retries:
+                    locked_read_modify_write(_set_task_state, state_dir)
+                    logger.info('Phase -> synthesis')
+                    claude_code, gemini_code = run_both_agents(claude_prompt, gemini_prompt, config, state_dir, round_number, phase_name='synthesis')
+                    for agent, code in [(agent_a, claude_code), (agent_b, gemini_code)]:
+                        if code is None:
+                            set_agent_status(state_dir, agent=agent, status='timeout')
+                            _emit_lifecycle(state_dir, event='agent_status', agent=agent, status='timeout', task_id=task_id)
                         else:
-                            logger.info('auto_repair: %s repair re-validation still failed (task=%s)', agent_a, task_id)
-                if not gemini_valid:
-                    repaired_gemini = _try_auto_repair(gemini_code, gemini_violations, agent_b, task_id)
-                    if repaired_gemini is not None:
-                        revalid_ok, revalid_violations = _validate_submission(repaired_gemini, agent_b, task)
-                        if revalid_ok:
-                            logger.info('auto_repair: %s submission re-validated after repair (task=%s)', agent_b, task_id)
-                            gemini_code = repaired_gemini
-                            gemini_valid = True
-                            gemini_violations = revalid_violations
+                            set_agent_status(state_dir, agent=agent, status='submitted')
+                            _emit_lifecycle(state_dir, event='agent_status', agent=agent, status='submitted', task_id=task_id)
+                    if not claude_code and (not gemini_code):
+                        logger.error('Neither agent submitted code. Retrying.')
+                        ast_retries += 1
+                        claude_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
+                        gemini_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
+                        continue
+                    if not claude_code or not gemini_code:
+                        submitter = agent_a if claude_code else agent_b
+                        logger.warning('Only %s submitted code. Retrying.', submitter)
+                        ast_retries += 1
+                        if not claude_code:
+                            claude_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
                         else:
-                            logger.info('auto_repair: %s repair re-validation still failed (task=%s)', agent_b, task_id)
-                if not (claude_valid and gemini_valid):
-                    ast_retries += 1
-                    logger.warning('AST validation failed (%s=%s, %s=%s). Retry %d/%d.', agent_a, claude_valid, agent_b, gemini_valid, ast_retries, max_ast_retries)
+                            claude_prompt = base_prompt
+                        if not gemini_code:
+                            gemini_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
+                        else:
+                            gemini_prompt = base_prompt
+                        continue
+                    set_phase(state_dir, phase='ast_validation')
+                    _emit_lifecycle(state_dir, event='phase_transition', phase='ast_validation', task_id=task_id, phase_transition={'to': 'ast_validation'})
+                    logger.info('Phase -> ast_validation')
+                    claude_valid, claude_violations = _validate_submission(claude_code, agent_a, task)
+                    gemini_valid, gemini_violations = _validate_submission(gemini_code, agent_b, task)
                     if not claude_valid:
-                        error_msgs = '\n'.join((f'- {v.rule} (Line {v.line}): {v.message}' for v in claude_violations if v.severity == 'error'))
-                        claude_prompt = base_prompt + f'\n\nYour previous submission failed AST validation:\n{error_msgs}\n\nPlease fix these errors and resubmit.'
-                    else:
-                        claude_prompt = base_prompt
+                        repaired_claude = _try_auto_repair(claude_code, claude_violations, agent_a, task_id)
+                        if repaired_claude is not None:
+                            revalid_ok, revalid_violations = _validate_submission(repaired_claude, agent_a, task)
+                            if revalid_ok:
+                                logger.info('auto_repair: %s submission re-validated after repair (task=%s)', agent_a, task_id)
+                                claude_code = repaired_claude
+                                claude_valid = True
+                                claude_violations = revalid_violations
+                            else:
+                                logger.info('auto_repair: %s repair re-validation still failed (task=%s)', agent_a, task_id)
                     if not gemini_valid:
-                        error_msgs = '\n'.join((f'- {v.rule} (Line {v.line}): {v.message}' for v in gemini_violations if v.severity == 'error'))
-                        gemini_prompt = base_prompt + f'\n\nYour previous submission failed AST validation:\n{error_msgs}\n\nPlease fix these errors and resubmit.'
-                    else:
-                        gemini_prompt = base_prompt
-                    continue
-                synthesis_success = True
-                break
-        if not synthesis_success:
-            logger.warning('Synthesis or AST validation failed after retries. Rejecting.')
-            set_phase(state_dir, phase='rejected')
-            _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-            _mark_processed(state_dir, task_id)
-            _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-            logger.info('=== Round %d complete (Synthesis/AST failure) ===\n', round_number)
-            continue
-        mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
-        _skip_ifz = (mtt == 'test_authoring') and META_TASK_POLICY.get('test_authoring', {}).get('skip_interface_fuzz')
-        if mtt in BYPASS_FUZZER_TYPES or _skip_ifz:
-            if mtt not in SKIP_SMOKE_GATE_TYPES and not _skip_ifz:
-                smoke_err = smoke_import('_smoke_candidate', claude_code)
-                if smoke_err is not None:
-                    logger.error('Smoke rejected bypass-eligible %s (mtt=%s): %s', task_id, mtt, smoke_err)
-                    set_phase(state_dir, phase='rejected')
-                    _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                    _mark_processed(state_dir, task_id)
-                    _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                    logger.info('=== Round %d complete (rejected via sandbox smoke) ===\n', round_number)
-                    continue
-                embedded_err = run_embedded_tests('_embedded_candidate', claude_code)
-                if embedded_err is not None:
-                    logger.error('Embedded tests rejected bypass-eligible %s (mtt=%s): %s', task_id, mtt, embedded_err)
-                    set_phase(state_dir, phase='rejected')
-                    _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                    _mark_processed(state_dir, task_id)
-                    _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                    logger.info('=== Round %d complete (rejected via embedded tests) ===\n', round_number)
-                    continue
-                narrow_err = run_narrow_fuzz(mtt, '_narrow_fuzz_candidate', claude_code)
-                if narrow_err is not None:
-                    logger.error('Narrow-fuzz rejected bypass-eligible %s (mtt=%s): %s', task_id, mtt, narrow_err)
-                    set_phase(state_dir, phase='rejected')
-                    _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                    _mark_processed(state_dir, task_id)
-                    _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                    logger.info('=== Round %d complete (rejected via narrow-fuzz) ===\n', round_number)
-                    continue
-            else:
-                logger.info('Skipping smoke + embedded gates for %s (mtt=%s in SKIP_SMOKE_GATE_TYPES -- harness-internal code legitimately imports site-packages)', task_id, mtt)
-            logger.info('Bypassing fuzzing for %s task', mtt)
-            _save_final_output(state_dir, task_id, claude_code)
-            decision = control_gate.await_decision(state_dir, task_id, 'accepted', config, emit_pending=lambda tid, ph: _emit_pending(state_dir, tid, ph), emit_timeout=lambda tid, ph: _emit_timeout(state_dir, tid, ph))
-            if decision in ('reject', 'timeout', 'retry'):
+                        repaired_gemini = _try_auto_repair(gemini_code, gemini_violations, agent_b, task_id)
+                        if repaired_gemini is not None:
+                            revalid_ok, revalid_violations = _validate_submission(repaired_gemini, agent_b, task)
+                            if revalid_ok:
+                                logger.info('auto_repair: %s submission re-validated after repair (task=%s)', agent_b, task_id)
+                                gemini_code = repaired_gemini
+                                gemini_valid = True
+                                gemini_violations = revalid_violations
+                            else:
+                                logger.info('auto_repair: %s repair re-validation still failed (task=%s)', agent_b, task_id)
+                    if not (claude_valid and gemini_valid):
+                        ast_retries += 1
+                        logger.warning('AST validation failed (%s=%s, %s=%s). Retry %d/%d.', agent_a, claude_valid, agent_b, gemini_valid, ast_retries, max_ast_retries)
+                        if not claude_valid:
+                            error_msgs = '\n'.join((f'- {v.rule} (Line {v.line}): {v.message}' for v in claude_violations if v.severity == 'error'))
+                            claude_prompt = base_prompt + f'\n\nYour previous submission failed AST validation:\n{error_msgs}\n\nPlease fix these errors and resubmit.'
+                        else:
+                            claude_prompt = base_prompt
+                        if not gemini_valid:
+                            error_msgs = '\n'.join((f'- {v.rule} (Line {v.line}): {v.message}' for v in gemini_violations if v.severity == 'error'))
+                            gemini_prompt = base_prompt + f'\n\nYour previous submission failed AST validation:\n{error_msgs}\n\nPlease fix these errors and resubmit.'
+                        else:
+                            gemini_prompt = base_prompt
+                        continue
+                    synthesis_success = True
+                    break
+            if not synthesis_success:
+                logger.warning('Synthesis or AST validation failed after retries. Rejecting.')
                 set_phase(state_dir, phase='rejected')
                 _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
                 _mark_processed(state_dir, task_id)
                 _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                logger.warning('=== Round %d complete (rejected via HITL %s) ===\n', round_number, decision)
+                logger.info('=== Round %d complete (Synthesis/AST failure) ===\n', round_number)
                 continue
-            auto_commit_ok = _auto_commit_accepted(state_dir, task, task_id)
-            _mark_processed(state_dir, task_id)
-            _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-            if auto_commit_ok:
-                set_phase(state_dir, phase='accepted')
-                _emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
-                logger.info('=== Round %d complete (accepted via fuzzer bypass) ===\n', round_number)
-            else:
-                set_phase(state_dir, phase='rejected')
-                _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                logger.warning('=== Round %d complete (rejected: auto-commit failed) ===\n', round_number)
-            continue
-        set_phase(state_dir, phase='fuzzing')
-        _emit_lifecycle(state_dir, event='phase_transition', phase='fuzzing', task_id=task_id, phase_transition={'to': 'fuzzing'})
-        logger.info('Phase -> fuzzing (round 1)')
-        fuzz_result = fuzz_from_task(claude_code, gemini_code, task, config, session_id=f'{task_id}_r1')
-        _persist_fuzz_results(state_dir, task_id, 'round1', fuzz_result)
-        if fuzz_result.error:
-            logger.error('Fuzzing error: %s', fuzz_result.error)
-            set_phase(state_dir, phase='rejected')
-            _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-            _mark_processed(state_dir, task_id)
-            _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-            continue
-        if fuzz_result.equivalent:
-            logger.info('EQUIVALENT after round 1 (%d/%d inputs matched)', fuzz_result.matching_inputs, fuzz_result.total_inputs)
-            _save_final_output(state_dir, task_id, claude_code)
-            decision = control_gate.await_decision(state_dir, task_id, 'accepted', config, emit_pending=lambda tid, ph: _emit_pending(state_dir, tid, ph), emit_timeout=lambda tid, ph: _emit_timeout(state_dir, tid, ph))
-            if decision in ('reject', 'timeout', 'retry'):
+            mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
+            _skip_ifz = (mtt == 'test_authoring') and META_TASK_POLICY.get('test_authoring', {}).get('skip_interface_fuzz')
+            if mtt in BYPASS_FUZZER_TYPES or _skip_ifz:
+                if mtt not in SKIP_SMOKE_GATE_TYPES and not _skip_ifz:
+                    smoke_err = smoke_import('_smoke_candidate', claude_code)
+                    if smoke_err is not None:
+                        logger.error('Smoke rejected bypass-eligible %s (mtt=%s): %s', task_id, mtt, smoke_err)
+                        set_phase(state_dir, phase='rejected')
+                        _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        _mark_processed(state_dir, task_id)
+                        _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                        logger.info('=== Round %d complete (rejected via sandbox smoke) ===\n', round_number)
+                        continue
+                    embedded_err = run_embedded_tests('_embedded_candidate', claude_code)
+                    if embedded_err is not None:
+                        logger.error('Embedded tests rejected bypass-eligible %s (mtt=%s): %s', task_id, mtt, embedded_err)
+                        set_phase(state_dir, phase='rejected')
+                        _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        _mark_processed(state_dir, task_id)
+                        _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                        logger.info('=== Round %d complete (rejected via embedded tests) ===\n', round_number)
+                        continue
+                    narrow_err = run_narrow_fuzz(mtt, '_narrow_fuzz_candidate', claude_code)
+                    if narrow_err is not None:
+                        logger.error('Narrow-fuzz rejected bypass-eligible %s (mtt=%s): %s', task_id, mtt, narrow_err)
+                        set_phase(state_dir, phase='rejected')
+                        _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        _mark_processed(state_dir, task_id)
+                        _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                        logger.info('=== Round %d complete (rejected via narrow-fuzz) ===\n', round_number)
+                        continue
+                else:
+                    logger.info('Skipping smoke + embedded gates for %s (mtt=%s in SKIP_SMOKE_GATE_TYPES -- harness-internal code legitimately imports site-packages)', task_id, mtt)
+                logger.info('Bypassing fuzzing for %s task', mtt)
+                _save_final_output(state_dir, task_id, claude_code)
+                decision = control_gate.await_decision(state_dir, task_id, 'accepted', config, emit_pending=lambda tid, ph: _emit_pending(state_dir, tid, ph), emit_timeout=lambda tid, ph: _emit_timeout(state_dir, tid, ph))
+                if decision in ('reject', 'timeout', 'retry'):
+                    set_phase(state_dir, phase='rejected')
+                    _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                    _mark_processed(state_dir, task_id)
+                    _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                    logger.warning('=== Round %d complete (rejected via HITL %s) ===\n', round_number, decision)
+                    continue
+                auto_commit_ok = _auto_commit_accepted(state_dir, task, task_id)
+                _mark_processed(state_dir, task_id)
+                _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                if auto_commit_ok:
+                    set_phase(state_dir, phase='accepted')
+                    _emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
+                    logger.info('=== Round %d complete (accepted via fuzzer bypass) ===\n', round_number)
+                else:
+                    set_phase(state_dir, phase='rejected')
+                    _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                    logger.warning('=== Round %d complete (rejected: auto-commit failed) ===\n', round_number)
+                continue
+            set_phase(state_dir, phase='fuzzing')
+            _emit_lifecycle(state_dir, event='phase_transition', phase='fuzzing', task_id=task_id, phase_transition={'to': 'fuzzing'})
+            logger.info('Phase -> fuzzing (round 1)')
+            fuzz_result = fuzz_from_task(claude_code, gemini_code, task, config, session_id=f'{task_id}_r1')
+            _persist_fuzz_results(state_dir, task_id, 'round1', fuzz_result)
+            if fuzz_result.error:
+                logger.error('Fuzzing error: %s', fuzz_result.error)
                 set_phase(state_dir, phase='rejected')
                 _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
                 _mark_processed(state_dir, task_id)
                 _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                logger.warning('=== Round %d complete (rejected via HITL %s) ===\n', round_number, decision)
                 continue
-            auto_commit_ok = _auto_commit_accepted(state_dir, task, task_id)
-            _mark_processed(state_dir, task_id)
-            _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-            if auto_commit_ok:
-                set_phase(state_dir, phase='accepted')
-                _emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
-                logger.info('=== Round %d complete (accepted) ===\n', round_number)
-            else:
-                set_phase(state_dir, phase='rejected')
-                _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                logger.warning('=== Round %d complete (rejected: auto-commit failed) ===\n', round_number)
-            continue
-        logger.info('DIVERGENT after round 1 (%d failures out of %d inputs)', len(fuzz_result.failures), fuzz_result.total_inputs)
-        _promote_fuzz_failures_to_tests(task, fuzz_result.failures, state_dir)  # B3: fold divergent boundaries into the spec
-        set_phase(state_dir, phase='cross_examination')
-        _emit_lifecycle(state_dir, event='phase_transition', phase='cross_examination', task_id=task_id, phase_transition={'to': 'cross_examination'})
-        logger.info('Phase -> cross_examination')
-        task_spec = task.get('specification') or task.get('description') or ''
-        claude_packet, gemini_packet = prepare_exam_packets(claude_code, gemini_code, task_spec, fuzz_result.failures)
-        write_feedback_files(state_dir, claude_packet, gemini_packet, round_number)
-        revised_claude, revised_gemini = run_both_agents(claude_packet.review_prompt, gemini_packet.review_prompt, config, state_dir, round_number, phase_name='cross_examination')
-        clear_feedback_files(state_dir)
-        revised_claude = revised_claude or claude_code
-        revised_gemini = revised_gemini or gemini_code
-        set_phase(state_dir, phase='fuzzing')
-        _emit_lifecycle(state_dir, event='phase_transition', phase='fuzzing', task_id=task_id, phase_transition={'to': 'fuzzing'})
-        logger.info('Phase -> fuzzing (round 2)')
-        fuzz_result_2 = fuzz_from_task(revised_claude, revised_gemini, task, config, session_id=f'{task_id}_r2')
-        _persist_fuzz_results(state_dir, task_id, 'round2', fuzz_result_2)
-        if fuzz_result_2.error:
-            logger.error('Round 2 fuzzing error: %s', fuzz_result_2.error)
-            set_phase(state_dir, phase='rejected')
-            _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-            _mark_processed(state_dir, task_id)
-            _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-            continue
-        if fuzz_result_2.equivalent:
-            logger.info('EQUIVALENT after round 2 (%d/%d inputs matched)', fuzz_result_2.matching_inputs, fuzz_result_2.total_inputs)
-            _save_final_output(state_dir, task_id, revised_claude)
-            decision = control_gate.await_decision(state_dir, task_id, 'accepted', config, emit_pending=lambda tid, ph: _emit_pending(state_dir, tid, ph), emit_timeout=lambda tid, ph: _emit_timeout(state_dir, tid, ph))
-            if decision in ('reject', 'timeout', 'retry'):
+            if fuzz_result.equivalent:
+                logger.info('EQUIVALENT after round 1 (%d/%d inputs matched)', fuzz_result.matching_inputs, fuzz_result.total_inputs)
+                _save_final_output(state_dir, task_id, claude_code)
+                decision = control_gate.await_decision(state_dir, task_id, 'accepted', config, emit_pending=lambda tid, ph: _emit_pending(state_dir, tid, ph), emit_timeout=lambda tid, ph: _emit_timeout(state_dir, tid, ph))
+                if decision in ('reject', 'timeout', 'retry'):
+                    set_phase(state_dir, phase='rejected')
+                    _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                    _mark_processed(state_dir, task_id)
+                    _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                    logger.warning('=== Round %d complete (rejected via HITL %s) ===\n', round_number, decision)
+                    continue
+                auto_commit_ok = _auto_commit_accepted(state_dir, task, task_id)
+                _mark_processed(state_dir, task_id)
+                _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                if auto_commit_ok:
+                    set_phase(state_dir, phase='accepted')
+                    _emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
+                    logger.info('=== Round %d complete (accepted) ===\n', round_number)
+                else:
+                    set_phase(state_dir, phase='rejected')
+                    _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                    logger.warning('=== Round %d complete (rejected: auto-commit failed) ===\n', round_number)
+                continue
+            logger.info('DIVERGENT after round 1 (%d failures out of %d inputs)', len(fuzz_result.failures), fuzz_result.total_inputs)
+            _promote_fuzz_failures_to_tests(task, fuzz_result.failures, state_dir)  # B3: fold divergent boundaries into the spec
+            set_phase(state_dir, phase='cross_examination')
+            _emit_lifecycle(state_dir, event='phase_transition', phase='cross_examination', task_id=task_id, phase_transition={'to': 'cross_examination'})
+            logger.info('Phase -> cross_examination')
+            task_spec = task.get('specification') or task.get('description') or ''
+            claude_packet, gemini_packet = prepare_exam_packets(claude_code, gemini_code, task_spec, fuzz_result.failures)
+            write_feedback_files(state_dir, claude_packet, gemini_packet, round_number)
+            revised_claude, revised_gemini = run_both_agents(claude_packet.review_prompt, gemini_packet.review_prompt, config, state_dir, round_number, phase_name='cross_examination')
+            clear_feedback_files(state_dir)
+            revised_claude = revised_claude or claude_code
+            revised_gemini = revised_gemini or gemini_code
+            set_phase(state_dir, phase='fuzzing')
+            _emit_lifecycle(state_dir, event='phase_transition', phase='fuzzing', task_id=task_id, phase_transition={'to': 'fuzzing'})
+            logger.info('Phase -> fuzzing (round 2)')
+            fuzz_result_2 = fuzz_from_task(revised_claude, revised_gemini, task, config, session_id=f'{task_id}_r2')
+            _persist_fuzz_results(state_dir, task_id, 'round2', fuzz_result_2)
+            if fuzz_result_2.error:
+                logger.error('Round 2 fuzzing error: %s', fuzz_result_2.error)
                 set_phase(state_dir, phase='rejected')
                 _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
                 _mark_processed(state_dir, task_id)
                 _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                logger.warning('=== Round %d complete (rejected via HITL %s) ===\n', round_number, decision)
                 continue
-            auto_commit_ok = _auto_commit_accepted(state_dir, task, task_id)
+            if fuzz_result_2.equivalent:
+                logger.info('EQUIVALENT after round 2 (%d/%d inputs matched)', fuzz_result_2.matching_inputs, fuzz_result_2.total_inputs)
+                _save_final_output(state_dir, task_id, revised_claude)
+                decision = control_gate.await_decision(state_dir, task_id, 'accepted', config, emit_pending=lambda tid, ph: _emit_pending(state_dir, tid, ph), emit_timeout=lambda tid, ph: _emit_timeout(state_dir, tid, ph))
+                if decision in ('reject', 'timeout', 'retry'):
+                    set_phase(state_dir, phase='rejected')
+                    _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                    _mark_processed(state_dir, task_id)
+                    _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                    logger.warning('=== Round %d complete (rejected via HITL %s) ===\n', round_number, decision)
+                    continue
+                auto_commit_ok = _auto_commit_accepted(state_dir, task, task_id)
+                _mark_processed(state_dir, task_id)
+                _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                if auto_commit_ok:
+                    set_phase(state_dir, phase='accepted')
+                    _emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
+                    logger.info('=== Round %d complete (accepted after cross-exam) ===\n', round_number)
+                else:
+                    set_phase(state_dir, phase='rejected')
+                    _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                    logger.warning('=== Round %d complete (rejected: auto-commit failed) ===\n', round_number)
+                continue
+            logger.info('DIVERGENT after round 2 (%d failures). Decomposing.', len(fuzz_result_2.failures))
+            set_phase(state_dir, phase='decomposition')
+            _emit_lifecycle(state_dir, event='phase_transition', phase='decomposition', task_id=task_id, phase_transition={'to': 'decomposition'})
+            logger.info('Phase -> decomposition')
+            decomp_result = decompose_task(task, fuzz_result_2.failures, config, code_a=revised_claude, code_b=revised_gemini, depth=task.get('depth', 0))
+            logger.info('Decomposed %s via %s strategy: %d subtasks', task_id, decomp_result.strategy, len(decomp_result.subtasks))
+            enqueue_subtasks(decomp_result.subtasks, state_dir)
+            subtask_ids = [s.task_id for s in decomp_result.subtasks]
+            update_parent_state(state_dir, task_id, subtask_ids)
             _mark_processed(state_dir, task_id)
             _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-            if auto_commit_ok:
-                set_phase(state_dir, phase='accepted')
-                _emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
-                logger.info('=== Round %d complete (accepted after cross-exam) ===\n', round_number)
-            else:
-                set_phase(state_dir, phase='rejected')
-                _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                logger.warning('=== Round %d complete (rejected: auto-commit failed) ===\n', round_number)
-            continue
-        logger.info('DIVERGENT after round 2 (%d failures). Decomposing.', len(fuzz_result_2.failures))
-        set_phase(state_dir, phase='decomposition')
-        _emit_lifecycle(state_dir, event='phase_transition', phase='decomposition', task_id=task_id, phase_transition={'to': 'decomposition'})
-        logger.info('Phase -> decomposition')
-        decomp_result = decompose_task(task, fuzz_result_2.failures, config, code_a=revised_claude, code_b=revised_gemini, depth=task.get('depth', 0))
-        logger.info('Decomposed %s via %s strategy: %d subtasks', task_id, decomp_result.strategy, len(decomp_result.subtasks))
-        enqueue_subtasks(decomp_result.subtasks, state_dir)
-        subtask_ids = [s.task_id for s in decomp_result.subtasks]
-        update_parent_state(state_dir, task_id, subtask_ids)
-        _mark_processed(state_dir, task_id)
-        _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-        logger.info('=== Round %d complete (decomposed into %d subtasks) ===\n', round_number, len(subtask_ids))
+            logger.info('=== Round %d complete (decomposed into %d subtasks) ===\n', round_number, len(subtask_ids))
+        finally:
+            # ROLLB-E (CRASH_SAFE_TERMINAL): the legacy serial loop has NO daemon
+            # reclaim, so an UNEXPECTED exception that leaves the task still CLAIMED
+            # as <id>.json.processing (no body terminal ran _mark_processed/
+            # _mark_blocked) is the only orphan-recovery point. Best-effort route the
+            # still-existing claim to blocked/; a no-op once a body terminal consumed
+            # the .processing file. Never raises out of finally.
+            try:
+                if list((state_dir / 'tasks').glob(f'*{task_id}.json.processing')):
+                    _mark_blocked(state_dir, task_id, 'pipeline_crash_orphan')
+            except Exception as _orphan_exc:
+                logger.error('ROLLB-E pipeline orphan-route failed for %s: %s', task_id, _orphan_exc)
 
 def main() -> None:
     """Parse arguments, load configuration, initialize state, run pipeline."""
