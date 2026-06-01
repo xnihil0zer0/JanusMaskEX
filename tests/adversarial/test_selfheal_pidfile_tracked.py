@@ -51,18 +51,22 @@ def test_selfheal_pidfile_written(tmp_path: pathlib.Path, monkeypatch) -> None:
     # Run inactivity escalation
     ad._escalate_inactivity(state_dir, config)
     
-    # Verify the pidfile exists
-    pidfile_path = running_dir / "selfheal_claude_daemon_inactivity_stuck.pid"
-    assert pidfile_path.is_file(), "Self-heal pidfile was not written"
+    # Verify the pidfile exists. The stem is PID-uniquified
+    # (selfheal_claude_daemon_inactivity_stuck_<pid>) so glob the prefix and
+    # assert exactly one match with the right pid content (format-tolerant).
+    pidfile_prefix = "selfheal_claude_daemon_inactivity_stuck"
+    matches = list(running_dir.glob(f"{pidfile_prefix}*.pid"))
+    assert len(matches) == 1, f"Self-heal pidfile was not written (found {matches})"
+    pidfile_path = matches[0]
     assert pidfile_path.read_text(encoding="utf-8").strip() == str(fake_pid)
-    
-    # Verify that _reap_running recognizes it
+
+    # Verify that _reap_running recognizes it (prefix match on the returned stems)
     def mock_waitpid(pid, options):
         return 0, 0
     monkeypatch.setattr(os, 'waitpid', mock_waitpid)
-    
+
     live_tasks = ad._reap_running(state_dir)
-    assert "selfheal_claude_daemon_inactivity_stuck" in live_tasks
+    assert any(t.startswith(pidfile_prefix) for t in live_tasks)
 
 
 def test_selfheal_pidfile_not_written_on_failure(tmp_path: pathlib.Path, monkeypatch) -> None:
