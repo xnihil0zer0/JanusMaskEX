@@ -366,8 +366,23 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
     # jail makes an absolute-path write to harness/*.py structurally impossible.
     # Fail-closed: build_jail_argv raises if bwrap is missing while the gate is on.
     from harness import agent_jail
+    # SEC-1c: the filtered xdg-dbus-proxy session bus is entered ONLY on the
+    # sandboxed path. Defaults keep the non-sandboxed path and the claude-proc
+    # attachment safe (stack stays None when no proxy is created).
+    _dbus_stack = None
+    _dbus_sock = None
     if agent_jail.sandbox_enabled(config):
-        cmd = agent_jail.build_jail_argv(cmd, repo_root=PROJECT_DIR, work_dir=env['JANUSMASK_WORK_DIR'], state_dir=env['JANUSMASK_STATE_DIR'])
+        # SEC-1c: thread the keyring-preserving / systemd1-blocking filtered bus
+        # socket into the jail. FAIL-OPEN: any proxy-spawn failure falls back to
+        # dbus_proxy_socket=None (prior real-bus behavior), never blocking spawn.
+        import contextlib
+        _dbus_stack = contextlib.ExitStack()
+        try:
+            from harness.dbus_proxy import proxied_session_bus
+            _dbus_sock = _dbus_stack.enter_context(proxied_session_bus())
+        except Exception:
+            _dbus_sock = None
+        cmd = agent_jail.build_jail_argv(cmd, repo_root=PROJECT_DIR, work_dir=env['JANUSMASK_WORK_DIR'], state_dir=env['JANUSMASK_STATE_DIR'], dbus_proxy_socket=_dbus_sock)
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.OK}spawning{_C.RESET} {_C.DIM}{cmd[0]}{_C.RESET}')
     logger.info('Spawning %s: %s', agent, ' '.join(cmd[:6]) + ' ...')
     # AGENT-ISOLATION §3.2: cwd is the isolated, outside-repo workdir.
@@ -382,61 +397,70 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
     # streamed Popen path below, UNTOUCHED (no stdin).
     _is_agy = os.path.basename(config['agents'][agent]['command']) == 'agy'
     if _is_agy:
-        agy_cmd = list(cmd)
-        # The prompt now goes over STDIN, so strip the `-p <prompt>` positional
-        # that _build_agent_command inserted (works post-jail-wrap or pre-jail).
         try:
-            _p_index = agy_cmd.index('-p')
-            del agy_cmd[_p_index:_p_index + 2]
-        except ValueError:
-            pass
-        _no_write_tail = (
-            '\n\nDo NOT write, create, or edit any file. Do NOT use any '
-            'file-editing or shell tool. Output ONLY the complete solution as a '
-            'single fenced ```python code block — the full contents of the '
-            'target file — no prose before or after.'
-        )
-        stdin_prompt = resolved_prompt + _no_write_tail
-        proc = subprocess.Popen(agy_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, start_new_session=True, cwd=str(Path(env['JANUSMASK_WORK_DIR'])))
-        proc._work_dir = Path(env['JANUSMASK_WORK_DIR'])
-        _timeout = config.get('synthesis', {}).get('timeout_seconds', 1200)
-        try:
-            out, _err = proc.communicate(input=stdin_prompt, timeout=_timeout)
-        except subprocess.TimeoutExpired:
-            # Graceful fail: kill the process group and write NO submission so
-            # the gate rejects this round.
+            agy_cmd = list(cmd)
+            # The prompt now goes over STDIN, so strip the `-p <prompt>` positional
+            # that _build_agent_command inserted (works post-jail-wrap or pre-jail).
             try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except (ProcessLookupError, PermissionError, OSError):
+                _p_index = agy_cmd.index('-p')
+                del agy_cmd[_p_index:_p_index + 2]
+            except ValueError:
                 pass
-            # AGY2A: the group SIGKILL signals the children, but the direct
-            # child is still a zombie until we reap it. proc.kill() + a bounded
-            # proc.wait() collect the exit status so the worker neither hangs
-            # nor leaks a defunct process. Both are fail-safe: a stuck or
-            # already-gone child must not propagate out of the timeout path.
+            _no_write_tail = (
+                '\n\nDo NOT write, create, or edit any file. Do NOT use any '
+                'file-editing or shell tool. Output ONLY the complete solution as a '
+                'single fenced ```python code block — the full contents of the '
+                'target file — no prose before or after.'
+            )
+            stdin_prompt = resolved_prompt + _no_write_tail
+            proc = subprocess.Popen(agy_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, start_new_session=True, cwd=str(Path(env['JANUSMASK_WORK_DIR'])))
+            proc._work_dir = Path(env['JANUSMASK_WORK_DIR'])
+            _timeout = config.get('synthesis', {}).get('timeout_seconds', 1200)
             try:
-                proc.kill()
-            except (ProcessLookupError, PermissionError, OSError):
-                pass
-            try:
-                proc.wait(timeout=5)
-            except (subprocess.TimeoutExpired, ProcessLookupError, PermissionError, OSError):
-                pass
+                out, _err = proc.communicate(input=stdin_prompt, timeout=_timeout)
+            except subprocess.TimeoutExpired:
+                # Graceful fail: kill the process group and write NO submission so
+                # the gate rejects this round.
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
+                # AGY2A: the group SIGKILL signals the children, but the direct
+                # child is still a zombie until we reap it. proc.kill() + a bounded
+                # proc.wait() collect the exit status so the worker neither hangs
+                # nor leaks a defunct process. Both are fail-safe: a stuck or
+                # already-gone child must not propagate out of the timeout path.
+                try:
+                    proc.kill()
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
+                try:
+                    proc.wait(timeout=5)
+                except (subprocess.TimeoutExpired, ProcessLookupError, PermissionError, OSError):
+                    pass
+                return proc
+            from harness.test_author import _extract_python_block
+            block = _extract_python_block(out)
+            if block.strip() and block.strip() != '# Placeholder':
+                sub_path = outbox_path / 'submission.py'
+                try:
+                    tmp = sub_path.with_suffix(sub_path.suffix + '.tmp')
+                    tmp.write_text(block)
+                    tmp.replace(sub_path)
+                except OSError:
+                    logger.warning('AGY-FIX: outbox submission write failed for %s', sub_path)
+            # proc has already exited; poll_for_submission promotes the outbox on its
+            # first loop iteration and kill_agent early-returns (proc.poll() is set).
             return proc
-        from harness.test_author import _extract_python_block
-        block = _extract_python_block(out)
-        if block.strip() and block.strip() != '# Placeholder':
-            sub_path = outbox_path / 'submission.py'
-            try:
-                tmp = sub_path.with_suffix(sub_path.suffix + '.tmp')
-                tmp.write_text(block)
-                tmp.replace(sub_path)
-            except OSError:
-                logger.warning('AGY-FIX: outbox submission write failed for %s', sub_path)
-        # proc has already exited; poll_for_submission promotes the outbox on its
-        # first loop iteration and kill_agent early-returns (proc.poll() is set).
-        return proc
+        finally:
+            # SEC-1c: the agy path is SYNCHRONOUS — reap the proxy before returning
+            # on BOTH the normal and TimeoutExpired return paths.
+            if _dbus_stack is not None:
+                _dbus_stack.close()
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, start_new_session=True, cwd=str(Path(env['JANUSMASK_WORK_DIR'])))
+    # SEC-1c: the claude path is DETACHED — attach the live ExitStack to the proc
+    # so the proxy outlives spawn_agent and is reaped later by kill_agent.
+    proc._dbus_stack = _dbus_stack
     proc._work_dir = Path(env['JANUSMASK_WORK_DIR'])
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.DIM}pid={proc.pid}{_C.RESET}')
     log_dir = Path(state_dir).parent / 'logs'
@@ -452,6 +476,14 @@ def kill_agent(proc: subprocess.Popen, agent: str, reason: str='handoff') -> Non
     if proc.poll() is not None:
         _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.DIM}already exited (code {proc.returncode}){_C.RESET}')
         _join_stream_threads(proc)
+        # SEC-1c: reap any attached filtered-bus proxy (idempotent double-close ok).
+        _dbus_stack = getattr(proc, '_dbus_stack', None)
+        if _dbus_stack is not None:
+            try:
+                _dbus_stack.close()
+            except Exception:
+                pass
+            proc._dbus_stack = None
         return
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.WARN}killing ({reason}){_C.RESET}')
     logger.info('Killing %s agent pid=%d reason=%s', agent, proc.pid, reason)
@@ -472,6 +504,14 @@ def kill_agent(proc: subprocess.Popen, agent: str, reason: str='handoff') -> Non
             pass
     _join_stream_threads(proc)
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.DIM}terminated{_C.RESET}')
+    # SEC-1c: reap any attached filtered-bus proxy (idempotent double-close ok).
+    _dbus_stack = getattr(proc, '_dbus_stack', None)
+    if _dbus_stack is not None:
+        try:
+            _dbus_stack.close()
+        except Exception:
+            pass
+        proc._dbus_stack = None
 
 def _join_stream_threads(proc: subprocess.Popen, timeout: float=2.0) -> None:
     """Join the stdout/stderr stream threads if they exist."""
