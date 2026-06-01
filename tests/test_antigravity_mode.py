@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from harness.orchestrator import load_config, spawn_agent, run_both_agents, _boost_antigravity_mcp_config
-from harness.autowork_daemon import suspend_parallel_workers, resume_parallel_workers
+from harness.autowork_daemon import suspend_parallel_workers, resume_parallel_workers, _running_dir
 
 def test_antigravity_config_override(tmp_path):
     # Create a dummy config file with antigravity_mode: true
@@ -91,7 +91,10 @@ def test_sequential_execution_routing(tmp_path):
         mock_run.assert_any_call("antigravity", "prompt_b", config, tmp_path, 1, "synthesis")
 
 def test_process_suspension_logic(tmp_path):
-    running_dir = tmp_path / "running"
+    # PARALLEL-WATCHDOG-PGID path alignment: suspend_parallel_workers now reads
+    # _running_dir(tmp_path) (tmp_path/control/autowork/running), matching where
+    # _write_pidfile writes worker pidfiles.
+    running_dir = _running_dir(tmp_path)
     running_dir.mkdir(parents=True)
     
     # Write some dummy PIDs

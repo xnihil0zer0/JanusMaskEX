@@ -10,7 +10,10 @@ import harness.autowork_daemon
 def test_suspension_manager():
     with tempfile.TemporaryDirectory() as tmpdir:
         state_dir = Path(tmpdir)
-        running_dir = state_dir / 'running'
+        # PARALLEL-WATCHDOG-PGID path alignment: suspend_parallel_workers now
+        # reads _running_dir(state_dir) (state_dir/control/autowork/running),
+        # which is where _write_pidfile actually writes worker pidfiles.
+        running_dir = harness.autowork_daemon._running_dir(state_dir)
         running_dir.mkdir(parents=True)
 
         # Create mock active worker pid files
@@ -75,7 +78,7 @@ def test_watchdog_timeout(mock_kill, mock_suspend, mock_resume, mock_write_pid, 
         # Prepare suspended pids state
         harness.autowork_daemon._suspended_pids.clear()
         harness.autowork_daemon._suspension_start_times.clear()
-        
+
         harness.autowork_daemon._suspended_pids.add(67890)
         harness.autowork_daemon._suspension_start_times[67890] = time.time() - 350 # Older than 300 seconds
 
@@ -88,9 +91,8 @@ def test_watchdog_timeout(mock_kill, mock_suspend, mock_resume, mock_write_pid, 
         # is then dropped from _suspended_pids, so the watchdog now SIGKILLs).
         mock_kill.assert_any_call(67890, signal.SIGKILL)
         assert 67890 not in harness.autowork_daemon._suspended_pids
-        
+
         # Verify the sequential worker was started
         mock_popen.assert_called_once()
         mock_suspend.assert_called_once_with(state_dir, exclude_pid=9999)
         mock_resume.assert_called_once_with(state_dir)
-
