@@ -87,7 +87,13 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
         containing the subprocess stderr (or stdout if stderr is empty).
         On timeout, returns ``sandbox import timed out``.
     """
-    with tempfile.TemporaryDirectory() as td:
+    # SEC-1c: route the jailed smoke-import subprocess through the filtered
+    # xdg-dbus-proxy session bus when sandboxing is enabled. Lazy in-body
+    # imports keep the module surface free of new top-level imports/symbols.
+    from contextlib import ExitStack
+    from harness.dbus_proxy import proxied_session_bus
+    with tempfile.TemporaryDirectory() as td, ExitStack() as _dbus_stack:
+        _dbus_sock = None
         td_path = pathlib.Path(td)
         mod_path = td_path / f'{module_name}.py'
         mod_path.write_text(module_src, encoding='utf-8')
@@ -114,6 +120,12 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
             # (sys.prefix, which supplies bin/python3) so the jailed python3
             # launches as the venv's interpreter rather than bare system python.
             extra_ro = [sys.base_prefix, sys.prefix] + _site_packages_dirs()
+            # Graceful degradation: if the proxy cannot spawn, fall back to the
+            # real bus (dbus_proxy_socket=None) so the jailed import still runs.
+            try:
+                _dbus_sock = _dbus_stack.enter_context(proxied_session_bus())
+            except Exception:
+                _dbus_sock = None
             try:
                 # Use a jail-resolvable interpreter ('python3', not
                 # sys.executable) so it resolves from the ro-bound /usr,/bin and
@@ -125,6 +137,7 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
                     work_dir=td_path,
                     state_dir=state_dir,
                     extra_ro=extra_ro,
+                    dbus_proxy_socket=_dbus_sock,
                 )
                 # Prepend the venv bin dir to PATH so bare 'python3' inside the
                 # jail resolves to the venv's 3.13 interpreter (not system

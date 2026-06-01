@@ -146,6 +146,7 @@ def _exec_module(module_name: str, module_src: str) -> dict[str, Any] | None:
 
         _proc: Any = None
         _work_dir: Any = None
+        _dbus_stack: Any = None
 
         def __del__(self) -> None:
             proc = getattr(self, '_proc', None)
@@ -166,6 +167,15 @@ def _exec_module(module_name: str, module_src: str) -> dict[str, Any] | None:
                         proc.kill()
                     except Exception:
                         pass
+            # SEC-1c: the filtered D-Bus proxy outlives this function because
+            # the jailed subprocess is long-lived; reap it only now, when the
+            # namespace (and thus the subprocess) is being collected.
+            stack = getattr(self, '_dbus_stack', None)
+            if stack is not None:
+                try:
+                    stack.close()
+                except Exception:
+                    pass
             wd = getattr(self, '_work_dir', None)
             if wd:
                 shutil.rmtree(wd, ignore_errors=True)
@@ -238,6 +248,17 @@ for _line in sys.stdin:
 
     proc = None
 
+    # SEC-1c: the jailed subprocess is long-lived (it is returned in the
+    # namespace and serves fuzz calls AFTER this function returns), so the
+    # filtered D-Bus proxy must NOT be reaped by a function-scoped ``with``.
+    # We hold an ExitStack and tie its teardown to the namespace lifetime
+    # (CleanDict.__del__); it is ALSO closed on every early-return cleanup
+    # path below. Lazy in-body imports keep the module surface unchanged.
+    from contextlib import ExitStack
+    from harness.dbus_proxy import proxied_session_bus
+    _dbus_stack = ExitStack()
+    _dbus_sock = None
+
     # Jail decision keys on the CANONICAL operator config gate
     # (sandbox_enabled), NOT merely on bwrap presence. The interpreter MUST
     # be a bare name resolvable from the jail's ro-bound /usr and /bin (NOT
@@ -253,9 +274,16 @@ for _line in sys.stdin:
     # (no namespace => the candidate is simply not fuzzed, and crucially not
     # run). When the sandbox is DISABLED, the driver runs unjailed.
     if sandbox_enabled(load_config()):
+        # Graceful degradation: if the proxy cannot spawn, fall back to the
+        # real bus (dbus_proxy_socket=None) so the jailed driver still runs.
         try:
-            argv = build_jail_argv(['python3', 'driver.py'], repo_root=repo_root, work_dir=work_dir, state_dir=state_dir)
+            _dbus_sock = _dbus_stack.enter_context(proxied_session_bus())
+        except Exception:
+            _dbus_sock = None
+        try:
+            argv = build_jail_argv(['python3', 'driver.py'], repo_root=repo_root, work_dir=work_dir, state_dir=state_dir, dbus_proxy_socket=_dbus_sock)
         except FileNotFoundError:
+            _dbus_stack.close()
             shutil.rmtree(work_dir, ignore_errors=True)
             return None
     else:
@@ -307,6 +335,7 @@ for _line in sys.stdin:
                     proc.kill()
                 except Exception:
                     pass
+        _dbus_stack.close()
         shutil.rmtree(work_dir, ignore_errors=True)
         return None
 
@@ -314,6 +343,7 @@ for _line in sys.stdin:
     namespace['__name__'] = module_name
     namespace._proc = proc
     namespace._work_dir = work_dir
+    namespace._dbus_stack = _dbus_stack
     for _fname, _meta in functions.items():
         namespace[_fname] = ProxyCallable(proc, _fname, _meta)
     return namespace

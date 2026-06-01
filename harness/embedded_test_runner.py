@@ -127,7 +127,21 @@ def run_embedded_tests(
 
     pytest_site = _pytest_site_dir()
 
-    with tempfile.TemporaryDirectory() as td:
+    # SEC-1c: route the jailed verification subprocess through the filtered
+    # xdg-dbus-proxy session bus when sandboxing is enabled. Lazy in-body
+    # imports keep the module surface free of new top-level imports/symbols.
+    from contextlib import ExitStack
+    from harness.dbus_proxy import proxied_session_bus
+
+    with tempfile.TemporaryDirectory() as td, ExitStack() as _dbus_stack:
+        _dbus_sock = None
+        if sandboxed:
+            # Graceful degradation: if the proxy cannot spawn, fall back to the
+            # real bus (dbus_proxy_socket=None) so jailed subprocesses still run.
+            try:
+                _dbus_sock = _dbus_stack.enter_context(proxied_session_bus())
+            except Exception:
+                _dbus_sock = None
         td_path = pathlib.Path(td)
         mod_path = td_path / f"{module_name}.py"
         mod_path.write_text(module_src, encoding="utf-8")
@@ -163,6 +177,7 @@ def run_embedded_tests(
                     state_dir=STATE_DIR,
                     extra_ro=[sys.base_prefix, sys.prefix, *_verify_extra_ro],
                     extra_rw=_verify_extra_rw,
+                    dbus_proxy_socket=_dbus_sock,
                 )
             except FileNotFoundError:
                 return (
@@ -208,6 +223,7 @@ def run_embedded_tests(
                     state_dir=STATE_DIR,
                     extra_ro=[sys.base_prefix, sys.prefix, *_verify_extra_ro],
                     extra_rw=_verify_extra_rw,
+                    dbus_proxy_socket=_dbus_sock,
                 )
             except FileNotFoundError:
                 return (
