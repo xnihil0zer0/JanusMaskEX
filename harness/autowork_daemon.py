@@ -1813,7 +1813,12 @@ def _escalate_inactivity(state_dir: pathlib.Path, config: dict) -> None:
     # direct Popen that bypassed all of CONTAIN -- plan rev3.1 §1a).
     cmd = _contain_selfheal(cmd, env, work_dir, state_dir, config, agent)
     try:
-        subprocess.Popen(cmd, env=env, cwd=str(work_dir))  # AGENT-ISOLATION §3.8: cwd = isolated outside-repo workdir
+        proc = subprocess.Popen(cmd, env=env, cwd=str(work_dir))  # AGENT-ISOLATION §3.8: cwd = isolated outside-repo workdir
+        # SELFHEAL PIDFILE: track this inactivity self-heal spawn under a stem
+        # distinct from worker-task ids (prefixed 'selfheal_' + agent + task_id)
+        # so the existing _reap_running / _drain_running machinery reaps it and
+        # it never leaks. Reuses _write_pidfile / _running_dir as-is.
+        _write_pidfile(state_dir, f'selfheal_{agent}_{task_id}', proc.pid)
     except Exception as exc:
         _emit_telemetry(state_dir, task_id, 'spawn_failed', repr(exc))
 
