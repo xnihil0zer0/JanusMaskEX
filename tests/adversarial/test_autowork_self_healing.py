@@ -42,7 +42,16 @@ def test_escalate_to_autobrief_safe_loads_config(temp_state_dir, mock_popen):
         if self.name == 'config.yaml':
             return True
         return orig_is_file(self)
-    with patch('pathlib.Path.is_file', mock_is_file), patch('builtins.open', mock_open(read_data=yaml.dump(config_data))):
+    # Scope the open mock so ONLY the config.yaml read is faked; every other
+    # path (task JSON read, history append) delegates to the REAL open.
+    _real_open = open
+    m = mock_open(read_data=yaml.dump(config_data))
+
+    def _scoped_open(file, *a, **k):
+        if 'config.yaml' in str(file):
+            return m()
+        return _real_open(file, *a, **k)
+    with patch('pathlib.Path.is_file', mock_is_file), patch('builtins.open', side_effect=_scoped_open), patch('harness.autowork_daemon._contain_selfheal', side_effect=lambda cmd, *a, **k: cmd):
         _escalate_to_autobrief(temp_state_dir, task_id, 'synthesis_or_ast_failed')
     assert mock_popen.called
 
@@ -78,7 +87,16 @@ def test_escalate_to_autobrief_resolves_agent_command(temp_state_dir, mock_popen
         if self.name == 'config.yaml':
             return True
         return orig_is_file(self)
-    with patch('pathlib.Path.is_file', mock_is_file), patch('builtins.open', mock_open(read_data=yaml.dump(config_data))):
+    # Scope the open mock so ONLY the config.yaml read is faked; every other
+    # path (task JSON read, history append) delegates to the REAL open.
+    _real_open = open
+    m = mock_open(read_data=yaml.dump(config_data))
+
+    def _scoped_open(file, *a, **k):
+        if 'config.yaml' in str(file):
+            return m()
+        return _real_open(file, *a, **k)
+    with patch('pathlib.Path.is_file', mock_is_file), patch('builtins.open', side_effect=_scoped_open):
         _escalate_to_autobrief(temp_state_dir, task_id, 'embedded_tests_failed')
     assert mock_popen.called
     args, kwargs = mock_popen.call_args
