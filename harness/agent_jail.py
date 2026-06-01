@@ -128,10 +128,19 @@ def build_jail_argv(
     # Covers: ~/.nvm (vendored node runtime), ~/.gemini (agy OAuth + antigravity-cli),
     # ~/.claude (claude session/project state). Bound FIRST so the later repo ro-bind
     # overlays any overlap (the repo lives under HOME). (plan rev3.1 M-2 / R-CONTAIN-state/HOME)
+    #
+    # H_JAIL_A: ~/.nvm is a version-manager INSTALLATION directory -- node/agy read
+    # the vendored runtime from it but never need to write under it at runtime. A
+    # writable ~/.nvm is a node-wrapper host-hijack vector (an agent could overwrite a
+    # shim/binary that later runs operator-side). Bind it READ-ONLY (--ro-bind) while
+    # ~/.gemini and ~/.claude stay read-write (--bind) for credential refresh + cached
+    # state writes. Missing subdirs are skipped gracefully.
+    _ro_home_subs = frozenset({".nvm"})
     for _sub in (".nvm", ".gemini", ".claude"):
         _hp = os.path.join(home, _sub)
         if os.path.exists(_hp):
-            argv += ["--bind", _hp, _hp]
+            _mode = "--ro-bind" if _sub in _ro_home_subs else "--bind"
+            argv += [_mode, _hp, _hp]
     # claude-code's PRIMARY config is ``$HOME/.claude.json`` -- a FILE at HOME root,
     # NOT under ``~/.claude/`` -- so the ``.claude`` subdir bind above does NOT cover
     # it. Without it the jailed claude aborts at startup ("Claude configuration file
