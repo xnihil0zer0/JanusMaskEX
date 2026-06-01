@@ -228,6 +228,7 @@ def test_jail_denies_write_to_repo_harness(ctx):
     before = target.read_bytes()
     r = _run_probe(ctx.argv, ctx.repo_root, 'echo tampered > %s' % target)
     assert r.returncode != 0, 'jail allowed a write into the read-only repo harness/ tree'
+    assert 'Read-only file system' in r.stderr or 'Permission denied' in r.stderr, 'write denial was not an EROFS/EACCES jail denial: %s' % r.stderr
     assert target.read_bytes() == before, 'harness source byte content changed inside jail'
 
 @requires_bwrap
@@ -238,9 +239,11 @@ def test_jail_denies_write_to_state_control_full_stop_and_allowlist(ctx):
     al_before = ctx.allowlist.read_bytes()
     r1 = _run_probe(ctx.argv, ctx.repo_root, 'echo tampered > %s' % ctx.full_stop)
     assert r1.returncode != 0, 'jail allowed a write to state/control/full_stop'
+    assert 'Read-only file system' in r1.stderr or 'Permission denied' in r1.stderr, 'full_stop write denial was not an EROFS/EACCES jail denial: %s' % r1.stderr
     assert ctx.full_stop.read_bytes() == fs_before, 'full_stop content changed inside jail'
     r2 = _run_probe(ctx.argv, ctx.repo_root, 'echo tampered > %s' % ctx.allowlist)
     assert r2.returncode != 0, 'jail allowed a write to auto_promote.allowlist'
+    assert 'Read-only file system' in r2.stderr or 'Permission denied' in r2.stderr, 'allowlist write denial was not an EROFS/EACCES jail denial: %s' % r2.stderr
     assert ctx.allowlist.read_bytes() == al_before, 'allowlist content changed inside jail'
 
 @requires_bwrap
@@ -250,6 +253,7 @@ def test_jail_denies_write_to_claude_memory_md(ctx):
     before = target.read_bytes()
     r = _run_probe(ctx.argv, ctx.repo_root, 'echo tampered > %s' % target)
     assert r.returncode != 0, 'jail allowed a write to a ~/.claude memory markdown file'
+    assert 'Read-only file system' in r.stderr or 'Permission denied' in r.stderr, 'memory markdown write denial was not an EROFS/EACCES jail denial: %s' % r.stderr
     assert target.read_bytes() == before, 'memory markdown content changed inside jail'
 
 @pytest.mark.skipif(shutil.which('bwrap') is None or shutil.which('git') is None, reason='bwrap and git both required')
@@ -262,6 +266,7 @@ def test_jail_denies_git_commit_on_repo(ctx):
     shell = 'cd %s && git -c user.name=x -c user.email=x@x commit --allow-empty -m tampered' % ctx.repo_root
     r = _run_probe(ctx.argv, ctx.repo_root, shell)
     assert r.returncode != 0, 'jail allowed a git commit on the read-only repo'
+    assert 'Read-only file system' in r.stderr or 'Permission denied' in r.stderr, 'git commit denial was not an EROFS/EACCES jail denial: %s' % r.stderr
     if ctx.git_head_before is not None:
         assert ctx.git_head_path.read_bytes() == ctx.git_head_before, 'HEAD ref changed inside jail'
 
