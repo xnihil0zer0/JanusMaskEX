@@ -443,7 +443,10 @@ def kill_agent(proc: subprocess.Popen, agent: str, reason: str='handoff') -> Non
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         except (ProcessLookupError, PermissionError, OSError):
             proc.kill()
-        proc.wait(timeout=3)
+        try:
+            proc.wait(timeout=3)
+        except (subprocess.TimeoutExpired, ProcessLookupError, PermissionError, OSError):
+            pass
     _join_stream_threads(proc)
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.DIM}terminated{_C.RESET}')
 
