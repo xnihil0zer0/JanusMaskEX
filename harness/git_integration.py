@@ -682,6 +682,31 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
                         final_code = tgt_code
                     else:
                         final_code = _ast_merge(out_code, tgt_code)
+                        # PHASE_WHOLE_FILE_DRIFT_GUARD: a legacy (partial_edit:false)
+                        # whole-file submission is only allowed to MODIFY at most one
+                        # existing top-level symbol. _ast_merge legitimately ADDS new
+                        # symbols and PRESERVES omitted ones, so only the intersection
+                        # of pre-merge target and post-merge result whose ast.dump
+                        # differs counts as drift; rewriting >1 existing symbol is
+                        # rejected fail-closed without touching the target on disk.
+                        try:
+                            before = {}
+                            for n in ast.parse(tgt_code).body:
+                                if getattr(n, 'name', None) is not None:
+                                    before[n.name] = ast.dump(n)
+                            after = {}
+                            for n in ast.parse(final_code).body:
+                                if getattr(n, 'name', None) is not None:
+                                    after[n.name] = ast.dump(n)
+                            changed = {name for name in (set(before) & set(after)) if before[name] != after[name]}
+                            if len(changed) > 1:
+                                logging.getLogger(__name__).error('commit_accepted_output: %s rejected whole_file_drift: modified %d existing top-level symbols %s', task_id, len(changed), sorted(changed))
+                                result['committed'] = False
+                                result['sha'] = None
+                                result['error'] = f"whole_file_drift: legacy whole-file submission modified {len(changed)} existing top-level symbols {sorted(changed)}; use partial-edit or multi-file"
+                                return result
+                        except SyntaxError:
+                            pass
                 else:
                     final_code = ast.unparse(ast.parse(out_code))
                 target_path.write_text(final_code, encoding='utf-8')
