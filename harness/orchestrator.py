@@ -1542,6 +1542,17 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     disabled, all three runs fall back to the ORIGINAL ``shell=True`` /
     ``executable='/bin/bash'`` behavior byte-for-byte.
 
+    SEC-5c (VERIFY_EXTRA_BINDS): on top of the SEC-2 prefix binds, every jailed
+    ``build_jail_argv`` call now widens ``extra_ro`` with the config-driven
+    ``agent_sandbox.verify_extra_ro`` allowlist and gains an ``extra_rw`` from
+    ``agent_sandbox.verify_extra_rw`` (the keyword-only param added in
+    PHASE_SEC5A_JAIL_RW_AND_EMBEDDED). Both lists are read once via the
+    already-available ``load_config`` using safe ``.get(..., [])`` defaults so
+    configs that omit the keys remain backward compatible (empty allowlists
+    leave ``extra_ro == [sys.base_prefix, sys.prefix]`` and ``extra_rw == []``
+    at every site). The ``[sys.base_prefix, sys.prefix]`` SEC-2 prefix is
+    NEVER dropped -- ``verify_extra_ro`` is appended after it.
+
     ROLLBACK_WORKTREE_CHECKOUT: both ``git reset --hard HEAD~1`` rollback
     sites (verification_missing and verification_failed) are followed by a
     best-effort ``git checkout HEAD -- <target_rel>`` to scrub any stray
@@ -1620,6 +1631,15 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     import subprocess
     import sys
     import time
+
+    # SEC-5c (VERIFY_EXTRA_BINDS): read the config-driven jailed-verify
+    # allowlists once via the already-available load_config. Safe .get(..., [])
+    # defaults keep configs that omit agent_sandbox.verify_extra_ro /
+    # verify_extra_rw backward compatible (empty -> no widening). These augment
+    # the SEC-2 [sys.base_prefix, sys.prefix] prefix at all four jailed sites.
+    _sandbox_cfg = load_config().get('agent_sandbox', {})
+    verify_extra_ro = _sandbox_cfg.get('verify_extra_ro', [])
+    verify_extra_rw = _sandbox_cfg.get('verify_extra_rw', [])
 
     files_touched = _resolve_files_touched(state_dir, task, task_id)
     if not files_touched:
@@ -1772,9 +1792,10 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
             # list whose inner /bin/bash -c carries the pipefail wrapper);
             # extra_ro=[sys.base_prefix, sys.prefix] keeps the real python +
             # pytest resolvable even when the venv lives outside repo_root.
+            # SEC-5c: widen extra_ro with verify_extra_ro and add extra_rw.
             _vfull = f'set -o pipefail; {vcmd}'
             if agent_jail.sandbox_enabled(load_config()):
-                vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix]), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw)), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
             else:
                 vproc = subprocess.run(_vfull, shell=True, cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
             verify_exit = vproc.returncode
@@ -1874,10 +1895,11 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                         # would be an INFRA failure -- NOT a genuine assertion
                         # catch. Raise so the enclosing H1 try/except rolls back
                         # and records mutation_gate_error; never credit the
-                        # mutant as caught on an infra fluke.
+                        # mutant as caught on an infra fluke. SEC-5c: same
+                        # verify_extra_ro/extra_rw widening as every jailed site.
                         _bfull = f'set -o pipefail; {vcmd}'
                         if agent_jail.sandbox_enabled(load_config()):
-                            _bproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _bfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix]), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                            _bproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _bfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw)), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
                         else:
                             _bproc = subprocess.run(_bfull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                         if _bproc.returncode != 0:
@@ -1898,9 +1920,10 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                             # is enabled (same bwrap argv discipline as verify);
                             # otherwise the original shell=True call. The pipefail
                             # wrapper text is byte-identical in both branches.
+                            # SEC-5c: widen extra_ro/extra_rw like every site.
                             _afull = f"set -o pipefail; {_mut['apply']}"
                             if agent_jail.sandbox_enabled(load_config()):
-                                _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix]), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw)), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
                             else:
                                 _ap = subprocess.run(_afull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                             _applied = (_ap.returncode == 0)
@@ -1910,10 +1933,11 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                             # H2A: jail the mutant verify-rerun subprocess when
                             # sandboxing is enabled; otherwise the original
                             # shell=True call. The pipefail wrapper + vcmd text
-                            # stay byte-identical in both branches.
+                            # stay byte-identical in both branches. SEC-5c: widen
+                            # extra_ro/extra_rw like every jailed site.
                             _rfull = f'set -o pipefail; {vcmd}'
                             if agent_jail.sandbox_enabled(load_config()):
-                                _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix]), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw)), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
                             else:
                                 _mproc = subprocess.run(_rfull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                             _mvacuous = (_mproc.returncode == 0)
