@@ -1046,6 +1046,18 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
     manifest_missing error violation between the manifest-present branch
     and the single-file fallback so the AST-retry loop forces the agent
     to resubmit as a __JANUSMASK_MANIFEST__ dict.
+
+    VALIDATOR_SIG (2026-06-01): the task's return-typed
+    ``declared_signature`` names exactly one function, so in a partial-edit
+    ``__JANUSMASK_PATCHES__`` submission it must only gate the patch entry
+    whose replaced symbol shares that name. Previously every ``.py`` patch
+    block was validated against ``declared_signature``, so a non-matching
+    symbol (e.g. ``bar`` when the signature describes ``foo``) was rejected
+    with a spurious ``return_type_mismatch``. We now extract the signature's
+    function name via ``_extract_func_name_from_signature`` (lazy import) and
+    pass ``declared_signature`` only to the matching ``kind == 'symbol'``
+    entry; all other entries (including non-symbol region patches, which
+    carry no name) receive ``None`` and are never return-type-checked.
     """
     mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
     allow_nondet = task.get('constraints', {}).get('deterministic') is False
@@ -1087,6 +1099,11 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
         # the merged==original oracle + scoped tests gate behavior post-commit.
         patches = git_integration._parse_patches(code)
         if patches is not None:
+            # VALIDATOR_SIG: the declared signature describes a single named
+            # function, so only the matching patch entry may be gated by its
+            # return-type contract. Lazy in-body import per PATCH_CONVENTIONS #3/#8.
+            from harness.ast_enforcer import _extract_func_name_from_signature
+            sig_func = _extract_func_name_from_signature(declared_signature) if declared_signature else None
             pv: list = []
             for entry in patches:
                 if not isinstance(entry, dict):
@@ -1094,7 +1111,9 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
                 if not str(entry.get('file', '')).endswith('.py'):
                     continue
                 blk = entry.get('code', '')
-                pv.extend(validate_code(blk, allow_nondeterminism=allow_nondet, declared_signature=declared_signature))
+                entry_name = entry.get('name') if entry.get('kind') == 'symbol' else None
+                blk_sig = declared_signature if (sig_func is not None and entry_name == sig_func) else None
+                pv.extend(validate_code(blk, allow_nondeterminism=allow_nondet, declared_signature=blk_sig))
             errors = [v for v in pv if v.severity == 'error']
             if errors:
                 logger.warning('%s partial-edit submission (%d patches) has %d AST errors: %s', agent, len(patches), len(errors), '; '.join((f'{v.rule}@L{v.line}: {v.message}' for v in errors[:5])))
