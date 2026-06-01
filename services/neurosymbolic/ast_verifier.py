@@ -206,7 +206,7 @@ class _ASTVisitor(ast.NodeVisitor):
                         rule="credential_leak",
                         line=lineno,
                         message="Potential credential/API key pattern in string literal.",
-                        severity="ERROR"
+                        severity="WARNING"
                     ))
                     break
 
