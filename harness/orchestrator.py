@@ -257,7 +257,30 @@ def _build_agent_env(agent: str, state_dir: str, round_number: int=1) -> dict[st
     # worker hook configs no longer derive these from ${CLAUDE_PROJECT_DIR}.
     _existing_pp = os.environ.get('PYTHONPATH', '')
     _pythonpath = str(PROJECT_DIR) if not _existing_pp else str(PROJECT_DIR) + os.pathsep + _existing_pp
-    env: dict[str, str] = {**os.environ, 'PYTHONHASHSEED': '0', 'CLAUDE_PROJECT_DIR': str(work_dir), 'JANUSMASK_PROJECT_DIR': str(PROJECT_DIR), 'PYTHONPATH': _pythonpath, 'GEMINI_CLI_TRUST_WORKSPACE': 'true', 'JANUSMASK_AGENT': agent, 'JANUSMASK_STATE_DIR': state_dir, 'JANUSMASK_ROUND': str(round_number), 'JANUSMASK_MODE': mode, 'JANUSMASK_TASK_ID': task_id, 'JANUSMASK_WORK_DIR': str(work_dir)}
+    # SEC_ENV_ALLOWLIST: do NOT spread the operator's full os.environ into the
+    # jailed agent. A blanket {**os.environ, ...} leaked operator secrets such as
+    # GITHUB_TOKEN and AWS_* credentials into the worker process. Inherit only an
+    # explicit allowlist of execution-essential and vendor-auth variables (by exact
+    # name or by prefix) so OAuth/token-refresh + the node runtime keep working
+    # while host secrets are scrubbed.
+    _ENV_ALLOW_EXACT = frozenset((
+        'PATH', 'HOME', 'LANG', 'LANGUAGE', 'LC_ALL', 'TERM', 'SHELL',
+        'USER', 'LOGNAME', 'TZ', 'TMPDIR', 'PWD',
+        'DBUS_SESSION_BUS_ADDRESS', 'GOOGLE_GENAI_USE_GCA',
+        'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE',
+        'NODE_EXTRA_CA_CERTS', 'CURL_CA_BUNDLE',
+        'NO_PROXY', 'no_proxy', 'HTTP_PROXY', 'http_proxy',
+        'HTTPS_PROXY', 'https_proxy',
+    ))
+    _ENV_ALLOW_PREFIXES = (
+        'JANUSMASK_', 'XDG_', 'NVM_', 'NODE_', 'GEMINI_', 'GOOGLE_',
+        'ANTHROPIC_', 'CLAUDE_', 'LC_',
+    )
+    base_env = {
+        k: v for k, v in os.environ.items()
+        if k in _ENV_ALLOW_EXACT or any(k.startswith(p) for p in _ENV_ALLOW_PREFIXES)
+    }
+    env: dict[str, str] = {**base_env, 'PYTHONHASHSEED': '0', 'CLAUDE_PROJECT_DIR': str(work_dir), 'JANUSMASK_PROJECT_DIR': str(PROJECT_DIR), 'PYTHONPATH': _pythonpath, 'GEMINI_CLI_TRUST_WORKSPACE': 'true', 'JANUSMASK_AGENT': agent, 'JANUSMASK_STATE_DIR': state_dir, 'JANUSMASK_ROUND': str(round_number), 'JANUSMASK_MODE': mode, 'JANUSMASK_TASK_ID': task_id, 'JANUSMASK_WORK_DIR': str(work_dir)}
     if agent == 'gemini':
         env['JANUSMASK_GEMINI_SETTINGS'] = os.environ.get('JANUSMASK_GEMINI_SETTINGS', str(PROJECT_DIR / 'config' / 'gemini_settings.json'))
     return env
