@@ -1477,8 +1477,8 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     V2: after a successful commit, if ``task.get('verification_command')`` is
     missing, None, empty, whitespace-only, or non-string, the commit is
     reverted via ``git reset --hard HEAD~1``, a ``verification_missing`` row
-    is appended to ``state_dir/'impl_progress.jsonl'``, a ``logger.warning``
-    is emitted, and the function returns ``False`` -- closes the
+    is appended to ``state_dir/'impl_progress.jsonl'``, a ``logger.warning`` is
+    emitted, and the function returns ``False`` -- closes the
     design-time-missing half of the U1 silent-NOOP class as defense-in-depth
     when a task bypasses the planner-side V1 enforcement.
 
@@ -1510,6 +1510,21 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     rollback. /bin/sh on Linux is dash, which does not support
     ``set -o pipefail``, so ``executable='/bin/bash'`` is required for the
     prefix to have any effect.
+
+    H2A (JAIL_VERIFY_MUTANT): when ``agent_jail.sandbox_enabled(load_config())``
+    is True, the verify run, the mutant ``apply`` run, and the mutant rerun
+    are each wrapped via ``agent_jail.build_jail_argv`` into a bubblewrap argv
+    list and executed WITHOUT ``shell=True`` (the inner ``/bin/bash -c`` carries
+    the ``set -o pipefail; ...`` wrapper). Each jailed call passes
+    ``extra_ro=[sys.base_prefix]`` so the real interpreter tree (miniconda),
+    which the staging ``.venv/bin/python`` symlinks into and which lives outside
+    ``repo_root`` + every ``_SYSTEM_RO`` dir, is mounted into the jail -- without
+    it the jailed verify exits 127 (``python: command not found``) and the
+    phase-B mutation-gate battery regresses. The vcmd interpreter token stays
+    byte-identical (bare ``python -m pytest ...``); the jail resolves it from
+    the bound base_prefix bin still on PATH (``_vcmd_scrubbed_env`` preserves
+    PATH). When sandboxing is disabled, all three runs fall back to the
+    ORIGINAL ``shell=True`` / ``executable='/bin/bash'`` behavior byte-for-byte.
 
     ROLLBACK_WORKTREE_CHECKOUT: both ``git reset --hard HEAD~1`` rollback
     sites (verification_missing and verification_failed) are followed by a
@@ -1549,6 +1564,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     Never raises. Returns True only if a new commit was produced and the
     required verification command exited zero.
     """
+    from harness import agent_jail
     from harness import git_integration
     from harness._journal import write_jsonl_row
     from harness.orchestrator import _resolve_files_touched, _resolve_verification_command, _vcmd_scrubbed_env, logger
@@ -1700,8 +1716,17 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
         except Exception:
             verification_timeout = 600
         try:
-            # We run the verification command inside staging_path
-            vproc = subprocess.run(f'set -o pipefail; {vcmd}', shell=True, cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
+            # We run the verification command inside staging_path. H2A: when
+            # sandboxing is enabled, route the bash invocation through the
+            # bubblewrap jail (no shell=True -- the bwrap argv is already a
+            # list whose inner /bin/bash -c carries the pipefail wrapper);
+            # extra_ro=[sys.base_prefix] keeps the real python + pytest
+            # resolvable. Otherwise fall back to the original shell=True call.
+            _vfull = f'set -o pipefail; {vcmd}'
+            if agent_jail.sandbox_enabled(load_config()):
+                vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix]), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+            else:
+                vproc = subprocess.run(_vfull, shell=True, cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
             verify_exit = vproc.returncode
             verify_stdout = vproc.stdout or ''
             verify_stderr = vproc.stderr or ''
@@ -1800,12 +1825,28 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                             with open(_sf, 'w', encoding='utf-8') as _wf:
                                 _wf.write(test_author.stub_for(_osrc))
                         elif _mut.get('apply'):
-                            _ap = subprocess.run(f"set -o pipefail; {_mut['apply']}", shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
+                            # H2A: jail the mutant-apply subprocess when sandboxing
+                            # is enabled (same bwrap argv discipline as verify);
+                            # otherwise the original shell=True call. The pipefail
+                            # wrapper text is byte-identical in both branches.
+                            _afull = f"set -o pipefail; {_mut['apply']}"
+                            if agent_jail.sandbox_enabled(load_config()):
+                                _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix]), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                            else:
+                                _ap = subprocess.run(_afull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                             _applied = (_ap.returncode == 0)
                         else:
                             _applied = False
                         if _applied:
-                            _mproc = subprocess.run(f'set -o pipefail; {vcmd}', shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
+                            # H2A: jail the mutant verify-rerun subprocess when
+                            # sandboxing is enabled; otherwise the original
+                            # shell=True call. The pipefail wrapper + vcmd text
+                            # stay byte-identical in both branches.
+                            _rfull = f'set -o pipefail; {vcmd}'
+                            if agent_jail.sandbox_enabled(load_config()):
+                                _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix]), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                            else:
+                                _mproc = subprocess.run(_rfull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                             _mvacuous = (_mproc.returncode == 0)
                         # _applied False (un-appliable mutant) -> _mvacuous stays True -> reject fail-closed
                     finally:
