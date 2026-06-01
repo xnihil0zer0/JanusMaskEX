@@ -106,16 +106,17 @@ def test_watchdog_timeout_reads_config(tmp_path: pathlib.Path, monkeypatch) -> N
     monkeypatch.setattr(ad, '_emit_telemetry', lambda sd, tid, ev, det='': events.append((tid, ev, det)))
 
     # 5. Mock time.time to simulate timeout
-    time_seq = [1000.0, 1000.0, 3500.0]
+    time_seq = [1000.0, 1000.0, 6000.0]
     time_iter = iter(time_seq)
     def mock_time():
         try:
             return next(time_iter)
         except StopIteration:
-            return 3500.0
+            return 6000.0
     monkeypatch.setattr(time, 'time', mock_time)
 
-    # 6. Call _iteration with timeout config of 2000s (buffer of 300s -> timeout = 2300s)
+    # 6. Call _iteration with timeout config of 2000s
+    #    (widened watchdog = max(1800, 2*2000 + 600) = 4600s; jump 5000 > 4600 kills)
     config = {
         'synthesis': {
             'active_agents': ['claude'],
@@ -137,7 +138,7 @@ def test_watchdog_timeout_reads_config(tmp_path: pathlib.Path, monkeypatch) -> N
     assert 'test-task' in killed
     timeout_events = [e for e in events if e[1] == 'timeout']
     assert len(timeout_events) == 1
-    assert "38 min" in timeout_events[0][2]
+    assert "77 min" in timeout_events[0][2]
 
     # Test the fallback floor of 1800s
     killed.clear()

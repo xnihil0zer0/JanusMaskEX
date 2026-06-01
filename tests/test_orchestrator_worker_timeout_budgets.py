@@ -88,26 +88,26 @@ def test_hard_budget_covers_one_retry_window():
 
 
 def test_daemon_watchdog_binds_first_on_in_use_timeouts():
-    """The two-window inner HARD now budgets a retry, so for the in-use
-    timeouts it EXCEEDS the daemon watchdog max(1800, timeout + 300). Under
-    daemon dispatch the watchdog binds first (daemon retry behaviour unchanged
-    from HEAD); the retry headroom is realized on FOREGROUND runs only. Small
-    timeouts still fit under the watchdog."""
+    """The daemon watchdog has been widened to max(1800, 2*timeout + 600), so it
+    now MATCHES or EXCEEDS the two-window inner HARD budget (timeout * 2 + 300)
+    for every in-use timeout. A daemon-dispatched worker therefore gets the full
+    retry headroom instead of being reaped early; the watchdog no longer binds
+    first. Small timeouts still fit comfortably under the 1800s floor."""
     from harness.orchestrator_worker import _compute_timeout_budgets
 
     def daemon_watchdog(timeout: float) -> float:
-        # Mirrors autowork_daemon.py:1373: max(1800.0, timeout + 300.0).
-        return max(1800.0, timeout + 300.0)
+        # Mirrors autowork_daemon.py: max(1800.0, 2.0 * timeout + 600.0).
+        return max(1800.0, 2.0 * timeout + 600.0)
 
-    # Small timeouts: inner HARD still fits under the watchdog.
+    # Small timeouts: inner HARD still fits under the 1800s watchdog floor
+    # (300 -> 900 <= 1800, 600 -> 1500 <= 1800).
     for timeout in (300, 600):
         hard, _ = _compute_timeout_budgets({'synthesis': {'timeout_seconds': timeout}})
         assert hard <= daemon_watchdog(timeout)
 
-    # In-use timeout (1200): inner HARD (2700) exceeds the watchdog (1800), so a
-    # daemon-dispatched worker is reaped before it can use the retry window. The
-    # foreground worker (daemon down) runs to the full 2700s. This is intended;
-    # widening the daemon watchdog is deferred to owner Phase A.
+    # In-use timeout (1200): inner HARD (2700) is now covered by the widened
+    # watchdog (max(1800, 2*1200 + 600) = 3000), so a daemon-dispatched worker
+    # can use its full retry window before the watchdog would reap it.
     hard_1200, _ = _compute_timeout_budgets({'synthesis': {'timeout_seconds': 1200}})
     assert hard_1200 == 2700.0
-    assert hard_1200 > daemon_watchdog(1200) == 1800.0
+    assert hard_1200 <= daemon_watchdog(1200)

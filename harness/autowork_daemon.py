@@ -1370,7 +1370,7 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
                     synthesis_cfg = cfg.get('synthesis', {}) if isinstance(cfg, dict) else {}
                     timeout_val = synthesis_cfg.get('timeout_seconds', 900) if isinstance(synthesis_cfg, dict) else 900
                     try:
-                        watchdog_timeout = max(1800.0, float(timeout_val) + 300.0)
+                        watchdog_timeout = max(1800.0, 2.0 * float(timeout_val) + 600.0)
                     except (TypeError, ValueError):
                         watchdog_timeout = 1800.0
                     try:
