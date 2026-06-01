@@ -1564,6 +1564,17 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     throwaway-copy ``shutil.copytree`` ignore set is widened to also skip
     ``state``, ``samples``, ``.pytest_cache``, and ``*.egg-info``.
 
+    ROLLB-A (TASK-SCOPED STAGING): the staging worktree path is now scoped by
+    ``task_id`` -- ``worktree_root.parent / f"{worktree_root.name}_{task_id}_staging"``
+    -- so concurrent pipeline runs on distinct task IDs derive distinct
+    staging directories and can no longer collide on a single shared
+    ``{name}_staging`` worktree. The path stays a sibling of the parent
+    worktree root (under ``worktree_root.parent``) so the
+    ``git_integration.create_staging_worktree`` sibling-placement constraint
+    still holds, and every downstream lifecycle usage (create, .venv symlink,
+    commit, verify, mutation-gate copy, rollback, merge, cleanup) operates on
+    the same task-scoped ``staging_path``.
+
     Never raises. Returns True only if a new commit was produced and the
     required verification command exited zero.
     """
@@ -1603,8 +1614,11 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
         return False
     worktree_root = Path(rev.stdout.strip()).resolve()
 
-    # Determine staging directory as sibling to the parent worktree
-    staging_path = worktree_root.parent / f"{worktree_root.name}_staging"
+    # Determine staging directory as sibling to the parent worktree. ROLLB-A:
+    # scope the directory name by task_id so concurrent runs do not collide on
+    # a single shared staging worktree. The path remains under
+    # worktree_root.parent (sibling placement required by create_staging_worktree).
+    staging_path = worktree_root.parent / f"{worktree_root.name}_{task_id}_staging"
 
     logger.info('auto-commit: using staging worktree at %s for task %s', staging_path, task_id)
 
