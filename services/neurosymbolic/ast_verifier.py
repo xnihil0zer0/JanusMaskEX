@@ -171,7 +171,7 @@ class _ASTVisitor(ast.NodeVisitor):
                 type_name = node.type.id
             elif isinstance(node.type, ast.Attribute):
                 type_name = node.type.attr
-            
+
             if type_name in ("Exception", "BaseException"):
                 is_empty = all(
                     isinstance(stmt, (ast.Pass, ast.Expr)) and (
@@ -185,7 +185,7 @@ class _ASTVisitor(ast.NodeVisitor):
                         rule="except_exception_pass",
                         line=node.lineno,
                         message=f"'except {type_name}: pass' silently swallows exceptions. Add logging/handling.",
-                        severity="ERROR"
+                        severity="WARNING"
                     ))
 
         self.generic_visit(node)

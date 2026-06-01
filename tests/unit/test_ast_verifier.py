@@ -12,10 +12,15 @@ def test_syntax_validation():
 
 def test_bare_except():
     v = ASTVerifier()
-    # Bare except: block
+    # Bare except: block still an ERROR (interceptor/enforcer agree)
     assert not v.verify("try:\n    pass\nexcept:\n    pass").valid
-    # except Exception: pass block
-    assert not v.verify("try:\n    pass\nexcept Exception:\n    pass").valid
+    # except Exception: pass is now VALID (downgraded to WARNING for interceptor parity)
+    res = v.verify("try:\n    pass\nexcept Exception:\n    pass")
+    assert res.valid
+    assert any(
+        violation.rule == "except_exception_pass" and violation.severity == "WARNING"
+        for violation in res.violations
+    )
     # except with logging/handling should pass
     assert v.verify("try:\n    pass\nexcept Exception as e:\n    print(e)").valid
 
