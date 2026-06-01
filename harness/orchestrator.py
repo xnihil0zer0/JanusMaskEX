@@ -1718,371 +1718,388 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
         logger.error('Failed to create staging worktree for %s: %s', task_id, e)
         return False
 
-    # 3. Create symlink to .venv if it exists in the parent
-    parent_venv = worktree_root / ".venv"
-    staging_venv = staging_path / ".venv"
-    if parent_venv.exists() and not staging_venv.exists():
-        try:
-            os.symlink(parent_venv.resolve(), staging_venv)
-        except Exception as sym_exc:
-            logger.warning('Failed to symlink .venv to staging: %s', sym_exc)
-
-    # 4. Commit changes inside the staging worktree
-    target_abs = str((worktree_root / target_rel).resolve())
-    # AGENT-ISOLATION §1b: scope the apply to the declared files_touched and
-    # gate any harness/**, config/**, scripts/** write behind harness_self_fix
-    # + an explicit operator approval decision.
-    _mtt = task.get('meta_task_type') or (task.get('constraints') or {}).get('meta_task_type')
-    _approval_ok = _apply_approval_granted(state_dir, task_id)
-    lock_dir = state_dir / 'control' / 'autowork'
-    lock_dir.mkdir(parents=True, exist_ok=True)
-    lock_path = lock_dir / 'git_commit.lock'
-    with open(lock_path, 'a') as lock_fd:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
-        try:
-            result = git_integration.commit_accepted_output(task_id, target_abs, state_dir, worktree_root=staging_path, allowed_files=set(files_touched), meta_task_type=_mtt, approval_ok=_approval_ok)
-        finally:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-
-    # 5. Run verification inside staging
-    if result.get('committed'):
-        vcmd = _resolve_verification_command(state_dir, task, task_id)
-        if not (isinstance(vcmd, str) and vcmd.strip()):
-            logger.warning('verification_missing: task=%s -- staging rolled back; tasks must carry a non-empty verification_command', task_id)
-            _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'verification_missing')
-            git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
+    # ROLLB-D (STAGING_CLEANUP_GUARANTEE): the staging worktree created just
+    # above must be torn down on EVERY exit path -- not only the explicit
+    # reject/merge branches. Wrap the entire post-creation body in try/finally
+    # so an unexpected mid-body exception (commit_accepted_output raising on an
+    # index.lock race / OSError, a ledger/_resolve crash) AND the SEC-3
+    # disabled-sandbox FileNotFoundError re-raise still propagate but leave NO
+    # leaked worktree. remove_staging_worktree is idempotent + never-raises: on
+    # the success path (merge already removed the dir) and the explicit-reject
+    # paths (already removed) it is a no-op; it only does real work on the
+    # previously-leaking paths. On the success path perform_process_handover's
+    # os.execv replaces the process so the finally never runs -- harmless.
+    try:
+        # 3. Create symlink to .venv if it exists in the parent
+        parent_venv = worktree_root / ".venv"
+        staging_venv = staging_path / ".venv"
+        if parent_venv.exists() and not staging_venv.exists():
             try:
-                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'verification_missing', 'commit_sha': result.get('sha'), 'files': [target_rel], 'reason': 'verification_command missing, empty, or non-string'})
-            except OSError as exc:
-                logger.warning('verification_missing: ledger append failed for %s: %s', task_id, exc)
-            return False
+                os.symlink(parent_venv.resolve(), staging_venv)
+            except Exception as sym_exc:
+                logger.warning('Failed to symlink .venv to staging: %s', sym_exc)
 
-        def _is_unscoped_pytest(cmd_str: str) -> bool:
-            if 'pytest' not in cmd_str:
-                return False
-            import shlex
+        # 4. Commit changes inside the staging worktree
+        target_abs = str((worktree_root / target_rel).resolve())
+        # AGENT-ISOLATION §1b: scope the apply to the declared files_touched and
+        # gate any harness/**, config/**, scripts/** write behind harness_self_fix
+        # + an explicit operator approval decision.
+        _mtt = task.get('meta_task_type') or (task.get('constraints') or {}).get('meta_task_type')
+        _approval_ok = _apply_approval_granted(state_dir, task_id)
+        lock_dir = state_dir / 'control' / 'autowork'
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = lock_dir / 'git_commit.lock'
+        with open(lock_path, 'a') as lock_fd:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
             try:
-                parts = shlex.split(cmd_str)
-            except Exception:
-                parts = cmd_str.split()
-            idx = -1
-            for i, part in enumerate(parts):
-                if part == 'pytest' or part.endswith('/pytest'):
-                    idx = i
-                    break
-            if idx == -1:
-                return False
-            args = parts[idx+1:]
-            options_with_args = {
-                '-k', '-m', '-o', '-c', '-p', '--tb', '--import-mode', '--color',
-                '--durations', '--maxfail', '--lf', '--last-failed', '--ff',
-                '--failed-first', '--nf', '--new-first', '--cache-clear',
-                '--rootdir', '--override-ini', '--show-capture',
-            }
-            has_target = False
-            skip_next = False
-            for arg in args:
-                if skip_next:
-                    skip_next = False
-                    continue
-                if arg.startswith('-'):
-                    if arg in options_with_args:
-                        skip_next = True
-                    continue
-                has_target = True
-                break
-            return not has_target
+                result = git_integration.commit_accepted_output(task_id, target_abs, state_dir, worktree_root=staging_path, allowed_files=set(files_touched), meta_task_type=_mtt, approval_ok=_approval_ok)
+            finally:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
 
-        if _is_unscoped_pytest(vcmd):
-            from harness.test_scoper import get_relevant_test_files
-            relevant_tests = get_relevant_test_files(staging_path, files_touched)
-            existing_tests = [t for t in relevant_tests if (staging_path / t).exists()]
-            if not existing_tests:
-                existing_tests = ['tests/test_import.py']
-            vcmd = vcmd.rstrip() + ' ' + ' '.join(existing_tests)
-            logger.info('Rewrote unscoped pytest command for task %s to: %s', task_id, vcmd)
-
-        verify_exit: int | None = None
-        verify_stdout = ''
-        verify_stderr = ''
-        timed_out = False
-        # H5: derive the verify-subprocess timeout from config rather than a
-        # hardcoded 600s. synthesis.timeout_seconds was raised to 1200 (28db488)
-        # but the verify cap stayed at 600, so a verify run that legitimately took
-        # >600s was killed -> exit 124 -> spurious reject_rollback. Prefer an
-        # explicit synthesis.verification_timeout_seconds; else floor the synthesis
-        # window at 900s. A load_config failure falls back to the historical 600
-        # (fail-safe -- never an unbounded verify subprocess).
-        try:
-            _vcfg = load_config().get('synthesis', {}) or {}
-            verification_timeout = int(_vcfg.get(
-                'verification_timeout_seconds',
-                max(900, int(_vcfg.get('timeout_seconds', 600))),
-            ))
-        except Exception:
-            verification_timeout = 600
-        try:
-            # We run the verification command inside staging_path. H2A: when
-            # sandboxing is enabled, route the bash invocation through the
-            # bubblewrap jail (no shell=True -- the bwrap argv is already a
-            # list whose inner /bin/bash -c carries the pipefail wrapper);
-            # extra_ro=[sys.base_prefix, sys.prefix] keeps the real python +
-            # pytest resolvable even when the venv lives outside repo_root.
-            # SEC-5c: widen extra_ro with verify_extra_ro and add extra_rw.
-            _vfull = f'set -o pipefail; {vcmd}'
-            if agent_jail.sandbox_enabled(load_config()):
-                vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw)), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
-            else:
-                vproc = subprocess.run(_vfull, shell=True, cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
-            verify_exit = vproc.returncode
-            verify_stdout = vproc.stdout or ''
-            verify_stderr = vproc.stderr or ''
-        except subprocess.TimeoutExpired as texc:
-            timed_out = True
-            verify_exit = 124
-            partial_out = texc.stdout
-            partial_err = texc.stderr
-            if isinstance(partial_out, (bytes, bytearray)):
-                verify_stdout = partial_out.decode('utf-8', 'replace')
-            elif isinstance(partial_out, str):
-                verify_stdout = partial_out
-            if isinstance(partial_err, (bytes, bytearray)):
-                verify_stderr = partial_err.decode('utf-8', 'replace')
-            elif isinstance(partial_err, str):
-                verify_stderr = partial_err
-            verify_stderr = (verify_stderr + '\n' if verify_stderr else '') + f'[verification_command timed out after {verification_timeout}s: {texc!r}]'
-        except FileNotFoundError as fnf:
-            # SEC-3 (FAIL_CLOSED_VERIFY): when sandboxing is ENABLED the verify
-            # run is routed through agent_jail.build_jail_argv, whose bubblewrap
-            # binary (bwrap) may be ABSENT on the host. In that case
-            # build_jail_argv / subprocess.run raises FileNotFoundError which
-            # previously escaped UNCAUGHT and crashed the worker. Fail CLOSED:
-            # roll back the staging commit, remove the staging worktree, write a
-            # rejected ledger row, and return False -- NEVER fall through to an
-            # unjailed run. When sandboxing is DISABLED a FileNotFoundError is
-            # re-raised to preserve the historical (no-handler) behavior of the
-            # unjailed shell=True branch byte-for-byte.
-            if agent_jail.sandbox_enabled(load_config()):
-                logger.warning('verification_sandbox_error: task=%s -- sandbox enabled but bwrap/jail unavailable (%r); staging rolled back fail-closed (never run unjailed)', task_id, fnf)
-                _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'verification_sandbox_error')
+        # 5. Run verification inside staging
+        if result.get('committed'):
+            vcmd = _resolve_verification_command(state_dir, task, task_id)
+            if not (isinstance(vcmd, str) and vcmd.strip()):
+                logger.warning('verification_missing: task=%s -- staging rolled back; tasks must carry a non-empty verification_command', task_id)
+                _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'verification_missing')
                 git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
                 try:
-                    write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'verification_sandbox_error', 'commit_sha': result.get('sha'), 'files': [target_rel], 'reason': str(fnf)})
+                    write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'verification_missing', 'commit_sha': result.get('sha'), 'files': [target_rel], 'reason': 'verification_command missing, empty, or non-string'})
                 except OSError as exc:
-                    logger.warning('verification_sandbox_error: ledger append failed for %s: %s', task_id, exc)
+                    logger.warning('verification_missing: ledger append failed for %s: %s', task_id, exc)
                 return False
-            raise
 
-        if verify_exit != 0:
-            cmd_preview = vcmd if len(vcmd) <= 200 else vcmd[:200] + '...(truncated)'
-            logger.warning('verification_failed: task=%s exit=%s timeout=%s cmd=%s', task_id, verify_exit, timed_out, cmd_preview)
-
-            # Discard staging worktree after rollback
-            _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'verification_failed')
-            git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
-
-            stdout_tail = verify_stdout[-2000:] if verify_stdout else ''
-            stderr_tail = verify_stderr[-2000:] if verify_stderr else ''
-            try:
-                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'verification_failed', 'exit': verify_exit, 'stdout_tail': stdout_tail, 'stderr_tail': stderr_tail, 'commit_sha': result.get('sha'), 'files': [target_rel], 'timed_out': timed_out})
-            except OSError as exc:
-                logger.warning('verification_failed: ledger append failed for %s: %s', task_id, exc)
-            return False
-
-        # Verification succeeded!
-        logger.info('auto-commit: SUCCESS in staging for %s -> %s (sha=%s)', task_id, target_rel, result.get('sha'))
-
-        # PHASE B (G-MUTATION-GATE): non-vacuity / fix-detector gate for
-        # agent-authored tests. Verification PASSED against the correct staged
-        # code above; a genuine detector must ALSO fail against a declared
-        # mutant. Re-run vcmd in a throwaway COPY of staging with each mutant
-        # applied; reject (rollback) if any mutant still passes (a vacuous test).
-        # Engages for meta_task_type 'test_authoring' (which MUST declare a
-        # mutant -> fail-closed) and for any task declaring mutations/
-        # mutation_target; no-op for all other tasks (preserves existing accept).
-        _mut_specs = list(task.get('mutations') or [])
-        _mut_target = task.get('mutation_target')
-        if _mtt == 'test_authoring' or _mut_specs or _mut_target:
-            if not _mut_specs and not _mut_target:
-                logger.warning('mutation_gate_missing: task=%s declares no mutant -- rejected fail-closed', task_id)
-                _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'mutation_gate_missing')
-                git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
+            def _is_unscoped_pytest(cmd_str: str) -> bool:
+                if 'pytest' not in cmd_str:
+                    return False
+                import shlex
                 try:
-                    write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'mutation_gate_missing', 'commit_sha': result.get('sha'), 'files': files_touched, 'reason': 'test_authoring task must declare mutation_target or mutations[]'})
-                except OSError as _exc:
-                    logger.warning('mutation_gate_missing: ledger append failed for %s: %s', task_id, _exc)
-                return False
-            # H1 (MUTATION_GATE_HARDENING): wrap the mutant-application body so
-            # any unexpected exception (copytree ENOSPC/PermissionError, git or
-            # mutant-apply crash, malformed mutation_target) is caught and
-            # rejected fail-closed as ``mutation_gate_error`` -- never re-raised.
+                    parts = shlex.split(cmd_str)
+                except Exception:
+                    parts = cmd_str.split()
+                idx = -1
+                for i, part in enumerate(parts):
+                    if part == 'pytest' or part.endswith('/pytest'):
+                        idx = i
+                        break
+                if idx == -1:
+                    return False
+                args = parts[idx+1:]
+                options_with_args = {
+                    '-k', '-m', '-o', '-c', '-p', '--tb', '--import-mode', '--color',
+                    '--durations', '--maxfail', '--lf', '--last-failed', '--ff',
+                    '--failed-first', '--nf', '--new-first', '--cache-clear',
+                    '--rootdir', '--override-ini', '--show-capture',
+                }
+                has_target = False
+                skip_next = False
+                for arg in args:
+                    if skip_next:
+                        skip_next = False
+                        continue
+                    if arg.startswith('-'):
+                        if arg in options_with_args:
+                            skip_next = True
+                        continue
+                    has_target = True
+                    break
+                return not has_target
+
+            if _is_unscoped_pytest(vcmd):
+                from harness.test_scoper import get_relevant_test_files
+                relevant_tests = get_relevant_test_files(staging_path, files_touched)
+                existing_tests = [t for t in relevant_tests if (staging_path / t).exists()]
+                if not existing_tests:
+                    existing_tests = ['tests/test_import.py']
+                vcmd = vcmd.rstrip() + ' ' + ' '.join(existing_tests)
+                logger.info('Rewrote unscoped pytest command for task %s to: %s', task_id, vcmd)
+
+            verify_exit: int | None = None
+            verify_stdout = ''
+            verify_stderr = ''
+            timed_out = False
+            # H5: derive the verify-subprocess timeout from config rather than a
+            # hardcoded 600s. synthesis.timeout_seconds was raised to 1200 (28db488)
+            # but the verify cap stayed at 600, so a verify run that legitimately took
+            # >600s was killed -> exit 124 -> spurious reject_rollback. Prefer an
+            # explicit synthesis.verification_timeout_seconds; else floor the synthesis
+            # window at 900s. A load_config failure falls back to the historical 600
+            # (fail-safe -- never an unbounded verify subprocess).
             try:
-                import re as _re
-                import tempfile
-
-                def _valid_mut_module(_v: object) -> bool:
-                    # A bare dotted module name only: reject path-like values
-                    # (slashes), parent-traversal ('..'), explicit '.py'
-                    # extensions, and anything that is not dotted identifiers.
-                    if not isinstance(_v, str) or not _v:
-                        return False
-                    if '/' in _v or '\\' in _v or '..' in _v or _v.endswith('.py'):
-                        return False
-                    return _re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*', _v) is not None
-
-                _mut_all = list(_mut_specs)
-                if _mut_target:
-                    if not _valid_mut_module(_mut_target):
-                        raise ValueError(f'malformed mutation_target {_mut_target!r}: not a bare dotted module name')
-                    _mut_all.append({'stub_target': _mut_target})
-                for _mi, _mut in enumerate(_mut_all):
-                    _mtmp = tempfile.mkdtemp(prefix='jm_mutgate_')
-                    _mvacuous = True
+                _vcfg = load_config().get('synthesis', {}) or {}
+                verification_timeout = int(_vcfg.get(
+                    'verification_timeout_seconds',
+                    max(900, int(_vcfg.get('timeout_seconds', 600))),
+                ))
+            except Exception:
+                verification_timeout = 600
+            try:
+                # We run the verification command inside staging_path. H2A: when
+                # sandboxing is enabled, route the bash invocation through the
+                # bubblewrap jail (no shell=True -- the bwrap argv is already a
+                # list whose inner /bin/bash -c carries the pipefail wrapper);
+                # extra_ro=[sys.base_prefix, sys.prefix] keeps the real python +
+                # pytest resolvable even when the venv lives outside repo_root.
+                # SEC-5c: widen extra_ro with verify_extra_ro and add extra_rw.
+                _vfull = f'set -o pipefail; {vcmd}'
+                if agent_jail.sandbox_enabled(load_config()):
+                    vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw)), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                else:
+                    vproc = subprocess.run(_vfull, shell=True, cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
+                verify_exit = vproc.returncode
+                verify_stdout = vproc.stdout or ''
+                verify_stderr = vproc.stderr or ''
+            except subprocess.TimeoutExpired as texc:
+                timed_out = True
+                verify_exit = 124
+                partial_out = texc.stdout
+                partial_err = texc.stderr
+                if isinstance(partial_out, (bytes, bytearray)):
+                    verify_stdout = partial_out.decode('utf-8', 'replace')
+                elif isinstance(partial_out, str):
+                    verify_stdout = partial_out
+                if isinstance(partial_err, (bytes, bytearray)):
+                    verify_stderr = partial_err.decode('utf-8', 'replace')
+                elif isinstance(partial_err, str):
+                    verify_stderr = partial_err
+                verify_stderr = (verify_stderr + '\n' if verify_stderr else '') + f'[verification_command timed out after {verification_timeout}s: {texc!r}]'
+            except FileNotFoundError as fnf:
+                # SEC-3 (FAIL_CLOSED_VERIFY): when sandboxing is ENABLED the verify
+                # run is routed through agent_jail.build_jail_argv, whose bubblewrap
+                # binary (bwrap) may be ABSENT on the host. In that case
+                # build_jail_argv / subprocess.run raises FileNotFoundError which
+                # previously escaped UNCAUGHT and crashed the worker. Fail CLOSED:
+                # roll back the staging commit, remove the staging worktree, write a
+                # rejected ledger row, and return False -- NEVER fall through to an
+                # unjailed run. When sandboxing is DISABLED a FileNotFoundError is
+                # re-raised to preserve the historical (no-handler) behavior of the
+                # unjailed shell=True branch byte-for-byte.
+                if agent_jail.sandbox_enabled(load_config()):
+                    logger.warning('verification_sandbox_error: task=%s -- sandbox enabled but bwrap/jail unavailable (%r); staging rolled back fail-closed (never run unjailed)', task_id, fnf)
+                    _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'verification_sandbox_error')
+                    git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
                     try:
-                        _mcopy = os.path.join(_mtmp, 'staging')
-                        shutil.copytree(str(staging_path), _mcopy, symlinks=True, ignore=shutil.ignore_patterns('.git', '__pycache__', '*.pyc', 'state', 'samples', '.pytest_cache', '*.egg-info'))
-                        # MUT-MASK (MUTANT_INFRA_VS_ASSERTION): BASELINE-IN-COPY
-                        # guard. Before applying the mutant, re-run the UNMUTATED
-                        # vcmd inside the fresh _mcopy through the SAME jail/shell
-                        # discipline used for the mutant rerun below (same
-                        # pipefail wrapper, cwd=_mcopy, extra_ro, scrubbed env).
-                        # If the unmutated verify does NOT pass in the copy, the
-                        # copytree dropped a path the verification_command needs
-                        # (e.g. samples/ or state/), so a NON-ZERO mutant rerun
-                        # would be an INFRA failure -- NOT a genuine assertion
-                        # catch. Raise so the enclosing H1 try/except rolls back
-                        # and records mutation_gate_error; never credit the
-                        # mutant as caught on an infra fluke. SEC-5c: same
-                        # verify_extra_ro/extra_rw widening as every jailed site.
-                        _bfull = f'set -o pipefail; {vcmd}'
-                        if agent_jail.sandbox_enabled(load_config()):
-                            _bproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _bfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw)), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
-                        else:
-                            _bproc = subprocess.run(_bfull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
-                        if _bproc.returncode != 0:
-                            raise RuntimeError(f'mutation_gate baseline-in-copy failed for mutant #{_mi}: the unmutated verification_command exits {_bproc.returncode} inside the mutant copy (a path dropped by the copytree ignore set); the mutant rerun cannot be trusted as a catch')
-                        _applied = True
-                        if _mut.get('stub_target'):
-                            _st = _mut.get('stub_target')
-                            if not _valid_mut_module(_st):
-                                raise ValueError(f'malformed stub_target {_st!r}: not a bare dotted module name')
-                            from harness import test_author
-                            _sf = os.path.join(_mcopy, _st.replace('.', '/') + '.py')
-                            with open(_sf, 'r', encoding='utf-8') as _rf:
-                                _osrc = _rf.read()
-                            with open(_sf, 'w', encoding='utf-8') as _wf:
-                                _wf.write(test_author.stub_for(_osrc))
-                        elif _mut.get('apply'):
-                            # H2A: jail the mutant-apply subprocess when sandboxing
-                            # is enabled (same bwrap argv discipline as verify);
-                            # otherwise the original shell=True call. The pipefail
-                            # wrapper text is byte-identical in both branches.
-                            # SEC-5c: widen extra_ro/extra_rw like every site.
-                            _afull = f"set -o pipefail; {_mut['apply']}"
-                            if agent_jail.sandbox_enabled(load_config()):
-                                _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw)), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
-                            else:
-                                _ap = subprocess.run(_afull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
-                            _applied = (_ap.returncode == 0)
-                        else:
-                            _applied = False
-                        if _applied:
-                            # H2A: jail the mutant verify-rerun subprocess when
-                            # sandboxing is enabled; otherwise the original
-                            # shell=True call. The pipefail wrapper + vcmd text
-                            # stay byte-identical in both branches. SEC-5c: widen
-                            # extra_ro/extra_rw like every jailed site.
-                            _rfull = f'set -o pipefail; {vcmd}'
-                            if agent_jail.sandbox_enabled(load_config()):
-                                _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw)), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
-                            else:
-                                _mproc = subprocess.run(_rfull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
-                            _mvacuous = (_mproc.returncode == 0)
-                        # _applied False (un-appliable mutant) -> _mvacuous stays True -> reject fail-closed
-                    finally:
-                        shutil.rmtree(_mtmp, ignore_errors=True)
-                    if _mvacuous:
-                        logger.warning('mutation_gate_failed: task=%s mutant #%d did not break verification (vacuous test) -- staging rolled back', task_id, _mi)
-                        _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'mutation_gate_failed')
-                        git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
-                        try:
-                            write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'mutation_gate_failed', 'commit_sha': result.get('sha'), 'files': files_touched, 'mutant_index': _mi})
-                        except OSError as _exc:
-                            logger.warning('mutation_gate_failed: ledger append failed for %s: %s', task_id, _exc)
-                        return False
-                logger.info('mutation_gate: task=%s passed %d mutant(s)', task_id, len(_mut_all))
-            except Exception as _gate_exc:
-                logger.error('mutation_gate_error: task=%s unexpected exception in mutation gate -- staging rolled back fail-closed: %s', task_id, _gate_exc)
-                _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'mutation_gate_error')
+                        write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'verification_sandbox_error', 'commit_sha': result.get('sha'), 'files': [target_rel], 'reason': str(fnf)})
+                    except OSError as exc:
+                        logger.warning('verification_sandbox_error: ledger append failed for %s: %s', task_id, exc)
+                    return False
+                raise
+
+            if verify_exit != 0:
+                cmd_preview = vcmd if len(vcmd) <= 200 else vcmd[:200] + '...(truncated)'
+                logger.warning('verification_failed: task=%s exit=%s timeout=%s cmd=%s', task_id, verify_exit, timed_out, cmd_preview)
+
+                # Discard staging worktree after rollback
+                _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'verification_failed')
                 git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
+
+                stdout_tail = verify_stdout[-2000:] if verify_stdout else ''
+                stderr_tail = verify_stderr[-2000:] if verify_stderr else ''
                 try:
-                    write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'mutation_gate_error', 'commit_sha': result.get('sha'), 'files': files_touched, 'reason': str(_gate_exc)})
-                except OSError as _exc:
-                    logger.warning('mutation_gate_error: ledger append failed for %s: %s', task_id, _exc)
+                    write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'verification_failed', 'exit': verify_exit, 'stdout_tail': stdout_tail, 'stderr_tail': stderr_tail, 'commit_sha': result.get('sha'), 'files': [target_rel], 'timed_out': timed_out})
+                except OSError as exc:
+                    logger.warning('verification_failed: ledger append failed for %s: %s', task_id, exc)
                 return False
 
-        try:
-            write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'accepted', 'task_id': task_id, 'event': 'auto_commit', 'commit_sha': result.get('sha'), 'files': files_touched, 'exit': 0})
-        except OSError as exc:
-            logger.warning('auto-commit: ledger append failed for %s: %s', task_id, exc)
+            # Verification succeeded!
+            logger.info('auto-commit: SUCCESS in staging for %s -> %s (sha=%s)', task_id, target_rel, result.get('sha'))
 
-        # 6. Merge staging changes back to parent and remove worktree
-        try:
-            git_integration.merge_staging_to_parent(staging_path, worktree_root)
-            logger.info("Merged staging commit back to parent repository.")
-        except Exception as merge_err:
-            logger.error('Failed to merge staging changes: %s', merge_err)
-            # M-a: the merge failed (fail-closed). Do NOT mark the task
-            # processed -- route it to blocked/ (re-claimable, with the retry
-            # sidecar) instead of orphaning the accept in processed/.
-            _mark_blocked(state_dir, task_id, outcome='merge_failed')
-            return False
+            # PHASE B (G-MUTATION-GATE): non-vacuity / fix-detector gate for
+            # agent-authored tests. Verification PASSED against the correct staged
+            # code above; a genuine detector must ALSO fail against a declared
+            # mutant. Re-run vcmd in a throwaway COPY of staging with each mutant
+            # applied; reject (rollback) if any mutant still passes (a vacuous test).
+            # Engages for meta_task_type 'test_authoring' (which MUST declare a
+            # mutant -> fail-closed) and for any task declaring mutations/
+            # mutation_target; no-op for all other tasks (preserves existing accept).
+            _mut_specs = list(task.get('mutations') or [])
+            _mut_target = task.get('mutation_target')
+            if _mtt == 'test_authoring' or _mut_specs or _mut_target:
+                if not _mut_specs and not _mut_target:
+                    logger.warning('mutation_gate_missing: task=%s declares no mutant -- rejected fail-closed', task_id)
+                    _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'mutation_gate_missing')
+                    git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
+                    try:
+                        write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'mutation_gate_missing', 'commit_sha': result.get('sha'), 'files': files_touched, 'reason': 'test_authoring task must declare mutation_target or mutations[]'})
+                    except OSError as _exc:
+                        logger.warning('mutation_gate_missing: ledger append failed for %s: %s', task_id, _exc)
+                    return False
+                # H1 (MUTATION_GATE_HARDENING): wrap the mutant-application body so
+                # any unexpected exception (copytree ENOSPC/PermissionError, git or
+                # mutant-apply crash, malformed mutation_target) is caught and
+                # rejected fail-closed as ``mutation_gate_error`` -- never re-raised.
+                try:
+                    import re as _re
+                    import tempfile
 
-        # 7. Mark the task processed ONLY after a successful merge. This is the
-        # last durable step before handover, so a doomed merge can no longer
-        # leave an accepted task in processed/ with no corresponding parent
-        # commit (the silent-task-loss class Phase M closes).
-        _mark_processed(state_dir, task_id)
+                    def _valid_mut_module(_v: object) -> bool:
+                        # A bare dotted module name only: reject path-like values
+                        # (slashes), parent-traversal ('..'), explicit '.py'
+                        # extensions, and anything that is not dotted identifiers.
+                        if not isinstance(_v, str) or not _v:
+                            return False
+                        if '/' in _v or '\\' in _v or '..' in _v or _v.endswith('.py'):
+                            return False
+                        return _re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*', _v) is not None
 
-        # 8. Check if running inside test environment
-        if "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ:
-            logger.info("Test environment detected. Skipping os.execv process handover.")
+                    _mut_all = list(_mut_specs)
+                    if _mut_target:
+                        if not _valid_mut_module(_mut_target):
+                            raise ValueError(f'malformed mutation_target {_mut_target!r}: not a bare dotted module name')
+                        _mut_all.append({'stub_target': _mut_target})
+                    for _mi, _mut in enumerate(_mut_all):
+                        _mtmp = tempfile.mkdtemp(prefix='jm_mutgate_')
+                        _mvacuous = True
+                        try:
+                            _mcopy = os.path.join(_mtmp, 'staging')
+                            shutil.copytree(str(staging_path), _mcopy, symlinks=True, ignore=shutil.ignore_patterns('.git', '__pycache__', '*.pyc', 'state', 'samples', '.pytest_cache', '*.egg-info'))
+                            # MUT-MASK (MUTANT_INFRA_VS_ASSERTION): BASELINE-IN-COPY
+                            # guard. Before applying the mutant, re-run the UNMUTATED
+                            # vcmd inside the fresh _mcopy through the SAME jail/shell
+                            # discipline used for the mutant rerun below (same
+                            # pipefail wrapper, cwd=_mcopy, extra_ro, scrubbed env).
+                            # If the unmutated verify does NOT pass in the copy, the
+                            # copytree dropped a path the verification_command needs
+                            # (e.g. samples/ or state/), so a NON-ZERO mutant rerun
+                            # would be an INFRA failure -- NOT a genuine assertion
+                            # catch. Raise so the enclosing H1 try/except rolls back
+                            # and records mutation_gate_error; never credit the
+                            # mutant as caught on an infra fluke. SEC-5c: same
+                            # verify_extra_ro/extra_rw widening as every jailed site.
+                            _bfull = f'set -o pipefail; {vcmd}'
+                            if agent_jail.sandbox_enabled(load_config()):
+                                _bproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _bfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw)), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                            else:
+                                _bproc = subprocess.run(_bfull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
+                            if _bproc.returncode != 0:
+                                raise RuntimeError(f'mutation_gate baseline-in-copy failed for mutant #{_mi}: the unmutated verification_command exits {_bproc.returncode} inside the mutant copy (a path dropped by the copytree ignore set); the mutant rerun cannot be trusted as a catch')
+                            _applied = True
+                            if _mut.get('stub_target'):
+                                _st = _mut.get('stub_target')
+                                if not _valid_mut_module(_st):
+                                    raise ValueError(f'malformed stub_target {_st!r}: not a bare dotted module name')
+                                from harness import test_author
+                                _sf = os.path.join(_mcopy, _st.replace('.', '/') + '.py')
+                                with open(_sf, 'r', encoding='utf-8') as _rf:
+                                    _osrc = _rf.read()
+                                with open(_sf, 'w', encoding='utf-8') as _wf:
+                                    _wf.write(test_author.stub_for(_osrc))
+                            elif _mut.get('apply'):
+                                # H2A: jail the mutant-apply subprocess when sandboxing
+                                # is enabled (same bwrap argv discipline as verify);
+                                # otherwise the original shell=True call. The pipefail
+                                # wrapper text is byte-identical in both branches.
+                                # SEC-5c: widen extra_ro/extra_rw like every site.
+                                _afull = f"set -o pipefail; {_mut['apply']}"
+                                if agent_jail.sandbox_enabled(load_config()):
+                                    _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw)), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                else:
+                                    _ap = subprocess.run(_afull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
+                                _applied = (_ap.returncode == 0)
+                            else:
+                                _applied = False
+                            if _applied:
+                                # H2A: jail the mutant verify-rerun subprocess when
+                                # sandboxing is enabled; otherwise the original
+                                # shell=True call. The pipefail wrapper + vcmd text
+                                # stay byte-identical in both branches. SEC-5c: widen
+                                # extra_ro/extra_rw like every jailed site.
+                                _rfull = f'set -o pipefail; {vcmd}'
+                                if agent_jail.sandbox_enabled(load_config()):
+                                    _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw)), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                else:
+                                    _mproc = subprocess.run(_rfull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
+                                _mvacuous = (_mproc.returncode == 0)
+                            # _applied False (un-appliable mutant) -> _mvacuous stays True -> reject fail-closed
+                        finally:
+                            shutil.rmtree(_mtmp, ignore_errors=True)
+                        if _mvacuous:
+                            logger.warning('mutation_gate_failed: task=%s mutant #%d did not break verification (vacuous test) -- staging rolled back', task_id, _mi)
+                            _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'mutation_gate_failed')
+                            git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
+                            try:
+                                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'mutation_gate_failed', 'commit_sha': result.get('sha'), 'files': files_touched, 'mutant_index': _mi})
+                            except OSError as _exc:
+                                logger.warning('mutation_gate_failed: ledger append failed for %s: %s', task_id, _exc)
+                            return False
+                    logger.info('mutation_gate: task=%s passed %d mutant(s)', task_id, len(_mut_all))
+                except Exception as _gate_exc:
+                    logger.error('mutation_gate_error: task=%s unexpected exception in mutation gate -- staging rolled back fail-closed: %s', task_id, _gate_exc)
+                    _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'mutation_gate_error')
+                    git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
+                    try:
+                        write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'mutation_gate_error', 'commit_sha': result.get('sha'), 'files': files_touched, 'reason': str(_gate_exc)})
+                    except OSError as _exc:
+                        logger.warning('mutation_gate_error: ledger append failed for %s: %s', task_id, _exc)
+                    return False
+
+            try:
+                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'accepted', 'task_id': task_id, 'event': 'auto_commit', 'commit_sha': result.get('sha'), 'files': files_touched, 'exit': 0})
+            except OSError as exc:
+                logger.warning('auto-commit: ledger append failed for %s: %s', task_id, exc)
+
+            # 6. Merge staging changes back to parent and remove worktree
+            try:
+                git_integration.merge_staging_to_parent(staging_path, worktree_root)
+                logger.info("Merged staging commit back to parent repository.")
+            except Exception as merge_err:
+                logger.error('Failed to merge staging changes: %s', merge_err)
+                # M-a: the merge failed (fail-closed). Do NOT mark the task
+                # processed -- route it to blocked/ (re-claimable, with the retry
+                # sidecar) instead of orphaning the accept in processed/.
+                _mark_blocked(state_dir, task_id, outcome='merge_failed')
+                return False
+
+            # 7. Mark the task processed ONLY after a successful merge. This is the
+            # last durable step before handover, so a doomed merge can no longer
+            # leave an accepted task in processed/ with no corresponding parent
+            # commit (the silent-task-loss class Phase M closes).
+            _mark_processed(state_dir, task_id)
+
+            # 8. Check if running inside test environment
+            if "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ:
+                logger.info("Test environment detected. Skipping os.execv process handover.")
+                return True
+
+            # 9. Perform process exec handover
+            perform_process_handover(state_dir)
             return True
 
-        # 9. Perform process exec handover
-        perform_process_handover(state_dir)
-        return True
-
-    # Error handling when not committed
-    err = result.get('error')
-    if err:
-        logger.warning('auto-commit: FAILED %s: %s', task_id, err)
-        if isinstance(err, str) and err.startswith('no_diff:'):
-            try:
-                marker = state_dir / 'output' / f'{task_id}.no_diff'
-                marker.parent.mkdir(parents=True, exist_ok=True)
-                marker.write_text('1', encoding='utf-8')
-            except OSError as exc:
-                logger.warning('no_diff: marker write failed for %s: %s', task_id, exc)
-            try:
-                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'no_diff', 'commit_sha': None, 'files': [target_rel], 'reason': err})
-            except OSError as exc:
-                logger.warning('no_diff: ledger append failed for %s: %s', task_id, exc)
-        else:
-            for _rel in files_touched:
-                if not isinstance(_rel, str):
-                    continue
+        # Error handling when not committed
+        err = result.get('error')
+        if err:
+            logger.warning('auto-commit: FAILED %s: %s', task_id, err)
+            if isinstance(err, str) and err.startswith('no_diff:'):
                 try:
-                    subprocess.run(['git', 'reset', '-q', '--', _rel], cwd=str(staging_path), check=False, timeout=30)
-                except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as rexc:
-                    logger.error('commit_failed scrub: git reset -q -- %s failed for %s: %s; worktree may be in inconsistent state', _rel, task_id, rexc)
+                    marker = state_dir / 'output' / f'{task_id}.no_diff'
+                    marker.parent.mkdir(parents=True, exist_ok=True)
+                    marker.write_text('1', encoding='utf-8')
+                except OSError as exc:
+                    logger.warning('no_diff: marker write failed for %s: %s', task_id, exc)
                 try:
-                    subprocess.run(['git', 'checkout', 'HEAD', '--', _rel], cwd=str(staging_path), check=False, timeout=30)
-                except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as cexc:
-                    logger.error('commit_failed scrub: git checkout HEAD -- %s failed for %s: %s; worktree may be in inconsistent state', _rel, task_id, cexc)
-        # Staging directory cleanup on error (no reset needed on parent repository as it was untouched)
-        git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
-    return False
+                    write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'no_diff', 'commit_sha': None, 'files': [target_rel], 'reason': err})
+                except OSError as exc:
+                    logger.warning('no_diff: ledger append failed for %s: %s', task_id, exc)
+            else:
+                for _rel in files_touched:
+                    if not isinstance(_rel, str):
+                        continue
+                    try:
+                        subprocess.run(['git', 'reset', '-q', '--', _rel], cwd=str(staging_path), check=False, timeout=30)
+                    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as rexc:
+                        logger.error('commit_failed scrub: git reset -q -- %s failed for %s: %s; worktree may be in inconsistent state', _rel, task_id, rexc)
+                    try:
+                        subprocess.run(['git', 'checkout', 'HEAD', '--', _rel], cwd=str(staging_path), check=False, timeout=30)
+                    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as cexc:
+                        logger.error('commit_failed scrub: git checkout HEAD -- %s failed for %s: %s; worktree may be in inconsistent state', _rel, task_id, cexc)
+            # Staging directory cleanup on error (no reset needed on parent repository as it was untouched)
+            git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
+        return False
+    finally:
+        try:
+            git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
+        except Exception as _cleanup_exc:
+            logger.error('ROLLB-D staging cleanup failed for %s: %s', task_id, _cleanup_exc)
 
 def _promote_fuzz_failures_to_tests(task: dict, failures: list, state_dir: Path) -> None:
     """B3 (AUTO_PROMOTE_FUZZ_FAILURES): ADDITIVE, FAIL-SAFE spec sharpener.
