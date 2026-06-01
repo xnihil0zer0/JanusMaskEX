@@ -1516,15 +1516,18 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     are each wrapped via ``agent_jail.build_jail_argv`` into a bubblewrap argv
     list and executed WITHOUT ``shell=True`` (the inner ``/bin/bash -c`` carries
     the ``set -o pipefail; ...`` wrapper). Each jailed call passes
-    ``extra_ro=[sys.base_prefix]`` so the real interpreter tree (miniconda),
-    which the staging ``.venv/bin/python`` symlinks into and which lives outside
-    ``repo_root`` + every ``_SYSTEM_RO`` dir, is mounted into the jail -- without
-    it the jailed verify exits 127 (``python: command not found``) and the
-    phase-B mutation-gate battery regresses. The vcmd interpreter token stays
-    byte-identical (bare ``python -m pytest ...``); the jail resolves it from
-    the bound base_prefix bin still on PATH (``_vcmd_scrubbed_env`` preserves
-    PATH). When sandboxing is disabled, all three runs fall back to the
-    ORIGINAL ``shell=True`` / ``executable='/bin/bash'`` behavior byte-for-byte.
+    ``extra_ro=[sys.base_prefix, sys.prefix]`` so the real interpreter tree
+    (miniconda) AND the active environment prefix -- which the staging
+    ``.venv/bin/python`` symlinks into and which may live outside ``repo_root``
+    + every ``_SYSTEM_RO`` dir -- are mounted into the jail. Without
+    ``sys.base_prefix`` the jailed verify exits 127 (``python: command not
+    found``); adding ``sys.prefix`` (SEC-2) keeps the verify resolvable even
+    when the venv lives outside the repository root (base_prefix == prefix is a
+    harmless duplicate). The vcmd interpreter token stays byte-identical (bare
+    ``python -m pytest ...``); the jail resolves it from the bound prefix bin
+    still on PATH (``_vcmd_scrubbed_env`` preserves PATH). When sandboxing is
+    disabled, all three runs fall back to the ORIGINAL ``shell=True`` /
+    ``executable='/bin/bash'`` behavior byte-for-byte.
 
     ROLLBACK_WORKTREE_CHECKOUT: both ``git reset --hard HEAD~1`` rollback
     sites (verification_missing and verification_failed) are followed by a
@@ -1720,11 +1723,11 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
             # sandboxing is enabled, route the bash invocation through the
             # bubblewrap jail (no shell=True -- the bwrap argv is already a
             # list whose inner /bin/bash -c carries the pipefail wrapper);
-            # extra_ro=[sys.base_prefix] keeps the real python + pytest
-            # resolvable. Otherwise fall back to the original shell=True call.
+            # extra_ro=[sys.base_prefix, sys.prefix] keeps the real python +
+            # pytest resolvable even when the venv lives outside repo_root.
             _vfull = f'set -o pipefail; {vcmd}'
             if agent_jail.sandbox_enabled(load_config()):
-                vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix]), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix]), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
             else:
                 vproc = subprocess.run(_vfull, shell=True, cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
             verify_exit = vproc.returncode
@@ -1831,7 +1834,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                             # wrapper text is byte-identical in both branches.
                             _afull = f"set -o pipefail; {_mut['apply']}"
                             if agent_jail.sandbox_enabled(load_config()):
-                                _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix]), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix]), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
                             else:
                                 _ap = subprocess.run(_afull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                             _applied = (_ap.returncode == 0)
@@ -1844,7 +1847,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                             # stay byte-identical in both branches.
                             _rfull = f'set -o pipefail; {vcmd}'
                             if agent_jail.sandbox_enabled(load_config()):
-                                _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix]), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix]), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
                             else:
                                 _mproc = subprocess.run(_rfull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                             _mvacuous = (_mproc.returncode == 0)
