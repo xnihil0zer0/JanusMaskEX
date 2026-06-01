@@ -192,6 +192,16 @@ def build_jail_argv(
     # bias text. ro-overlay each (mirroring the memory overlay; later binds win). The
     # rest of ~/.claude / ~/.gemini stays writable (the CLIs write session/todo/oauth
     # state). Missing paths are skipped. (plan rev4 CH2-3 / R-CH2-3 -- Phase-A precond)
+    #
+    # H-JAIL_B: a missing sensitive overlay path is STILL a hole -- without an explicit
+    # bind it lives inside the writable ~/.claude / ~/.gemini parent, so a jailed agent
+    # could CREATE it (e.g. write a fresh settings.json hooks block) and steer the
+    # operator's next session. ro-bind /dev/null over each ABSENT target whose parent
+    # is a real host directory: bwrap creates the mountpoint as a /dev/null-backed file
+    # that denies creating the path, replacing it (EBUSY on unlink), and -- for the
+    # dir-shaped targets -- creating any child inside it (ENOENT). One uniform
+    # --ro-bind /dev/null handles both file- and dir-shaped absent targets. If the
+    # parent dir is absent on the host, skip entirely (a bind would fail bwrap boot).
     for _ro in (
         os.path.join(home, ".claude", "settings.json"),
         os.path.join(home, ".claude", "settings.local.json"),
@@ -202,6 +212,8 @@ def build_jail_argv(
     ):
         if os.path.exists(_ro):
             argv += ["--ro-bind", _ro, _ro]
+        elif os.path.isdir(os.path.dirname(_ro)):
+            argv += ["--ro-bind", "/dev/null", _ro]
     # XDG_RUNTIME_DIR (/run/user/<uid>): the D-Bus session bus + keyring socket live
     # here. agy (gemini CLI) validates/refreshes its OAuth credential through the
     # session keyring; without this bind it loops on "authentication timed out" even
