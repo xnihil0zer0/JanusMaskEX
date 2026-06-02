@@ -2272,7 +2272,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
 
             # 6. Merge staging changes back to parent and remove worktree
             try:
-                git_integration.merge_staging_to_parent(staging_path, worktree_root)
+                git_integration.merge_staging_to_parent(staging_path, worktree_root, working_dir=working_dir)
                 logger.info("Merged staging commit back to parent repository.")
             except Exception as merge_err:
                 logger.error('Failed to merge staging changes: %s', merge_err)

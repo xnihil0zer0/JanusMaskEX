@@ -1445,8 +1445,22 @@ def remove_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
         shutil.rmtree(staging_path_obj, ignore_errors=True)
         logger.info(f'Deleted staging directory at {staging_path}')
 
-def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Path | None = None) -> None:
-    """Merges the HEAD commit from staging_path back to the parent repository."""
+def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Path | None = None, *, working_dir: str | None = None) -> None:
+    """Merges the HEAD commit from staging_path back to the parent repository.
+
+    MERGE_REROOT: for EXTERNAL tasks (``not _target_is_self(working_dir)``) the
+    local stash / fast-forward merge / reset / stash-pop dance on the parent's
+    CHECKED-OUT branch is replaced with a pure ref-update --
+    ``git push . <staging HEAD SHA>:refs/heads/janusmask/work`` (no ``--force``)
+    run in ``parent_root`` -- so the user's active branch / working tree is
+    NEVER touched. The captured staging HEAD SHA is pushed explicitly rather
+    than the literal ``HEAD:refs/heads/janusmask/work`` because the push runs in
+    ``parent_root``, where ``HEAD`` resolves to the parent's branch (not
+    staging's). The staging worktree is always removed via
+    ``remove_staging_worktree`` (finally) on this path. For SELF tasks
+    (``working_dir`` is None or ``_target_is_self(working_dir)`` is True) the
+    body is byte-identical to the original stash/merge/reset/pop logic.
+    """
     import logging
     import time
     logger = logging.getLogger(__name__)
@@ -1475,6 +1489,28 @@ def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Pat
             parent_root = pathlib.Path(__file__).resolve().parent.parent
 
     logger.info(f"Merging staging commit {staging_sha} into parent repo at {parent_root}")
+
+    # MERGE_REROOT: classify the target. For EXTERNAL tasks bypass the local
+    # stash / fast-forward merge / reset / stash-pop sequence entirely and do a
+    # pure ref-update on the parent repo. _target_is_self is imported lazily
+    # in-body (no new module-level import); working_dir None / self -> True.
+    from harness.paths import _target_is_self
+    if not _target_is_self(working_dir):
+        # EXTERNAL: pure ref-update onto the parent repo. Equivalent to
+        # `git push . HEAD:refs/heads/janusmask/work` from staging, but the
+        # captured staging HEAD SHA is pushed explicitly (no --force) because
+        # this runs in parent_root, where HEAD resolves to the parent's branch,
+        # not staging's. No checkout / working-tree merge / stash occurs, so the
+        # user's active branch and working tree are never modified.
+        try:
+            subprocess.run(['git', 'push', '.', f'{staging_sha}:refs/heads/janusmask/work'], cwd=str(parent_root), check=True, capture_output=True, text=True)
+            logger.info(f"Ref-update push of {staging_sha} to refs/heads/janusmask/work successful (external task).")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Ref-update push failed: {e.stderr}")
+            raise RuntimeError(f"Ref-update push failed: {e.stderr}")
+        finally:
+            remove_staging_worktree(str(staging_path), parent_root=parent_root)
+        return
 
     stashed = False
     try:
