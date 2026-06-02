@@ -1915,7 +1915,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
         with open(lock_path, 'a') as lock_fd:
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
             try:
-                result = git_integration.commit_accepted_output(task_id, target_abs, state_dir, worktree_root=staging_path, allowed_files=set(files_touched), meta_task_type=_mtt, approval_ok=_approval_ok)
+                result = git_integration.commit_accepted_output(task_id, target_abs, state_dir, worktree_root=staging_path, allowed_files=set(files_touched), meta_task_type=_mtt, approval_ok=_approval_ok, working_dir=working_dir)
             finally:
                 fcntl.flock(lock_fd, fcntl.LOCK_UN)
 

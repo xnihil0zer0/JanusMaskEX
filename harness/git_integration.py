@@ -566,7 +566,7 @@ def _is_tracked(file_path: str, cwd: str) -> bool:
     except Exception:
         return False
 
-def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Path, worktree_root: pathlib.Path | None=None, *, allowed_files=None, meta_task_type=None, approval_ok: bool=False) -> dict:
+def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Path, worktree_root: pathlib.Path | None=None, *, allowed_files=None, meta_task_type=None, approval_ok: bool=False, working_dir: str | None = None) -> dict:
     """Copy validated output to target, then commit it scoped to target_file.
 
     Args:
@@ -594,6 +594,14 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
     absent; otherwise falls through to the legacy singular path,
     byte-identical to pre-G19a-2.
     """
+    # COMMIT_REROOT (REV23 §3-3/§3-6/§2a/b): lazy in-body import of the self/
+    # external classifier + the re-rooting helper. For EXTERNAL targets
+    # (not _target_is_self(working_dir)) parent_root / the write-containment
+    # escape guard re-root onto effective_target_root(working_dir), untracked
+    # auto-detection is skipped, and the JM sensitive globs are bypassed. SELF
+    # targets (absent/None working_dir -> _target_is_self True) stay byte-identical.
+    from harness.paths import _target_is_self, effective_target_root
+    _is_self = _target_is_self(working_dir)
     result = {'committed': False, 'sha': None, 'error': None, 'target': target_file}
     try:
         if worktree_root is None:
@@ -601,13 +609,20 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
             worktree_root = pathlib.Path(output.stdout.strip())
         else:
             worktree_root = pathlib.Path(worktree_root)
-        parent_output = _run_streamed_command(['git', 'rev-parse', '--show-toplevel'], cwd=str(state_dir), timeout=30, check=True)
-        parent_root = pathlib.Path(parent_output.stdout.strip()).resolve()
+        if _is_self:
+            parent_output = _run_streamed_command(['git', 'rev-parse', '--show-toplevel'], cwd=str(state_dir), timeout=30, check=True)
+            parent_root = pathlib.Path(parent_output.stdout.strip()).resolve()
+        else:
+            parent_root = effective_target_root(working_dir).resolve()
         # Remedy A/B (PHASE_M2_GAPFILL): initialize untracked_files BEFORE the try
         # block so a porcelain-scan exception cannot leave it unbound (NameError) at
         # the multi dispatch below.
+        # COMMIT_REROOT (§2a/b): for EXTERNAL targets, skip untracked auto-detect
+        # entirely so an agent-generated untracked test inside the staging worktree
+        # is never auto-committed into a foreign repo; untracked_files stays [].
         untracked_files = []
-        try:
+        if _is_self:
+          try:
             untracked_output = _run_streamed_command(['git', 'status', '--porcelain', 'tests/'], cwd=str(worktree_root), timeout=30, check=True)
             import fnmatch
             for line in untracked_output.stdout.splitlines():
@@ -643,32 +658,53 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
                         manifest[filepath] = file_in_worktree.read_text(encoding='utf-8')
                 sidecar_path.parent.mkdir(parents=True, exist_ok=True)
                 sidecar_path.write_text(json.dumps(manifest, indent=2), encoding='utf-8')
-        except Exception as e:
+          except Exception as e:
             logging.getLogger(__name__).warning('Failed to auto-detect and commit untracked test files: %s', e)
         sidecar_path = state_dir / 'output' / f'{task_id}.files.json'
         if sidecar_path.exists():
             effective_allowed = allowed_files
             if allowed_files is not None and untracked_files:
                 effective_allowed = set(allowed_files) | set(untracked_files)
-            return _commit_accepted_output_multi(task_id, sidecar_path, state_dir, worktree_root, result, allowed_files=effective_allowed, meta_task_type=meta_task_type, approval_ok=approval_ok)
+            return _commit_accepted_output_multi(task_id, sidecar_path, state_dir, worktree_root, result, allowed_files=effective_allowed, meta_task_type=meta_task_type, approval_ok=approval_ok, working_dir=working_dir)
         patches_sidecar = state_dir / 'output' / f'{task_id}.patches.json'
         if patches_sidecar.exists():
-            return _commit_accepted_output_patches(task_id, patches_sidecar, state_dir, worktree_root, result, allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok)
+            return _commit_accepted_output_patches(task_id, patches_sidecar, state_dir, worktree_root, result, allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, working_dir=working_dir)
         target_path = pathlib.Path(target_file).resolve()
+        # COMMIT_REROOT (§3-6): capture the ORIGINAL resolved target before the
+        # parent->staging remap so the EXTERNAL containment CHECK can verify the
+        # agent's declared target lies strictly within effective_target_root
+        # (rejecting ../symlink escape, resolve() both sides). SELF keeps the
+        # post-remap relative_to(worktree_root) guard byte-identical.
+        _orig_target_path = target_path
         if worktree_root is not None:
-            parent_output = _run_streamed_command(['git', 'rev-parse', '--show-toplevel'], cwd=str(state_dir), timeout=30, check=True)
-            parent_root = pathlib.Path(parent_output.stdout.strip()).resolve()
+            if _is_self:
+                parent_output = _run_streamed_command(['git', 'rev-parse', '--show-toplevel'], cwd=str(state_dir), timeout=30, check=True)
+                parent_root = pathlib.Path(parent_output.stdout.strip()).resolve()
+            else:
+                parent_root = effective_target_root(working_dir).resolve()
             try:
                 rel = target_path.relative_to(parent_root)
                 target_path = (worktree_root / rel).resolve()
             except ValueError:
                 pass
-        try:
-            target_path.relative_to(worktree_root)
-        except ValueError:
-            result['error'] = 'target escapes worktree'
-            return result
-        scope_err = _enforce_apply_scope([str(target_path.relative_to(worktree_root))], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok)
+        # COMMIT_REROOT (§3-6): the write-containment escape CHECK re-points at
+        # effective_target_root(working_dir) for EXTERNAL targets (validated
+        # against the ORIGINAL declared target); SELF keeps relative_to(worktree_root)
+        # byte-identical. The rel-string fed to git add/commit below STAYS
+        # relative_to(worktree_root) (the staging path).
+        if _is_self:
+            try:
+                target_path.relative_to(worktree_root)
+            except ValueError:
+                result['error'] = 'target escapes worktree'
+                return result
+        else:
+            try:
+                _orig_target_path.relative_to(effective_target_root(working_dir).resolve())
+            except ValueError:
+                result['error'] = 'target escapes worktree'
+                return result
+        scope_err = _enforce_apply_scope([str(target_path.relative_to(worktree_root))], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, sensitive_globs=_SENSITIVE_APPLY_GLOBS if _is_self else ())
         if scope_err:
             logging.getLogger(__name__).error('commit_accepted_output: %s rejected: %s', task_id, scope_err)
             result['error'] = scope_err
@@ -812,7 +848,7 @@ def _apply_file_to_target(out_code: str, target_path: pathlib.Path, task_id: str
     else:
         target_path.write_text(out_code, encoding='utf-8')
 
-def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, state_dir: pathlib.Path, worktree_root: pathlib.Path, result: dict, *, allowed_files=None, meta_task_type=None, approval_ok: bool=False) -> dict:
+def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, state_dir: pathlib.Path, worktree_root: pathlib.Path, result: dict, *, allowed_files=None, meta_task_type=None, approval_ok: bool=False, working_dir: str | None = None) -> dict:
     """Multi-file commit driven by a state/output/<task_id>.files.json sidecar.
 
     Reads the sidecar (JSON dict mapping rel-path -> source-code string),
@@ -822,6 +858,12 @@ def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, stat
     commit_accepted_output. All failure modes return committed=False with
     a descriptive error string and never invoke git commit.
     """
+    # COMMIT_REROOT (§3-6): lazy in-body import of the self/external classifier +
+    # re-rooting helper. For EXTERNAL targets the JM sensitive globs are bypassed
+    # (empty set) and the write-containment escape CHECK validates against
+    # effective_target_root(working_dir); SELF stays byte-identical.
+    from harness.paths import _target_is_self, effective_target_root
+    _is_self = _target_is_self(working_dir)
     try:
         manifest_text = sidecar_path.read_text(encoding='utf-8')
         manifest = json.loads(manifest_text)
@@ -848,15 +890,30 @@ def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, stat
             result['error'] = f'sidecar entry has non-string key/value: {rel!r}'
             return result
         target_path = (worktree_root / rel).resolve()
+        # COMMIT_REROOT (§3-6): the manifest rels are worktree(staging)-relative, so
+        # containment within worktree_root is the meaningful escape guard for both
+        # self and external (worktree_root IS the staging copy of the external repo,
+        # itself under external_staging_root). For external we additionally accept
+        # effective_target_root(working_dir) as an allowed root (union); self stays
+        # byte-identical (relative_to(worktree_root) only).
+        _contained = True
         try:
             target_path.relative_to(worktree_root)
         except ValueError:
+            _contained = False
+            if not _is_self:
+                try:
+                    target_path.relative_to(effective_target_root(working_dir).resolve())
+                    _contained = True
+                except ValueError:
+                    _contained = False
+        if not _contained:
             result['committed'] = False
             result['sha'] = None
             result['error'] = f'target escapes worktree: {rel}'
             return result
         rel_str = str(target_path.relative_to(worktree_root))
-        scope_err = _enforce_apply_scope([rel_str], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok)
+        scope_err = _enforce_apply_scope([rel_str], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, sensitive_globs=_SENSITIVE_APPLY_GLOBS if _is_self else ())
         if scope_err:
             logging.getLogger(__name__).error('_commit_accepted_output_multi: %s rejected: %s', task_id, scope_err)
             result['committed'] = False
@@ -1117,7 +1174,7 @@ def _apply_region_patch(source: str, sentinel: str, new_region: str) -> str:
         new_text += '\n'
     return ''.join(before) + new_text + ''.join(after)
 
-def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, worktree_root, result, *, allowed_files=None, meta_task_type=None, approval_ok=False):
+def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, worktree_root, result, *, allowed_files=None, meta_task_type=None, approval_ok=False, working_dir: str | None = None):
     """Partial-edit commit driven by a ``state/output/<task_id>.patches.json`` sidecar.
 
     Modeled on ``_commit_accepted_output_multi``: loads the JSON list of
@@ -1138,6 +1195,12 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
     read/write are converted to ``committed=False`` with a descriptive error;
     git commit is never invoked on failure.
     """
+    # COMMIT_REROOT (§3-6): lazy in-body import of the self/external classifier +
+    # re-rooting helper. For EXTERNAL targets the JM sensitive globs are bypassed
+    # (empty set) and the write-containment escape CHECK additionally accepts
+    # effective_target_root(working_dir); SELF stays byte-identical.
+    from harness.paths import _target_is_self, effective_target_root
+    _is_self = _target_is_self(working_dir)
     try:
         sidecar_text = patches_sidecar_path.read_text(encoding='utf-8')
         entries = json.loads(sidecar_text)
@@ -1178,15 +1241,29 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
     validated: list[tuple[str, str, pathlib.Path]] = []
     for rel in order:
         target_path = (worktree_root / rel).resolve()
+        # COMMIT_REROOT (§3-6): patch rels are worktree(staging)-relative, so
+        # containment within worktree_root is the meaningful escape guard for both
+        # self and external. For external we additionally accept
+        # effective_target_root(working_dir) as an allowed root (union); self stays
+        # byte-identical (relative_to(worktree_root) only).
+        _contained = True
         try:
             target_path.relative_to(worktree_root)
         except ValueError:
+            _contained = False
+            if not _is_self:
+                try:
+                    target_path.relative_to(effective_target_root(working_dir).resolve())
+                    _contained = True
+                except ValueError:
+                    _contained = False
+        if not _contained:
             result['committed'] = False
             result['sha'] = None
             result['error'] = f'target escapes worktree: {rel}'
             return result
         rel_str = str(target_path.relative_to(worktree_root))
-        scope_err = _enforce_apply_scope([rel_str], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok)
+        scope_err = _enforce_apply_scope([rel_str], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, sensitive_globs=_SENSITIVE_APPLY_GLOBS if _is_self else ())
         if scope_err:
             logging.getLogger(__name__).error('_commit_accepted_output_patches: %s rejected: %s', task_id, scope_err)
             result['committed'] = False
