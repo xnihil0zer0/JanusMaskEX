@@ -1714,6 +1714,15 @@ def run_daemon(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -
     global _daemon_start_time
     _daemon_start_time = time.time()
     _emit_telemetry(state_dir, '', 'daemon_start', f'cap={cap} poll={poll} heartbeat={heartbeat}')
+    # PHASE_ABSTRACT_SOCKET_WARN: detect-and-warn ONLY. The jail does not unshare
+    # net/ipc on synthesis spawn, so a non-cooperative jailed process could dial
+    # the host abstract-namespace session bus directly. If the host
+    # DBUS_SESSION_BUS_ADDRESS points to an abstract socket (unix:abstract=...),
+    # emit a WARNING telemetry row. A path socket (unix:path=...) or a
+    # missing/empty value is a NO-OP. This never raises, blocks, or exits.
+    _dbus_addr = os.environ.get('DBUS_SESSION_BUS_ADDRESS', '')
+    if 'unix:abstract=' in _dbus_addr:
+        _emit_telemetry(state_dir, '', 'abstract_bus_residual_warning', f'host DBUS_SESSION_BUS_ADDRESS points to an abstract-namespace socket ({_dbus_addr}); the jail does not unshare net/ipc on synthesis spawn so a non-cooperative jailed process could dial the host session bus directly')
     try:
         _resume_or_kill_orphaned_workers(state_dir, config)
     except Exception as exc:
@@ -1839,6 +1848,16 @@ def main(argv: list[str] | None=None) -> int:
     if args.once:
         _install_sigterm_handler()
         _emit_telemetry(state_dir, '', 'daemon_start', f'cap={cap} mode=once')
+        # PHASE_ABSTRACT_SOCKET_WARN (--once parity): detect-and-warn ONLY, identical
+        # to run_daemon. The jail does not unshare net/ipc on synthesis spawn, so a
+        # non-cooperative jailed process could dial the host abstract-namespace
+        # session bus directly. If the host DBUS_SESSION_BUS_ADDRESS points to an
+        # abstract socket (unix:abstract=...), emit a WARNING telemetry row. A path
+        # socket (unix:path=...) or a missing/empty value is a NO-OP. This never
+        # raises, blocks, or exits.
+        _dbus_addr = os.environ.get('DBUS_SESSION_BUS_ADDRESS', '')
+        if 'unix:abstract=' in _dbus_addr:
+            _emit_telemetry(state_dir, '', 'abstract_bus_residual_warning', f'host DBUS_SESSION_BUS_ADDRESS points to an abstract-namespace socket ({_dbus_addr}); the jail does not unshare net/ipc on synthesis spawn so a non-cooperative jailed process could dial the host session bus directly')
         # SEC-1c-DAEMON (--once parity): mirror run_daemon's startup block so the
         # supervised single-iteration path also opens ONE daemon-lifetime filtered
         # D-Bus proxy (only when the sandbox is enabled) and stashes its socket in
