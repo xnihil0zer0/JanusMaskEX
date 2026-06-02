@@ -1776,6 +1776,18 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     verify_extra_ro = _sandbox_cfg.get('verify_extra_ro', [])
     verify_extra_rw = _sandbox_cfg.get('verify_extra_rw', [])
 
+    # FLAG2_ORCH (REV22 §3 / CR-6): read the LLM-supplied working_dir and
+    # classify the target. For self-builds working_dir is absent -> None ->
+    # _target_is_self(None) == True, so the fail-closed external gate below is
+    # INERT and the historical unjailed shell=True fallback is preserved
+    # byte-for-byte. For an EXTERNAL target (working_dir outside the JM tree)
+    # the four sandbox-OFF branches REFUSE to spawn rather than run
+    # attacker-controlled verification_command unjailed on the host with full
+    # creds+network and a host-env copy via _vcmd_scrubbed_env() [CR-11].
+    # _target_is_self is imported lazily in-body (no new module-level import).
+    from harness.paths import _target_is_self
+    working_dir = task.get('working_dir')
+
     files_touched = _resolve_files_touched(state_dir, task, task_id)
     if not files_touched:
         logger.info('auto-commit: skipped %s (no files_touched resolved)', task_id)
@@ -1961,6 +1973,8 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                     finally:
                         _dbus_stack.close()
                 else:
+                    if not _target_is_self(working_dir):
+                        raise RuntimeError('FLAG2_ORCH (REV22 §3): refusing to run the verification_command UNJAILED via shell=True on the host because agent_sandbox is disabled and the target is EXTERNAL (working_dir=%r is outside the JanusMask tree). An external verify/baseline/mutant spawn MUST run inside the bubblewrap jail; enable agent_sandbox.bwrap or origin the task against self.' % (working_dir,))
                     vproc = subprocess.run(_vfull, shell=True, cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                 verify_exit = vproc.returncode
                 verify_stdout = vproc.stdout or ''
@@ -2100,6 +2114,8 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                 finally:
                                     _dbus_stack.close()
                             else:
+                                if not _target_is_self(working_dir):
+                                    raise RuntimeError('FLAG2_ORCH (REV22 §3): refusing to run the verification_command UNJAILED via shell=True on the host because agent_sandbox is disabled and the target is EXTERNAL (working_dir=%r is outside the JanusMask tree). An external verify/baseline/mutant spawn MUST run inside the bubblewrap jail; enable agent_sandbox.bwrap or origin the task against self.' % (working_dir,))
                                 _bproc = subprocess.run(_bfull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                             if _bproc.returncode != 0:
                                 raise RuntimeError(f'mutation_gate baseline-in-copy failed for mutant #{_mi}: the unmutated verification_command exits {_bproc.returncode} inside the mutant copy (a path dropped by the copytree ignore set); the mutant rerun cannot be trusted as a catch')
@@ -2139,6 +2155,8 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                     finally:
                                         _dbus_stack.close()
                                 else:
+                                    if not _target_is_self(working_dir):
+                                        raise RuntimeError('FLAG2_ORCH (REV22 §3): refusing to run the verification_command UNJAILED via shell=True on the host because agent_sandbox is disabled and the target is EXTERNAL (working_dir=%r is outside the JanusMask tree). An external verify/baseline/mutant spawn MUST run inside the bubblewrap jail; enable agent_sandbox.bwrap or origin the task against self.' % (working_dir,))
                                     _ap = subprocess.run(_afull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                                 _applied = (_ap.returncode == 0)
                             else:
@@ -2168,6 +2186,8 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                     finally:
                                         _dbus_stack.close()
                                 else:
+                                    if not _target_is_self(working_dir):
+                                        raise RuntimeError('FLAG2_ORCH (REV22 §3): refusing to run the verification_command UNJAILED via shell=True on the host because agent_sandbox is disabled and the target is EXTERNAL (working_dir=%r is outside the JanusMask tree). An external verify/baseline/mutant spawn MUST run inside the bubblewrap jail; enable agent_sandbox.bwrap or origin the task against self.' % (working_dir,))
                                     _mproc = subprocess.run(_rfull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                                 _mvacuous = (_mproc.returncode == 0)
                             # _applied False (un-appliable mutant) -> _mvacuous stays True -> reject fail-closed
