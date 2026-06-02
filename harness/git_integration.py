@@ -603,9 +603,12 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
             worktree_root = pathlib.Path(worktree_root)
         parent_output = _run_streamed_command(['git', 'rev-parse', '--show-toplevel'], cwd=str(state_dir), timeout=30, check=True)
         parent_root = pathlib.Path(parent_output.stdout.strip()).resolve()
+        # Remedy A/B (PHASE_M2_GAPFILL): initialize untracked_files BEFORE the try
+        # block so a porcelain-scan exception cannot leave it unbound (NameError) at
+        # the multi dispatch below.
+        untracked_files = []
         try:
-            untracked_output = _run_streamed_command(['git', 'status', '--porcelain', 'tests/'], cwd=str(parent_root), timeout=30, check=True)
-            untracked_files = []
+            untracked_output = _run_streamed_command(['git', 'status', '--porcelain', 'tests/'], cwd=str(worktree_root), timeout=30, check=True)
             import fnmatch
             for line in untracked_output.stdout.splitlines():
                 line = line.strip()
@@ -635,16 +638,19 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
                     if output_file.exists():
                         manifest[str(rel_target)] = output_file.read_text(encoding='utf-8')
                 for filepath in untracked_files:
-                    file_in_parent = parent_root / filepath
-                    if file_in_parent.exists():
-                        manifest[filepath] = file_in_parent.read_text(encoding='utf-8')
+                    file_in_worktree = worktree_root / filepath
+                    if file_in_worktree.exists():
+                        manifest[filepath] = file_in_worktree.read_text(encoding='utf-8')
                 sidecar_path.parent.mkdir(parents=True, exist_ok=True)
                 sidecar_path.write_text(json.dumps(manifest, indent=2), encoding='utf-8')
         except Exception as e:
             logging.getLogger(__name__).warning('Failed to auto-detect and commit untracked test files: %s', e)
         sidecar_path = state_dir / 'output' / f'{task_id}.files.json'
         if sidecar_path.exists():
-            return _commit_accepted_output_multi(task_id, sidecar_path, state_dir, worktree_root, result, allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok)
+            effective_allowed = allowed_files
+            if allowed_files is not None and untracked_files:
+                effective_allowed = set(allowed_files) | set(untracked_files)
+            return _commit_accepted_output_multi(task_id, sidecar_path, state_dir, worktree_root, result, allowed_files=effective_allowed, meta_task_type=meta_task_type, approval_ok=approval_ok)
         patches_sidecar = state_dir / 'output' / f'{task_id}.patches.json'
         if patches_sidecar.exists():
             return _commit_accepted_output_patches(task_id, patches_sidecar, state_dir, worktree_root, result, allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok)
