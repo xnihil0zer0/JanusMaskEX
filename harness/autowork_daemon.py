@@ -1731,6 +1731,15 @@ def run_daemon(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -
     _dbus_addr = os.environ.get('DBUS_SESSION_BUS_ADDRESS', '')
     if 'unix:abstract=' in _dbus_addr:
         _emit_telemetry(state_dir, '', 'abstract_bus_residual_warning', f'host DBUS_SESSION_BUS_ADDRESS points to an abstract-namespace socket ({_dbus_addr}); the jail does not unshare net/ipc on synthesis spawn so a non-cooperative jailed process could dial the host session bus directly')
+    # BINARY_ABSENT_REFUSE (REV22 §2b / CR-8): when the host session bus is ACTIVE
+    # but xdg-dbus-proxy is ABSENT, the jail degrades to dbus_proxy_socket=None and
+    # mounts the REAL host session bus unjailed (agent_jail.py:287 region) -- a
+    # systemd1/D-Bus escape that survives even when sandbox_enabled() is True. With
+    # full_stop gone, refuse to run unattended in that configuration. Escape hatch:
+    # set JANUSMASK_ALLOW_HOSTBUS=1 to opt into the unjailed host bus explicitly.
+    import shutil as _bar_shutil
+    if os.environ.get('DBUS_SESSION_BUS_ADDRESS', '') and _bar_shutil.which('xdg-dbus-proxy') is None and (not os.environ.get('JANUSMASK_ALLOW_HOSTBUS')):
+        raise RuntimeError('refusing unattended daemon start: host D-Bus session bus is active but xdg-dbus-proxy is absent; the jail would mount the real host session bus unjailed (systemd1/D-Bus escape). Install xdg-dbus-proxy or set JANUSMASK_ALLOW_HOSTBUS=1 to override.')
     try:
         _resume_or_kill_orphaned_workers(state_dir, config)
     except Exception as exc:
@@ -1866,6 +1875,15 @@ def main(argv: list[str] | None=None) -> int:
         _dbus_addr = os.environ.get('DBUS_SESSION_BUS_ADDRESS', '')
         if 'unix:abstract=' in _dbus_addr:
             _emit_telemetry(state_dir, '', 'abstract_bus_residual_warning', f'host DBUS_SESSION_BUS_ADDRESS points to an abstract-namespace socket ({_dbus_addr}); the jail does not unshare net/ipc on synthesis spawn so a non-cooperative jailed process could dial the host session bus directly')
+        # BINARY_ABSENT_REFUSE (REV22 §2b / CR-8, --once parity): identical to
+        # run_daemon. When the host session bus is ACTIVE but xdg-dbus-proxy is
+        # ABSENT, the jail degrades to dbus_proxy_socket=None and mounts the REAL
+        # host session bus unjailed -- a systemd1/D-Bus escape that survives even
+        # when sandbox_enabled() is True. Refuse to run unattended unless the
+        # operator opts in via JANUSMASK_ALLOW_HOSTBUS=1.
+        import shutil as _bar_shutil
+        if os.environ.get('DBUS_SESSION_BUS_ADDRESS', '') and _bar_shutil.which('xdg-dbus-proxy') is None and (not os.environ.get('JANUSMASK_ALLOW_HOSTBUS')):
+            raise RuntimeError('refusing unattended daemon start: host D-Bus session bus is active but xdg-dbus-proxy is absent; the jail would mount the real host session bus unjailed (systemd1/D-Bus escape). Install xdg-dbus-proxy or set JANUSMASK_ALLOW_HOSTBUS=1 to override.')
         # SEC-1c-DAEMON (--once parity): mirror run_daemon's startup block so the
         # supervised single-iteration path also opens ONE daemon-lifetime filtered
         # D-Bus proxy (only when the sandbox is enabled) and stashes its socket in
