@@ -15,7 +15,8 @@
 > the cited anchors were re-checked at HEAD `cf3811f` (accurate this round). **This plan will be adversarially
 > re-reviewed by Claude agents next session; trust the forward verdicts only after that re-verification.**
 >
-> **Read this first (state):** code-HEAD = `cf3811f` = `origin/master`. The 7 REV18 §3 landings + their RED-first
+> **Read this first (state):** last CODE commit = `cf3811f` (= code-state of `origin/master`); repo HEAD = `9ab8bac`
+> (the REV19 plan-doc commit, non-code — `cf3811f` is its parent, tree byte-identical for all code anchors). The 7 REV18 §3 landings + their RED-first
 > oracle commits are in history `4f6406e..cf3811f`. Hard invariants re-verified intact (§4): `synthesis_success =
 > True` ×1 each in orchestrator.py / orchestrator_worker.py; `skip_interface_fuzz` ×1 each (taxonomies / orchestrator
 > / worker, `test_authoring` only); `_SENSITIVE_APPLY_GLOBS == ('harness/**','config/**','scripts/**')`;
@@ -103,7 +104,7 @@ rejected) make new-helper additions pipeline-viable. Always include EVERY test t
    - Pair **KEYRING-UNFILTERED** here (mock/throwaway keyring backend vs `--talk=secrets`; do not blindly block).
 
 2. **SEC-ENV — host-env leak (MED; PIPELINE, agy-auth-risky, smoke-gated).** `_build_agent_env`
-   (`orchestrator.py:260`, `{**os.environ, …}`) copies the FULL operator env (GITHUB_TOKEN/cloud creds) into the
+   (def `orchestrator.py:220`; the `{**os.environ, …}` leak is body line `:260`) copies the FULL operator env (GITHUB_TOKEN/cloud creds) into the
    jailed agent. Replace with an allowlist (`PATH,HOME,LANG,TERM,SHELL,USER,LOGNAME` + the agent's own auth vars +
    `JANUSMASK_*`); also scrub the self-heal spawns (`_escalate_to_autobrief`/`_escalate_inactivity` env build, and
    `_contain_selfheal`). Mostly single-symbol (PIPELINE-VIABLE). **MUST re-run agy+claude auth smoke after; REVERT if
@@ -127,34 +128,68 @@ rejected) make new-helper additions pipeline-viable. Always include EVERY test t
 > agy R4 verdict: **CONCERNS — sound in intent, but NOT zero-plumbing.** Owner design decisions remain (G2). All
 > PIPELINE-FIRST; the multi-seam plumbing is largely partial-edits + a stamp, viable via pipeline.
 
-**The 5 plumbing seams [agy R4; anchors re-verified @ HEAD]** — `working_dir` does NOT flow as data today:
-1. `harness/planner/brief_loader.py:66/160` — stop DROPPING `working_dir` frontmatter (add to an optional-fields allowlist).
-2. `PlanningBrief` struct + `harness/planner/blind_draft.py:128` serialization — carry `working_dir`.
-3. **STAMP (trust fork):** a planner/`stage_task` (`harness/planner/staging.py:16`) stamp writes the BRIEF's
-   `working_dir` onto each task JSON, **fed from the brief by the daemon at `autowork_daemon.py:1093` — NEVER read from
-   the jailed-agent-authored `plan_draft.json`** (`blind_draft.py:135` spawns the planning agents; the gate-selecting
-   field MUST come from the operator brief, stamped by trusted code; discard any `working_dir` in the LLM plan draft).
-4. `stage_task` verbatim copy then carries it into `state/tasks/<id>.json`.
+**The 5 plumbing seams [Claude-reviewed @ HEAD `9ab8bac`; anchors corrected]** — `working_dir` (distinct from
+`work_dir`) appears 0× in `harness/` today; every seam is GREENFIELD (net-new code, not a re-point):
+1. `harness/planner/brief_loader.py` — the DROP is the `if norm_k in REQUIRED_SECTIONS` frontmatter filter at **`:160`**
+   (`:66` is the `REQUIRED_SECTIONS` set definition); add `working_dir` to an optional-fields allowlist there.
+2. `PlanningBrief` struct + the explicit `json.dump({...})` serialization whitelist at **`harness/planner/blind_draft.py:122`**
+   (NOT `:128`, which is the env-mode `for agent in [...]` loop) — carry `working_dir` on the struct, **but keep it OUT of
+   this `brief.json` dict / the agent-facing prompt** (this serialization feeds the untrusted planning agent — the trust fork forbids round-tripping `working_dir` through it).
+3. **STAMP (trust fork) — NET-NEW DAEMON CODE, not a re-point:** the brief's `working_dir` must be stamped onto each
+   task JSON by trusted code. **The cited daemon anchor was WRONG: at `autowork_daemon.py:1103` (the `stage_task(plan_path, tid, …)`
+   call; `:1093` is `unstaged = rec.get(...)`) the brief is NOT in scope** — the staging loop only has `rec` from
+   `compute_brief_status` (which carries `slug`/task-id lists, NOT `working_dir`) and `plan_path` (the LLM-derived plan JSON).
+   Implementing the fork requires: (a) NEW code to load `working_dir` from the operator brief (`brief_hooks_<slug>.md` frontmatter)
+   inside the staging loop, (b) a NEW `stage_task` signature param to receive it, (c) the stamp write. **CRITICAL strip step (currently MISSING):**
+   `stage_task` writes the task `json.dumps(task)` VERBATIM and `reconciliation.py:73/75` builds it via `copy.deepcopy(item.claude_task/gemini_task)`,
+   so an LLM-injected `working_dir` would SURVIVE untouched — trusted code MUST explicitly STRIP any `working_dir` present in the
+   LLM-authored task before stamping the brief value. `plan_validator.py` has no extra-field allowlist to do this today. (`blind_draft.py:146` `run_both_agents` spawns the planning agents.)
+4. `stage_task` then carries the stamped value into `state/tasks/<id>.json`.
 5. The submit hook (`harness/hooks/_decide_common.py:86`) + worker/binds read `task.working_dir`.
 
-**Re-key T2–T5 onto `task.working_dir`** (the `_target_is_self()` 3-clause fail-safe predicate from REV18 is RETAINED;
-only the SOURCE changes — the staging-sibling bug cannot arise): T2 = §1b decision from `task.working_dir`; T3 =
-re-point jail `repo_root` (the 10 spawn sites — same set as SEC-1's; coordinate) + `embedded_test_runner` to the
-target; T4 = `agent_workroot()` writer + the 4 readers (`autowork_daemon.py:542-543`, `planner/blind_draft.py:32`,
-`scripts/impl_outbox_watcher.py:209`) follow the target (`JANUSMASK_PROJECT_DIR`/`PYTHONPATH` STAY self); T5 = no-op
-the daemon self-build machinery (`_auto_promote` WHOLE body, `_maybe_push_and_rebase_pin`) when `not
-_target_is_self(working_dir)`; daemon `repo_root=cwd()` stays self.
+**Re-key T2–T5 onto `task.working_dir`.** **PREREQUISITE: the `_target_is_self()` 3-clause fail-safe predicate does
+NOT EXIST yet** (grep-confirmed: only the unrelated, module-NAME-based, UNWIRED `oracle_attach.py:30
+_target_is_self_modification` exists; the closest path code is the 2-clause raise-guard at `paths.py:62`). It must be
+**authored as NEW code** (REV18 §3B design; extend `paths.py:62` to 3 clauses: `==PROJECT_ROOT` OR `PROJECT_ROOT in
+root.parents` OR `root in PROJECT_ROOT.parents`; `.resolve()` first; fail-safe True on any error) and gates ALL of T2–T5.
+- T2 = §1b decision from `task.working_dir`.
+- **T3 is NOT a uniform "re-point the 10 sites":** the 4 verify spawns (`orchestrator.py:1846/1971/1995/2009`) already
+  source `repo_root` from a self-derived **staging worktree** (`git rev-parse --show-toplevel` of `state_dir.parent`),
+  so re-pointing them to an external target requires the staging/worktree machinery itself rooted at the target — not a
+  constant swap. The 2 synth sites (`orchestrator.py:347` via `spawn_agent`, `autowork_daemon.py:604` via
+  `_contain_selfheal`) have NO `task`/`working_dir` in scope → require signature plumbing. Add `embedded_test_runner` to
+  the target. (SEC-1's proxy-wrap is an ORTHOGONAL axis at the same lines — see §2/G3 coordination note.)
+- T4 = `agent_workroot()` writer + the **3 external readers** (`autowork_daemon.py:542-543`, `planner/blind_draft.py:32-33`,
+  `scripts/impl_outbox_watcher.py:209/220`; the 4th `agent_workroot()` use is the internal `paths.py:75` composition) follow
+  the target (`JANUSMASK_PROJECT_DIR`/`PYTHONPATH` STAY self). NOTE: `agent_workroot()` is hard-anchored on `PROJECT_ROOT`
+  today — making it follow the target needs a new per-spawn override mechanism; specify it.
+- **T5 = no-op ONLY `_maybe_push_and_rebase_pin`** (`autowork_daemon.py:1479`, called `:1627` — the origin-push + drift-pin
+  rebase, the genuinely self-only machinery) when `not _target_is_self(working_dir)`. **Do NOT no-op `_auto_promote`'s whole
+  body** — `_auto_promote` (`:1042`) is the GENERIC per-iteration staging engine (runs `_retry_blocked_tasks` `:1075` +
+  the `stage_task` extract loop `:1086-1113`, incl. the seam-3 stamp); no-oping it for external targets would DISABLE
+  external-task staging — the opposite of the goal. Gate only its self-specific sub-steps. Daemon `repo_root=cwd()` stays self.
 
 **Owner design decisions + dependency-bearing-target work (orthogonal to §3B-D):**
 - **G2 (owner) — AST-rule stay-self/relax-external split.** Decide which rules stay strict for all targets
   (`credential_leak` arguably) vs relax for external (`nondeterminism`, `os_system`, `eval`, bare-except). **[agy R4]
-  recommend a `config.yaml` toggle** keyed on `_target_is_self`. Thread IDENTICALLY across submit `validate`
-  (`_decide_common.py`), interceptor (`interceptors.py`), and commit enforcer (`ast_enforcer.py`) to preserve the
-  submit⊆commit PARITY invariant. (DROP `oracle_attach.py:30` — unwired on production dispatch.)
+  recommend a `config.yaml` toggle** keyed on `_target_is_self`. **CRITICAL: the relax must thread across TWO INDEPENDENT
+  AST ENGINES, not three call-sites of one engine.** The submit `validate` (`_decide_common.py:105` → `rpc/submit_code.py`)
+  AND the commit enforcer both call `harness/ast_enforcer.py::validate_code` (relax via a new param mirroring the existing
+  `allow_nondeterminism`). **But the production interceptor (`harness/interceptors.py:15/53`) uses a SEPARATE engine —
+  `services/neurosymbolic/ast_verifier.py::ASTVerifier` — with its own rule/severity table** (this is exactly why PARITY-3
+  was landed in `ast_verifier.py` separately). Relaxing only `ast_enforcer.py` leaves the interceptor strict → breaks the
+  submit⊆commit / interceptor⊆gate PARITY (F2) invariant. The toggle MUST be wired into BOTH engines. (DROP `oracle_attach.py:30`
+  `_target_is_self_modification` — confirmed unwired on production dispatch, and its `harness/`-prefix self-test is inconsistent
+  with the path-based `_target_is_self()`; do not confuse the two.)
 - **G3 — target-`.venv` binding (one atomic deliverable with B3).** All execute-target stages must bind the target
   interpreter, NOT JM's: the 4 verify spawns (`orchestrator.py:1846/1971/1995/2009`, `extra_ro=[sys.base_prefix,
   sys.prefix]`), the embedded runner, the differential-fuzzer sandbox (`sandbox.py:1358/1543/1666` `sys.executable`),
   and the oracle/mutation gate (`test_author.py:70`). Add `<working_dir>/.venv` prefix/bin to `extra_ro` + jailed PATH.
+  **COORDINATION (the 4 verify lines are triple-edited):** `orchestrator.py:1846/1971/1995/2009` each carry BOTH
+  `build_jail_argv(...)` (SEC-1's proxy-wrap target) AND `extra_ro=[sys.base_prefix,sys.prefix]` (this G3 edit) AND are
+  T3's repo_root re-point — all three changes hit the same physical lines and MUST be landed as one coordinated edit per
+  line to avoid double-touching and re-tripping the WHOLE-FILE / symbol-drift guards (§4). Also: `<working_dir>/.venv`
+  must be injected in CODE (derived from `task.working_dir`), NOT via `config.yaml verify_extra_ro` (which §4 pins empty).
 - **Bootstrap (REV18 §3B-B):** new `harness/target_bootstrap.py` (git init / .gitignore / initial commit / `.venv` +
   target deps / staging worktree) + a one-time `bootstrap_target()` at daemon startup (gate-bearing hand-edit). Key
   idempotency on a recorded marker (not "files present"). Refuse/warn on a dirty external target tree.
@@ -182,8 +217,14 @@ Phase A. **§3B-D itself is owner-proposed; to be re-confirmed in next session's
 - Never add `*_fix`/any `<task>_fix` to the allowlist. `full_stop` stays present until owner-gated Phase A. §1b
   (`_apply_approval_granted`) is the autonomous-commit boundary; agents tree-isolated ONLY via the bwrap jail.
 - External-target safety boundary (§3B): any self-build-gate bypass derives from the RESOLVED target via
-  `_target_is_self()` (3-clause: `== PROJECT_ROOT` OR `PROJECT_ROOT in root.parents` OR `root in PROJECT_ROOT.parents`),
-  fail-safe to "self" on any ambiguity. `JANUSMASK_PROJECT_DIR`/`PYTHONPATH` + `${PROJECT_ROOT}` config tokens STAY self.
+  `_target_is_self()` — a **predicate that must be BUILT (does not exist yet; disambiguate from the unrelated unwired
+  `oracle_attach.py:30 _target_is_self_modification`)** (3-clause: `== PROJECT_ROOT` OR `PROJECT_ROOT in root.parents` OR
+  `root in PROJECT_ROOT.parents`), fail-safe to "self" on any ambiguity. **The `working_dir` INPUT must be hardened:** the
+  brief-supplied value MUST be `.resolve()`-normalized and REJECTED if relative / containing `..` / resolving inside
+  `agent_workroot()`/`state/`; and any `working_dir` present in the LLM-authored plan task MUST be STRIPPED before the
+  trusted brief stamp (verbatim `deepcopy`/`stage_task` copy preserve it otherwise — see §3 seam 3). Ship `_target_is_self()`
+  unit tests for the symlink/parent-chain edge cases BEFORE wiring any G2 relax. `JANUSMASK_PROJECT_DIR`/`PYTHONPATH` +
+  `${PROJECT_ROOT}` config tokens STAY self.
 
 ---
 
@@ -197,7 +238,7 @@ Phase A. **§3B-D itself is owner-proposed; to be re-confirmed in next session's
   `_spawn_worker` `:827` (`start_new_session=True` `:836`); `_resume_or_kill_orphaned_workers` `:1528` (NEW, startup
   sweep); `run_daemon` (startup call to the sweep); `_escalate_inactivity` `:1777` (pidfile `:1822`); `full_stop`
   checks `:1238/:1517`; daemon `repo_root = Path.cwd()` (`run-autowork.sh:33` pins JM repo) — §3B T5.
-- `harness/orchestrator.py`: `_build_agent_env` `:260` (`{**os.environ}` — SEC-ENV); jail synth bind
+- `harness/orchestrator.py`: `_build_agent_env` def `:220` (the `{**os.environ}` leak is body line `:260` — SEC-ENV); jail synth bind
   `repo_root=PROJECT_DIR` `:347`; verify spawns `:1846/1971/1995/2009` (`extra_ro=[sys.base_prefix,sys.prefix]` — G3);
   `_auto_commit_accepted` `:1473` (now try/finally crash-safe); `run_pipeline` `:2167` (now per-iteration crash-safe);
   `synthesis_success = True` ×1.
@@ -207,6 +248,8 @@ Phase A. **§3B-D itself is owner-proposed; to be re-confirmed in next session's
 - SEC-1 `build_jail_argv` execution CALL SITES (10, wrap in dbus_proxy ctx mgr — same set as §3B T3): `orchestrator.py:347`,
   `autowork_daemon.py:604`, `orchestrator.py:1846/1971/1995/2009`, `embedded_test_runner.py:159/204`,
   `sandbox_smoke.py:122`, `narrow_fuzz/validation.py:257`. Existing test to realign: `tests/adversarial/test_h_jail_c_xdg_isolation.py:72`.
-- §3B-D plumbing: `brief_loader.py:66/160`, `PlanningBrief`+`blind_draft.py:128`, `staging.py:16` (+ daemon feed
-  `autowork_daemon.py:1093`), `_decide_common.py:86`; `_target_is_self()` predicate (REV18 §3B, paths.py — extends GAP_H3 `:62`).
+- §3B-D plumbing: `brief_loader.py:160` (drop filter; `:66` = `REQUIRED_SECTIONS` def), `PlanningBrief`+`blind_draft.py:122`
+  (serialization whitelist; `:128` is the `for agent` loop), `staging.py:16` (+ NEW daemon brief-load/stamp at the
+  `stage_task` call `autowork_daemon.py:1103`, NOT `:1093`; +STRIP LLM `working_dir`), `_decide_common.py:86`;
+  `_target_is_self()` predicate — **TO BE BUILT** (REV18 §3B, paths.py — extends GAP_H3 `:62` from 2→3 clauses).
 - `state/control/autowork/full_stop`: **PRESENT** (`halted`).
