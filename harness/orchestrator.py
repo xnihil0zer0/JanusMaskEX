@@ -1130,6 +1130,14 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
     pass ``declared_signature`` only to the matching ``kind == 'symbol'``
     entry; all other entries (including non-symbol region patches, which
     carry no name) receive ``None`` and are never return-type-checked.
+
+    G2_RELAX (REV22 §4-3, CR-1/CR-2/CR-3): external targets (working_dir
+    resolves OUTSIDE the JanusMask tree) relax eval/exec/__import__ at
+    commit-time too -- threaded into all three ``validate_code`` calls
+    (manifest, partial-edit, single-file). Fail-safe to self: absent/None
+    working_dir => ``_target_is_self`` True => ``relax_external`` False, so
+    self/default stays fully strict. Credentials/os_system/bare_except/
+    nondeterminism stay strict for all targets.
     """
     mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
     allow_nondet = task.get('constraints', {}).get('deterministic') is False
@@ -1139,6 +1147,8 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
         elif isinstance(mtt, str) and mtt.startswith('test_'):
             allow_nondet = True
     declared_signature = _load_declared_signature(task)
+    from harness.paths import _target_is_self
+    relax_external = not _target_is_self(task.get('working_dir'))
     manifest = _parse_manifest(code)
     if manifest is not None:
         all_violations: list = []
@@ -1146,7 +1156,7 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
             if not rel.endswith('.py'):
                 logger.info('%s manifest entry %s: skipping AST validation (non-py target)', agent, rel)
                 continue
-            entry_violations = validate_code(src, allow_nondeterminism=allow_nondet, declared_signature=declared_signature)
+            entry_violations = validate_code(src, allow_nondeterminism=allow_nondet, declared_signature=declared_signature, relax_external_constructs=relax_external)
             baseline = _compute_target_baseline_violations(rel, declared_signature)
             filtered = [v for v in entry_violations if (v.rule, v.message) not in baseline]
             suppressed_count = len(entry_violations) - len(filtered)
@@ -1185,7 +1195,7 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
                 blk = entry.get('code', '')
                 entry_name = entry.get('name') if entry.get('kind') == 'symbol' else None
                 blk_sig = declared_signature if (sig_func is not None and entry_name == sig_func) else None
-                pv.extend(validate_code(blk, allow_nondeterminism=allow_nondet, declared_signature=blk_sig))
+                pv.extend(validate_code(blk, allow_nondeterminism=allow_nondet, declared_signature=blk_sig, relax_external_constructs=relax_external))
             errors = [v for v in pv if v.severity == 'error']
             if errors:
                 logger.warning('%s partial-edit submission (%d patches) has %d AST errors: %s', agent, len(patches), len(errors), '; '.join((f'{v.rule}@L{v.line}: {v.message}' for v in errors[:5])))
@@ -1206,7 +1216,7 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
         if not target.endswith('.py'):
             logger.info('%s submission for non-py target %s: skipping AST validation', agent, target)
             return (True, [])
-    violations = validate_code(code, allow_nondeterminism=allow_nondet, declared_signature=declared_signature)
+    violations = validate_code(code, allow_nondeterminism=allow_nondet, declared_signature=declared_signature, relax_external_constructs=relax_external)
     if files_touched:
         baseline = _compute_target_baseline_violations(str(files_touched[0]), declared_signature)
         filtered = [v for v in violations if (v.rule, v.message) not in baseline]

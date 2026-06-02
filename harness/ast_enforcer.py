@@ -184,7 +184,7 @@ class _ValidationVisitor(ast.NodeVisitor):
             if isinstance(stmt, (ast.If, ast.Return)):
                 seen_guard = True
 
-def validate_code(code: str, *, allow_nondeterminism: bool=False, declared_signature: str | None=None) -> list[Violation]:
+def validate_code(code: str, *, allow_nondeterminism: bool=False, declared_signature: str | None=None, relax_external_constructs: bool=False) -> list[Violation]:
     """Validate *code* against all rules. Return list of violations.
 
     Parameters
@@ -199,7 +199,21 @@ def validate_code(code: str, *, allow_nondeterminism: bool=False, declared_signa
         against the impl's ``FunctionDef.returns`` and any mismatch is appended
         to the returned violations as a ``return_type_mismatch`` rule. ``None``
         (default) preserves all pre-W76b call-site semantics.
+    relax_external_constructs:
+        REV22 §4-3 (CR-1/CR-2/CR-3). When True (caller has determined the
+        target resolves OUTSIDE the JanusMask tree via
+        ``not _target_is_self(working_dir)``), suppress ONLY the
+        eval/exec/__import__ security findings emitted by
+        ``_check_dangerous_calls`` (message suffix
+        ``"() is banned for security reasons"``). Hardcoded-credential findings
+        (also rule ``'security'`` but with a distinct message) and every other
+        rule (``os_system``, ``bare_except``, ...) stay STRICT. CR-3:
+        ``allow_nondeterminism`` is coerced to ``False`` FIRST so external code
+        can never relax the reproducibility rule, overriding any meta-task
+        auto-relax. Defaults to ``False`` (fail-safe to self).
     """
+    if relax_external_constructs:
+        allow_nondeterminism = False
     violations: list[Violation] = []
     try:
         tree = ast.parse(code)
@@ -208,6 +222,9 @@ def validate_code(code: str, *, allow_nondeterminism: bool=False, declared_signa
         return violations
     visitor = _ValidationVisitor(allow_nondeterminism=allow_nondeterminism)
     visitor.visit(tree)
+    if relax_external_constructs:
+        _dangerous_suffix = '() is banned for security reasons'
+        visitor.violations = [v for v in visitor.violations if not (v.rule == 'security' and v.message.endswith(_dangerous_suffix))]
     violations.extend(visitor.violations)
     if not visitor._has_funcdef:
 

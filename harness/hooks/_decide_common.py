@@ -102,7 +102,12 @@ def decide_submission(ctx: 'DeciderContext', content: str, events: list[dict[str
             allow_nondet = True
     synthesis_target_type = str(task.get('synthesis_target_type', '') or '')
     task_id = str(task.get('task_id') or '')
-    violations = rpc_submit_code.validate(content, allow_nondeterminism=allow_nondet)
+    # REV22 §4-3 (CR-1): external targets (working_dir resolves OUTSIDE the
+    # JanusMask tree) relax eval/exec/__import__ at submit-time. Fail-safe to
+    # self: absent/None working_dir => _target_is_self True => relax False.
+    from harness.paths import _target_is_self
+    relax_external = not _target_is_self(task.get('working_dir'))
+    violations = rpc_submit_code.validate(content, allow_nondeterminism=allow_nondet, relax_external_constructs=relax_external)
     errors = [v for v in violations if getattr(v, 'severity', '') == 'error']
     if errors:
         payload = rpc_submit_code.rejected_payload(errors, max_show=MAX_VIOLATIONS)

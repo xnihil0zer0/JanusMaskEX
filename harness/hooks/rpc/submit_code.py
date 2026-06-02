@@ -68,15 +68,24 @@ class AstValidationError(Exception):
         return self._format_message()
 
 
-def validate(code: str, *, allow_nondeterminism: bool = False) -> list[Violation]:
+def validate(code: str, *, allow_nondeterminism: bool = False, relax_external_constructs: bool = False) -> list[Violation]:
     """Run the AST gate on the submission. Returns list of Violation; empty
     means clean. Warnings are retained so callers can surface them to the
-    agent without blocking the write."""
-    return validate_code(code, allow_nondeterminism=allow_nondeterminism)
+    agent without blocking the write.
+
+    ``relax_external_constructs`` (REV22 §4-3) is threaded straight through to
+    ``validate_code``: when True (external target), eval/exec/__import__ are
+    allowed while credentials/os_system/bare_except/nondeterminism stay strict.
+    """
+    return validate_code(
+        code,
+        allow_nondeterminism=allow_nondeterminism,
+        relax_external_constructs=relax_external_constructs,
+    )
 
 
 def ensure_valid(
-    code: str, allow_nondeterminism: bool = False
+    code: str, allow_nondeterminism: bool = False, relax_external_constructs: bool = False
 ) -> list[Violation]:
     """Persist-time AST gate. Raises ``AstValidationError`` carrying the
     full violation list when any error-severity violation is found; returns
@@ -87,8 +96,16 @@ def ensure_valid(
     PreToolUse correctly denied a submission but a CLI in bypass-permissions
     mode let the Write reach disk anyway, leaving the orchestrator to
     re-reject the same bytes and burn retries.
+
+    ``relax_external_constructs`` (REV22 §4-3) is threaded through to
+    ``validate_code`` so external targets pass the eval/exec/__import__ relax
+    at persist-time too.
     """
-    violations = validate_code(code, allow_nondeterminism=allow_nondeterminism)
+    violations = validate_code(
+        code,
+        allow_nondeterminism=allow_nondeterminism,
+        relax_external_constructs=relax_external_constructs,
+    )
     if any(getattr(v, "severity", "") == "error" for v in violations):
         raise AstValidationError(violations)
     return violations
