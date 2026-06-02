@@ -36,19 +36,30 @@ def test_external_working_dir_stamped(monkeypatch, tmp_path):
     _run_one_task(monkeypatch, task, tmp_path)
     assert os.environ.get("JANUSMASK_WORKING_DIR") == "/some/external/dir"
 
-def test_self_task_clears_after_external(monkeypatch, tmp_path):
+@pytest.mark.parametrize("bad_wd", [None, "", 0, 123, 1.5, ["x"], {"a": 1}, ()])
+def test_self_task_clears_after_external(monkeypatch, tmp_path, bad_wd):
     monkeypatch.delenv("JANUSMASK_WORKING_DIR", raising=False)
-    
-    # First run external task (sets it)
+
+    # First run an external task: a non-empty string working_dir gets stamped.
     task1 = {"task_id": "EXT", "working_dir": "/some/external/dir"}
     _run_one_task(monkeypatch, task1, tmp_path / "first")
     assert os.environ.get("JANUSMASK_WORKING_DIR") == "/some/external/dir"
-    
-    # Then run self task (no working_dir) -> cleared
-    task2 = {"task_id": "SELF"}
+
+    # Then run a task whose working_dir is NOT a non-empty string (None, empty
+    # string, or a non-str type). The prior task's value must be popped so it
+    # never leaks into the next task.
+    task2 = {"task_id": "SELF", "working_dir": bad_wd}
     _run_one_task(monkeypatch, task2, tmp_path / "second")
     assert os.environ.get("JANUSMASK_WORKING_DIR") is None
 
+def test_missing_working_dir_key_clears(monkeypatch, tmp_path):
+    monkeypatch.delenv('JANUSMASK_WORKING_DIR', raising=False)
+    task1 = {'task_id': 'EXT', 'working_dir': '/some/external/dir'}
+    _run_one_task(monkeypatch, task1, tmp_path / 'first')
+    assert os.environ.get('JANUSMASK_WORKING_DIR') == '/some/external/dir'
+    task2 = {'task_id': 'SELF'}
+    _run_one_task(monkeypatch, task2, tmp_path / 'second')
+    assert os.environ.get('JANUSMASK_WORKING_DIR') is None
 def test_task_id_still_stamped(monkeypatch, tmp_path):
     monkeypatch.delenv("JANUSMASK_WORKING_DIR", raising=False)
     task = {"task_id": "TID", "working_dir": "/x"}

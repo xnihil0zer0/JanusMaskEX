@@ -2499,6 +2499,11 @@ def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
         round_number += 1
         task_id = task.get('task_id', f'round-{round_number}')
         os.environ['JANUSMASK_TASK_ID'] = task_id
+        _wd = task.get('working_dir')
+        if isinstance(_wd, str) and _wd:
+            os.environ['JANUSMASK_WORKING_DIR'] = _wd
+        else:
+            os.environ.pop('JANUSMASK_WORKING_DIR', None)
         try:
             logger.info('=== Round %d | Task %s ===', round_number, task_id)
             synthesis_success = False
