@@ -2551,6 +2551,19 @@ def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
                         _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
                         logger.info('=== Round %d complete (rejected via sandbox smoke) ===\n', round_number)
                         continue
+                    # FLAG2_EMBEDDED_FUZZ (REV23 §C6): refuse to run the embedded-test
+                    # runner UNJAILED on an EXTERNAL target while agent_sandbox is OFF.
+                    # working_dir is read at the call site only and NEVER threaded into
+                    # the runner (the candidate is a JM-synthesized string in a tempdir,
+                    # repo_root stays PROJECT_ROOT). For self-builds working_dir is
+                    # absent -> _target_is_self(None) == True -> gate INERT. Helpers are
+                    # imported lazily in-body (no new module-level import / top symbol),
+                    # mirroring the FLAG2_ORCH idiom.
+                    working_dir = task.get('working_dir')
+                    from harness import agent_jail
+                    from harness.paths import _target_is_self
+                    if not _target_is_self(working_dir) and not agent_jail.sandbox_enabled(config):
+                        raise RuntimeError('FLAG2_EMBEDDED_FUZZ (REV23 §C6): refusing to run embedded tests UNJAILED on an EXTERNAL target while agent_sandbox is disabled (working_dir=%r is outside the JanusMask tree). An external candidate MUST run inside the bubblewrap jail; enable agent_sandbox.bwrap or origin the task against self.' % (working_dir,))
                     embedded_err = run_embedded_tests('_embedded_candidate', claude_code)
                     if embedded_err is not None:
                         logger.error('Embedded tests rejected bypass-eligible %s (mtt=%s): %s', task_id, mtt, embedded_err)
@@ -2560,6 +2573,15 @@ def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
                         _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
                         logger.info('=== Round %d complete (rejected via embedded tests) ===\n', round_number)
                         continue
+                    # FLAG2_EMBEDDED_FUZZ (REV23 §C6): same fail-closed gate for the
+                    # narrow-fuzz runner. On the external + sandbox-OFF path the embedded
+                    # gate above fires first, so neither runner is ever reached; this
+                    # guard keeps the narrow site refusal-complete in its own right.
+                    working_dir = task.get('working_dir')
+                    from harness import agent_jail
+                    from harness.paths import _target_is_self
+                    if not _target_is_self(working_dir) and not agent_jail.sandbox_enabled(config):
+                        raise RuntimeError('FLAG2_EMBEDDED_FUZZ (REV23 §C6): refusing to run narrow-fuzz UNJAILED on an EXTERNAL target while agent_sandbox is disabled (working_dir=%r is outside the JanusMask tree). An external candidate MUST run inside the bubblewrap jail; enable agent_sandbox.bwrap or origin the task against self.' % (working_dir,))
                     narrow_err = run_narrow_fuzz(mtt, '_narrow_fuzz_candidate', claude_code)
                     if narrow_err is not None:
                         logger.error('Narrow-fuzz rejected bypass-eligible %s (mtt=%s): %s', task_id, mtt, narrow_err)
