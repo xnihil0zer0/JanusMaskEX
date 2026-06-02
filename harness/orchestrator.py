@@ -1858,6 +1858,22 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
 
     logger.info('auto-commit: using staging worktree at %s for task %s', staging_path, task_id)
 
+    # EXTERNAL_DIRTY_GATE (REV23 §3-2): before creating the staging worktree,
+    # REFUSE an EXTERNAL task whose target repository root has a dirty working
+    # tree. We never auto-stage/stash a user's repo -- a non-empty
+    # ``git status --porcelain`` means there is uncommitted work that staging
+    # would clobber, so we fail closed before git_integration.create_staging_worktree
+    # is ever called. SELF tasks (_target_is_self(working_dir) True) BYPASS this
+    # check entirely (the SELF branch above stays byte-identical and is not
+    # subject to the dirty gate). worktree_root on the EXTERNAL branch is already
+    # Path(effective_target_root(working_dir)).resolve(); _target_is_self and
+    # subprocess are already imported lazily in-body (no new module-level
+    # symbols / imports). Mirrors the existing FLAG2_ORCH refusal idiom.
+    if not _target_is_self(working_dir):
+        _dirty = subprocess.run(['git', 'status', '--porcelain'], cwd=str(worktree_root), capture_output=True, text=True)
+        if _dirty.returncode == 0 and _dirty.stdout.strip():
+            raise RuntimeError('EXTERNAL_DIRTY_GATE (REV23 §3-2): refusing to stage/commit an EXTERNAL target whose repository has a dirty working tree; JanusMask never auto-stages or stashes a user repo (working_dir=%r is outside the JanusMask tree). Commit or stash the external working tree and retry.' % (working_dir,))
+
     # 2. Create the staging worktree
     try:
         git_integration.create_staging_worktree(str(staging_path), parent_root=worktree_root)
