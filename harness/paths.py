@@ -70,6 +70,49 @@ def agent_workroot() -> Path:
     return PROJECT_ROOT.parent / f"{PROJECT_ROOT.name}_agentwork"
 
 
+def _target_is_self(working_dir: str | os.PathLike | None=None) -> bool:
+    """Classify whether ``working_dir`` refers to the harness/repo itself.
+
+    Returns ``True`` (fail-safe / fail-closed) when ``working_dir`` is
+    absent, when it resolves to the repo, a parent of it, a subdirectory
+    of it (e.g. a symlink to ``harness/``), or anywhere inside ``STATE_DIR``
+    or ``agent_workroot()``. Any error during resolution or comparison also
+    classifies as self so traversal and symlink escapes fail closed.
+    """
+    if not working_dir:
+        return True
+    try:
+        resolved = Path(working_dir).resolve()
+        project_root = PROJECT_ROOT.resolve()
+        if resolved == project_root:
+            return True
+        if resolved in project_root.parents:
+            return True
+        if project_root in resolved.parents:
+            return True
+        state_dir = STATE_DIR.resolve()
+        if resolved == state_dir or state_dir in resolved.parents:
+            return True
+        workroot = agent_workroot().resolve()
+        if resolved == workroot or workroot in resolved.parents:
+            return True
+        return False
+    except (OSError, ValueError, RuntimeError, Exception):
+        return True
+
+def effective_target_root(working_dir: str | os.PathLike | None=None) -> Path:
+    """Normalize ``working_dir`` to an effective target root.
+
+    Returns ``PROJECT_ROOT`` when ``working_dir`` classifies as self,
+    otherwise the resolved external path. Falls back to ``PROJECT_ROOT``
+    on any error.
+    """
+    if _target_is_self(working_dir):
+        return PROJECT_ROOT
+    try:
+        return Path(working_dir).resolve()
+    except (OSError, ValueError, RuntimeError, Exception):
+        return PROJECT_ROOT
 def agent_work_dir(agent: str, session_slug: str) -> Path:
     """Per-spawn isolated workdir: ``<agent_workroot>/<agent>/<session_slug>``."""
     return agent_workroot() / agent / session_slug
