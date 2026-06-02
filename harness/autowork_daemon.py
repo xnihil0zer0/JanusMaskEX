@@ -715,7 +715,12 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
     # allowlist. Promotion is an operator decision (see memory:
     # ex-phantom-task-no-promote — never auto-append <task>_fix).
     prompt = f"The task '{task_id}' has exhausted its retry budget. Investigate and propose a self-healing plan.\nObjective: {objective}\nFiles touched: {files_touched}\n\n--- Traceback/Fuzz Error Logs ---\n{errors_str}\n\nInstructions:\n1. Write your diagnosis and a proposed brief to your OUTBOX at {{OUTBOX_PATH}}/brief_hooks_{task_id}_fix.md. Do NOT write anywhere outside your outbox, and do NOT run git.\n2. Do NOT edit the auto-promote allowlist or any file in the live repository; promotion is an operator decision. If you believe '{task_id}_fix' should be promoted, recommend it in your outbox brief for operator review."
-    env = dict(os.environ)
+    # SEC_ENV_ALLOWLIST: copy ONLY allowlisted host env into the jailed self-heal
+    # agent (IDENTICAL allowlist to orchestrator._build_agent_env), scrubbing
+    # operator secrets (GITHUB_TOKEN, AWS_*, etc). JANUSMASK_* overlays follow.
+    _ENV_ALLOW_EXACT = frozenset(('PATH', 'HOME', 'LANG', 'LANGUAGE', 'LC_ALL', 'TERM', 'SHELL', 'USER', 'LOGNAME', 'TZ', 'TMPDIR', 'PWD', 'DBUS_SESSION_BUS_ADDRESS', 'GOOGLE_GENAI_USE_GCA', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE', 'NODE_EXTRA_CA_CERTS', 'CURL_CA_BUNDLE', 'NO_PROXY', 'no_proxy', 'HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy'))
+    _ENV_ALLOW_PREFIXES = ('JANUSMASK_', 'XDG_', 'NVM_', 'NODE_', 'GEMINI_', 'GOOGLE_', 'ANTHROPIC_', 'CLAUDE_', 'LC_')
+    env = {k: v for k, v in os.environ.items() if k in _ENV_ALLOW_EXACT or any((k.startswith(p) for p in _ENV_ALLOW_PREFIXES))}
     env['JANUSMASK_MODE'] = 'planning'
     env['JANUSMASK_TASK_ID'] = task_id
     env['JANUSMASK_STATE_DIR'] = str(state_dir)
@@ -1900,7 +1905,12 @@ def _escalate_inactivity(state_dir: pathlib.Path, config: dict) -> None:
         args = args + ['--permission-mode', 'acceptEdits']
     # AGENT-ISOLATION §3.8.3: outbox-only diagnosis; no live-repo writes, no git.
     prompt = f'The autowork daemon is stuck with unfinished allowlisted work and no agent activity for 20 minutes.\nSynthetic Task: {task_id}\n\nWrite a self-healing diagnosis identifying why the daemon is stuck to your OUTBOX at {{OUTBOX_PATH}}/diagnosis.md. Do NOT write anywhere outside your outbox, do NOT run git, and do NOT edit the auto-promote allowlist or any file in the live repository — surface recommended fixes in your outbox for operator review.'
-    env = dict(os.environ)
+    # SEC_ENV_ALLOWLIST: copy ONLY allowlisted host env into the jailed self-heal
+    # agent (IDENTICAL allowlist to orchestrator._build_agent_env), scrubbing
+    # operator secrets (GITHUB_TOKEN, AWS_*, etc). JANUSMASK_* overlays follow.
+    _ENV_ALLOW_EXACT = frozenset(('PATH', 'HOME', 'LANG', 'LANGUAGE', 'LC_ALL', 'TERM', 'SHELL', 'USER', 'LOGNAME', 'TZ', 'TMPDIR', 'PWD', 'DBUS_SESSION_BUS_ADDRESS', 'GOOGLE_GENAI_USE_GCA', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE', 'NODE_EXTRA_CA_CERTS', 'CURL_CA_BUNDLE', 'NO_PROXY', 'no_proxy', 'HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy'))
+    _ENV_ALLOW_PREFIXES = ('JANUSMASK_', 'XDG_', 'NVM_', 'NODE_', 'GEMINI_', 'GOOGLE_', 'ANTHROPIC_', 'CLAUDE_', 'LC_')
+    env = {k: v for k, v in os.environ.items() if k in _ENV_ALLOW_EXACT or any((k.startswith(p) for p in _ENV_ALLOW_PREFIXES))}
     env['JANUSMASK_MODE'] = 'planning'
     env['JANUSMASK_TASK_ID'] = task_id
     env['JANUSMASK_STATE_DIR'] = str(state_dir)
