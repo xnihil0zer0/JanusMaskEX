@@ -1440,6 +1440,67 @@ def resume_parallel_workers(state_dir: pathlib.Path) -> None:
     _suspended_pids.clear()
     _suspension_start_times.clear()
 
+def _reclaim_zombie_briefs(repo_root: pathlib.Path, state_dir: pathlib.Path) -> dict:
+    """Quarantine zombie briefs so they are never re-dispatched (slot reclamation).
+
+    A "zombie" brief (per :func:`compute_brief_status`) is one whose tasks were
+    all processed yet none accepted -- left alone it sits forever, holding a
+    daemon slot and risking endless re-dispatch. For each ``state == 'zombie'``
+    record this moves the brief file into ``state/control/autowork/quarantine/``,
+    unlinks the parked ``tasks/processed/<tid>.json`` markers for the record's
+    ``processed_unaccepted`` task ids, and emits a ``zombie_reclaimed`` telemetry
+    row via a LAZY ``write_jsonl_row`` import (no new module-level imports). Every
+    per-record action is wrapped in try/except so one bad record never aborts the
+    sweep -- best-effort, never raises. Returns ``{'reclaimed': n, 'slugs': [...]}``.
+    """
+    repo_root = pathlib.Path(repo_root)
+    state_dir = pathlib.Path(state_dir)
+    reclaimed = 0
+    slugs: list[str] = []
+    try:
+        records = compute_brief_status(repo_root, state_dir)
+    except Exception:
+        return {'reclaimed': 0, 'slugs': []}
+    for rec in records or []:
+        try:
+            if not isinstance(rec, dict):
+                continue
+            if rec.get('state') != 'zombie':
+                continue
+            slug = rec.get('slug') or ''
+            quarantine_dir = state_dir / 'control' / 'autowork' / 'quarantine'
+            quarantine_dir.mkdir(parents=True, exist_ok=True)
+            brief_filename = rec.get('brief_filename')
+            if isinstance(brief_filename, str) and brief_filename:
+                src = repo_root / brief_filename
+                dest = quarantine_dir / pathlib.Path(brief_filename).name
+                try:
+                    if src.exists():
+                        src.replace(dest)
+                except OSError:
+                    try:
+                        import shutil
+                        shutil.move(str(src), str(dest))
+                    except Exception:
+                        pass
+            for tid in rec.get('processed_unaccepted') or []:
+                try:
+                    marker = state_dir / 'tasks' / 'processed' / f'{tid}.json'
+                    if marker.exists():
+                        marker.unlink()
+                except OSError:
+                    pass
+            try:
+                from harness._journal import write_jsonl_row
+                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.time(), 'phase': 'autowork', 'task_id': '', 'event': 'zombie_reclaimed', 'detail': f'quarantined zombie brief {slug}', 'phase_tag': 'zombie_reclaimed', 'slug': slug})
+            except Exception:
+                pass
+            reclaimed += 1
+            if slug:
+                slugs.append(slug)
+        except Exception:
+            continue
+    return {'reclaimed': reclaimed, 'slugs': slugs}
 def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dry_run: bool, config: dict | None=None) -> dict:
     running = _reap_running(state_dir)
     # PARALLEL-WORKER-WATCHDOG: the parallel _spawn_worker branch is fire-and-forget
@@ -1477,6 +1538,10 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
         _reclaim_orphan_processing(state_dir, running)
     except Exception as exc:
         _emit_telemetry(state_dir, '', 'skip', f'reclaim_orphan error: {exc!r}')
+    try:
+        _reclaim_zombie_briefs(repo_root, state_dir)
+    except Exception as exc:
+        _emit_telemetry(state_dir, '', 'skip', f'reclaim_zombie error: {exc!r}')
     promote_summary: dict = {'extracts': 0, 'plan_kickoffs': 0, 'discarded': 0}
     try:
         res = _auto_promote(repo_root, state_dir, config=config or {}, dry_run=dry_run)
