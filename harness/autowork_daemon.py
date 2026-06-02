@@ -605,6 +605,15 @@ def _contain_selfheal(cmd: list, env: dict, work_dir, state_dir, config: dict | 
         # opened once by run_daemon at startup. Read defensively via globals() so a
         # never-started daemon (the unit-test default) sees None and adds no
         # per-escalation proxy Popen.
+        # SEC-1 FAIL-CLOSED: if the daemon's proxy init genuinely FAILED
+        # (_SELFHEAL_DBUS_PROXY_FAILED is True) and the xdg-dbus-proxy binary resolves
+        # on PATH, refuse to spawn rather than thread None and bind the unfiltered host
+        # session bus into the jail (which re-exposes systemd1 StartTransientUnit -- a
+        # sandbox escape). A never-started daemon leaves the flag absent/None, so the
+        # graceful path (thread None) is preserved for backward compatibility.
+        import shutil
+        if globals().get('_SELFHEAL_DBUS_PROXY_FAILED') and shutil.which('xdg-dbus-proxy') is not None:
+            raise RuntimeError('agent_sandbox is enabled and xdg-dbus-proxy is present but the filtered D-Bus proxy failed to start; refusing to spawn an agent on the unfiltered host bus (fail-closed).')
         _dbus_sock = globals().get('_SELFHEAL_DBUS_SOCKET')
         cmd = agent_jail.build_jail_argv(cmd, repo_root=PROJECT_ROOT_STR, work_dir=work_dir_s, state_dir=str(state_dir), dbus_proxy_socket=_dbus_sock)
     return cmd
@@ -1617,12 +1626,15 @@ def run_daemon(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -
     # SEC-1c-DAEMON: open ONE daemon-lifetime filtered D-Bus proxy at startup (only
     # when the sandbox is enabled) and stash its socket in a module global so the
     # single self-heal funnel _contain_selfheal can thread it into every detached
-    # build_jail_argv spawn. FAIL-OPEN: any failure leaves the socket None and the
-    # daemon proceeds to a clean shutdown. The globals are created here at runtime
-    # (no module-level assignment); all imports are lazy in-body.
-    global _SELFHEAL_DBUS_SOCKET, _SELFHEAL_DBUS_STACK
+    # build_jail_argv spawn. SEC-1 FAIL-CLOSED: track whether a genuine proxy spawn
+    # attempt FAILED via the runtime global _SELFHEAL_DBUS_PROXY_FAILED so the
+    # self-heal funnel can refuse to spawn on the unfiltered host bus when the proxy
+    # binary is present but the proxy could not start. The globals are created here
+    # at runtime (no module-level assignment); all imports are lazy in-body.
+    global _SELFHEAL_DBUS_SOCKET, _SELFHEAL_DBUS_STACK, _SELFHEAL_DBUS_PROXY_FAILED
     _SELFHEAL_DBUS_SOCKET = None
     _SELFHEAL_DBUS_STACK = None
+    _SELFHEAL_DBUS_PROXY_FAILED = False
     try:
         from harness import agent_jail as _agent_jail
         if _agent_jail.sandbox_enabled(config):
@@ -1635,6 +1647,7 @@ def run_daemon(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -
             except Exception as exc:
                 _SELFHEAL_DBUS_SOCKET = None
                 _SELFHEAL_DBUS_STACK = None
+                _SELFHEAL_DBUS_PROXY_FAILED = True
                 try:
                     stack.close()
                 except Exception:
@@ -1643,6 +1656,7 @@ def run_daemon(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -
     except Exception as exc:
         _SELFHEAL_DBUS_SOCKET = None
         _SELFHEAL_DBUS_STACK = None
+        _SELFHEAL_DBUS_PROXY_FAILED = True
         _emit_telemetry(state_dir, '', 'skip', f'dbus proxy init error: {exc!r}')
     prev_paused: bool | None = None
     prev_is_idle: bool = False
@@ -1701,6 +1715,7 @@ def run_daemon(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -
             pass
         _SELFHEAL_DBUS_SOCKET = None
         _SELFHEAL_DBUS_STACK = None
+        _SELFHEAL_DBUS_PROXY_FAILED = False
         _emit_telemetry(state_dir, '', 'daemon_stop', 'shutdown')
     return 0
 
