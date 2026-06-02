@@ -51,6 +51,21 @@ from harness.orchestrator import _auto_commit_accepted
 
 _BWRAP = "/usr/bin/bwrap"
 
+import contextlib
+
+
+@contextlib.contextmanager
+def _fake_proxy():
+    """A succeeding filtered-D-Bus-proxy stand-in (REV21 §3(a) fail-close).
+
+    This oracle mocks ``shutil.which`` truthy for every binary, so without this
+    stand-in the now-fail-closed verify/mutant proxy spawn would attempt to
+    start the real xdg-dbus-proxy (and fail on a CI host with no session bus),
+    tripping the refusal. Yielding a fake socket lets the jail-argv assertions
+    run unchanged.
+    """
+    yield "/run/user/1000/janusmask-fake-bus"
+
 
 def _make_task():
     return {
@@ -106,6 +121,7 @@ def _run_auto_commit(tmp_path, *, bwrap_enabled):
          mock.patch("harness.orchestrator.load_config", return_value=cfg), \
          mock.patch("harness.git_integration", git_stub), \
          mock.patch("harness._journal.write_jsonl_row"), \
+         mock.patch("harness.dbus_proxy.proxied_session_bus", new=_fake_proxy), \
          mock.patch("shutil.which", return_value=_BWRAP), \
          mock.patch("shutil.copytree"), \
          mock.patch("shutil.rmtree"), \
