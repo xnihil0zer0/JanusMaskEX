@@ -33,6 +33,7 @@ class PlanningBrief:
     raw_text: str
     source_path: str
     sha256: str
+    working_dir: str | None = None
 
     def to_agent_prompt(self) -> str:
         return f"""Title: {self.title}
@@ -154,10 +155,11 @@ def load_brief(path: Path | str, max_bytes: int = 256 * 1024) -> PlanningBrief:
     fm, body_text = _parse_frontmatter(normalized_text)
     md_sections = _parse_markdown_sections(body_text)
 
+    _optional = {"working_dir"}
     fm_normalized = {}
     for k, v in fm.items():
         norm_k = str(k).lower().replace("-", "_").replace(" ", "_")
-        if norm_k in REQUIRED_SECTIONS:
+        if norm_k in REQUIRED_SECTIONS or norm_k in _optional:
             fm_normalized[norm_k] = str(v)
 
     seen_sections = set(fm_normalized.keys()) | set(md_sections.keys())
@@ -182,6 +184,8 @@ def load_brief(path: Path | str, max_bytes: int = 256 * 1024) -> PlanningBrief:
     if missing or empty:
         raise BriefValidationError("Validation failed", missing=missing, empty=empty)
 
+    working_dir = fm_normalized.get("working_dir")
+
     return PlanningBrief(
         title=data["title"],
         scope=data["scope"],
@@ -190,7 +194,8 @@ def load_brief(path: Path | str, max_bytes: int = 256 * 1024) -> PlanningBrief:
         deliverables=data["deliverables"],
         raw_text=normalized_text,
         source_path=str(path),
-        sha256=sha256
+        sha256=sha256,
+        working_dir=working_dir
     )
 
 
