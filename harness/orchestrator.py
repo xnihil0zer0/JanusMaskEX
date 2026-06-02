@@ -1647,6 +1647,24 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     re-raised so the historical (no-handler) behavior of the unjailed
     shell=True branch is preserved byte-for-byte.
 
+    SEC-1 (FAILCLOSED_VERIFY_ORCHACC): each of the four sandboxed
+    ``subprocess.run`` sites (verify, baseline-in-copy, mutant-apply, mutant
+    rerun) now narrows its try/except to the ``proxied_session_bus()`` CONTEXT
+    ENTRY ONLY, captures the socket, and runs ``subprocess.run`` OUTSIDE that
+    try (so an unrelated subprocess.run exception -- FileNotFoundError /
+    TimeoutExpired -- is NOT swallowed by the proxy-entry handler and reaches
+    the correct verification-stage handling). If the proxy context entry
+    raises while ``agent_jail.sandbox_enabled(load_config())`` is True AND
+    ``shutil.which('xdg-dbus-proxy')`` resolves a binary on PATH, the runner
+    FAILS CLOSED: it raises ``RuntimeError`` (message contains 'fail-closed')
+    and refuses to spawn the verify/mutant child on the unfiltered host session
+    bus (which would re-expose systemd1 StartTransientUnit -- a sandbox
+    escape). When ``xdg-dbus-proxy`` is simply NOT installed
+    (``shutil.which`` returns None), the prior graceful degrade to
+    ``dbus_proxy_socket=None`` is preserved. The proxy ExitStack is reaped in a
+    ``finally`` around the synchronous ``subprocess.run`` so the filtered bus
+    is torn down on every exit path.
+
     SEC-5c (VERIFY_EXTRA_BINDS): on top of the SEC-2 prefix binds, every jailed
     ``build_jail_argv`` call now widens ``extra_ro`` with the config-driven
     ``agent_sandbox.verify_extra_ro`` allowlist and gains an ``extra_rw`` from
@@ -1724,14 +1742,16 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     commit, verify, mutation-gate copy, rollback, merge, cleanup) operates on
     the same task-scoped ``staging_path``.
 
-    Never raises. Returns True only if a new commit was produced and the
-    required verification command exited zero.
+    Never raises (except the SEC-1 fail-closed RuntimeError above). Returns
+    True only if a new commit was produced and the required verification
+    command exited zero.
     """
     from harness import agent_jail
     from harness.dbus_proxy import proxied_session_bus
     from harness import git_integration
     from harness._journal import write_jsonl_row
     from harness.orchestrator import _resolve_files_touched, _resolve_verification_command, _vcmd_scrubbed_env, logger
+    import contextlib
     import fcntl
     import shutil
     import subprocess
@@ -1913,13 +1933,24 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                 # SEC-5c: widen extra_ro with verify_extra_ro and add extra_rw.
                 _vfull = f'set -o pipefail; {vcmd}'
                 if agent_jail.sandbox_enabled(load_config()):
+                    # SEC-1 (FAILCLOSED_VERIFY_ORCHACC): narrow the try to the
+                    # proxied_session_bus() CONTEXT ENTRY ONLY; capture the socket
+                    # and run subprocess.run OUTSIDE the try. If the proxy fails to
+                    # start while xdg-dbus-proxy IS present on PATH, fail closed
+                    # (RuntimeError) rather than spawn on the unfiltered host bus;
+                    # if the binary is absent, degrade to dbus_proxy_socket=None.
+                    _dbus_stack = contextlib.ExitStack()
                     try:
-                        with proxied_session_bus() as _sock:
-                            vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
-                    except subprocess.TimeoutExpired:
-                        raise
+                        _sock = _dbus_stack.enter_context(proxied_session_bus())
                     except Exception:
-                        vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=None), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                        if shutil.which('xdg-dbus-proxy') is not None:
+                            _dbus_stack.close()
+                            raise RuntimeError('agent_sandbox is enabled and xdg-dbus-proxy is present but the filtered D-Bus proxy failed to start; refusing to spawn an agent on the unfiltered host bus (fail-closed).')
+                        _sock = None
+                    try:
+                        vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                    finally:
+                        _dbus_stack.close()
                 else:
                     vproc = subprocess.run(_vfull, shell=True, cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                 verify_exit = vproc.returncode
@@ -2044,13 +2075,21 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                             # verify_extra_ro/extra_rw widening as every jailed site.
                             _bfull = f'set -o pipefail; {vcmd}'
                             if agent_jail.sandbox_enabled(load_config()):
+                                # SEC-1 (FAILCLOSED_VERIFY_ORCHACC): proxy context
+                                # entry in the try; subprocess.run outside; fail
+                                # closed if xdg-dbus-proxy present but proxy fails.
+                                _dbus_stack = contextlib.ExitStack()
                                 try:
-                                    with proxied_session_bus() as _sock:
-                                        _bproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _bfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
-                                except subprocess.TimeoutExpired:
-                                    raise
+                                    _sock = _dbus_stack.enter_context(proxied_session_bus())
                                 except Exception:
-                                    _bproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _bfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=None), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                    if shutil.which('xdg-dbus-proxy') is not None:
+                                        _dbus_stack.close()
+                                        raise RuntimeError('agent_sandbox is enabled and xdg-dbus-proxy is present but the filtered D-Bus proxy failed to start; refusing to spawn an agent on the unfiltered host bus (fail-closed).')
+                                    _sock = None
+                                try:
+                                    _bproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _bfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                finally:
+                                    _dbus_stack.close()
                             else:
                                 _bproc = subprocess.run(_bfull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                             if _bproc.returncode != 0:
@@ -2074,13 +2113,22 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                 # SEC-5c: widen extra_ro/extra_rw like every site.
                                 _afull = f"set -o pipefail; {_mut['apply']}"
                                 if agent_jail.sandbox_enabled(load_config()):
+                                    # SEC-1 (FAILCLOSED_VERIFY_ORCHACC): proxy
+                                    # context entry in the try; subprocess.run
+                                    # outside; fail closed if xdg-dbus-proxy present
+                                    # but the proxy fails to start.
+                                    _dbus_stack = contextlib.ExitStack()
                                     try:
-                                        with proxied_session_bus() as _sock:
-                                            _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
-                                    except subprocess.TimeoutExpired:
-                                        raise
+                                        _sock = _dbus_stack.enter_context(proxied_session_bus())
                                     except Exception:
-                                        _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=None), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                        if shutil.which('xdg-dbus-proxy') is not None:
+                                            _dbus_stack.close()
+                                            raise RuntimeError('agent_sandbox is enabled and xdg-dbus-proxy is present but the filtered D-Bus proxy failed to start; refusing to spawn an agent on the unfiltered host bus (fail-closed).')
+                                        _sock = None
+                                    try:
+                                        _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                    finally:
+                                        _dbus_stack.close()
                                 else:
                                     _ap = subprocess.run(_afull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                                 _applied = (_ap.returncode == 0)
@@ -2094,13 +2142,22 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                 # extra_ro/extra_rw like every jailed site.
                                 _rfull = f'set -o pipefail; {vcmd}'
                                 if agent_jail.sandbox_enabled(load_config()):
+                                    # SEC-1 (FAILCLOSED_VERIFY_ORCHACC): proxy
+                                    # context entry in the try; subprocess.run
+                                    # outside; fail closed if xdg-dbus-proxy present
+                                    # but the proxy fails to start.
+                                    _dbus_stack = contextlib.ExitStack()
                                     try:
-                                        with proxied_session_bus() as _sock:
-                                            _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
-                                    except subprocess.TimeoutExpired:
-                                        raise
+                                        _sock = _dbus_stack.enter_context(proxied_session_bus())
                                     except Exception:
-                                        _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=None), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                        if shutil.which('xdg-dbus-proxy') is not None:
+                                            _dbus_stack.close()
+                                            raise RuntimeError('agent_sandbox is enabled and xdg-dbus-proxy is present but the filtered D-Bus proxy failed to start; refusing to spawn an agent on the unfiltered host bus (fail-closed).')
+                                        _sock = None
+                                    try:
+                                        _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                    finally:
+                                        _dbus_stack.close()
                                 else:
                                     _mproc = subprocess.run(_rfull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
                                 _mvacuous = (_mproc.returncode == 0)
