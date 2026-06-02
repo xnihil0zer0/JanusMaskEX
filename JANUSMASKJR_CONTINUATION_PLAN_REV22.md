@@ -42,6 +42,36 @@
 
 ---
 
+## 0.6 OWNER DECISIONS (2026-06-02) — unblock the §4 activation bundle
+
+The non-activating/hardening subset was executed this session (6 landings `eb781d7`→`8d8c4f3`, see
+[[rev22-exec-session]]). The owner then confirmed the scope and resolved the open §4 design decisions:
+
+- **G2 relax scope — CONFIRMED.** External relax = `eval`/`exec`/`__import__` ONLY; `os_system` +
+  `bare_except` + credentials + nondeterminism stay STRICT everywhere (per CR-1). interceptor unchanged.
+- **CR-3 staging placement — DECIDED: JM-owned staging root.** The external staging worktree (a
+  `git worktree add` of the external repo; shares the object DB via `--git-common-dir` regardless of
+  physical location) is placed under a JanusMask-owned dir (e.g. `agent_workroot()/external_staging/<name>_<tid>`),
+  NOT inside the external repo (rejected: nested-worktree hazard vs the destructive stash/reset paths) and
+  NOT as a sibling of the external repo (avoids writing into the user's parent dir). Re-spec the
+  `create_staging_worktree` sibling check (`git_integration.py:1268`) to assert the JM staging root for
+  external mode. The user's external working tree is NEVER written during synthesis/verify/accept — only the
+  final integration ref-update touches the external repo. Path-containment = writes stay within
+  `effective_target_root()` ∪ the JM staging root (both jail-writable/JM-owned).
+- **CR-10 non-FF — DECIDED: dedicated `janusmask/work` branch via ref-update.** Bootstrap creates a
+  JM-owned `janusmask/work` branch in the external repo. All external accepted output advances that branch via
+  a pure ref-update (`git update-ref` / `git push . <staging>:refs/heads/janusmask/work`) — NO checkout, NO
+  working-tree merge on the user's side, NEVER the user's primary branch. `--ff-only` stays as the fail-closed
+  guard (JM's branch is linear → always FFs; refuses rather than corrupts otherwise). The user adopts the work
+  with their own `git merge janusmask/work`. Consequence: the destructive `stash -u`/`reset --hard` path is
+  never invoked for external → dirty-tree REFUSE is belt-and-suspenders (keep it default-on).
+
+**Status:** §4 activation bundle is now UNBLOCKED for implementation. It still RELAXES gates → on completion
+the owner runs the Phase-A review (smoke + jail write-denial + live no-regression + §4-8 A–K integration test
++ gate-shape diff + invariant sweep + daemon restart/allowlist + go/no-go).
+
+---
+
 ## 0.5 CLAUDE REVIEW (rev22, 2026-06-02) — APPLIED CORRECTIONS [4 worktree sub-agents + compiler, codebase-memory-grounded]
 
 > This DRAFT was adversarially Claude-reviewed per cadence: 4 worktree sub-agents (distinct lenses, all
