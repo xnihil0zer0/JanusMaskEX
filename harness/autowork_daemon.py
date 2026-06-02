@@ -619,6 +619,84 @@ def _contain_selfheal(cmd: list, env: dict, work_dir, state_dir, config: dict | 
     return cmd
 
 
+def _runaway_counter_bump(state_dir, ceiling):
+    """Persisted read-modify-write of the self-heal runaway-ceiling counter.
+
+    The daemon-global cascade budget for self-heal escalations is PERSISTED to
+    state/control/autowork/runaway_ceiling.json ({"count": int}) so it survives
+    daemon restarts and repeated --once invocations (the in-memory
+    _SELFHEAL_ESCALATION_COUNT global resets to 0 each fresh process, which
+    would otherwise let a crash-loop / repeated --once re-arm the budget
+    indefinitely). Shared by both _escalate_to_autobrief (normal fix-cascades)
+    and _escalate_inactivity.
+
+    Returns ``(tripped, count)`` where ``count`` is the PRE-bump persisted count
+    (mirroring the old ``globals().get('_SELFHEAL_ESCALATION_COUNT', 0)`` read so
+    the callers' ``_SELFHEAL_ESCALATION_COUNT = count + 1`` update stays
+    correct). If the persisted count is already >= ``ceiling`` it returns
+    ``(True, count)`` WITHOUT incrementing; otherwise it writes ``count + 1``
+    back to the file and returns ``(False, count)``.
+
+    RESET POLICY: operator-cleared only -- delete runaway_ceiling.json to reset
+    the counter; there is no automatic reset.
+
+    Edge cases: a missing / empty / corrupt / non-dict / non-int-count JSON file
+    defaults to count=0. An advisory fcntl LOCK_EX is held across the
+    read-modify-write when available, falling back gracefully to an unlocked
+    read-modify-write where flock is unsupported. A filesystem error
+    creating/opening the persistence file FAILS OPEN (returns (False, 0)) so a
+    transient FS fault never permanently wedges self-heal.
+    """
+    import json
+    import os
+    import pathlib
+    state_dir = pathlib.Path(state_dir)
+    path = state_dir / 'control' / 'autowork' / 'runaway_ceiling.json'
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return (False, 0)
+    try:
+        import fcntl
+    except Exception:
+        fcntl = None
+    try:
+        with open(path, 'a+', encoding='utf-8') as f:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX)
+                except OSError:
+                    fcntl = None
+            try:
+                count = 0
+                try:
+                    f.seek(0)
+                    raw = f.read()
+                    data = json.loads(raw) if raw.strip() else {}
+                    if isinstance(data, dict):
+                        c = data.get('count')
+                        if isinstance(c, int) and (not isinstance(c, bool)):
+                            count = c
+                except (ValueError, OSError):
+                    count = 0
+                if count >= ceiling:
+                    return (True, count)
+                try:
+                    f.seek(0)
+                    f.truncate()
+                    f.write(json.dumps({'count': count + 1}))
+                    f.flush()
+                except OSError:
+                    return (False, 0)
+                return (False, count)
+            finally:
+                if fcntl is not None:
+                    try:
+                        fcntl.flock(f, fcntl.LOCK_UN)
+                    except OSError:
+                        pass
+    except OSError:
+        return (False, 0)
 def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: str) -> None:
     import json
     import os
@@ -658,20 +736,28 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
             pass
     if not isinstance(config, dict):
         config = {}
-    # RUNAWAY_CEILING: daemon-level GLOBAL cascade ceiling for self-heal
-    # escalations. The module-level counter is managed dynamically at runtime
-    # (mirroring _SELFHEAL_DBUS_SOCKET) -- no top-level assignment is added; the
-    # first read defaults to 0. Degenerate skips above already returned and so
-    # never reach this budget. The check sits AFTER the degenerate-skip return
-    # and AFTER config is available.
-    count = globals().get('_SELFHEAL_ESCALATION_COUNT', 0)
+    # RUNAWAY_CEILING (PERSISTED): daemon-level GLOBAL cascade ceiling for
+    # self-heal escalations, now PERSISTED to disk in
+    # state/control/autowork/runaway_ceiling.json ({"count": int}) so the budget
+    # survives daemon restarts and repeated --once invocations (the in-memory
+    # _SELFHEAL_ESCALATION_COUNT resets to 0 each fresh process, which would
+    # otherwise let a crash-loop re-arm the budget indefinitely). Degenerate
+    # skips above already returned and so never reach this budget. The check sits
+    # AFTER the degenerate-skip return and AFTER config is available.
+    # RESET POLICY: operator-cleared only -- delete runaway_ceiling.json to reset
+    # the counter; there is no automatic reset.
     ceiling = _autowork_section(config).get('max_total_selfheal_escalations', 50)
     if not isinstance(ceiling, int):
         ceiling = 50
-    if count >= ceiling:
+    tripped, count = _runaway_counter_bump(state_dir, ceiling)
+    global _SELFHEAL_ESCALATION_COUNT
+    if tripped:
+        # Keep the backward-compatible in-memory global in sync with the
+        # persisted count when the ceiling trips.
+        _SELFHEAL_ESCALATION_COUNT = count
         _emit_telemetry(state_dir, task_id, 'runaway_ceiling_tripped', f'dropped escalation, count={count}/{ceiling}')
         return
-    global _SELFHEAL_ESCALATION_COUNT
+    # count is the PRE-bump count; the persisted file now holds count + 1.
     _SELFHEAL_ESCALATION_COUNT = count + 1
     control = config.get('control', {})
     agent = control.get('autobrief_default_agent', 'claude') if isinstance(control, dict) else 'claude'
@@ -1940,20 +2026,29 @@ def _escalate_inactivity(state_dir: pathlib.Path, config: dict) -> None:
         config_path = state_dir.parent / 'harness' / 'config.yaml'
     if not isinstance(config, dict):
         config = {}
-    # RUNAWAY_CEILING: daemon-level GLOBAL cascade ceiling for self-heal
-    # escalations. The module-level counter is managed dynamically at runtime
-    # (mirroring _SELFHEAL_DBUS_SOCKET) -- no top-level assignment is added; the
-    # first read defaults to 0. The no_actionable_work degenerate-skip above
-    # already returned and so never reaches this budget. The check sits AFTER
-    # that return and AFTER config is available.
-    count = globals().get('_SELFHEAL_ESCALATION_COUNT', 0)
+    # RUNAWAY_CEILING (PERSISTED): daemon-level GLOBAL cascade ceiling for
+    # self-heal escalations, now PERSISTED to disk in
+    # state/control/autowork/runaway_ceiling.json ({"count": int}) so the budget
+    # survives daemon restarts and repeated --once invocations (the in-memory
+    # _SELFHEAL_ESCALATION_COUNT resets to 0 each fresh process, which would
+    # otherwise let a crash-loop re-arm the budget indefinitely). The
+    # no_actionable_work degenerate-skip above already returned and so never
+    # reaches this budget. The check sits AFTER that return and AFTER config is
+    # available.
+    # RESET POLICY: operator-cleared only -- delete runaway_ceiling.json to reset
+    # the counter; there is no automatic reset.
     ceiling = _autowork_section(config).get('max_total_selfheal_escalations', 50)
     if not isinstance(ceiling, int):
         ceiling = 50
-    if count >= ceiling:
+    tripped, count = _runaway_counter_bump(state_dir, ceiling)
+    global _SELFHEAL_ESCALATION_COUNT
+    if tripped:
+        # Keep the backward-compatible in-memory global in sync with the
+        # persisted count when the ceiling trips.
+        _SELFHEAL_ESCALATION_COUNT = count
         _emit_telemetry(state_dir, task_id, 'runaway_ceiling_tripped', f'dropped escalation, count={count}/{ceiling}')
         return
-    global _SELFHEAL_ESCALATION_COUNT
+    # count is the PRE-bump count; the persisted file now holds count + 1.
     _SELFHEAL_ESCALATION_COUNT = count + 1
     control = config.get('control', {})
     agent = control.get('autobrief_default_agent', 'claude') if isinstance(control, dict) else 'claude'
