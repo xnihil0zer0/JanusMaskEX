@@ -1560,6 +1560,15 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     battery in ``tests/adversarial/test_git_integration_acceptance_adversarial.py``
     and ``tests/adversarial/test_ast_merge_regression_adversarial.py``).
 
+    STAGING_REROOT: EXTERNAL tasks (``not _target_is_self(working_dir)``) now
+    re-root their staging worktree under the JanusMask-owned external staging
+    root: ``worktree_root`` is derived via
+    ``harness.paths.effective_target_root(working_dir)`` and ``staging_path`` via
+    ``harness.target_bootstrap.external_staging_root() / f'{worktree_root.name}_{task_id}'``
+    (both helpers imported lazily in-body). The SELF path (when
+    ``_target_is_self(working_dir)`` is True) resolves ``worktree_root`` /
+    ``staging_path`` exactly as before, byte-identical to its pre-reroot form.
+
     Resolves ``files_touched`` via the task/parent chain and constructs an
     absolute target path rooted at the worktree top-level before calling the
     module -- the module resolves its ``target_file`` argument against CWD, so
@@ -1818,19 +1827,34 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     if not target_rel.endswith('.py'):
         logger.info('auto-commit: target %s is non-py; delegating to git_integration.commit_accepted_output (direct-copy path)', task_id)
 
-    # 1. Resolve worktree root of the parent workspace
-    try:
-        rev = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=True, timeout=10, cwd=str(state_dir.parent))
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
-        logger.warning('auto-commit: git rev-parse failed for %s: %s', task_id, exc)
-        return False
-    worktree_root = Path(rev.stdout.strip()).resolve()
+    # 1. Resolve worktree root + staging path. STAGING_REROOT: classify the
+    # target via _target_is_self(working_dir). For an EXTERNAL target the
+    # worktree root is the LLM-supplied target tree (effective_target_root) and
+    # the staging worktree is re-rooted UNDER the JanusMask-owned external
+    # staging root rather than as a sibling of the parent repo. Both
+    # effective_target_root and external_staging_root are imported lazily
+    # in-body (no new module-level imports). The SELF branch resolves
+    # worktree_root / staging_path exactly as before (byte-identical logic).
+    if not _target_is_self(working_dir):
+        from harness.paths import effective_target_root
+        from harness.target_bootstrap import external_staging_root
+        worktree_root = Path(effective_target_root(working_dir)).resolve()
+        staging_path = Path(external_staging_root()) / f'{worktree_root.name}_{task_id}'
+    else:
+        # SELF path -- resolve the parent workspace worktree root and place the
+        # task-scoped staging worktree as a sibling of it (ROLLB-A).
+        try:
+            rev = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=True, timeout=10, cwd=str(state_dir.parent))
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
+            logger.warning('auto-commit: git rev-parse failed for %s: %s', task_id, exc)
+            return False
+        worktree_root = Path(rev.stdout.strip()).resolve()
 
-    # Determine staging directory as sibling to the parent worktree. ROLLB-A:
-    # scope the directory name by task_id so concurrent runs do not collide on
-    # a single shared staging worktree. The path remains under
-    # worktree_root.parent (sibling placement required by create_staging_worktree).
-    staging_path = worktree_root.parent / f"{worktree_root.name}_{task_id}_staging"
+        # Determine staging directory as sibling to the parent worktree. ROLLB-A:
+        # scope the directory name by task_id so concurrent runs do not collide on
+        # a single shared staging worktree. The path remains under
+        # worktree_root.parent (sibling placement required by create_staging_worktree).
+        staging_path = worktree_root.parent / f"{worktree_root.name}_{task_id}_staging"
 
     logger.info('auto-commit: using staging worktree at %s for task %s', staging_path, task_id)
 

@@ -1249,7 +1249,16 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
         return result
 
 def create_staging_worktree(staging_path: str, parent_root: str | pathlib.Path | None=None) -> None:
-    """Prunes stale worktrees, handles existing paths, and creates a staging worktree."""
+    """Prunes stale worktrees, handles existing paths, and creates a staging worktree.
+
+    STAGING_REROOT: in addition to the historical sibling-of-the-repository-root
+    placement rule, a staging worktree may now be placed DIRECTLY under the
+    JanusMask-owned external staging root (``harness.target_bootstrap.
+    external_staging_root()``, imported lazily in-body to avoid a circular import
+    and to honour the no-new-module-level-imports constraint). A ``ValueError``
+    is raised only when the staging path's parent directory is NEITHER the parent
+    repository's sibling directory NOR the external staging root.
+    """
     import logging
     import shutil
     import pathlib
@@ -1266,7 +1275,18 @@ def create_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
         parent_root_obj = pathlib.Path(parent_root).resolve()
     cwd_str = str(parent_root_obj)
     if staging_path_obj.parent != parent_root_obj.parent:
-        raise ValueError('Staging worktree must be placed in a sibling directory of the repository root.')
+        # The sibling-of-repository-root rule did not hold. Before rejecting,
+        # accept placement directly under the external staging root. The
+        # external_staging_root helper is imported lazily in-body (no new
+        # module-level import) to avoid circular-import issues.
+        ext_root_obj = None
+        try:
+            from harness.target_bootstrap import external_staging_root
+            ext_root_obj = pathlib.Path(external_staging_root()).resolve()
+        except Exception:
+            ext_root_obj = None
+        if ext_root_obj is None or staging_path_obj.parent != ext_root_obj:
+            raise ValueError('Staging worktree must be placed in a sibling directory of the repository root or directly under the external staging root.')
     try:
         subprocess.run(['git', 'worktree', 'prune'], cwd=cwd_str, check=True, capture_output=True, text=True)
     except subprocess.SubprocessError as e:
