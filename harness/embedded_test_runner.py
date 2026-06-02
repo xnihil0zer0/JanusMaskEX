@@ -136,11 +136,17 @@ def run_embedded_tests(
     with tempfile.TemporaryDirectory() as td, ExitStack() as _dbus_stack:
         _dbus_sock = None
         if sandboxed:
-            # Graceful degradation: if the proxy cannot spawn, fall back to the
-            # real bus (dbus_proxy_socket=None) so jailed subprocesses still run.
+            # SEC-1 fail-closed: if the proxy binary RESOLVES on PATH but the
+            # context manager fails to start, REFUSE rather than dial the real
+            # (unfiltered) host session bus. Only fall back to the real bus
+            # (dbus_proxy_socket=None) when xdg-dbus-proxy is genuinely ABSENT
+            # (graceful degrade on a host without the proxy).
             try:
                 _dbus_sock = _dbus_stack.enter_context(proxied_session_bus())
             except Exception:
+                import shutil
+                if shutil.which("xdg-dbus-proxy"):
+                    raise RuntimeError("filtered D-Bus proxy failed to start")
                 _dbus_sock = None
         td_path = pathlib.Path(td)
         mod_path = td_path / f"{module_name}.py"

@@ -274,11 +274,16 @@ for _line in sys.stdin:
     # (no namespace => the candidate is simply not fuzzed, and crucially not
     # run). When the sandbox is DISABLED, the driver runs unjailed.
     if sandbox_enabled(load_config()):
-        # Graceful degradation: if the proxy cannot spawn, fall back to the
-        # real bus (dbus_proxy_socket=None) so the jailed driver still runs.
+        # SEC-1 fail-closed: if the proxy binary RESOLVES on PATH but the
+        # context manager fails to start, REFUSE rather than dial the real
+        # (unfiltered) host session bus. Only fall back to the real bus
+        # (dbus_proxy_socket=None) when xdg-dbus-proxy is genuinely ABSENT
+        # (graceful degrade on a host without the proxy).
         try:
             _dbus_sock = _dbus_stack.enter_context(proxied_session_bus())
         except Exception:
+            if shutil.which('xdg-dbus-proxy'):
+                raise RuntimeError('filtered D-Bus proxy failed to start')
             _dbus_sock = None
         try:
             argv = build_jail_argv(['python3', 'driver.py'], repo_root=repo_root, work_dir=work_dir, state_dir=state_dir, dbus_proxy_socket=_dbus_sock)

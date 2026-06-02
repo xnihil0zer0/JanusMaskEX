@@ -120,11 +120,17 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
             # (sys.prefix, which supplies bin/python3) so the jailed python3
             # launches as the venv's interpreter rather than bare system python.
             extra_ro = [sys.base_prefix, sys.prefix] + _site_packages_dirs()
-            # Graceful degradation: if the proxy cannot spawn, fall back to the
-            # real bus (dbus_proxy_socket=None) so the jailed import still runs.
+            # SEC-1 fail-closed: if the proxy binary RESOLVES on PATH but the
+            # context manager fails to start, REFUSE rather than dial the real
+            # (unfiltered) host session bus. Only fall back to the real bus
+            # (dbus_proxy_socket=None) when xdg-dbus-proxy is genuinely ABSENT
+            # (graceful degrade on a host without the proxy).
             try:
                 _dbus_sock = _dbus_stack.enter_context(proxied_session_bus())
             except Exception:
+                import shutil
+                if shutil.which('xdg-dbus-proxy'):
+                    raise RuntimeError('filtered D-Bus proxy failed to start')
                 _dbus_sock = None
             try:
                 # Use a jail-resolvable interpreter ('python3', not
