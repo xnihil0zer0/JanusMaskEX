@@ -1723,9 +1723,50 @@ def main(argv: list[str] | None=None) -> int:
     if args.once:
         _install_sigterm_handler()
         _emit_telemetry(state_dir, '', 'daemon_start', f'cap={cap} mode=once')
+        # SEC-1c-DAEMON (--once parity): mirror run_daemon's startup block so the
+        # supervised single-iteration path also opens ONE daemon-lifetime filtered
+        # D-Bus proxy (only when the sandbox is enabled) and stashes its socket in
+        # the module global that _contain_selfheal threads into every detached
+        # build_jail_argv spawn. FAIL-OPEN: any failure leaves the socket None and
+        # the iteration proceeds. The globals are created here at runtime (no
+        # module-level assignment); all imports are lazy in-body.
+        global _SELFHEAL_DBUS_SOCKET, _SELFHEAL_DBUS_STACK
+        _SELFHEAL_DBUS_SOCKET = None
+        _SELFHEAL_DBUS_STACK = None
+        try:
+            from harness import agent_jail as _agent_jail
+            if _agent_jail.sandbox_enabled(config):
+                import contextlib
+                from harness.dbus_proxy import proxied_session_bus
+                stack = contextlib.ExitStack()
+                try:
+                    _SELFHEAL_DBUS_SOCKET = stack.enter_context(proxied_session_bus())
+                    _SELFHEAL_DBUS_STACK = stack
+                except Exception as exc:
+                    _SELFHEAL_DBUS_SOCKET = None
+                    _SELFHEAL_DBUS_STACK = None
+                    try:
+                        stack.close()
+                    except Exception:
+                        pass
+                    _emit_telemetry(state_dir, '', 'skip', f'dbus proxy init error: {exc!r}')
+        except Exception as exc:
+            _SELFHEAL_DBUS_SOCKET = None
+            _SELFHEAL_DBUS_STACK = None
+            _emit_telemetry(state_dir, '', 'skip', f'dbus proxy init error: {exc!r}')
         try:
             _iteration(repo_root, state_dir, cap, dry_run=False, config=config)
         finally:
+            # SEC-1c-DAEMON (--once parity): reap the daemon-lifetime singleton
+            # proxy stack so the supervised once path never leaks an
+            # xdg-dbus-proxy process; reset both globals back to None.
+            try:
+                if _SELFHEAL_DBUS_STACK is not None:
+                    _SELFHEAL_DBUS_STACK.close()
+            except Exception:
+                pass
+            _SELFHEAL_DBUS_SOCKET = None
+            _SELFHEAL_DBUS_STACK = None
             _emit_telemetry(state_dir, '', 'daemon_stop', 'once complete')
         return 0
     return run_daemon(repo_root, state_dir, config)
