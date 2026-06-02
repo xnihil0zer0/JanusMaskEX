@@ -186,6 +186,19 @@ def load_brief(path: Path | str, max_bytes: int = 256 * 1024) -> PlanningBrief:
 
     working_dir = fm_normalized.get("working_dir")
 
+    if working_dir:
+        from harness.paths import PROJECT_ROOT, _target_is_self
+        try:
+            _resolved = Path(working_dir).resolve()
+            _proot = PROJECT_ROOT.resolve()
+            _inside = _resolved == _proot or _proot in _resolved.parents
+        except (OSError, ValueError, RuntimeError, Exception):
+            _inside = True
+        if _inside and not _target_is_self(working_dir):
+            raise BriefValidationError(
+                f"working_dir {working_dir!r} resolves inside the repo but is not self"
+            )
+
     return PlanningBrief(
         title=data["title"],
         scope=data["scope"],
