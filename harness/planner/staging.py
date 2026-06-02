@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-def stage_task(plan_path: Path, task_id: str, state_dir: Path, canonical: bool=True) -> Path:
+def stage_task(plan_path: Path, task_id: str, state_dir: Path, canonical: bool=True, *, working_dir: str | None = None) -> Path:
     """Extract a single task from ``plan_path`` and write it under ``state_dir``.
 
     Args:
@@ -26,6 +26,10 @@ def stage_task(plan_path: Path, task_id: str, state_dir: Path, canonical: bool=T
             scans directly). When False, write to
             ``<state_dir>/tasks/queued/<task_id>.json`` (legacy staging
             location auto-promoted by ``scripts/impl_dispatch_once.sh``).
+        working_dir: Trusted working directory injected by the caller. The
+            LLM-authored ``working_dir`` (if any) is always stripped from the
+            task dict before staging; when this trusted value is not None it
+            replaces it.
 
     Returns:
         The output ``Path`` on success.
@@ -55,5 +59,8 @@ def stage_task(plan_path: Path, task_id: str, state_dir: Path, canonical: bool=T
     out.parent.mkdir(parents=True, exist_ok=True)
     if out.exists():
         raise FileExistsError(f'refuse: {out} already exists')
+    task.pop('working_dir', None)
+    if working_dir is not None:
+        task['working_dir'] = working_dir
     out.write_text(json.dumps(task, indent=2) + '\n', encoding='utf-8')
     return out

@@ -53,6 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     if out.exists():
         sys.stderr.write(f"refuse: {out} already exists\n")
         return 2
+    task.pop('working_dir', None)
     out.write_text(json.dumps(task, indent=2) + "\n", encoding="utf-8")
     print(str(out))
     return 0
