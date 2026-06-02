@@ -64,6 +64,8 @@ def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
             state = 'in_flight'
         elif not remaining:
             state = 'complete'
+        elif processed_unaccepted and all(tid in processed_unaccepted for tid in remaining):
+            state = 'zombie'
         else:
             state = 'queued'
         staged_or_done = set(queued) | set(processing) | set(processed_unaccepted) | set(blocked) | {a['task_id'] for a in accepted_for_brief}
