@@ -219,6 +219,7 @@ class JanusMaskServer:
                 task_path = candidates[0]
         if task_path is None or not task_path.is_file():
             task_path = task_paths.current_task_spec_path(self.state_dir, task_id_env or 'default')
+        task: dict = {}
         try:
             task = _read_json_file(task_path)
             allow_nondet = task.get('constraints', {}).get('deterministic') is False
@@ -226,9 +227,15 @@ class JanusMaskServer:
         except (FileNotFoundError, json.JSONDecodeError):
             pass
         from harness.hooks.rpc import submit_code as rpc_submit_code
+        from harness.paths import relax_external_for
+        # REV23 §1b: external-target submissions get the same eval/exec/__import__
+        # relax as the _decide_common / _validate_submission paths, via the shared
+        # predicate, so the MCP submit path cannot diverge (target-file containment
+        # keeps JM-tree targets strict; fail-closed when unresolvable).
+        relax_external = relax_external_for(task, content=code)
         violations: list = []
         try:
-            violations = rpc_submit_code.validate(code, allow_nondeterminism=allow_nondet)
+            violations = rpc_submit_code.validate(code, allow_nondeterminism=allow_nondet, relax_external_constructs=relax_external)
         except Exception:
             log.exception('AST validation error for %s', self.agent_id)
             violations = []

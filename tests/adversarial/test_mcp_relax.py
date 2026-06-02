@@ -53,7 +53,11 @@ def test_external_mcp_relax_allowed(tmp_path: pathlib.Path, monkeypatch: pytest.
     server.task_read = True
     
     # Submit EVAL_CODE
-    result = server.cmd_submit_code({"code": EVAL_CODE})
+    result = server.cmd_submit_code({
+        "code": EVAL_CODE,
+        "session_id": "x", "agent_identity": "claude",
+        "round_number": 1, "timestamp": "2026-01-01T00:00:00Z",
+    })
     
     # Test 1 assertions:
     # Under HEAD (pre-fix), relax_external_constructs is False/omitted, so eval is rejected.
@@ -104,7 +108,11 @@ def test_self_mcp_relax_still_rejected(tmp_path: pathlib.Path, monkeypatch: pyte
     server.task_read = True
     
     # Submit EVAL_CODE
-    result = server.cmd_submit_code({"code": EVAL_CODE})
+    result = server.cmd_submit_code({
+        "code": EVAL_CODE,
+        "session_id": "x", "agent_identity": "claude",
+        "round_number": 1, "timestamp": "2026-01-01T00:00:00Z",
+    })
     
     # Test 2 assertions:
     # Should always be rejected with a security violation
