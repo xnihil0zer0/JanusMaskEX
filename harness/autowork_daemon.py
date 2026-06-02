@@ -1216,11 +1216,20 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
                 continue
             plan_path = repo_root / plan_filename
             slug = rec.get('slug') or ''
+            stamped_working_dir: str | None = None
+            try:
+                _plan_obj = json.loads(plan_path.read_text(encoding='utf-8'))
+                if isinstance(_plan_obj, dict):
+                    _wd = _plan_obj.get('working_dir')
+                    if isinstance(_wd, str) and _wd:
+                        stamped_working_dir = _wd
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+                stamped_working_dir = None
             for tid in unstaged:
                 if not isinstance(tid, str) or not tid:
                     continue
                 try:
-                    stage_task(plan_path, tid, state_dir, canonical=True)
+                    stage_task(plan_path, tid, state_dir, canonical=True, working_dir=stamped_working_dir)
                 except FileExistsError:
                     continue
                 except (FileNotFoundError, KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
@@ -1346,7 +1355,6 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
             write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.time(), 'phase': 'autowork', 'task_id': '', 'event': 'silent_skip', 'detail': f'plan_kickoff: {type(exc).__name__}: {exc!r}', 'phase_tag': 'auto_promote_step_3_plan_kickoff', 'exit': 0})
         except OSError:
             pass
-    return summary
 
 def _decide(repo_root: pathlib.Path, state_dir: pathlib.Path, running_task_ids: set[str], cap: int) -> tuple[list[dict], bool, int]:
     try:
