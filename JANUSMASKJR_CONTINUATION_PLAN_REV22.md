@@ -148,6 +148,27 @@ A task that fails auto-commit is moved to `tasks/processed/` unaccepted; its par
 task is parked unaccepted (`brief_status.py` region ~`:95`), and/or a reclamation path. Low priority,
 observability not safety.
 
+**(e) `state/tasks/blocked/` garbage-collection cleanup pass [OVERSEER / NON-PIPELINE housekeeping, LOW].**
+Surveyed end of the REV21-exec session: the active queue is CLEAN (0 queued, 0 outbox, this session's 8
+tasks all processed-accepted), but `state/tasks/blocked/` holds **18 distinct stale task IDs (28 files
+incl. `.retry`/`.exhausted` variants), dated 2026-05-21 → 2026-06-01 — NONE from REV21-exec**. Several are
+ORPHANED: the work shipped later under a different attempt while the old blocked taskspec was never GC'd
+(e.g. `PHASE_WHOLE_FILE_DRIFT_GUARD` blocked but landed `862f329`; `PHASE_FIX_ESCALATE_AUTOBRIEF_MOCKS_B`
+landed `34c32d7` while `_MOCKS`/`_MOCKS_A` sit blocked). They carry `.exhausted`/retry-budget markers and
+the queue is empty, so they do NOT burn credits or block dispatch even under unattended Phase A — this is
+hygiene, not safety.
+- **This is NOT a pipeline task** (no production code, no oracle): `state/` is gitignored operational
+  state. Do it as an overseer/operator pass, NOT via `impl_dispatch_once.sh`.
+- **Procedure:** for each distinct blocked ID, check `git log --all --oneline | grep <id>` for an
+  `Integrate validated code for <id>` (or sibling) landing. If the work SHIPPED → the blocked entry is
+  orphaned → remove its `.json`/`.retry.json`/`.exhausted` files. If NOT shipped and still relevant →
+  KEEP and list it (with a one-line "what it was + why still open") so the owner can decide to re-brief or
+  abandon. If superseded by a renamed/re-scoped task → remove + note the supersessor. Produce a short
+  `~/janusmask_briefs/blocked_triage_<date>.md` report (kept survivors + removed orphans + their landing
+  shas). Do NOT touch `state/tasks/processed/` (324, normal history) or anything currently queued.
+- Pairs with (d): if a reclamation/telemetry path is added, wire it to also surface long-stale `blocked/`
+  entries so this graveyard does not silently re-accumulate.
+
 ---
 
 ## 3. FLAG#2 — unjailed `shell=True` when sandbox is OFF [agy R1-1, CRITICAL]
