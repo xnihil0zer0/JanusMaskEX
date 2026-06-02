@@ -36,12 +36,24 @@ Mock-target notes (load-bearing -- the fixed body re-imports lazily):
     ``harness.sandbox_smoke.subprocess.run`` to capture the dispatched argv.
 """
 import sys
+import contextlib
 import unittest.mock as mock
 
 from harness.sandbox_smoke import smoke_import
 
 
 _BWRAP = "/usr/bin/bwrap"
+
+
+@contextlib.contextmanager
+def _fake_proxy():
+    """A succeeding filtered-D-Bus-proxy stand-in (REV21 §3(a) fail-close).
+
+    The jail-wrapping oracles mock ``shutil.which`` truthy for every binary, so
+    without this stand-in the now-fail-closed proxy spawn would attempt to start
+    the real xdg-dbus-proxy (and fail on a CI host), tripping the refusal.
+    """
+    yield "/run/user/1000/janusmask-fake-bus"
 
 
 def _capture_smoke_argv(*, bwrap_enabled, which_return, module_name="test_mymod_h2b"):
@@ -65,6 +77,7 @@ def _capture_smoke_argv(*, bwrap_enabled, which_return, module_name="test_mymod_
 
     with mock.patch("harness.sandbox_smoke.subprocess.run", side_effect=mock_run), \
          mock.patch("harness.orchestrator.load_config", return_value=cfg), \
+         mock.patch("harness.dbus_proxy.proxied_session_bus", new=_fake_proxy), \
          mock.patch("shutil.which", return_value=which_return):
         smoke_import(module_name, "x = 1")
 

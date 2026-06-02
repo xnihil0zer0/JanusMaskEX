@@ -15,8 +15,23 @@ import unittest.mock as mock
 import pytest
 
 from harness.embedded_test_runner import run_embedded_tests
+import contextlib
 
 _BWRAP = "/usr/bin/bwrap"
+
+
+@contextlib.contextmanager
+def _fake_proxy():
+    """A succeeding filtered-D-Bus-proxy stand-in.
+
+    REV21 §3(a) made the proxy spawn fail-CLOSED: when xdg-dbus-proxy resolves
+    but ``proxied_session_bus()`` cannot start, the run REFUSES instead of
+    falling back to the host bus. These structural jail-wrapping oracles mock
+    ``shutil.which`` truthy for every binary, so without this stand-in the real
+    proxy would attempt to spawn (and fail on a CI host), tripping the new
+    refusal. Yielding a fake socket lets the jail-argv assertions run unchanged.
+    """
+    yield "/run/user/1000/janusmask-fake-bus"
 
 
 def test_h2c_embedded_tests_are_jailed_when_sandbox_enabled():
@@ -37,8 +52,9 @@ def test_h2c_embedded_tests_are_jailed_when_sandbox_enabled():
 
     with mock.patch("harness.orchestrator.load_config", return_value=cfg), \
          mock.patch("harness.embedded_test_runner.subprocess.run", side_effect=mock_run), \
+         mock.patch("harness.dbus_proxy.proxied_session_bus", new=_fake_proxy), \
          mock.patch("shutil.which", return_value=_BWRAP):
-        
+
         run_embedded_tests("dummy_module", src)
 
     # We expect two subprocess runs: collect and run.
