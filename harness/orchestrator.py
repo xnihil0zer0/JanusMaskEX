@@ -1633,6 +1633,15 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     disabled, all three runs fall back to the ORIGINAL ``shell=True`` /
     ``executable='/bin/bash'`` behavior byte-for-byte.
 
+    CRED-EXFIL (EXECUTE PATH): all four sandboxed ``build_jail_argv`` calls
+    here (verify, baseline-in-copy, mutant-apply, mutant rerun) run on the
+    EXECUTE path and now pass ``bind_credentials=False`` -- the jail drops the
+    ~/.gemini / ~/.claude credential surface (dir binds, ~/.claude.json copy,
+    project-memory + global-config overlays) and unshares the network/IPC
+    namespaces so any residual credential cannot be exfiltrated off-host. The
+    SEC-1 dbus_proxy_socket= kwarg, the proxied_session_bus() try/except, and
+    the fail-close raise are untouched.
+
     SEC-3 (FAIL_CLOSED_VERIFY): the verify try/except previously caught only
     ``subprocess.TimeoutExpired``, so when sandboxing is ENABLED but bwrap is
     ABSENT the ``build_jail_argv`` / ``subprocess.run`` raised
@@ -1948,7 +1957,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                             raise RuntimeError('agent_sandbox is enabled and xdg-dbus-proxy is present but the filtered D-Bus proxy failed to start; refusing to spawn an agent on the unfiltered host bus (fail-closed).')
                         _sock = None
                     try:
-                        vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                        vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock, bind_credentials=False), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
                     finally:
                         _dbus_stack.close()
                 else:
@@ -2087,7 +2096,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                         raise RuntimeError('agent_sandbox is enabled and xdg-dbus-proxy is present but the filtered D-Bus proxy failed to start; refusing to spawn an agent on the unfiltered host bus (fail-closed).')
                                     _sock = None
                                 try:
-                                    _bproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _bfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                    _bproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _bfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock, bind_credentials=False), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
                                 finally:
                                     _dbus_stack.close()
                             else:
@@ -2126,7 +2135,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                             raise RuntimeError('agent_sandbox is enabled and xdg-dbus-proxy is present but the filtered D-Bus proxy failed to start; refusing to spawn an agent on the unfiltered host bus (fail-closed).')
                                         _sock = None
                                     try:
-                                        _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                        _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock, bind_credentials=False), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
                                     finally:
                                         _dbus_stack.close()
                                 else:
@@ -2155,7 +2164,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                             raise RuntimeError('agent_sandbox is enabled and xdg-dbus-proxy is present but the filtered D-Bus proxy failed to start; refusing to spawn an agent on the unfiltered host bus (fail-closed).')
                                         _sock = None
                                     try:
-                                        _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                        _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock, bind_credentials=False), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
                                     finally:
                                         _dbus_stack.close()
                                 else:

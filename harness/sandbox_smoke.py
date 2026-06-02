@@ -137,6 +137,10 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
                 # sys.executable) so it resolves from the ro-bound /usr,/bin and
                 # the ro-bound sys.base_prefix interpreter tree. cmd is the only
                 # positional argument; build_jail_argv self-appends it.
+                #
+                # CRED-EXFIL: smoke-import is an EXECUTE path -- pass
+                # bind_credentials=False so the jail drops the ~/.gemini /
+                # ~/.claude credential surface and unshares net/IPC namespaces.
                 cmd = agent_jail.build_jail_argv(
                     ['python3', '-S', '-c', f'import {module_name}'],
                     repo_root=repo_root,
@@ -144,6 +148,7 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
                     state_dir=state_dir,
                     extra_ro=extra_ro,
                     dbus_proxy_socket=_dbus_sock,
+                    bind_credentials=False,
                 )
                 # Prepend the venv bin dir to PATH so bare 'python3' inside the
                 # jail resolves to the venv's 3.13 interpreter (not system

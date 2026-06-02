@@ -72,12 +72,27 @@ def build_jail_argv(
     extra_ro: Iterable[str | Path] = (),
     extra_rw: Iterable[str | Path] = (),
     dbus_proxy_socket: str | None = None,
+    bind_credentials: bool = True,
 ) -> list[str]:
     """Wrap ``cmd`` in a ``bwrap`` argv that makes ``repo_root`` read-only.
 
     Raises ``FileNotFoundError`` if ``bwrap`` is unavailable -- callers gate on
     :func:`sandbox_enabled` first, so reaching here without bwrap is a hard,
     fail-closed error (never a silent un-jailed spawn).
+
+    CRED-EXFIL (execute path): when ``bind_credentials`` is False the jail drops
+    the entire credential surface -- the ``~/.gemini`` / ``~/.claude`` directory
+    binds, the throwaway ``~/.claude.json`` copy/bind, the
+    ``~/.claude/projects/*/memory`` overlays, and the sensitive global CLI config
+    overlays (``settings*.json``, ``skills``, ``plugins``, ``GEMINI.md``,
+    ``config``) are all skipped (only the ``~/.nvm`` ro-bind is kept so the node
+    runtime resolves). The LOAD-BEARING control is ``--unshare-net`` (added with
+    ``--unshare-ipc`` right after ``--die-with-parent``): with the network
+    namespace unshared, any credential a jailed execute-path process can still
+    read cannot be exfiltrated off-host. ``bind_credentials`` defaults to True so
+    the synthesis path keeps every credential bind and the shared net/ipc
+    namespaces (agents call model APIs and refresh OAuth) -- byte-for-byte the
+    prior behavior.
     """
     bwrap = shutil.which("bwrap")
     if bwrap is None:
@@ -92,16 +107,28 @@ def build_jail_argv(
 
     # Namespace policy (C6-tuned, empirical): the repo-read-only guarantee comes
     # PURELY from the --ro-bind below, NOT from namespace unsharing (verified: a jail
-    # with no --unshare-* still denies a write to the ro-bound repo). We deliberately
-    # do NOT unshare any namespace -- both --unshare-all (via --unshare-user's UID
-    # remap on the mode-600 ~/.gemini/oauth_creds.json) AND --unshare-pid drop the agy
-    # (gemini CLI) into an interactive-OAuth loop ("authentication timed out"). The
-    # mount namespace bwrap always creates is sufficient for the filesystem barrier;
-    # net/ipc/pid/user stay shared so agy's credential read + token refresh and the
-    # model-API calls work. CONTAIN's scope is live-tree tamper, not pid/net isolation.
+    # with no --unshare-* still denies a write to the ro-bound repo). On the SYNTHESIS
+    # path we deliberately do NOT unshare any namespace -- both --unshare-all (via
+    # --unshare-user's UID remap on the mode-600 ~/.gemini/oauth_creds.json) AND
+    # --unshare-pid drop the agy (gemini CLI) into an interactive-OAuth loop
+    # ("authentication timed out"). The mount namespace bwrap always creates is
+    # sufficient for the filesystem barrier; net/ipc/pid/user stay shared so agy's
+    # credential read + token refresh and the model-API calls work. CONTAIN's scope
+    # is live-tree tamper, not pid/net isolation.
+    #
+    # CRED-EXFIL: the EXECUTE path (bind_credentials=False) does NOT call model APIs
+    # or refresh OAuth, so it can -- and MUST -- unshare the network/IPC namespaces.
+    # --unshare-net is the mandatory, load-bearing exfil control here (NOT optional):
+    # the keyring/<xdg>/bus sockets and any residual credential reachable in the jail
+    # become un-exfiltratable off-host once the network namespace is gone. Inserted
+    # right after --die-with-parent so it brackets the whole spawn.
     argv: list[str] = [
         bwrap,
         "--die-with-parent",
+    ]
+    if not bind_credentials:
+        argv += ["--unshare-net", "--unshare-ipc"]
+    argv += [
         "--proc", "/proc",
         "--dev", "/dev",
         "--tmpfs", "/tmp",
@@ -146,85 +173,95 @@ def build_jail_argv(
     # shim/binary that later runs operator-side). Bind it READ-ONLY (--ro-bind) while
     # ~/.gemini and ~/.claude stay read-write (--bind) for credential refresh + cached
     # state writes. Missing subdirs are skipped gracefully.
+    #
+    # CRED-EXFIL: under bind_credentials=False (execute path) the ~/.gemini and
+    # ~/.claude credential dirs are dropped entirely -- only ~/.nvm (the read-only
+    # node runtime, needed for the interpreter, not a credential) is bound.
     _ro_home_subs = frozenset({".nvm"})
-    for _sub in (".nvm", ".gemini", ".claude"):
+    _home_subs = (".nvm", ".gemini", ".claude") if bind_credentials else (".nvm",)
+    for _sub in _home_subs:
         _hp = os.path.join(home, _sub)
         if os.path.exists(_hp):
             _mode = "--ro-bind" if _sub in _ro_home_subs else "--bind"
             argv += [_mode, _hp, _hp]
-    # claude-code's PRIMARY config is ``$HOME/.claude.json`` -- a FILE at HOME root,
-    # NOT under ``~/.claude/`` -- so the ``.claude`` subdir bind above does NOT cover
-    # it. Without it the jailed claude aborts at startup ("Claude configuration file
-    # not found at ~/.claude.json") and never submits -- the gap that made EVERY prior
-    # jailed claude probe fail (M-2 narrowed HOME to subdirs and missed this root file).
-    #
-    # Phase J1: claude WRITES ~/.claude.json during a normal session (lastSessionId,
-    # mcp cache, project bookkeeping, usage counters). A pure --ro-bind makes those
-    # writes EROFS, which a full agentic run surfaces as a fatal "unable to update
-    # config" abort -- exactly the "claude never actually finished" failure-class the
-    # claude-jail-fix just closed, only deferred to mid-run. So instead of ro-binding
-    # the operator's real file we COPY it into the per-spawn (outside-repo) work_dir
-    # and rw-bind that THROWAWAY copy at ~/.claude.json inside the jail: the jailed
-    # claude reads + freely writes its ephemeral copy, while the operator's real
-    # ~/.claude.json stays byte-for-byte unchanged (no project-list / account
-    # poisoning, no EROFS abort). The copy dies with the per-spawn work_dir (same GC
-    # as outbox/inbox). No new exfil surface -- the OAuth credential is already
-    # readable via ``~/.claude/.credentials.json``; this jail is a write boundary, not
-    # an exfil one. Skipped gracefully if the operator file is absent; on copy failure
-    # we fall back to the read-only bind so claude can at least start.
-    _claude_json = os.path.join(home, ".claude.json")
-    if os.path.exists(_claude_json):
-        _claude_json_copy = os.path.join(work_dir, ".claude.json.jail")
+    # The credential-bearing HOME-root file + project-memory + global-config overlays
+    # below are bound ONLY on the synthesis path. On the execute path
+    # (bind_credentials=False) they are skipped -- the dir binds they overlay are gone
+    # and --unshare-net closes the exfil surface regardless.
+    if bind_credentials:
+        # claude-code's PRIMARY config is ``$HOME/.claude.json`` -- a FILE at HOME root,
+        # NOT under ``~/.claude/`` -- so the ``.claude`` subdir bind above does NOT cover
+        # it. Without it the jailed claude aborts at startup ("Claude configuration file
+        # not found at ~/.claude.json") and never submits -- the gap that made EVERY prior
+        # jailed claude probe fail (M-2 narrowed HOME to subdirs and missed this root file).
+        #
+        # Phase J1: claude WRITES ~/.claude.json during a normal session (lastSessionId,
+        # mcp cache, project bookkeeping, usage counters). A pure --ro-bind makes those
+        # writes EROFS, which a full agentic run surfaces as a fatal "unable to update
+        # config" abort -- exactly the "claude never actually finished" failure-class the
+        # claude-jail-fix just closed, only deferred to mid-run. So instead of ro-binding
+        # the operator's real file we COPY it into the per-spawn (outside-repo) work_dir
+        # and rw-bind that THROWAWAY copy at ~/.claude.json inside the jail: the jailed
+        # claude reads + freely writes its ephemeral copy, while the operator's real
+        # ~/.claude.json stays byte-for-byte unchanged (no project-list / account
+        # poisoning, no EROFS abort). The copy dies with the per-spawn work_dir (same GC
+        # as outbox/inbox). No new exfil surface -- the OAuth credential is already
+        # readable via ``~/.claude/.credentials.json``; this jail is a write boundary, not
+        # an exfil one. Skipped gracefully if the operator file is absent; on copy failure
+        # we fall back to the read-only bind so claude can at least start.
+        _claude_json = os.path.join(home, ".claude.json")
+        if os.path.exists(_claude_json):
+            _claude_json_copy = os.path.join(work_dir, ".claude.json.jail")
+            try:
+                shutil.copyfile(_claude_json, _claude_json_copy)
+                argv += ["--bind", _claude_json_copy, _claude_json]
+            except OSError:
+                argv += ["--ro-bind", _claude_json, _claude_json]
+        # Protect the operator session-memory store: ro-overlay every
+        # ~/.claude/projects/*/memory (rw-bound just above) so a jailed agent cannot
+        # poison the memory files that steer future Claude sessions. The rest of each
+        # project dir stays writable (claude-code writes its own session/todo state).
+        _claude_projects = os.path.join(home, ".claude", "projects")
         try:
-            shutil.copyfile(_claude_json, _claude_json_copy)
-            argv += ["--bind", _claude_json_copy, _claude_json]
+            if os.path.isdir(_claude_projects):
+                for _proj in sorted(os.listdir(_claude_projects)):
+                    _mem = os.path.join(_claude_projects, _proj, "memory")
+                    if os.path.isdir(_mem):
+                        argv += ["--ro-bind", _mem, _mem]
         except OSError:
-            argv += ["--ro-bind", _claude_json, _claude_json]
-    # Protect the operator session-memory store: ro-overlay every
-    # ~/.claude/projects/*/memory (rw-bound just above) so a jailed agent cannot
-    # poison the memory files that steer future Claude sessions. The rest of each
-    # project dir stays writable (claude-code writes its own session/todo state).
-    _claude_projects = os.path.join(home, ".claude", "projects")
-    try:
-        if os.path.isdir(_claude_projects):
-            for _proj in sorted(os.listdir(_claude_projects)):
-                _mem = os.path.join(_claude_projects, _proj, "memory")
-                if os.path.isdir(_mem):
-                    argv += ["--ro-bind", _mem, _mem]
-    except OSError:
-        pass
-    # CONTAIN C-HARDEN-2 CH2-3: the ~/.claude / ~/.gemini rw binds above leave the
-    # operator's GLOBAL CLI configuration writable. ~/.claude/settings.json &
-    # settings.local.json each carry a `hooks` block whose `command` executes on the
-    # operator's NEXT interactive Claude-Code session; ~/.claude/skills, .../plugins,
-    # ~/.gemini/GEMINI.md and ~/.gemini/config likewise steer future operator runs.
-    # A jailed agent overwriting any of these is STRICTLY MORE dangerous than the
-    # ~/.claude/.../memory poisoning M-2 closed -- it runs operator-side code, not just
-    # bias text. ro-overlay each (mirroring the memory overlay; later binds win). The
-    # rest of ~/.claude / ~/.gemini stays writable (the CLIs write session/todo/oauth
-    # state). Missing paths are skipped. (plan rev4 CH2-3 / R-CH2-3 -- Phase-A precond)
-    #
-    # H-JAIL_B: a missing sensitive overlay path is STILL a hole -- without an explicit
-    # bind it lives inside the writable ~/.claude / ~/.gemini parent, so a jailed agent
-    # could CREATE it (e.g. write a fresh settings.json hooks block) and steer the
-    # operator's next session. ro-bind /dev/null over each ABSENT target whose parent
-    # is a real host directory: bwrap creates the mountpoint as a /dev/null-backed file
-    # that denies creating the path, replacing it (EBUSY on unlink), and -- for the
-    # dir-shaped targets -- creating any child inside it (ENOENT). One uniform
-    # --ro-bind /dev/null handles both file- and dir-shaped absent targets. If the
-    # parent dir is absent on the host, skip entirely (a bind would fail bwrap boot).
-    for _ro in (
-        os.path.join(home, ".claude", "settings.json"),
-        os.path.join(home, ".claude", "settings.local.json"),
-        os.path.join(home, ".claude", "skills"),
-        os.path.join(home, ".claude", "plugins"),
-        os.path.join(home, ".gemini", "GEMINI.md"),
-        os.path.join(home, ".gemini", "config"),
-    ):
-        if os.path.exists(_ro):
-            argv += ["--ro-bind", _ro, _ro]
-        elif os.path.isdir(os.path.dirname(_ro)):
-            argv += ["--ro-bind", "/dev/null", _ro]
+            pass
+        # CONTAIN C-HARDEN-2 CH2-3: the ~/.claude / ~/.gemini rw binds above leave the
+        # operator's GLOBAL CLI configuration writable. ~/.claude/settings.json &
+        # settings.local.json each carry a `hooks` block whose `command` executes on the
+        # operator's NEXT interactive Claude-Code session; ~/.claude/skills, .../plugins,
+        # ~/.gemini/GEMINI.md and ~/.gemini/config likewise steer future operator runs.
+        # A jailed agent overwriting any of these is STRICTLY MORE dangerous than the
+        # ~/.claude/.../memory poisoning M-2 closed -- it runs operator-side code, not just
+        # bias text. ro-overlay each (mirroring the memory overlay; later binds win). The
+        # rest of ~/.claude / ~/.gemini stays writable (the CLIs write session/todo/oauth
+        # state). Missing paths are skipped. (plan rev4 CH2-3 / R-CH2-3 -- Phase-A precond)
+        #
+        # H-JAIL_B: a missing sensitive overlay path is STILL a hole -- without an explicit
+        # bind it lives inside the writable ~/.claude / ~/.gemini parent, so a jailed agent
+        # could CREATE it (e.g. write a fresh settings.json hooks block) and steer the
+        # operator's next session. ro-bind /dev/null over each ABSENT target whose parent
+        # is a real host directory: bwrap creates the mountpoint as a /dev/null-backed file
+        # that denies creating the path, replacing it (EBUSY on unlink), and -- for the
+        # dir-shaped targets -- creating any child inside it (ENOENT). One uniform
+        # --ro-bind /dev/null handles both file- and dir-shaped absent targets. If the
+        # parent dir is absent on the host, skip entirely (a bind would fail bwrap boot).
+        for _ro in (
+            os.path.join(home, ".claude", "settings.json"),
+            os.path.join(home, ".claude", "settings.local.json"),
+            os.path.join(home, ".claude", "skills"),
+            os.path.join(home, ".claude", "plugins"),
+            os.path.join(home, ".gemini", "GEMINI.md"),
+            os.path.join(home, ".gemini", "config"),
+        ):
+            if os.path.exists(_ro):
+                argv += ["--ro-bind", _ro, _ro]
+            elif os.path.isdir(os.path.dirname(_ro)):
+                argv += ["--ro-bind", "/dev/null", _ro]
     # XDG_RUNTIME_DIR (/run/user/<uid>): the D-Bus session bus + keyring socket live
     # here. agy (gemini CLI) validates/refreshes its OAuth credential through the
     # session keyring; without these the auth loops on "authentication timed out".

@@ -286,7 +286,10 @@ for _line in sys.stdin:
                 raise RuntimeError('filtered D-Bus proxy failed to start')
             _dbus_sock = None
         try:
-            argv = build_jail_argv(['python3', 'driver.py'], repo_root=repo_root, work_dir=work_dir, state_dir=state_dir, dbus_proxy_socket=_dbus_sock)
+            # CRED-EXFIL: fuzz validation is an EXECUTE path -- pass
+            # bind_credentials=False so the jail drops the ~/.gemini /
+            # ~/.claude credential surface and unshares net/IPC namespaces.
+            argv = build_jail_argv(['python3', 'driver.py'], repo_root=repo_root, work_dir=work_dir, state_dir=state_dir, dbus_proxy_socket=_dbus_sock, bind_credentials=False)
         except FileNotFoundError:
             _dbus_stack.close()
             shutil.rmtree(work_dir, ignore_errors=True)

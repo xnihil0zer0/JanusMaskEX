@@ -175,6 +175,10 @@ def run_embedded_tests(
             # the sandbox is enabled but bwrap is not on PATH. Catch it and
             # return a clean rejection string instead of letting it propagate
             # and crash; critically, NO unjailed subprocess is dispatched.
+            #
+            # CRED-EXFIL: embedded tests are an EXECUTE path -- pass
+            # bind_credentials=False so the jail drops the ~/.gemini / ~/.claude
+            # credential surface and unshares the network/IPC namespaces.
             try:
                 collect_argv = build_jail_argv(
                     collect_argv,
@@ -184,6 +188,7 @@ def run_embedded_tests(
                     extra_ro=[sys.base_prefix, sys.prefix, *_verify_extra_ro],
                     extra_rw=_verify_extra_rw,
                     dbus_proxy_socket=_dbus_sock,
+                    bind_credentials=False,
                 )
             except FileNotFoundError:
                 return (
@@ -221,6 +226,7 @@ def run_embedded_tests(
         ]
         if sandboxed:
             # SEC-3 fail-closed (symmetric to the collect_argv guard above).
+            # CRED-EXFIL: same execute-path bind_credentials=False as above.
             try:
                 run_argv = build_jail_argv(
                     run_argv,
@@ -230,6 +236,7 @@ def run_embedded_tests(
                     extra_ro=[sys.base_prefix, sys.prefix, *_verify_extra_ro],
                     extra_rw=_verify_extra_rw,
                     dbus_proxy_socket=_dbus_sock,
+                    bind_credentials=False,
                 )
             except FileNotFoundError:
                 return (
