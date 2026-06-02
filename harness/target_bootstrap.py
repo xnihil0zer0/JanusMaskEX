@@ -74,6 +74,48 @@ def _read_valid_marker(root: Path) -> dict | None:
         return None
     return obj
 
+def _working_dir_allowed(working_dir: str | os.PathLike) -> bool:
+    """External-roots PATH allowlist gate (DENY-ALL by default, fail-closed).
+
+    Resolves the allowlist file from ``JANUSMASK_EXTERNAL_ROOTS_ALLOW`` if set,
+    else ``STATE_DIR / 'control' / 'autowork' / 'external_roots.allow'`` (with
+    ``STATE_DIR`` imported lazily so this module stays import-portable). Each
+    non-blank, non-comment line is resolved into a path prefix. Returns True iff
+    the resolved ``working_dir`` equals an approved prefix or is strictly under
+    one. Returns False when the allowlist is missing/unreadable/empty/comment-only
+    or on ANY error (fail-closed).
+    """
+    try:
+        allow_env = os.environ.get('JANUSMASK_EXTERNAL_ROOTS_ALLOW')
+        if allow_env:
+            allow_path = Path(allow_env)
+        else:
+            from harness.paths import STATE_DIR
+            allow_path = STATE_DIR / 'control' / 'autowork' / 'external_roots.allow'
+        if not allow_path.is_file():
+            return False
+        try:
+            raw = allow_path.read_text(encoding='utf-8')
+        except OSError:
+            return False
+        prefixes: list[Path] = []
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            try:
+                prefixes.append(Path(line).resolve())
+            except (OSError, ValueError):
+                continue
+        if not prefixes:
+            return False
+        target = Path(working_dir).resolve()
+        for prefix in prefixes:
+            if target == prefix or prefix in target.parents:
+                return True
+        return False
+    except Exception:
+        return False
 def _has_git(root: Path) -> bool:
     return (root / '.git').exists()
 
@@ -169,6 +211,8 @@ def bootstrap_target(working_dir: str | os.PathLike) -> Path:
         if _is_dirty(root):
             raise BootstrapRefused(f'refusing to bootstrap {root}: working tree is dirty (uncommitted changes)')
         raise BootstrapRefused(f'refusing to bootstrap {root}: it is a git repo with no JanusMask ownership marker ({_MARKER_REL}) — treated as foreign')
+    if not _working_dir_allowed(root):
+        raise BootstrapRefused(f'refusing to bootstrap {root}: not under an approved external root')
     _git(['init'], cwd=root, check=True)
     _git(['config', 'user.email', 'rebuild-engine@janusmask.local'], cwd=root, check=False)
     _git(['config', 'user.name', 'JanusMask Rebuild Engine'], cwd=root, check=False)

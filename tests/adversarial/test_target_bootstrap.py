@@ -35,6 +35,9 @@ def _isolated_workroot(tmp_path, monkeypatch):
     wr = tmp_path / "agentwork"
     wr.mkdir()
     monkeypatch.setenv("JANUSMASK_AGENT_WORKROOT", str(wr))
+    allow = tmp_path / "external_roots.allow"
+    allow.write_text(str(tmp_path) + "\n", encoding="utf-8")
+    monkeypatch.setenv("JANUSMASK_EXTERNAL_ROOTS_ALLOW", str(allow))
     yield wr
 
 
