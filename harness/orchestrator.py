@@ -388,7 +388,16 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
             if agent_jail.sandbox_enabled(config) and shutil.which('xdg-dbus-proxy') is not None:
                 raise RuntimeError('agent_sandbox is enabled and xdg-dbus-proxy is present but the filtered D-Bus proxy failed to start; refusing to spawn an agent on the unfiltered host bus (fail-closed).')
             _dbus_sock = None
-        cmd = agent_jail.build_jail_argv(cmd, repo_root=PROJECT_DIR, work_dir=env['JANUSMASK_WORK_DIR'], state_dir=env['JANUSMASK_STATE_DIR'], dbus_proxy_socket=_dbus_sock)
+        # T_RETARGET: for EXTERNAL tasks (JANUSMASK_WORKING_DIR not _target_is_self),
+        # retarget the jail repo_root onto the external target tree so the agent jails
+        # the work tree it is actually editing; self tasks keep repo_root=PROJECT_DIR.
+        working_dir = os.environ.get('JANUSMASK_WORKING_DIR')
+        from harness.paths import _target_is_self, effective_target_root
+        if not _target_is_self(working_dir):
+            _jail_repo_root = effective_target_root(working_dir)
+        else:
+            _jail_repo_root = PROJECT_DIR
+        cmd = agent_jail.build_jail_argv(cmd, repo_root=_jail_repo_root, work_dir=env['JANUSMASK_WORK_DIR'], state_dir=env['JANUSMASK_STATE_DIR'], dbus_proxy_socket=_dbus_sock)
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.OK}spawning{_C.RESET} {_C.DIM}{cmd[0]}{_C.RESET}')
     logger.info('Spawning %s: %s', agent, ' '.join(cmd[:6]) + ' ...')
     # AGENT-ISOLATION §3.2: cwd is the isolated, outside-repo workdir.

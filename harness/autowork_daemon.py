@@ -1699,6 +1699,13 @@ def _maybe_push_and_rebase_pin(repo_root: pathlib.Path, state_dir: pathlib.Path)
     commits+pushes the pin if it moved. All git steps are best-effort with
     telemetry; a failure emits a row and returns without raising.
     """
+    # T_RETARGET: for EXTERNAL tasks (JANUSMASK_WORKING_DIR not _target_is_self),
+    # the daemon must never push/rebase the harness repo on behalf of work that
+    # lives in an external target tree. Short-circuit before any git operation.
+    working_dir = os.environ.get('JANUSMASK_WORKING_DIR')
+    from harness.paths import _target_is_self
+    if not _target_is_self(working_dir):
+        return {'pushed': False, 'reason': 'external_noop'}
     if not _push_enabled(state_dir):
         return {'pushed': False, 'reason': 'disabled'}
     repo_root = pathlib.Path(repo_root)
