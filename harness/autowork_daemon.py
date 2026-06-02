@@ -1225,6 +1225,25 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
                         stamped_working_dir = _wd
             except (OSError, json.JSONDecodeError, UnicodeDecodeError):
                 stamped_working_dir = None
+            # BOOTSTRAP (REV22 §4-7): when a plan targets an EXTERNAL repo
+            # (working_dir present AND classified not-self), idempotently
+            # bootstrap it BEFORE staging its tasks. SELF-builds (working_dir
+            # absent or self) are untouched. Bootstrap is best-effort: a
+            # failure emits telemetry but does NOT skip staging (staging is
+            # the pre-existing behavior and must be preserved), and never
+            # raises into the iteration loop. Reachable from BOTH run_daemon
+            # and main(--once) via _iteration -> _auto_promote.
+            if stamped_working_dir:
+                try:
+                    from harness.paths import _target_is_self as _bs_is_self
+                    if not _bs_is_self(stamped_working_dir):
+                        from harness.target_bootstrap import bootstrap_target as _bs_bootstrap
+                        _bs_bootstrap(stamped_working_dir)
+                except Exception as _bs_exc:
+                    try:
+                        write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.time(), 'phase': 'autowork', 'task_id': '', 'event': 'silent_skip', 'detail': f'bootstrap {slug}: {type(_bs_exc).__name__}: {_bs_exc!r}', 'phase_tag': 'auto_promote_step_0b_bootstrap', 'exit': 0})
+                    except OSError:
+                        pass
             for tid in unstaged:
                 if not isinstance(tid, str) or not tid:
                     continue
@@ -1355,6 +1374,7 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
             write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.time(), 'phase': 'autowork', 'task_id': '', 'event': 'silent_skip', 'detail': f'plan_kickoff: {type(exc).__name__}: {exc!r}', 'phase_tag': 'auto_promote_step_3_plan_kickoff', 'exit': 0})
         except OSError:
             pass
+    return summary
 
 def _decide(repo_root: pathlib.Path, state_dir: pathlib.Path, running_task_ids: set[str], cap: int) -> tuple[list[dict], bool, int]:
     try:
