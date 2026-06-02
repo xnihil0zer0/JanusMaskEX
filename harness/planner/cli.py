@@ -99,6 +99,9 @@ def persist_plan(plan, out_path, brief_obj=None):
             plan['source_brief_path'] = sp
         if isinstance(sh, str) and 'source_brief_sha256' not in plan:
             plan['source_brief_sha256'] = sh
+        wd = getattr(brief_obj, 'working_dir', None)
+        if isinstance(wd, str) and wd and 'working_dir' not in plan:
+            plan['working_dir'] = wd
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(plan, f, indent=2)
 
