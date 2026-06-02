@@ -274,11 +274,21 @@ def build_jail_argv(
     # minimal sockets/dirs agy's OAuth needs: the session bus (``<xdg>/bus``) and the
     # keyring (``<xdg>/keyring``). Each is bound only if it exists on the host;
     # otherwise it is skipped (a bind over an absent source would fail bwrap boot).
+    #
+    # KEYRING-GATE (REV22 §1a): the keyring socket is a CREDENTIAL surface, so it is
+    # bound ONLY on the synthesis path (bind_credentials=True). On the execute path
+    # (bind_credentials=False) the rest of the credential surface is already dropped
+    # and --unshare-net/--unshare-ipc close the exfil channel, so the keyring sub is
+    # skipped here too (defense-in-depth). The bus is NOT gated -- it is the path to
+    # the (filtering) D-Bus proxy, not a credential surface -- so it (and the
+    # DBUS_SESSION_BUS_ADDRESS override) fires on both paths unchanged.
     xdg = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
     if os.path.isdir(xdg):
         argv += ["--tmpfs", xdg]
         for _xdg_sub in ("bus", "keyring"):
             _xp = os.path.join(xdg, _xdg_sub)
+            if _xdg_sub == "keyring" and not bind_credentials:
+                continue
             if _xdg_sub == "bus" and dbus_proxy_socket is not None:
                 # SEC-1b: when a dbus proxy socket is supplied, bind THAT mediated
                 # socket at the in-jail ``<xdg>/bus`` path instead of the host's real
