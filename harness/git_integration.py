@@ -13,7 +13,7 @@ import logging
 # (see harness/orchestrator.py:_apply_approval_granted). This guard is
 # independent of every CWD/shell isolation control and defends the
 # submission-application boundary regardless of agent isolation.
-_SENSITIVE_APPLY_GLOBS: tuple[str, ...] = ('harness/**', 'config/**', 'scripts/**')
+_SENSITIVE_APPLY_GLOBS: tuple[str, ...] = ('harness/**', 'config/**', 'scripts/**', 'services/**')
 
 
 def _matches_sensitive(rel_str: str, globs: tuple[str, ...]) -> bool:
