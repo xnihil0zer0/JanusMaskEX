@@ -601,7 +601,12 @@ def _contain_selfheal(cmd: list, env: dict, work_dir, state_dir, config: dict | 
         from harness.orchestrator import _assert_claude_hook_config
         _assert_claude_hook_config(cmd)
     if agent_jail.sandbox_enabled(config):
-        cmd = agent_jail.build_jail_argv(cmd, repo_root=PROJECT_ROOT_STR, work_dir=work_dir_s, state_dir=str(state_dir))
+        # SEC-1c-DAEMON: thread the daemon-lifetime filtered D-Bus proxy socket
+        # opened once by run_daemon at startup. Read defensively via globals() so a
+        # never-started daemon (the unit-test default) sees None and adds no
+        # per-escalation proxy Popen.
+        _dbus_sock = globals().get('_SELFHEAL_DBUS_SOCKET')
+        cmd = agent_jail.build_jail_argv(cmd, repo_root=PROJECT_ROOT_STR, work_dir=work_dir_s, state_dir=str(state_dir), dbus_proxy_socket=_dbus_sock)
     return cmd
 
 
@@ -1604,6 +1609,36 @@ def run_daemon(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -
             marker_path.unlink()
     except OSError:
         pass
+    # SEC-1c-DAEMON: open ONE daemon-lifetime filtered D-Bus proxy at startup (only
+    # when the sandbox is enabled) and stash its socket in a module global so the
+    # single self-heal funnel _contain_selfheal can thread it into every detached
+    # build_jail_argv spawn. FAIL-OPEN: any failure leaves the socket None and the
+    # daemon proceeds to a clean shutdown. The globals are created here at runtime
+    # (no module-level assignment); all imports are lazy in-body.
+    global _SELFHEAL_DBUS_SOCKET, _SELFHEAL_DBUS_STACK
+    _SELFHEAL_DBUS_SOCKET = None
+    _SELFHEAL_DBUS_STACK = None
+    try:
+        from harness import agent_jail as _agent_jail
+        if _agent_jail.sandbox_enabled(config):
+            import contextlib
+            from harness.dbus_proxy import proxied_session_bus
+            stack = contextlib.ExitStack()
+            try:
+                _SELFHEAL_DBUS_SOCKET = stack.enter_context(proxied_session_bus())
+                _SELFHEAL_DBUS_STACK = stack
+            except Exception as exc:
+                _SELFHEAL_DBUS_SOCKET = None
+                _SELFHEAL_DBUS_STACK = None
+                try:
+                    stack.close()
+                except Exception:
+                    pass
+                _emit_telemetry(state_dir, '', 'skip', f'dbus proxy init error: {exc!r}')
+    except Exception as exc:
+        _SELFHEAL_DBUS_SOCKET = None
+        _SELFHEAL_DBUS_STACK = None
+        _emit_telemetry(state_dir, '', 'skip', f'dbus proxy init error: {exc!r}')
     prev_paused: bool | None = None
     prev_is_idle: bool = False
     try:
@@ -1654,6 +1689,13 @@ def run_daemon(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -
             _drain_running(state_dir, grace=30.0)
         except Exception as exc:
             _emit_telemetry(state_dir, '', 'skip', f'drain error: {exc!r}')
+        try:
+            if _SELFHEAL_DBUS_STACK is not None:
+                _SELFHEAL_DBUS_STACK.close()
+        except Exception:
+            pass
+        _SELFHEAL_DBUS_SOCKET = None
+        _SELFHEAL_DBUS_STACK = None
         _emit_telemetry(state_dir, '', 'daemon_stop', 'shutdown')
     return 0
 
