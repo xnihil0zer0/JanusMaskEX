@@ -249,6 +249,13 @@ def build_jail_argv(
                 argv += ["--bind", dbus_proxy_socket, _xp]
             elif os.path.exists(_xp):
                 argv += ["--bind", _xp, _xp]
+        # SEC-1: when the filtering D-Bus proxy socket is in play, point the jailed
+        # agent's DBUS_SESSION_BUS_ADDRESS at the in-jail ``<xdg>/bus`` (where the
+        # mediated socket is bound just above) -- never at the host's real session bus.
+        # In default mode (dbus_proxy_socket is None) no override is emitted, so the
+        # host DBUS_SESSION_BUS_ADDRESS passes through unchanged.
+        if dbus_proxy_socket is not None:
+            argv += ["--setenv", "DBUS_SESSION_BUS_ADDRESS", "unix:path=" + os.path.join(xdg, "bus")]
     # The load-bearing barrier: repository source READ-ONLY.
     argv += ["--ro-bind", repo_root, repo_root]
     # CONTAIN C-HARDEN M-1: state/ is READ-ONLY except state/sessions/ (the hook
