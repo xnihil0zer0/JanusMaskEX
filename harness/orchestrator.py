@@ -1131,11 +1131,13 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
     entry; all other entries (including non-symbol region patches, which
     carry no name) receive ``None`` and are never return-type-checked.
 
-    G2_RELAX (REV22 §4-3, CR-1/CR-2/CR-3): external targets (working_dir
-    resolves OUTSIDE the JanusMask tree) relax eval/exec/__import__ at
-    commit-time too -- threaded into all three ``validate_code`` calls
-    (manifest, partial-edit, single-file). Fail-safe to self: absent/None
-    working_dir => ``_target_is_self`` True => ``relax_external`` False, so
+    G2_RELAX (REV22 §4-3, CR-1/CR-2/CR-3): external targets relax
+    eval/exec/__import__ at commit-time too -- threaded into all three
+    ``validate_code`` calls (manifest, partial-edit, single-file).
+    RELAX_PREDICATE: the shared ``relax_external_for`` predicate decides this,
+    additionally requiring every resolved target to land OUTSIDE PROJECT_ROOT
+    so a non-self working_dir cannot relax validation for an inside-repo
+    write. Fail-safe to self: absent/None working_dir => relax False, so
     self/default stays fully strict. Credentials/os_system/bare_except/
     nondeterminism stay strict for all targets.
     """
@@ -1147,8 +1149,8 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
         elif isinstance(mtt, str) and mtt.startswith('test_'):
             allow_nondet = True
     declared_signature = _load_declared_signature(task)
-    from harness.paths import _target_is_self
-    relax_external = not _target_is_self(task.get('working_dir'))
+    from harness.paths import relax_external_for
+    relax_external = relax_external_for(task, content=code)
     manifest = _parse_manifest(code)
     if manifest is not None:
         all_violations: list = []

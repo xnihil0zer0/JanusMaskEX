@@ -103,10 +103,13 @@ def decide_submission(ctx: 'DeciderContext', content: str, events: list[dict[str
     synthesis_target_type = str(task.get('synthesis_target_type', '') or '')
     task_id = str(task.get('task_id') or '')
     # REV22 §4-3 (CR-1): external targets (working_dir resolves OUTSIDE the
-    # JanusMask tree) relax eval/exec/__import__ at submit-time. Fail-safe to
-    # self: absent/None working_dir => _target_is_self True => relax False.
-    from harness.paths import _target_is_self
-    relax_external = not _target_is_self(task.get('working_dir'))
+    # JanusMask tree AND every resolved target lands outside PROJECT_ROOT)
+    # relax eval/exec/__import__ at submit-time. RELAX_PREDICATE: the shared
+    # ``relax_external_for`` predicate also inspects the target set so a
+    # non-self working_dir cannot smuggle an inside-repo write past the relaxed
+    # gate. Fail-safe to self: absent/None working_dir => relax False.
+    from harness.paths import relax_external_for
+    relax_external = relax_external_for(task, content=content)
     violations = rpc_submit_code.validate(content, allow_nondeterminism=allow_nondet, relax_external_constructs=relax_external)
     errors = [v for v in violations if getattr(v, 'severity', '') == 'error']
     if errors:

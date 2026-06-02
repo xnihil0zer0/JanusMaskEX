@@ -100,6 +100,78 @@ def _target_is_self(working_dir: str | os.PathLike | None=None) -> bool:
     except (OSError, ValueError, RuntimeError, Exception):
         return True
 
+def relax_external_for(task: dict, content: str | None=None) -> bool:
+    """Shared predicate gating whether external constructs (eval/exec/
+    ``__import__``) are relaxed at submit/commit time.
+
+    RELAX_PREDICATE: closes the CRITICAL self-target bypass where a
+    ``working_dir``-only check (``not _target_is_self(...)``) relaxed AST
+    validation even when the *targets* the submission would overwrite
+    actually resolve back INSIDE ``PROJECT_ROOT``. The predicate now also
+    inspects the resolved target set so an external workdir cannot smuggle
+    an inside-repo write past the relaxed gate.
+
+    Returns ``True`` if and only if ``working_dir`` is non-self AND every
+    resolved target path lands strictly OUTSIDE ``PROJECT_ROOT``. Fail-closed
+    (returns ``False``) when ``working_dir`` is absent/self, when the target
+    set is empty, or when any target path is unresolvable.
+
+    The target set is built from ``task['files_touched']`` (when a list),
+    ``task.get('target_file')`` (when present), and the relative keys of any
+    ``__JANUSMASK_MANIFEST__`` dict assignment found in ``content`` (parsed
+    via ``ast``; unparseable content falls back to ``files_touched`` only).
+    Absolute targets resolve directly; relative targets resolve against
+    ``effective_target_root(working_dir)``.
+
+    Lazy in-body ``ast`` import (no new module-level imports per the
+    paths.py clone-portability constraint).
+    """
+    import ast as _ast
+    working_dir = task.get('working_dir')
+    if _target_is_self(working_dir):
+        return False
+    root = effective_target_root(working_dir)
+    targets: list[str] = []
+    files_touched = task.get('files_touched')
+    if isinstance(files_touched, list):
+        targets.extend((str(f) for f in files_touched))
+    target_file = task.get('target_file')
+    if target_file:
+        targets.append(str(target_file))
+    if content:
+        try:
+            tree = _ast.parse(content)
+        except (SyntaxError, ValueError):
+            tree = None
+        if tree is not None:
+            for node in tree.body:
+                if not isinstance(node, _ast.Assign):
+                    continue
+                if len(node.targets) != 1:
+                    continue
+                tgt = node.targets[0]
+                if not isinstance(tgt, _ast.Name) or tgt.id != '__JANUSMASK_MANIFEST__':
+                    continue
+                if not isinstance(node.value, _ast.Dict):
+                    continue
+                for key in node.value.keys:
+                    if isinstance(key, _ast.Constant) and isinstance(key.value, str):
+                        targets.append(key.value)
+    if not targets:
+        return False
+    try:
+        project_root = PROJECT_ROOT.resolve()
+        for raw in targets:
+            candidate = Path(raw)
+            if candidate.is_absolute():
+                resolved = candidate.resolve()
+            else:
+                resolved = (Path(root) / candidate).resolve()
+            if resolved == project_root or project_root in resolved.parents:
+                return False
+    except (OSError, ValueError, RuntimeError, Exception):
+        return False
+    return True
 def effective_target_root(working_dir: str | os.PathLike | None=None) -> Path:
     """Normalize ``working_dir`` to an effective target root.
 
