@@ -1706,6 +1706,21 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     at every site). The ``[sys.base_prefix, sys.prefix]`` SEC-2 prefix is
     NEVER dropped -- ``verify_extra_ro`` is appended after it.
 
+    G3_VENV (VENV_JAIL): for EXTERNAL tasks the four jailed verify/mutant runs
+    are pinned to the TARGET repository's own virtualenv. A local
+    ``_ext_venv_ro`` list binds ``<worktree_root>/.venv`` read-only into every
+    jail (appended after the SEC-2 prefix + SEC-5c allowlist so neither is
+    dropped) and a nested ``_venv_jail_env()`` helper returns the
+    ``_vcmd_scrubbed_env()`` copy with ``<worktree_root>/.venv/bin`` PREFIXED
+    onto PATH so the verification_command resolves the TARGET interpreter, not
+    whatever python the harness environment happens to expose. The helper FAILS
+    CLOSED: if the EXTERNAL target's ``.venv/bin/python`` is absent it raises a
+    ``RuntimeError`` rather than silently inheriting the harness python. SELF
+    tasks are byte-identical to the pre-G3_VENV behavior -- ``_ext_venv_ro`` is
+    empty and ``_venv_jail_env()`` returns the scrubbed env unmodified (no PATH
+    mutation, default interpreter), and ``bind_credentials=False`` plus the
+    net/ipc namespace unshare are preserved at every site.
+
     ROLLBACK_WORKTREE_CHECKOUT: both ``git reset --hard HEAD~1`` rollback
     sites (verification_missing and verification_failed) are followed by a
     best-effort ``git checkout HEAD -- <target_rel>`` to scrub any stray
@@ -1858,6 +1873,37 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
 
     logger.info('auto-commit: using staging worktree at %s for task %s', staging_path, task_id)
 
+    # G3_VENV (VENV_JAIL): bind the EXTERNAL target's own .venv subtree read-only
+    # into the jail and pin PATH at the target interpreter. For a SELF task both
+    # are inert (empty list / unmodified scrubbed env) so the fallback-interpreter
+    # behavior is byte-identical. worktree_root / working_dir / _target_is_self /
+    # _vcmd_scrubbed_env / os / sys are already in scope (no new top-level
+    # symbols, no new module-level imports).
+    _ext_venv_ro = [str(worktree_root / '.venv')] if not _target_is_self(working_dir) else []
+
+    def _venv_jail_env() -> dict[str, str]:
+        # Start from the scrubbed env (PATH preserved, JANUSMASK_* dropped). For a
+        # SELF task return it unmodified: no .venv injection, default interpreter.
+        _env = _vcmd_scrubbed_env()
+        if _target_is_self(working_dir):
+            return _env
+        # EXTERNAL: fail CLOSED if the target's own venv interpreter is absent --
+        # never silently inherit the harness environment python. Otherwise PREFIX
+        # <worktree_root>/.venv/bin onto PATH so the verification_command resolves
+        # the TARGET interpreter first.
+        _venv_bin = worktree_root / '.venv' / 'bin'
+        if not (_venv_bin / 'python').exists():
+            raise RuntimeError(
+                'G3_VENV: refusing to run the verification_command for an EXTERNAL '
+                'target whose virtualenv is missing (%s is absent); the orchestrator '
+                'will NOT silently inherit the harness environment python (no-venv '
+                'refusal, fail-closed). Create the target .venv and retry.'
+                % (_venv_bin / 'python',)
+            )
+        _path = _env.get('PATH', '')
+        _env['PATH'] = str(_venv_bin) + (os.pathsep + _path if _path else '')
+        return _env
+
     # EXTERNAL_DIRTY_GATE (REV23 §3-2): before creating the staging worktree,
     # REFUSE an EXTERNAL task whose target repository root has a dirty working
     # tree. We never auto-stage/stash a user's repo -- a non-empty
@@ -2004,6 +2050,8 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                 # extra_ro=[sys.base_prefix, sys.prefix] keeps the real python +
                 # pytest resolvable even when the venv lives outside repo_root.
                 # SEC-5c: widen extra_ro with verify_extra_ro and add extra_rw.
+                # G3_VENV: append _ext_venv_ro (the EXTERNAL target's .venv) and
+                # pin PATH at the target interpreter via env=_venv_jail_env().
                 _vfull = f'set -o pipefail; {vcmd}'
                 if agent_jail.sandbox_enabled(load_config()):
                     # SEC-1 (FAILCLOSED_VERIFY_ORCHACC): narrow the try to the
@@ -2021,7 +2069,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                             raise RuntimeError('agent_sandbox is enabled and xdg-dbus-proxy is present but the filtered D-Bus proxy failed to start; refusing to spawn an agent on the unfiltered host bus (fail-closed).')
                         _sock = None
                     try:
-                        vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock, bind_credentials=False), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                        vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro) + _ext_venv_ro, extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock, bind_credentials=False), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_venv_jail_env())
                     finally:
                         _dbus_stack.close()
                 else:
@@ -2148,6 +2196,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                             # and records mutation_gate_error; never credit the
                             # mutant as caught on an infra fluke. SEC-5c: same
                             # verify_extra_ro/extra_rw widening as every jailed site.
+                            # G3_VENV: append _ext_venv_ro and env=_venv_jail_env().
                             _bfull = f'set -o pipefail; {vcmd}'
                             if agent_jail.sandbox_enabled(load_config()):
                                 # SEC-1 (FAILCLOSED_VERIFY_ORCHACC): proxy context
@@ -2162,7 +2211,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                         raise RuntimeError('agent_sandbox is enabled and xdg-dbus-proxy is present but the filtered D-Bus proxy failed to start; refusing to spawn an agent on the unfiltered host bus (fail-closed).')
                                     _sock = None
                                 try:
-                                    _bproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _bfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock, bind_credentials=False), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                    _bproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _bfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro) + _ext_venv_ro, extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock, bind_credentials=False), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_venv_jail_env())
                                 finally:
                                     _dbus_stack.close()
                             else:
@@ -2188,6 +2237,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                 # otherwise the original shell=True call. The pipefail
                                 # wrapper text is byte-identical in both branches.
                                 # SEC-5c: widen extra_ro/extra_rw like every site.
+                                # G3_VENV: append _ext_venv_ro and env=_venv_jail_env().
                                 _afull = f"set -o pipefail; {_mut['apply']}"
                                 if agent_jail.sandbox_enabled(load_config()):
                                     # SEC-1 (FAILCLOSED_VERIFY_ORCHACC): proxy
@@ -2203,7 +2253,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                             raise RuntimeError('agent_sandbox is enabled and xdg-dbus-proxy is present but the filtered D-Bus proxy failed to start; refusing to spawn an agent on the unfiltered host bus (fail-closed).')
                                         _sock = None
                                     try:
-                                        _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock, bind_credentials=False), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                        _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro) + _ext_venv_ro, extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock, bind_credentials=False), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_venv_jail_env())
                                     finally:
                                         _dbus_stack.close()
                                 else:
@@ -2219,6 +2269,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                 # shell=True call. The pipefail wrapper + vcmd text
                                 # stay byte-identical in both branches. SEC-5c: widen
                                 # extra_ro/extra_rw like every jailed site.
+                                # G3_VENV: append _ext_venv_ro and env=_venv_jail_env().
                                 _rfull = f'set -o pipefail; {vcmd}'
                                 if agent_jail.sandbox_enabled(load_config()):
                                     # SEC-1 (FAILCLOSED_VERIFY_ORCHACC): proxy
@@ -2234,7 +2285,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                             raise RuntimeError('agent_sandbox is enabled and xdg-dbus-proxy is present but the filtered D-Bus proxy failed to start; refusing to spawn an agent on the unfiltered host bus (fail-closed).')
                                         _sock = None
                                     try:
-                                        _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro), extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock, bind_credentials=False), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env())
+                                        _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro) + _ext_venv_ro, extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock, bind_credentials=False), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_venv_jail_env())
                                     finally:
                                         _dbus_stack.close()
                                 else:
