@@ -1757,12 +1757,16 @@ def main(argv: list[str] | None=None) -> int:
         # supervised single-iteration path also opens ONE daemon-lifetime filtered
         # D-Bus proxy (only when the sandbox is enabled) and stashes its socket in
         # the module global that _contain_selfheal threads into every detached
-        # build_jail_argv spawn. FAIL-OPEN: any failure leaves the socket None and
-        # the iteration proceeds. The globals are created here at runtime (no
-        # module-level assignment); all imports are lazy in-body.
-        global _SELFHEAL_DBUS_SOCKET, _SELFHEAL_DBUS_STACK
+        # build_jail_argv spawn. SEC-1 FAIL-CLOSED: track whether a genuine proxy
+        # spawn attempt FAILED via the runtime global _SELFHEAL_DBUS_PROXY_FAILED so
+        # the self-heal funnel can refuse to spawn on the unfiltered host bus when
+        # the proxy binary is present but the proxy could not start -- identical to
+        # run_daemon. The globals are created here at runtime (no module-level
+        # assignment); all imports are lazy in-body.
+        global _SELFHEAL_DBUS_SOCKET, _SELFHEAL_DBUS_STACK, _SELFHEAL_DBUS_PROXY_FAILED
         _SELFHEAL_DBUS_SOCKET = None
         _SELFHEAL_DBUS_STACK = None
+        _SELFHEAL_DBUS_PROXY_FAILED = False
         try:
             from harness import agent_jail as _agent_jail
             if _agent_jail.sandbox_enabled(config):
@@ -1775,6 +1779,7 @@ def main(argv: list[str] | None=None) -> int:
                 except Exception as exc:
                     _SELFHEAL_DBUS_SOCKET = None
                     _SELFHEAL_DBUS_STACK = None
+                    _SELFHEAL_DBUS_PROXY_FAILED = True
                     try:
                         stack.close()
                     except Exception:
@@ -1783,6 +1788,7 @@ def main(argv: list[str] | None=None) -> int:
         except Exception as exc:
             _SELFHEAL_DBUS_SOCKET = None
             _SELFHEAL_DBUS_STACK = None
+            _SELFHEAL_DBUS_PROXY_FAILED = True
             _emit_telemetry(state_dir, '', 'skip', f'dbus proxy init error: {exc!r}')
         try:
             _iteration(repo_root, state_dir, cap, dry_run=False, config=config)
