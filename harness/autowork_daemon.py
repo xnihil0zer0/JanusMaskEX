@@ -658,6 +658,21 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
             pass
     if not isinstance(config, dict):
         config = {}
+    # RUNAWAY_CEILING: daemon-level GLOBAL cascade ceiling for self-heal
+    # escalations. The module-level counter is managed dynamically at runtime
+    # (mirroring _SELFHEAL_DBUS_SOCKET) -- no top-level assignment is added; the
+    # first read defaults to 0. Degenerate skips above already returned and so
+    # never reach this budget. The check sits AFTER the degenerate-skip return
+    # and AFTER config is available.
+    count = globals().get('_SELFHEAL_ESCALATION_COUNT', 0)
+    ceiling = _autowork_section(config).get('max_total_selfheal_escalations', 50)
+    if not isinstance(ceiling, int):
+        ceiling = 50
+    if count >= ceiling:
+        _emit_telemetry(state_dir, task_id, 'runaway_ceiling_tripped', f'dropped escalation, count={count}/{ceiling}')
+        return
+    global _SELFHEAL_ESCALATION_COUNT
+    _SELFHEAL_ESCALATION_COUNT = count + 1
     control = config.get('control', {})
     agent = control.get('autobrief_default_agent', 'claude') if isinstance(control, dict) else 'claude'
     if not agent:
@@ -1919,6 +1934,21 @@ def _escalate_inactivity(state_dir: pathlib.Path, config: dict) -> None:
         config_path = state_dir.parent / 'harness' / 'config.yaml'
     if not isinstance(config, dict):
         config = {}
+    # RUNAWAY_CEILING: daemon-level GLOBAL cascade ceiling for self-heal
+    # escalations. The module-level counter is managed dynamically at runtime
+    # (mirroring _SELFHEAL_DBUS_SOCKET) -- no top-level assignment is added; the
+    # first read defaults to 0. The no_actionable_work degenerate-skip above
+    # already returned and so never reaches this budget. The check sits AFTER
+    # that return and AFTER config is available.
+    count = globals().get('_SELFHEAL_ESCALATION_COUNT', 0)
+    ceiling = _autowork_section(config).get('max_total_selfheal_escalations', 50)
+    if not isinstance(ceiling, int):
+        ceiling = 50
+    if count >= ceiling:
+        _emit_telemetry(state_dir, task_id, 'runaway_ceiling_tripped', f'dropped escalation, count={count}/{ceiling}')
+        return
+    global _SELFHEAL_ESCALATION_COUNT
+    _SELFHEAL_ESCALATION_COUNT = count + 1
     control = config.get('control', {})
     agent = control.get('autobrief_default_agent', 'claude') if isinstance(control, dict) else 'claude'
     if not agent:
