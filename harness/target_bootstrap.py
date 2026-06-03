@@ -198,6 +198,8 @@ def bootstrap_target(working_dir: str | os.PathLike) -> Path:
     The caller MUST have already classified ``working_dir`` as not-self.
     """
     root = Path(working_dir).resolve()
+    if not _working_dir_allowed(root):
+        raise BootstrapRefused(f'refusing to bootstrap {root}: not under an approved external root')
     if not root.exists():
         root.mkdir(parents=True, exist_ok=True)
     has_git = _has_git(root)
