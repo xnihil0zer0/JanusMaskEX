@@ -240,6 +240,13 @@ def main() -> int:
                 ast_retries = 0
                 agent_a_prompt = base_prompt
                 agent_b_prompt = base_prompt
+                # P5a: cache the most recent AST-valid submission per individual
+                # synthesis agent. Initialized to None for each live agent BEFORE the
+                # retry loop and kept LOCAL to main() (never persisted across tasks).
+                # Once an agent's slot is non-None it is reused verbatim and the agent
+                # is not re-synthesized on a later AST retry, so a passed agent does not
+                # burn its budget re-running while the other agent is still failing.
+                valid_cache: dict[str, str | None] = {agent_a: None, agent_b: None}
                 while ast_retries < max_ast_retries:
                     if ast_retries > 0:
                         remaining_budget = HARD_TIMEOUT_SECONDS - (time.monotonic() - worker_start_monotonic)
@@ -249,7 +256,21 @@ def main() -> int:
                             exit_code = 2
                             return exit_code
                     locked_read_modify_write(_set_task_state, state_dir)
-                    agent_a_code, agent_b_code = orch.run_both_agents(agent_a_prompt, agent_b_prompt, config, state_dir, round_number, phase_name='synthesis')
+                    # P5a: cache-aware synthesis. If neither agent has a cached AST-valid
+                    # submission, run both agents exactly as before. Otherwise reuse the
+                    # cached code for the already-valid agent (so it is NOT re-synthesized)
+                    # and send a live prompt only to the agent(s) whose slot is still None.
+                    if valid_cache[agent_a] is None and valid_cache[agent_b] is None:
+                        agent_a_code, agent_b_code = orch.run_both_agents(agent_a_prompt, agent_b_prompt, config, state_dir, round_number, phase_name='synthesis')
+                    else:
+                        if valid_cache[agent_a] is not None:
+                            agent_a_code = valid_cache[agent_a]
+                        else:
+                            agent_a_code = orch.run_agent_phase(agent_a, agent_a_prompt, config, state_dir, round_number, phase_name='synthesis')
+                        if valid_cache[agent_b] is not None:
+                            agent_b_code = valid_cache[agent_b]
+                        else:
+                            agent_b_code = orch.run_agent_phase(agent_b, agent_b_prompt, config, state_dir, round_number, phase_name='synthesis')
                     for agent, code in [(agent_a, agent_a_code), (agent_b, agent_b_code)]:
                         if code is None:
                             set_agent_status(state_dir, agent=agent, status='timeout')
@@ -294,6 +315,13 @@ def main() -> int:
                                 agent_b_code = repaired
                                 agent_b_valid = True
                                 agent_b_violations = revalid_v
+                    # P5a: store each agent's validated code in the cache only once it is
+                    # AST-valid (after any auto-repair). A failing agent's slot stays None
+                    # so it is re-synthesized next attempt; a now-valid agent is reused.
+                    if agent_a_valid:
+                        valid_cache[agent_a] = agent_a_code
+                    if agent_b_valid:
+                        valid_cache[agent_b] = agent_b_code
                     if not (agent_a_valid and agent_b_valid):
                         ast_retries += 1
                         if not agent_a_valid:
