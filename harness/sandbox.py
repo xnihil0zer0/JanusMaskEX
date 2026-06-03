@@ -1604,6 +1604,87 @@ class BatchRunner:
         )
 
 
+_STATEFUL_TRACE_DRIVER = '\n\ndef __janusmask_replay_trace__(class_name, init_args, method_calls):\n    import json as _json\n\n    def _safe_repr(v):\n        try:\n            return repr(v)\n        except Exception:\n            return "<unreprable>"\n\n    def _split_args(container):\n        if container is None:\n            return [], {}\n        if isinstance(container, dict):\n            if "args" in container or "kwargs" in container:\n                a = container.get("args", [])\n                k = container.get("kwargs", {})\n                a = list(a) if a is not None else []\n                k = dict(k) if k is not None else {}\n                return a, k\n            return [], dict(container)\n        if isinstance(container, (list, tuple)):\n            return list(container), {}\n        return [container], {}\n\n    def _method_of(call):\n        if isinstance(call, dict):\n            return (call.get("method") or call.get("name")), call\n        if isinstance(call, (list, tuple)):\n            name = call[0] if len(call) >= 1 else None\n            cargs = call[1] if len(call) >= 2 else None\n            return name, cargs\n        return call, None\n\n    def _serialize(value):\n        try:\n            _json.dumps(value)\n            return value, True\n        except Exception:\n            return None, False\n\n    calls = list(method_calls or [])\n    trace = []\n\n    cls = globals().get(class_name)\n    if cls is None:\n        trace.append({\n            "step": 0,\n            "method": "__init__",\n            "exception": {"type": "NameError",\n                          "message": "class \'%s\' not found in submission" % class_name},\n        })\n        for i, call in enumerate(calls, start=1):\n            mname, _c = _method_of(call)\n            trace.append({"step": i, "method": mname,\n                          "skipped": True, "reason": "class_not_found"})\n        return trace\n\n    ia, ik = _split_args(init_args)\n    try:\n        instance = cls(*ia, **ik)\n    except Exception as exc:\n        trace.append({\n            "step": 0,\n            "method": "__init__",\n            "exception": {"type": type(exc).__name__, "message": str(exc)},\n        })\n        for i, call in enumerate(calls, start=1):\n            mname, _c = _method_of(call)\n            trace.append({"step": i, "method": mname,\n                          "skipped": True, "reason": "construction_failed"})\n        return trace\n\n    trace.append({"step": 0, "method": "__init__",\n                  "value": None, "value_repr": _safe_repr(instance)})\n\n    for i, call in enumerate(calls, start=1):\n        mname, cargs = _method_of(call)\n        ca, ck = _split_args(cargs)\n        try:\n            method = getattr(instance, mname)\n            ret = method(*ca, **ck)\n        except Exception as exc:\n            trace.append({"step": i, "method": mname,\n                          "exception": {"type": type(exc).__name__,\n                                        "message": str(exc)}})\n            continue\n        sval, ok = _serialize(ret)\n        trace.append({"step": i, "method": mname,\n                      "value": sval if ok else None,\n                      "value_repr": _safe_repr(ret)})\n\n    return trace\n'
+
+def execute_stateful_trace(code: str, class_name: str, init_args: Any=None, method_calls: list | None=None, *, runner: Any=None, timeout: float | None=None) -> list[dict]:
+    """Replay a symbolic action sequence against a freshly-built instance.
+
+    The class named *class_name* (defined in *code*) is instantiated with
+    *init_args*, then each ``(method_name, args)`` entry in *method_calls* is
+    invoked in order against the single living instance. Each step is captured
+    as either ``{'step': i, 'method': name, 'value': ..., 'value_repr': ...}``
+    or ``{'step': i, 'method': name, 'exception': {'type': ..., 'message': ...}}``.
+    Step 0 is the constructor result; if construction raises, the failure is
+    recorded at step 0 and the remaining steps are marked ``skipped`` (not run),
+    so the total length is always ``len(method_calls) + 1``.
+
+    The replay executes through the existing :class:`Sandbox` (or a supplied
+    *runner* exposing a compatible ``execute``), so every credential /
+    environment / nondeterminism / resource gate of the jail is inherited
+    unchanged -- this routine only *calls* the sandbox, it does not alter it.
+    Constructor failures, per-step exceptions, timeouts and jail kills are all
+    surfaced as structured trace entries rather than raised. The returned list
+    is plain JSON-compatible data suitable for ``outputs_match`` / ``_deep_compare``.
+
+    Args:
+        code: Implementation source defining the class under test.
+        class_name: Name of the class to instantiate.
+        init_args: Constructor arguments; a list/tuple (positional), a dict
+            (keyword), or a ``{'args': [...], 'kwargs': {...}}`` container.
+        method_calls: Ordered ``(method_name, args)`` commands; each entry may
+            be a ``[name, args]`` pair, a ``{'method': name, 'args': ...}`` dict,
+            or a bare method-name string.
+        runner: Optional pre-built ``Sandbox``/``BatchRunner`` to reuse instead
+            of constructing a throwaway ``Sandbox``.
+        timeout: Optional per-execution wall budget in seconds (only applied
+            when this function builds its own ``Sandbox``).
+    """
+    calls = list(method_calls or [])
+
+    def _name_of(call: Any) -> Any:
+        if isinstance(call, dict):
+            return call.get('method') or call.get('name')
+        if isinstance(call, (list, tuple)):
+            return call[0] if call else None
+        return call
+
+    def _failed_trace(err_type: str, err_msg: str, reason: str) -> list[dict]:
+        out: list[dict] = [{'step': 0, 'method': '__init__', 'exception': {'type': err_type, 'message': err_msg}}]
+        for i, call in enumerate(calls, start=1):
+            out.append({'step': i, 'method': _name_of(call), 'skipped': True, 'reason': reason})
+        return out
+    driver_src = code + '\n\n' + _STATEFUL_TRACE_DRIVER
+    own_runner = False
+    if runner is None:
+        cfg = SandboxConfig()
+        if timeout is not None:
+            cfg.timeout_per_input_ms = int(float(timeout) * 1000)
+        session = f'stateful_trace_{os.getpid()}_{int(time.time() * 1000000)}'
+        runner = Sandbox(config=cfg, session_id=session)
+        own_runner = True
+    execute = getattr(runner, 'execute', None)
+    if not callable(execute):
+        fallback = getattr(runner, '_sandbox_fallback', None)
+        execute = getattr(fallback, 'execute', None)
+    if not callable(execute):
+        return _failed_trace('SandboxError', 'runner does not support single execution', 'sandbox_error')
+    try:
+        result = execute(driver_src, '__janusmask_replay_trace__', [class_name, init_args, calls])
+    except Exception as exc:
+        return _failed_trace(type(exc).__name__, str(exc), 'sandbox_error')
+    finally:
+        if own_runner:
+            try:
+                runner.cleanup()
+            except Exception:
+                pass
+    if getattr(result, 'success', False) and isinstance(getattr(result, 'return_value', None), list):
+        return result.return_value
+    if getattr(result, 'timed_out', False):
+        return _failed_trace('TimeoutError', getattr(result, 'exception_message', None) or 'stateful trace timed out', 'timed_out')
+    err_type = getattr(result, 'exception_type', None) or 'SandboxError'
+    err_msg = getattr(result, 'exception_message', None) or 'stateful trace execution failed'
+    return _failed_trace(err_type, err_msg, 'sandbox_error')
 def batch_runner_from_config(config: dict[str, Any], session_id: str = "default") -> BatchRunner:
     """Create a BatchRunner from a harness config dict (the 'sandbox' section)."""
     sandbox_cfg = config.get("sandbox", {})
