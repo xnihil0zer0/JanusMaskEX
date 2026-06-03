@@ -312,6 +312,27 @@ def main() -> int:
             if not synthesis_success:
                 set_phase(state_dir, phase='rejected')
                 orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                # SELFHEAL_01: capture the per-agent AST rejection reason as a
+                # lifecycle ledger row so autowork_daemon._get_errors_for_task can
+                # surface a concrete failure cause to the diagnosing agent. The event
+                # name 'ast_validation_failed' contains 'fail', which is the substring
+                # _get_errors_for_task keys on. Best-effort telemetry: any exception
+                # (including agent_*_violations being undefined on the use_retry_module
+                # path) is swallowed so the _mark_blocked terminal below is reached
+                # exactly as before.
+                try:
+                    _ast_reason_parts: list[str] = []
+                    for _agent_name, _vlist in (('agent_a', locals().get('agent_a_violations')), ('agent_b', locals().get('agent_b_violations'))):
+                        for _v in (_vlist or []):
+                            if getattr(_v, 'severity', None) == 'error':
+                                _rule = getattr(_v, 'rule', None)
+                                _line = getattr(_v, 'line', None)
+                                _msg = getattr(_v, 'message', None)
+                                _ast_reason_parts.append(f'{_agent_name}: {_rule} L{_line} {_msg}')
+                    _ast_detail = '; '.join(_ast_reason_parts) if _ast_reason_parts else 'no error-severity AST violations recorded'
+                    orch._emit_lifecycle(state_dir, event='ast_validation_failed', task_id=task_id, detail=_ast_detail)
+                except Exception:
+                    pass
                 orch._mark_blocked(state_dir, task_id, 'synthesis_or_ast_failed')
                 orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
                 _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'synthesis_or_ast_failed'})
