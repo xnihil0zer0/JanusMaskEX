@@ -1106,27 +1106,35 @@ def _run_planner_subprocess(brief_path: pathlib.Path, output_plan: pathlib.Path,
     cmd = [sys.executable, '-m', 'harness.planner.cli', str(brief_path), '--output-plan', str(output_plan)]
     started = time.time()
     try:
-        proc = subprocess.run(cmd, timeout=timeout_sec, capture_output=True)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    except OSError:
+        return (127, 0.0, '')
+    try:
+        _out, _err = proc.communicate(timeout=timeout_sec)
     except subprocess.TimeoutExpired as e:
+        _kill_process_group(state_dir, 'planner', proc)
         stderr_tail = ''
         err_bytes = getattr(e, 'stderr', None)
+        if err_bytes is None:
+            try:
+                _o, err_bytes = proc.communicate(timeout=5)
+            except (subprocess.TimeoutExpired, OSError, ValueError):
+                err_bytes = None
         if err_bytes is not None:
             try:
                 stderr_tail = err_bytes[-512:].decode('utf-8', errors='replace')
             except (AttributeError, TypeError, UnicodeDecodeError):
                 stderr_tail = ''
         return (124, float(timeout_sec), stderr_tail)
-    except OSError:
-        return (127, 0.0, '')
     wall = time.time() - started
     try:
         rc = int(proc.returncode)
     except (TypeError, ValueError):
         rc = 1
     stderr_tail = ''
-    if proc.stderr is not None:
+    if _err is not None:
         try:
-            stderr_tail = proc.stderr[-512:].decode('utf-8', errors='replace')
+            stderr_tail = _err[-512:].decode('utf-8', errors='replace')
         except (AttributeError, TypeError, UnicodeDecodeError):
             stderr_tail = ''
     return (rc, float(wall), stderr_tail)
