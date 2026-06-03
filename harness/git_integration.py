@@ -1053,10 +1053,11 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
     PHASE_R_ANCHORED_PATCH: a BOUNDED set of EXTRA top-level nodes may
     accompany the primary, but ONLY for a 1-part (top-level) qualname.
     Each extra must be one of ``ast.Import`` / ``ast.ImportFrom`` /
-    ``ast.FunctionDef`` / ``ast.AsyncFunctionDef`` / ``ast.ClassDef`` (any
-    other node kind -> ``ValueError``); an extra def/class whose name
-    collides with *leaf_name* or with an existing top-level def/class/
-    async-def name in *source* -> ``ValueError``; any extra on a 2-part
+    ``ast.FunctionDef`` / ``ast.AsyncFunctionDef`` / ``ast.ClassDef`` /
+    ``ast.Assign`` / ``ast.AnnAssign`` (any other node kind ->
+    ``ValueError``); an extra def/class whose name collides with
+    *leaf_name* or with an existing top-level def/class/async-def/assign
+    name in *source* -> ``ValueError``; any extra on a 2-part
     ``Outer.inner`` qualname -> ``ValueError`` (no mis-scoped module-level
     insertion into a class body). Extras are emitted at COLUMN 0 (via
     ``ast.unparse``, joined by blank lines, trailing newline) and inserted
@@ -1112,14 +1113,47 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
     else:
         if len(parts) != 1:
             raise ValueError('extra top-level nodes are only permitted for a 1-part top-level qualname')
+
+        def _assign_target_names(tgt: ast.AST) -> list:
+            if isinstance(tgt, ast.Name):
+                return [tgt.id]
+            if isinstance(tgt, (ast.Tuple, ast.List)):
+                names: list = []
+                for elt in tgt.elts:
+                    names.extend(_assign_target_names(elt))
+                return names
+            raise ValueError(f'unsupported extra assignment target kind: {type(tgt).__name__}')
         existing_names = {n.name for n in tree.body if _is_def(n)}
-        allowed_extra = (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        for n in tree.body:
+            if isinstance(n, ast.Assign):
+                for tgt in n.targets:
+                    try:
+                        existing_names.update(_assign_target_names(tgt))
+                    except ValueError:
+                        pass
+            elif isinstance(n, ast.AnnAssign):
+                if isinstance(n.target, ast.Name):
+                    existing_names.add(n.target.id)
+        allowed_extra = (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Assign, ast.AnnAssign)
         for ex in extras:
             if not isinstance(ex, allowed_extra):
                 raise ValueError(f'disallowed extra top-level node kind: {type(ex).__name__}')
             if isinstance(ex, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 if ex.name == leaf_name or ex.name in existing_names:
                     raise ValueError(f'extra node name collides with an existing top-level symbol: {ex.name!r}')
+            elif isinstance(ex, ast.Assign):
+                bound_names: list = []
+                for tgt in ex.targets:
+                    bound_names.extend(_assign_target_names(tgt))
+                for name in bound_names:
+                    if name == leaf_name or name in existing_names:
+                        raise ValueError(f'extra node name collides with an existing top-level symbol: {name!r}')
+            elif isinstance(ex, ast.AnnAssign):
+                if not isinstance(ex.target, ast.Name):
+                    raise ValueError(f'unsupported extra assignment target kind: {type(ex.target).__name__}')
+                name = ex.target.id
+                if name == leaf_name or name in existing_names:
+                    raise ValueError(f'extra node name collides with an existing top-level symbol: {name!r}')
         extras_text = '\n\n'.join(ast.unparse(ex) for ex in extras) + '\n'
         # Slice ONLY the primary def's own text out of new_block so the agent's
         # exact formatting of the primary is preserved; same lineno / decorator
