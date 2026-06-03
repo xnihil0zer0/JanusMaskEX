@@ -1175,6 +1175,7 @@ def _check_hallucination(plan_dict: dict, wall_seconds: float, min_wall: float=1
         return (True, 'all_gemini_no_reconciled')
     return (False, '')
 
+
 def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict | None=None, dry_run: bool=False) -> dict:
     """Stage unstaged plan tasks and kick off at most one unplanned brief.
 
@@ -1214,6 +1215,18 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
             write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.time(), 'phase': 'autowork', 'task_id': '', 'event': 'silent_skip', 'detail': f'retry_blocked: {type(exc).__name__}: {exc!r}', 'phase_tag': 'auto_promote_step_0_retry_blocked', 'exit': 0})
         except OSError:
             pass
+    # SELFHEAL S3: best-effort harvest of dead-letter self-heal briefs back
+    # into repo_root BEFORE compute_brief_status so a freshly harvested brief
+    # is discoverable on the SAME tick. The helper is flag-gated internally
+    # (it consults ``config``); wrapped so a harvest failure never raises out
+    # of the daemon tick (mirrors the other best-effort steps above).
+    try:
+        _harvest_selfheal_briefs(state_dir, repo_root, config)
+    except Exception as exc:
+        try:
+            write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.time(), 'phase': 'autowork', 'task_id': '', 'event': 'silent_skip', 'detail': f'harvest_selfheal: {type(exc).__name__}: {exc!r}', 'phase_tag': 'auto_promote_step_0a_harvest_selfheal', 'exit': 0})
+        except OSError:
+            pass
     try:
         records = compute_brief_status(repo_root, state_dir)
     except Exception:
@@ -1224,7 +1237,7 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
                 continue
             if not rec.get('has_plan'):
                 continue
-            if not _auto_promote_brief_eligible(state_dir, rec.get('slug') or '', rec.get('brief_mtime', 0), max_age_sec=_brief_max_age(config or {})):
+            if not _auto_promote_brief_eligible(state_dir, rec.get('slug') or '', rec.get('brief_mtime', 0), max_age_sec=_brief_max_age(config or {}), config=config or {}):
                 continue
             unstaged = rec.get('unstaged_task_ids') or []
             plan_filename = rec.get('plan_filename')
@@ -1337,7 +1350,7 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
             slug = rec.get('slug') or ''
             if not slug:
                 continue
-            if not _auto_promote_brief_eligible(state_dir, slug, rec.get('brief_mtime', 0), max_age_sec=_brief_max_age(config or {})):
+            if not _auto_promote_brief_eligible(state_dir, slug, rec.get('brief_mtime', 0), max_age_sec=_brief_max_age(config or {}), config=config or {}):
                 continue
             brief_filename = rec.get('brief_filename')
             if not isinstance(brief_filename, str) or not brief_filename:
@@ -2160,7 +2173,8 @@ def _auto_promote_allowlist(state_dir):
         out.add(s)
     return out
 
-def _auto_promote_brief_eligible(state_dir, slug, brief_mtime, now=None, max_age_sec=None) -> bool:
+
+def _auto_promote_brief_eligible(state_dir, slug, brief_mtime, now=None, max_age_sec=None, config=None) -> bool:
     if max_age_sec is None:
         max_age_sec = DEFAULT_BRIEF_MAX_AGE_SEC
     if now is None:
@@ -2171,9 +2185,21 @@ def _auto_promote_brief_eligible(state_dir, slug, brief_mtime, now=None, max_age
         mtime = 0.0
     if mtime <= 0:
         return False
-    allow = _auto_promote_allowlist(state_dir)
-    if slug not in (allow or set()):
-        return False
+    # SELFHEAL S3: a slug recognized as a self-heal brief becomes eligible
+    # under the flag WITHOUT consulting or writing the operator allowlist.
+    # When the flag is false (or config is None -> default-deny) the slug
+    # falls through to the allowlist membership test, so eligibility stays
+    # byte-identical to today for ALL allowlist-driven briefs.
+    _selfheal_eligible = False
+    try:
+        if _is_selfheal_brief(slug) and _selfheal_auto_promote_enabled(config or {}):
+            _selfheal_eligible = True
+    except Exception:
+        _selfheal_eligible = False
+    if not _selfheal_eligible:
+        allow = _auto_promote_allowlist(state_dir)
+        if slug not in (allow or set()):
+            return False
     if now - mtime > float(max_age_sec):
         _emit_telemetry(pathlib.Path(state_dir), '', 'brief_too_old', f'{slug} age={now - mtime:.0f}s max={max_age_sec}')
         return False
