@@ -832,7 +832,15 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
     # outbox and must NOT touch the live repo, run git, or edit the auto-promote
     # allowlist. Promotion is an operator decision (see memory:
     # ex-phantom-task-no-promote — never auto-append <task>_fix).
-    prompt = f"The task '{task_id}' has exhausted its retry budget. Investigate and propose a self-healing plan.\nObjective: {objective}\nFiles touched: {files_touched}\n\n--- Traceback/Fuzz Error Logs ---\n{errors_str}\n\nInstructions:\n1. Write your diagnosis and a proposed brief to your OUTBOX at {{OUTBOX_PATH}}/brief_hooks_{task_id}_fix.md. Do NOT write anywhere outside your outbox, and do NOT run git.\n2. Do NOT edit the auto-promote allowlist or any file in the live repository; promotion is an operator decision. If you believe '{task_id}_fix' should be promoted, recommend it in your outbox brief for operator review."
+    #
+    # RESTAGE-SAME-ID: the diagnosing agent must produce a CORRECTED
+    # specification keyed to the ORIGINAL task_id (no parallel '<id>_fix' id) so
+    # the harvest (slug selfheal_<task_id>) maps deterministically back to the
+    # same task_id and its dependents unblock only on acceptance. The corrective
+    # constraint is derived from the diagnosed cause surfaced in errors_str (the
+    # ast_validation_failed lifecycle reason): for a banned-construct AST
+    # rejection it forbids eval/exec/decorators.
+    prompt = f"The task '{task_id}' has exhausted its retry budget. Investigate the diagnosed failure and produce a CORRECTED specification for the SAME task_id '{task_id}'. Keep the original task_id and ALL of its dependency edges intact so dependents resolve on the same id -- do NOT invent a parallel '{task_id}_fix' task id; the corrected spec must re-stage under the ORIGINAL task_id '{task_id}'.\nObjective: {objective}\nFiles touched: {files_touched}\n\n--- Traceback/Fuzz Error Logs ---\n{errors_str}\n\nInstructions:\n1. Diagnose the failure from the logs above and write a corrected spec that PRESERVES the original task_id '{task_id}' and its dependency edges. Embed a corrective constraint derived from the diagnosed cause. If the failure was an AST banned-construct rejection (e.g. ast_validation_failed), the corrective constraint MUST be: edit the target file directly and do NOT use eval/exec/decorators (forbid eval, forbid exec, forbid decorators).\n2. Write your diagnosis and the corrected brief (keeping the same task_id) to your OUTBOX at {{OUTBOX_PATH}}/brief_hooks_{task_id}_fix.md. Do NOT write anywhere outside your outbox, and do NOT run git.\n3. Do NOT edit the auto-promote allowlist or any file in the live repository; promotion is an operator decision. The corrected spec re-stages under the ORIGINAL task_id '{task_id}' for operator review."
     # SEC_ENV_ALLOWLIST: copy ONLY allowlisted host env into the jailed self-heal
     # agent (IDENTICAL allowlist to orchestrator._build_agent_env), scrubbing
     # operator secrets (GITHUB_TOKEN, AWS_*, etc). JANUSMASK_* overlays follow.
