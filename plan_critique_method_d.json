@@ -1,0 +1,124 @@
+{
+  "responses": [
+    {
+      "diff_item_id": "__critique__",
+      "stance": "amend"
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "f-depcycle-01-test-inversion",
+      "category": "dependency_cycle",
+      "severity": "warn",
+      "task_id": "method_d_01_extract_class_interface",
+      "field_path": "test_spec/integration_tests/test_interface_feeds_into_build_stateful_strategy",
+      "suggested_patch": {
+        "op": "move_test",
+        "from_task": "method_d_01_extract_class_interface",
+        "to_task": "method_d_02_build_stateful_strategy",
+        "test_name": "test_interface_feeds_into_build_stateful_strategy"
+      },
+      "message": "Declared dependencies are acyclic (01<-02<-03<-04<-05/06), but task 01's integration test exercises build_stateful_strategy, which lives in task 02 and itself depends on 01. This is a circular build/test coupling: when 01 is implemented and verified in isolation (before 02 exists) the integration test cannot pass. Adding an explicit 01->02 dependency to fix it WOULD create a true cycle, so the correct fix is to relocate this cross-component integration test into task 02 (the dependent), not task 01."
+    },
+    {
+      "finding_id": "f-edge-01-variadic-methods",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "method_d_01_extract_class_interface",
+      "field_path": "spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Public method (or __init__) using *args, **kwargs, or keyword-only / positional-only parameters: the per-parameter annotation mapping must define documented behavior (skip or record), as it does for __init__'s self/*args/**kwargs."
+      },
+      "message": "Task 01 explicitly documents skipping self/*args/**kwargs only for __init__, but for public methods it documents skipping self alone. A public method with *args/**kwargs or keyword-only params has no defined handling and will leak a synthetic 'args'/'kwargs' name into the annotation map, which build_stateful_strategy (02) and execute_stateful_trace (03) will then try to generate/replay as ordinary params. Add an explicit edge case for variadic and keyword-only/positional-only parameters."
+    },
+    {
+      "finding_id": "f-edge-03-stdout-protocol-corruption",
+      "category": "missing_edge_case",
+      "severity": "error",
+      "task_id": "method_d_03_execute_stateful_trace",
+      "field_path": "spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Candidate code writes to stdout (print/logging) during construction or a method call, corrupting the stdout-based JSON trace channel. Use a unique sentinel-delimited block or a dedicated fd/file for the trace so candidate stdout cannot be mis-parsed as trace data."
+      },
+      "message": "implementation_notes for task 03 say the driver 'prints a JSON trace to stdout'. The class-under-test is arbitrary code and may itself print to stdout, which would interleave with / corrupt the JSON the parent parses. Worst case this silently mis-parses into a wrong trace and produces false matches or false divergences in stateful_differential_fuzz (04). This must be designed around (sentinel framing or separate channel) and listed as an edge case; it is currently absent."
+    },
+    {
+      "finding_id": "f-edge-04-both-sides-infra-error",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "method_d_04_stateful_differential_fuzz",
+      "field_path": "spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Both A and B raise the SAME sandbox/infrastructure error (timeout, jail kill, OOM) rather than a code-level exception: must not be reported as a code divergence, and must not be silently counted as a 'matching exception' equivalence either; surface as a non-applicable/infra result."
+      },
+      "message": "Task 04 covers 'sandbox execution error for one side' but not the case where BOTH sides hit the same infrastructure/timeout error. Because outputs_match treats matching exceptions as equivalent, two identical jail-timeout 'exceptions' could be silently accepted as a passing match, masking real divergence (or vice-versa). Infra errors are not code outcomes and need a distinct, documented path."
+    },
+    {
+      "finding_id": "f-edge-04-nonreproducible-shrink",
+      "category": "missing_edge_case",
+      "severity": "info",
+      "task_id": "method_d_04_stateful_differential_fuzz",
+      "field_path": "spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Divergence does not reproduce during shrinking (flaky/order-dependent): the shrinker may report a non-minimal or non-reproducing example. Define behavior (re-verify the final minimal example reproduces; otherwise report the original)."
+      },
+      "message": "The property test 'test_minimal_sequence_still_reproduces_divergence' assumes the shrunk sequence always reproduces, but the spec relies on existing nondeterminism gates rather than guaranteeing reproducibility of the shrink itself. Add an edge case for a divergence that fails to reproduce after shrinking so the runner re-verifies the minimal example before emitting the FuzzFailure."
+    },
+    {
+      "finding_id": "f-inflated-03-vacuous-verification",
+      "category": "inflated_benchmark",
+      "severity": "warn",
+      "task_id": "method_d_03_execute_stateful_trace",
+      "field_path": "verification_command",
+      "suggested_patch": {
+        "op": "tighten_verification",
+        "detail": "Replace `assert 'class_name' in inspect.signature(...).parameters or True` with a real assertion that 'class_name' is a parameter (drop the `or True`)."
+      },
+      "message": "The verification_command's second assertion ends in `... in inspect.signature(s.execute_stateful_trace).parameters or True`. The trailing `or True` makes the whole expression unconditionally truthy, so it verifies nothing about the signature while appearing to. This overstates the verification coverage; remove `or True` so the signature is actually checked."
+    },
+    {
+      "finding_id": "f-test-05-out-of-scope-integration",
+      "category": "test_heavy_violation",
+      "severity": "warn",
+      "task_id": "method_d_05_taxonomy_flip",
+      "field_path": "test_spec/integration_tests/test_policy_flags_route_to_stateful_path",
+      "suggested_patch": {
+        "op": "move_test",
+        "from_task": "method_d_05_taxonomy_flip",
+        "to_task": "method_d_04_stateful_differential_fuzz",
+        "test_name": "test_policy_flags_route_to_stateful_path"
+      },
+      "message": "Task 05 is a pure config/dict edit whose own non_goals state 'Do not implement routing logic here beyond exposing the policy flags', yet its integration test 'test_policy_flags_route_to_stateful_path' asserts that the flags actually route tasks through the stateful path. That routing does not exist within this task's scope, so the test cannot pass here; it inflates the test plan with an out-of-scope assertion. Relocate it to the task that owns routing (04), leaving 05 to assert only the policy/derived-set values it actually changes."
+    },
+    {
+      "finding_id": "f-other-02-example-flaky-verification",
+      "category": "other",
+      "severity": "info",
+      "task_id": "method_d_02_build_stateful_strategy",
+      "field_path": "verification_command",
+      "suggested_patch": {
+        "op": "tighten_verification",
+        "detail": "Avoid SearchStrategy.example() in CI/verification; assert with isinstance(s, SearchStrategy) and drive a sample via a small @given test instead."
+      },
+      "message": "Task 02's verification_command calls `s.example()`. Hypothesis documents .example() as for interactive/debugging use only; it emits NonInteractiveExampleWarning and can raise or behave nondeterministically (and will error if ever evaluated inside an @given context). A verification gate built on it is flaky and may fail for reasons unrelated to the implementation."
+    },
+    {
+      "finding_id": "f-other-bad-spec-author-check",
+      "category": "bad_spec_author",
+      "severity": "info",
+      "field_path": "spec_author",
+      "message": "Checked all six tasks: every spec_author is null. attribution_metadata shows each was proposed_by 'claude' with reconciled=false (single-proposer, unreconciled). For single-author/unreconciled tasks, spec_author=null is correct and consistent \u2014 no bad_spec_author violation found. Recorded for audit completeness."
+    },
+    {
+      "finding_id": "f-other-unverifiable-line-refs",
+      "category": "other",
+      "severity": "info",
+      "field_path": "spec/implementation_notes",
+      "message": "Specs hard-code source line references (Sandbox line 1279, BatchRunner line 1459, _ast_node_to_strategy line 155, _strategy_for_annotation line 242, orchestrator.py lines 24-25, taxonomies lines 1/3). The harness source is not present in this review worker, so these cannot be verified and are brittle to drift. Implementers should locate targets by symbol name rather than trusting the cited line numbers; if any have shifted, the 'strictly additive, reuse existing helper' acceptance criteria could be silently violated."
+    }
+  ]
+}

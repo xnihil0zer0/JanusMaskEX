@@ -1,0 +1,613 @@
+{
+  "tasks": [
+    {
+      "task_id": "method_d_03_execute_stateful_trace",
+      "title": "Add execute_stateful_trace sandboxed replay executor to sandbox.py",
+      "meta_task_type": "sandbox_infra",
+      "priority": "high",
+      "dependencies": [
+        "method_d_02_build_stateful_strategy"
+      ],
+      "files_touched": [
+        "harness/sandbox.py"
+      ],
+      "acceptance_criteria": [
+        "A new additive function execute_stateful_trace(...) exists in harness/sandbox.py.",
+        "It runs inside the existing jail by reusing Sandbox (line 1279) or BatchRunner (line 1459); it does not weaken the jail or alter credential/environment/nondeterminism gates.",
+        "Given source code, a class name, init_args, and an ordered list of (method_name, args), it instantiates the class and replays the calls in order.",
+        "It returns a serialized list of per-step results, where each step records either a return value or a captured exception (type + message), suitable for outputs_match/_deep_compare.",
+        "Construction failure and per-step exceptions are captured into the trace rather than crashing the executor.",
+        "The addition is strictly additive and harness/sandbox.py still imports cleanly."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "high",
+      "verification_command": "python -c \"import inspect, harness.sandbox as s; assert hasattr(s,'execute_stateful_trace'); assert 'class_name' in inspect.signature(s.execute_stateful_trace).parameters or True\"",
+      "spec": {
+        "objective": "Provide a jail-side trace replay primitive that instantiates the class under test and executes a symbolic action sequence step-by-step inside an isolated sandboxed subprocess, returning a serialized step-result trace for differential comparison.",
+        "functional_requirements": [
+          "Define execute_stateful_trace(...) in harness/sandbox.py that accepts the implementation source, class_name, init_args, and the ordered list of (method_name, args) commands.",
+          "Execute the instantiation and replay inside the existing jail via Sandbox or BatchRunner, reusing the current isolation setup rather than spawning an unjailed process.",
+          "Instantiate the class with init_args; if construction raises, record the failure as the first trace entry and stop or mark subsequent steps as not-run (documented behavior).",
+          "Replay each (method_name, args) in order against the single living instance, capturing per step either {'value': return_value} or {'exception': {'type': ..., 'message': ...}}.",
+          "Serialize the per-step trace into a plain JSON-compatible list so the parent process can compare results with outputs_match/_deep_compare.",
+          "Preserve all existing credential, environment, and nondeterminism gates of the sandbox unchanged."
+        ],
+        "interfaces": "execute_stateful_trace(code: str, class_name: str, init_args, method_calls: list, *, runner=None, timeout=...) -> list[dict]; each element is {'step': i, 'method': name, 'value': repr-or-serializable} or {'step': i, 'method': name, 'exception': {'type': str, 'message': str}}. Constructor result occupies step 0 / a dedicated 'init' entry.",
+        "edge_cases": [
+          "Constructor raises (record and short-circuit the remaining steps in a documented manner).",
+          "A method call raises (capture exception type/message, continue replaying remaining steps).",
+          "Non-serializable return values (reduce to a stable serializable representation, e.g. repr or _deep_compare-friendly form).",
+          "Empty method_calls list (return only the init/construction result).",
+          "Step execution exceeds timeout or jail kills the process (surface as a structured error, not a silent hang)."
+        ],
+        "non_goals": [
+          "Do not generate the action sequences here (that is build_stateful_strategy).",
+          "Do not perform the A-vs-B comparison here (that is stateful_differential_fuzz).",
+          "Do not relax or modify the jail's credential/environment/nondeterminism gates.",
+          "Do not use RuleBasedStateMachine objects across the boundary."
+        ],
+        "implementation_notes": "Render a small driver script string that imports/exec's the candidate code, builds the instance from init_args, iterates the command list invoking getattr(instance, method)(**args) (or *args per the agreed container shape), wraps each in try/except capturing type(e).__name__ and str(e), and prints a JSON trace to stdout. Run it through the existing Sandbox/BatchRunner so isolation and gates are inherited. Keep additive; do not touch Sandbox/BatchRunner internals beyond calling them."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_instantiates_and_replays_calls_in_order"
+          },
+          {
+            "name": "test_runs_inside_existing_jail"
+          },
+          {
+            "name": "test_captures_return_values_per_step"
+          },
+          {
+            "name": "test_captures_method_exceptions_per_step"
+          },
+          {
+            "name": "test_constructor_failure_recorded"
+          },
+          {
+            "name": "test_empty_call_list_returns_init_only"
+          },
+          {
+            "name": "test_trace_is_json_serializable"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_trace_consumable_by_outputs_match"
+          },
+          {
+            "name": "test_executes_strategy_generated_command_list"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_step_count_matches_command_count_plus_init"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_sandbox_gates_unchanged"
+          },
+          {
+            "name": "test_sandbox_module_still_imports"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "A deterministic stateful class (e.g. bounded counter/stack) source string, an init_args fixture, and a command list including a call that raises (e.g. pop on empty)."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 120,
+        "test_tokens": 200,
+        "note": "Jail-side executor needs heavy isolation and exception-capture testing relative to implementation size."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    },
+    {
+      "task_id": "method_d_01_extract_class_interface",
+      "title": "Add extract_class_interface AST utility to diff_fuzzer.py",
+      "meta_task_type": "harness_plumbing",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/diff_fuzzer.py"
+      ],
+      "acceptance_criteria": [
+        "A new top-level function extract_class_interface(code, class_name) exists in harness/diff_fuzzer.py.",
+        "It parses the source `code` with ast, locates the class named `class_name`, and returns a structured interface mapping.",
+        "The interface includes the __init__ parameter annotation mapping (excluding self) and one entry per public method (name does not start with '_'), each mapping parameter names to their AST annotation nodes.",
+        "Private methods other than __init__ (names beginning with '_') are discarded.",
+        "Annotation extraction reuses the existing AST type parser helper (_ast_node_to_strategy / _strategy_for_annotation pathway) rather than introducing a parallel parser.",
+        "The addition is strictly additive: harness/diff_fuzzer.py still imports cleanly at module level and existing functions are untouched."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -c \"import ast, harness.diff_fuzzer as d; iface = d.extract_class_interface('class C:\\n    def __init__(self, n: int): ...\\n    def push(self, x: int): ...\\n    def _hidden(self): ...', 'C'); assert 'push' in iface['methods'] and '_hidden' not in iface['methods'] and 'init' in iface\"",
+      "spec": {
+        "objective": "Provide an AST-based introspection utility that extracts the constructor and public-method signatures (parameter annotation mappings) of a target class so downstream stateful strategy generation can build typed action sequences.",
+        "functional_requirements": [
+          "Define a new top-level function extract_class_interface(code, class_name) in harness/diff_fuzzer.py that returns a dict describing the constructor and public method signatures.",
+          "Locate the target class by name in the parsed AST; if absent, raise or return an empty/None interface in a way callers can detect (document the chosen sentinel).",
+          "Extract the __init__ signature as an ordered mapping of parameter name to its annotation AST node, skipping self, *args, and **kwargs (or recording them in a documented way).",
+          "Extract each public method (name not starting with '_') as a mapping of parameter name to annotation AST node, skipping self.",
+          "Discard private/dunder methods other than __init__ from the returned interface.",
+          "Reuse the existing AST annotation parsing helpers (_ast_node_to_strategy at line 155 / _strategy_for_annotation at line 242) rather than duplicating annotation-to-type logic."
+        ],
+        "interfaces": "extract_class_interface(code: str, class_name: str) -> dict with shape {'class_name': str, 'init': {param_name: annotation_node_or_strategy}, 'methods': {method_name: {param_name: annotation_node_or_strategy}}}. Keep return shape stable and documented since build_stateful_strategy depends on it.",
+        "edge_cases": [
+          "Class has no explicit __init__ (use empty init mapping / default object construction).",
+          "Methods or constructor parameters lacking annotations (fall back to the same default strategy the stateless fuzzer uses for unannotated params).",
+          "Class with only private/dunder methods (methods mapping is empty but init is still returned).",
+          "Syntactically invalid `code` (surface a clear error without crashing module import).",
+          "class_name not found in the source (documented sentinel return or explicit exception)."
+        ],
+        "non_goals": [
+          "Do not modify or refactor existing functions in diff_fuzzer.py.",
+          "Do not break module-level importability of harness/diff_fuzzer.py.",
+          "Do not handle non-class targets (free functions) \u2014 that is the stateless fuzzer's job."
+        ],
+        "implementation_notes": "Add the function near the other AST helpers. Walk module body for ast.ClassDef matching class_name, then iterate ClassDef.body for ast.FunctionDef/AsyncFunctionDef nodes. For each kept method build an ordered dict of arg name -> arg.annotation, dropping the first positional (self). Reuse _ast_node_to_strategy/_strategy_for_annotation so the annotation handling stays consistent with the stateless path. Keep everything strictly additive."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_extracts_init_param_annotations"
+          },
+          {
+            "name": "test_extracts_public_methods"
+          },
+          {
+            "name": "test_discards_private_methods_but_keeps_init"
+          },
+          {
+            "name": "test_class_without_init_returns_empty_init"
+          },
+          {
+            "name": "test_unannotated_params_fall_back_to_default"
+          },
+          {
+            "name": "test_missing_class_name_returns_sentinel"
+          },
+          {
+            "name": "test_reuses_existing_annotation_parser"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_interface_feeds_into_build_stateful_strategy"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_arbitrary_class_source_never_returns_private_methods"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_diff_fuzzer_module_still_imports"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Small inline Python class source strings: a stateful cache/stack-like class with __init__ and several public + private methods; a class without __init__; a class with unannotated parameters."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 160,
+        "note": "Focused AST utility; tests cover discard rules and fallback paths more heavily than the implementation."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    },
+    {
+      "task_id": "method_d_04_stateful_differential_fuzz",
+      "title": "Add stateful_differential_fuzz runner to orchestrator.py",
+      "meta_task_type": "orchestration",
+      "priority": "high",
+      "dependencies": [
+        "method_d_01_extract_class_interface",
+        "method_d_02_build_stateful_strategy",
+        "method_d_03_execute_stateful_trace"
+      ],
+      "files_touched": [
+        "harness/orchestrator.py"
+      ],
+      "acceptance_criteria": [
+        "A new top-level function stateful_differential_fuzz(code_a, code_b, class_name, config, session_id) exists in harness/orchestrator.py, appended as a localized additive block.",
+        "It extracts the interface, builds the stateful strategy, and drives action-sequence generation with Hypothesis.",
+        "For each generated sequence it executes the same trace against code_a and code_b via execute_stateful_trace in sandboxed instances.",
+        "It compares traces step-by-step using outputs_match (return values AND exception matching), identifying the first divergent step.",
+        "On divergence it shrinks the action sequence using Hypothesis's shrinking engine to a minimal failing trace.",
+        "It returns a FuzzResult (with a FuzzFailure carrying the minimal divergent action sequence and step inputs/outputs) on failure, or a passing FuzzResult otherwise.",
+        "No existing orchestrator function is modified or refactored; only the new function is added."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "high",
+      "verification_command": "python -c \"import inspect, harness.orchestrator as o; sig=inspect.signature(o.stateful_differential_fuzz); assert list(sig.parameters)[:5]==['code_a','code_b','class_name','config','session_id']\"",
+      "spec": {
+        "objective": "Drive end-to-end stateful differential fuzzing: generate symbolic action sequences, replay them against both candidate implementations in the jail, detect the first divergence, shrink to a minimal counterexample, and return a FuzzResult compatible with the existing fuzzing contract.",
+        "functional_requirements": [
+          "Define stateful_differential_fuzz(code_a, code_b, class_name, config, session_id) as a strictly additive top-level function in harness/orchestrator.py.",
+          "Build the interface via extract_class_interface and the strategy via build_stateful_strategy (degrade gracefully if the class/interface cannot be parsed).",
+          "Use Hypothesis to generate and drive action sequences subject to a config-derived example/time budget.",
+          "For each example, call execute_stateful_trace for both code_a and code_b and compare the two step traces with outputs_match, treating matching exceptions as equivalent and detecting the first divergent step index.",
+          "When a divergence is found, raise inside the Hypothesis test so the shrinking engine minimizes the action sequence, then capture the minimal failing (init_args, method_calls) plus the divergent step's inputs and both outputs.",
+          "Return a FuzzResult: passing when no divergence is found within budget, failing with a populated FuzzFailure (minimal action sequence trace) otherwise."
+        ],
+        "interfaces": "stateful_differential_fuzz(code_a: str, code_b: str, class_name: str, config, session_id) -> FuzzResult. FuzzFailure must carry the shrunk action sequence (init_args + ordered (method, args) list), the first divergent step index, and the diverging A/B outputs so cross_examiner can serialize them.",
+        "edge_cases": [
+          "Class not present / interface empty -> return a clearly-typed non-applicable or passing FuzzResult without crashing (documented).",
+          "Both implementations diverge only via exceptions (different exception types) -> treated as divergence.",
+          "Construction diverges (one constructs, the other raises) -> reported as a step-0 divergence.",
+          "Nondeterministic outputs must not be silently accepted \u2014 rely on existing gates; do not relax them.",
+          "Time/example budget exhausted with no divergence -> passing result.",
+          "Sandbox execution error for one side -> surfaced rather than treated as a match."
+        ],
+        "non_goals": [
+          "Do not modify or refactor any existing function in harness/orchestrator.py.",
+          "Do not change the routing/taxonomy here (that is the taxonomy task).",
+          "Do not build the cross-examination packet here (that is the cross_examiner task), but expose enough detail on FuzzFailure for it.",
+          "Do not alter credential/environment/nondeterminism gates."
+        ],
+        "implementation_notes": "Append the function near the end of orchestrator.py as a self-contained block to avoid touching the large existing body. Define an inner @given(build_stateful_strategy(interface)) test that runs both traces and asserts outputs_match for every step; on first mismatch raise an AssertionError carrying step detail. Capture hypothesis's reported minimal example (via the falsifying example / a captured holder) and assemble a FuzzFailure + FuzzResult. Reuse FuzzResult/FuzzFailure imported at module level (orchestrator.py lines 24-25) so importability is preserved."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_returns_passing_for_equivalent_implementations"
+          },
+          {
+            "name": "test_detects_return_value_divergence"
+          },
+          {
+            "name": "test_detects_exception_type_divergence"
+          },
+          {
+            "name": "test_uses_extract_interface_and_build_strategy"
+          },
+          {
+            "name": "test_shrinks_to_minimal_failing_sequence"
+          },
+          {
+            "name": "test_returns_fuzzresult_with_fuzzfailure_on_divergence"
+          },
+          {
+            "name": "test_missing_class_returns_non_crashing_result"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_end_to_end_stack_vs_buggy_stack"
+          },
+          {
+            "name": "test_both_sides_executed_in_sandbox"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_minimal_sequence_still_reproduces_divergence"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_orchestrator_module_imports_and_existing_symbols_present"
+          },
+          {
+            "name": "test_existing_diff_fuzz_entrypoints_unchanged"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "A reference stateful class plus an intentionally buggy variant (e.g. an LRU cache whose eviction order differs after N operations) to force a deep, shrinkable divergence; plus an equivalent A/B pair to assert passing."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 140,
+        "test_tokens": 230,
+        "note": "Orchestration glue plus shrinking semantics require comprehensive differential and shrink-minimality tests."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    },
+    {
+      "task_id": "method_d_02_build_stateful_strategy",
+      "title": "Add build_stateful_strategy Hypothesis strategy to diff_fuzzer.py",
+      "meta_task_type": "harness_plumbing",
+      "priority": "high",
+      "dependencies": [
+        "method_d_01_extract_class_interface"
+      ],
+      "files_touched": [
+        "harness/diff_fuzzer.py"
+      ],
+      "acceptance_criteria": [
+        "A new top-level function build_stateful_strategy(interface) exists in harness/diff_fuzzer.py.",
+        "It returns a Hypothesis SearchStrategy producing a tuple (init_args, list_of_method_calls).",
+        "init_args is built from the interface 'init' annotation mapping via _strategy_for_annotation.",
+        "list_of_method_calls is a variable-length list of (method_name, args) entries drawn only from the interface's public methods, with args generated from each method's annotation mapping via _strategy_for_annotation.",
+        "Produces symbolic/serializable command lists (plain tuples/lists/dicts), NOT a RuleBasedStateMachine subclass.",
+        "The addition is strictly additive and harness/diff_fuzzer.py still imports cleanly."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -c \"import harness.diff_fuzzer as d; iface=d.extract_class_interface('class C:\\n    def __init__(self, n: int): ...\\n    def push(self, x: int): ...', 'C'); s=d.build_stateful_strategy(iface); ex=s.example(); init,calls=ex; assert isinstance(calls, list); assert all(c[0]=='push' for c in calls)\"",
+      "spec": {
+        "objective": "Turn an extracted class interface into a Hypothesis search strategy that yields symbolic action sequences (constructor args plus an ordered list of method calls) suitable for serialization across the sandbox jail boundary.",
+        "functional_requirements": [
+          "Define build_stateful_strategy(interface) returning a Hypothesis strategy yielding (init_args, list_of_method_calls).",
+          "Build init_args using _strategy_for_annotation for each constructor parameter in interface['init'], producing a serializable mapping or ordered arg list.",
+          "Build a per-method args strategy for each public method using _strategy_for_annotation over that method's annotation mapping.",
+          "Compose a list strategy that picks a method name from the available public methods and pairs it with that method's generated args, yielding a variable-length sequence of (method_name, args) tuples.",
+          "Ensure all generated values are plain serializable Python objects (tuples/lists/dicts/scalars) so they can cross the subprocess boundary; do not emit a RuleBasedStateMachine.",
+          "Handle the empty-methods case by yielding (init_args, []) without error."
+        ],
+        "interfaces": "build_stateful_strategy(interface: dict) -> hypothesis.strategies.SearchStrategy yielding Tuple[init_args, List[Tuple[method_name: str, args: dict|list]]]. init_args shape must match what execute_stateful_trace expects for constructor invocation.",
+        "edge_cases": [
+          "Interface with no public methods -> strategy yields empty call lists only.",
+          "Methods with zero parameters -> args is an empty container.",
+          "Constructor with no parameters -> init_args empty.",
+          "Annotation that _strategy_for_annotation cannot map -> use the established default strategy fallback.",
+          "Bound the maximum sequence length to keep traces shrinkable and execution bounded."
+        ],
+        "non_goals": [
+          "Do not use hypothesis.stateful.RuleBasedStateMachine or Bundle-based machines.",
+          "Do not execute any generated calls here; this task only builds the strategy.",
+          "Do not modify existing strategy helpers."
+        ],
+        "implementation_notes": "Use st.fixed_dictionaries or st.tuples over _strategy_for_annotation results for init_args. For calls use st.lists(st.one_of(*[st.tuples(st.just(name), method_args_strategy) for name, ann in interface['methods'].items()]), max_size=N). Keep the (name, args) ordering and a documented args container shape that execute_stateful_trace can replay. Place near build of stateless strategies; strictly additive."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_strategy_yields_init_and_call_list_tuple"
+          },
+          {
+            "name": "test_init_args_match_constructor_annotations"
+          },
+          {
+            "name": "test_calls_only_reference_public_methods"
+          },
+          {
+            "name": "test_method_args_generated_from_annotations"
+          },
+          {
+            "name": "test_generated_values_are_serializable"
+          },
+          {
+            "name": "test_empty_methods_yield_empty_call_list"
+          },
+          {
+            "name": "test_zero_param_method_args_empty"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_strategy_built_from_extract_class_interface_output"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_all_examples_are_json_serializable_command_lists"
+          },
+          {
+            "name": "test_call_method_names_always_in_interface"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_diff_fuzzer_module_still_imports"
+          }
+        ],
+        "minimum_test_count": 11,
+        "test_data_requirements": "Interface dicts produced by extract_class_interface for a typed stateful class (e.g. an LRU cache with put/get) plus a class with a no-arg method and a no-method class."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 170,
+        "note": "Property tests verifying serializability and method-name membership dominate the test budget."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    },
+    {
+      "task_id": "method_d_06_cross_examiner_wiring",
+      "title": "Wire stateful traces into cross_examiner serialize_failure and prepare_exam_packets",
+      "meta_task_type": "harness_plumbing",
+      "priority": "medium",
+      "dependencies": [
+        "method_d_04_stateful_differential_fuzz",
+        "method_d_05_taxonomy_flip"
+      ],
+      "files_touched": [
+        "harness/cross_examiner.py"
+      ],
+      "acceptance_criteria": [
+        "serialize_failure handles stateful FuzzFailure traces (action sequence with init_args, ordered (method, args) steps, divergent step index, and diverging A/B outputs) in addition to existing stateless failures.",
+        "prepare_exam_packets includes the minimal shrunken stateful failure trace in the feedback packets prepared for both Claude and Gemini review agents.",
+        "Existing stateless failure serialization and packet preparation behavior is preserved (additive, backward-compatible).",
+        "harness/cross_examiner.py still imports cleanly."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -c \"import inspect, harness.cross_examiner as c; assert 'serialize_failure' in dir(c) and 'prepare_exam_packets' in dir(c)\"",
+      "spec": {
+        "objective": "Surface the minimal shrunken stateful counterexample (action sequence + step inputs + divergent outputs) to the cross-examination feedback packets so Claude and Gemini review agents receive precise, reproducible debugging context.",
+        "functional_requirements": [
+          "Extend serialize_failure to detect and serialize stateful FuzzFailure traces: init_args, the ordered list of (method_name, args) steps, the first divergent step index, and the divergent A/B outputs/exceptions.",
+          "Preserve the existing serialization path for stateless (single-input) failures unchanged.",
+          "Extend prepare_exam_packets so that when a failure is stateful, the serialized minimal action-sequence trace is embedded in the packets built for both Claude and Gemini.",
+          "Format the stateful trace human-readably (e.g. a numbered call sequence with the diverging step highlighted) for the review agents.",
+          "Gracefully handle a stateful failure missing optional fields without dropping the rest of the packet."
+        ],
+        "interfaces": "serialize_failure(failure, ...) -> dict now includes a 'stateful_trace' (or equivalent) section when the failure is a stateful FuzzFailure. prepare_exam_packets(...) -> packets for Claude and Gemini both carry the serialized stateful trace. Keep existing keys/shapes for stateless failures intact.",
+        "edge_cases": [
+          "Failure object is stateless -> behavior identical to today.",
+          "Stateful failure with an empty call list (divergence at construction) -> serialize the init-only divergence.",
+          "Outputs that are non-serializable -> reduce to stable repr as the fuzz/sandbox layer already does.",
+          "Both packets must stay within existing size/format expectations; truncate long traces sensibly if needed."
+        ],
+        "non_goals": [
+          "Do not change the fuzzing or shrinking logic (consume the already-minimal trace).",
+          "Do not alter unrelated cross_examiner functions.",
+          "Do not change credential/environment gates."
+        ],
+        "implementation_notes": "Branch on the failure shape (presence of an action-sequence/stateful marker on FuzzFailure produced by stateful_differential_fuzz). Build a serialized block and inject it into both agent packets in prepare_exam_packets at the point where the existing failure summary is attached. Keep all additions additive and backward-compatible."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_serialize_stateful_failure_includes_action_sequence"
+          },
+          {
+            "name": "test_serialize_stateful_failure_marks_divergent_step"
+          },
+          {
+            "name": "test_serialize_stateless_failure_unchanged"
+          },
+          {
+            "name": "test_prepare_packets_embed_stateful_trace_for_claude"
+          },
+          {
+            "name": "test_prepare_packets_embed_stateful_trace_for_gemini"
+          },
+          {
+            "name": "test_construction_only_divergence_serialized"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_fuzzfailure_from_stateful_runner_serializes_end_to_end"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_serialized_trace_round_trips_to_readable_sequence"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_cross_examiner_module_imports"
+          },
+          {
+            "name": "test_existing_stateless_packet_format_preserved"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "A synthetic stateful FuzzFailure (init_args + several (method, args) steps + divergent step index + A/B outputs) and a synthetic stateless FuzzFailure for the unchanged-path assertions."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 160,
+        "note": "Serialization/formatting plus dual-agent packet wiring; tests guard both new stateful path and stateless non-regression."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    },
+    {
+      "task_id": "method_d_05_taxonomy_flip",
+      "title": "Flip state_machine taxonomy policy to enable stateful fuzzing",
+      "meta_task_type": "config_schema",
+      "priority": "medium",
+      "dependencies": [
+        "method_d_04_stateful_differential_fuzz"
+      ],
+      "files_touched": [
+        "harness/planner/taxonomies.py"
+      ],
+      "acceptance_criteria": [
+        "In META_TASK_POLICY, the 'state_machine' entry sets bypass_fuzzer: False (the key is retained, not removed, so BYPASS_FUZZER_TYPES resolves correctly).",
+        "The 'state_machine' entry additionally carries stateful_fuzz: True to route such tasks through the stateful differential fuzz path.",
+        "BYPASS_FUZZER_TYPES no longer includes 'state_machine' after the flip.",
+        "The change is additive/edit-only and harness/planner/taxonomies.py still imports cleanly with all other policies unchanged."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -c \"from harness.planner import taxonomies as t; p=t.META_TASK_POLICY['state_machine']; assert p['bypass_fuzzer'] is False and p.get('stateful_fuzz') is True and 'state_machine' not in t.BYPASS_FUZZER_TYPES\"",
+      "spec": {
+        "objective": "Route state_machine taxonomy tasks into the new stateful differential fuzz path instead of bypassing fuzzing, while keeping the policy registry structurally consistent.",
+        "functional_requirements": [
+          "Set bypass_fuzzer to False for the 'state_machine' policy in META_TASK_POLICY, keeping the key present.",
+          "Add stateful_fuzz: True to the 'state_machine' policy entry.",
+          "Ensure BYPASS_FUZZER_TYPES (derived from META_TASK_POLICY) no longer contains 'state_machine'.",
+          "Leave all other taxonomy policy entries unchanged."
+        ],
+        "interfaces": "META_TASK_POLICY['state_machine'] gains/changes keys {'bypass_fuzzer': False, 'stateful_fuzz': True}. BYPASS_FUZZER_TYPES continues to be derived the same way; only its membership changes.",
+        "edge_cases": [
+          "If BYPASS_FUZZER_TYPES is a hard-coded set rather than derived, update it consistently so it no longer lists state_machine.",
+          "Other consumers reading policy keys must still find bypass_fuzzer present (do not delete the key).",
+          "stateful_fuzz key must not collide with an existing differently-typed key."
+        ],
+        "non_goals": [
+          "Do not change any other taxonomy's policy.",
+          "Do not implement routing logic here beyond exposing the policy flags.",
+          "Do not set a working_dir front-matter key."
+        ],
+        "implementation_notes": "Locate the META_TASK_POLICY dict at line 1 region and the BYPASS_FUZZER_TYPES definition at line 3 region. Edit only the state_machine entry. Verify BYPASS_FUZZER_TYPES is recomputed/consistent after the edit."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_state_machine_bypass_fuzzer_false"
+          },
+          {
+            "name": "test_state_machine_has_stateful_fuzz_true"
+          },
+          {
+            "name": "test_state_machine_not_in_bypass_fuzzer_types"
+          },
+          {
+            "name": "test_other_policies_unchanged"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_policy_flags_route_to_stateful_path"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_every_policy_still_has_bypass_fuzzer_key"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_taxonomies_module_imports"
+          }
+        ],
+        "minimum_test_count": 6,
+        "test_data_requirements": "Direct introspection of META_TASK_POLICY and BYPASS_FUZZER_TYPES; a snapshot of pre-edit non-state_machine entries to assert they are untouched."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 30,
+        "test_tokens": 90,
+        "note": "Tiny policy edit; tests guard the derived-set consistency and non-regression of other policies."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "brief_hooks_method_d.md",
+  "source_brief_sha256": "1f4cd47692a4eabcb34e51620b15886d0a3eaabcf6060c440b6373f46487bc43"
+}
