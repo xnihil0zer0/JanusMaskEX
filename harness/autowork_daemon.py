@@ -1217,6 +1217,7 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
             plan_path = repo_root / plan_filename
             slug = rec.get('slug') or ''
             stamped_working_dir: str | None = None
+            _plan_obj = None
             try:
                 _plan_obj = json.loads(plan_path.read_text(encoding='utf-8'))
                 if isinstance(_plan_obj, dict):
@@ -1244,8 +1245,53 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
                         write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.time(), 'phase': 'autowork', 'task_id': '', 'event': 'silent_skip', 'detail': f'bootstrap {slug}: {type(_bs_exc).__name__}: {_bs_exc!r}', 'phase_tag': 'auto_promote_step_0b_bootstrap', 'exit': 0})
                     except OSError:
                         pass
+            # STAGING_DEP_GATE: build the accepted-set from the ledger
+            # (fail-safe: empty on missing/garbled file, ignoring non-dict
+            # rows and JSONDecodeErrors) and a {task_id: dependencies} map
+            # from the already-parsed plan, ONCE before the staging loop.
+            _accepted: set[str] = set()
+            try:
+                with (state_dir / 'impl_progress.jsonl').open(encoding='utf-8') as _ledger_fh:
+                    for _ledger_line in _ledger_fh:
+                        _ledger_line = _ledger_line.strip()
+                        if not _ledger_line:
+                            continue
+                        try:
+                            _ledger_row = json.loads(_ledger_line)
+                        except json.JSONDecodeError:
+                            continue
+                        if not isinstance(_ledger_row, dict):
+                            continue
+                        if _ledger_row.get('phase') == 'accepted' and _ledger_row.get('event') == 'auto_commit':
+                            _acc_tid = _ledger_row.get('task_id')
+                            if isinstance(_acc_tid, str) and _acc_tid:
+                                _accepted.add(_acc_tid)
+            except (OSError, UnicodeDecodeError):
+                _accepted = set()
+            _dep_map: dict = {}
+            if isinstance(_plan_obj, dict):
+                for _plan_task in _plan_obj.get('tasks') or []:
+                    if not isinstance(_plan_task, dict):
+                        continue
+                    _pt_id = _plan_task.get('task_id')
+                    if isinstance(_pt_id, str) and _pt_id:
+                        _dep_map[_pt_id] = _plan_task.get('dependencies') or []
             for tid in unstaged:
                 if not isinstance(tid, str) or not tid:
+                    continue
+                # STAGING_DEP_GATE: skip staging tid when any of its
+                # dependencies was processed (a tasks/processed/<d>.json
+                # exists) but is not in the accepted-set.
+                _deps = _dep_map.get(tid) or []
+                _dep_gated = False
+                if isinstance(_deps, list):
+                    for _d in _deps:
+                        if not isinstance(_d, str) or not _d:
+                            continue
+                        if (state_dir / 'tasks' / 'processed' / f'{_d}.json').exists() and _d not in _accepted:
+                            _dep_gated = True
+                            break
+                if _dep_gated:
                     continue
                 try:
                     stage_task(plan_path, tid, state_dir, canonical=True, working_dir=stamped_working_dir)
