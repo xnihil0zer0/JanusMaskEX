@@ -533,13 +533,13 @@ def stateful_differential_fuzz(code_a, code_b, class_name, config, session_id):
 
     Generates symbolic action sequences for ``class_name`` (via the
     d_01/d_02/d_03 helpers ``extract_class_interface`` /
-    ``build_stateful_strategy`` / ``execute_stateful_trace`` in
-    :mod:`harness.diff_fuzzer`), replays each sequence against ``code_a`` and
-    ``code_b`` in sandboxed instances, and looks for the first step whose A/B
-    outputs disagree under ``outputs_match`` (return values *and* exceptions).
-    On divergence the Hypothesis shrinking engine minimises the failing action
-    sequence; the minimal counterexample is packaged into a ``FuzzFailure``
-    carried by the returned :class:`FuzzResult`.
+    ``build_stateful_strategy`` (from :mod:`harness.diff_fuzzer`) and
+    ``execute_stateful_trace`` (defined in :mod:`harness.sandbox`)), replays
+    each sequence against ``code_a`` and ``code_b`` in sandboxed instances, and
+    looks for the first step whose A/B outputs disagree (return values *and*
+    exceptions). On divergence the Hypothesis shrinking engine minimises the
+    failing action sequence; the minimal counterexample is packaged into a
+    ``FuzzFailure`` carried by the returned :class:`FuzzResult`.
 
     Strictly additive: it touches no existing orchestrator function and adds no
     module-level import (``FuzzResult`` is reused from the module-level import
@@ -582,7 +582,7 @@ def stateful_differential_fuzz(code_a, code_b, class_name, config, session_id):
     try:
         from harness.diff_fuzzer import extract_class_interface as _extract_iface
         from harness.diff_fuzzer import build_stateful_strategy as _build_strategy
-        from harness.diff_fuzzer import execute_stateful_trace as _exec_trace
+        from harness.sandbox import execute_stateful_trace as _exec_trace
         from harness.diff_fuzzer import outputs_match as _outputs_match
     except Exception as _imp_exc:
         return _result(True, 0, 0, [], skipped='stateful helpers unavailable: %s' % (_imp_exc,))
@@ -686,13 +686,60 @@ def stateful_differential_fuzz(code_a, code_b, class_name, config, session_id):
         raise TypeError('could not adapt execute_stateful_trace call signature')
 
     def _compare(ta, tb):
-        """Return (diverged, index, step_a, step_b) for two step traces."""
+        """Return (diverged, index, step_a, step_b) for two step traces.
+
+        Compares JSON step-dicts as returned by ``execute_stateful_trace``
+        (NOT ``ExecutionResult`` objects): per-step ``exception`` dict by type
+        then message; otherwise the authoritative ``value_repr`` (``value`` is
+        ``None`` for non-JSON returns such as set/bytes/Path); a ``skipped``
+        step is equal iff both sides skipped. Differing step kinds (raise vs
+        value vs skip) are a divergence. The non-deterministic default object
+        repr ``<Cls object at 0x...>`` is normalised so two structurally
+        identical instances are not flagged purely on memory address.
+        """
+        def _norm_repr(r):
+            if not isinstance(r, str):
+                return r
+            marker = ' object at 0x'
+            idx = r.find(marker)
+            if idx != -1 and r.endswith('>'):
+                return r[:idx + len(marker)] + '...>'
+            return r
+
+        def _step_kind(s):
+            if not isinstance(s, dict):
+                return 'value'
+            if s.get('skipped'):
+                return 'skip'
+            if 'exception' in s and s.get('exception') is not None:
+                return 'raise'
+            return 'value'
+
+        def _steps_equal(sa, sb):
+            if not isinstance(sa, dict) or not isinstance(sb, dict):
+                return sa == sb
+            ka = _step_kind(sa)
+            kb = _step_kind(sb)
+            if ka != kb:
+                return False
+            if ka == 'skip':
+                return True
+            if ka == 'raise':
+                ea = sa.get('exception') or {}
+                eb = sb.get('exception') or {}
+                if not isinstance(ea, dict) or not isinstance(eb, dict):
+                    return ea == eb
+                if ea.get('type') != eb.get('type'):
+                    return False
+                return ea.get('message') == eb.get('message')
+            return _norm_repr(sa.get('value_repr')) == _norm_repr(sb.get('value_repr'))
+
         la = list(ta) if ta is not None else []
         lb = list(tb) if tb is not None else []
         n = min(len(la), len(lb))
         for i in range(n):
             try:
-                same = _outputs_match(la[i], lb[i])
+                same = _steps_equal(la[i], lb[i])
             except Exception:
                 same = False
             if not same:
