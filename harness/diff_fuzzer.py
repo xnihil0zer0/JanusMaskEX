@@ -350,6 +350,58 @@ def extract_class_interface(code: str, class_name: str) -> dict[str, Any] | None
         elif not item.name.startswith('_'):
             methods[item.name] = _param_strategies(item)
     return {'class_name': class_name, 'init': init, 'methods': methods}
+def build_stateful_strategy(interface: dict[str, Any]) -> st.SearchStrategy:
+    """Turn an extracted class *interface* into a Hypothesis strategy yielding a
+    symbolic, serializable stateful trace::
+
+        (init_args, [(method_name, args), (method_name, args), ...])
+
+    The returned strategy produces ONLY plain, serializable Python objects --
+    a tuple of ``(init_args, list_of_calls)`` where ``init_args`` is a dict of
+    constructor ``{param_name: value}`` and each call is a ``(method_name, args)``
+    tuple whose ``args`` is a ``{param_name: value}`` dict.  No
+    :class:`hypothesis.stateful.RuleBasedStateMachine` is built; the command list
+    is symbolic so it can cross the subprocess/jail boundary (and be replayed by
+    ``execute_stateful_trace``) after JSON/pickle round-tripping.
+
+    *interface* is the mapping returned by :func:`extract_class_interface`:
+    ``init`` and ``methods`` already hold per-parameter Hypothesis strategies
+    (built through the same ``_strategy_for_annotation`` / ``_ast_node_to_strategy``
+    pathway).  A bare annotation string is still tolerated -- it is resolved
+    through :func:`_strategy_for_annotation`, with the established int fallback for
+    anything unmappable.
+
+    Edge cases:
+      * No public methods -> the call list is always empty (``(init_args, [])``).
+      * A zero-parameter constructor / method -> its args container is ``{}``.
+      * The sequence length is bounded (``max_size``) so traces stay shrinkable
+        and replay stays bounded.
+
+    Strictly additive: existing strategy helpers are untouched.
+    """
+
+    def _as_strategy(value: Any) -> st.SearchStrategy:
+        if isinstance(value, st.SearchStrategy):
+            return value
+        try:
+            return _strategy_for_annotation(str(value))
+        except Exception:
+            return _strategy_for_annotation('int')
+
+    def _args_strategy(param_map: dict[str, Any]) -> st.SearchStrategy:
+        if not param_map:
+            return st.just({})
+        return st.fixed_dictionaries({name: _as_strategy(strat) for name, strat in param_map.items()})
+    iface = interface if isinstance(interface, dict) else {}
+    init_map = iface.get('init', {}) or {}
+    methods = iface.get('methods', {}) or {}
+    init_strategy = _args_strategy(init_map)
+    method_call_strategies = [st.tuples(st.just(name), _args_strategy(param_map)) for name, param_map in methods.items()]
+    if method_call_strategies:
+        calls_strategy = st.lists(st.one_of(*method_call_strategies), min_size=0, max_size=10)
+    else:
+        calls_strategy = st.just([])
+    return st.tuples(init_strategy, calls_strategy)
 def extract_function_signature(code: str, func_name: str) -> dict[str, str]:
     """Parse *code* and return a mapping of parameter name -> annotation string
     for the function *func_name*.  Unannotated parameters default to "int".
