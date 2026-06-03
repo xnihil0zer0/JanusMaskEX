@@ -896,14 +896,24 @@ def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, stat
         # itself under external_staging_root). For external we additionally accept
         # effective_target_root(working_dir) as an allowed root (union); self stays
         # byte-identical (relative_to(worktree_root) only).
+        # COMMIT_CONTAINMENT_FIX: track WHICH root contained target_path so the
+        # rel_str below is computed relative to that root. An external-contained
+        # target lies under effective_target_root(working_dir) but NOT under
+        # worktree_root, so an unconditional relative_to(worktree_root) would raise
+        # ValueError and crash the orchestrator. SELF keeps _containing_root =
+        # worktree_root, so its behaviour is byte-identical.
         _contained = True
+        _containing_root = worktree_root
         try:
             target_path.relative_to(worktree_root)
+            _containing_root = worktree_root
         except ValueError:
             _contained = False
             if not _is_self:
                 try:
-                    target_path.relative_to(effective_target_root(working_dir).resolve())
+                    _ext_root = effective_target_root(working_dir).resolve()
+                    target_path.relative_to(_ext_root)
+                    _containing_root = _ext_root
                     _contained = True
                 except ValueError:
                     _contained = False
@@ -912,7 +922,7 @@ def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, stat
             result['sha'] = None
             result['error'] = f'target escapes worktree: {rel}'
             return result
-        rel_str = str(target_path.relative_to(worktree_root))
+        rel_str = str(target_path.relative_to(_containing_root))
         scope_err = _enforce_apply_scope([rel_str], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, sensitive_globs=_SENSITIVE_APPLY_GLOBS if _is_self else ())
         if scope_err:
             logging.getLogger(__name__).error('_commit_accepted_output_multi: %s rejected: %s', task_id, scope_err)
@@ -1246,14 +1256,24 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
         # self and external. For external we additionally accept
         # effective_target_root(working_dir) as an allowed root (union); self stays
         # byte-identical (relative_to(worktree_root) only).
+        # COMMIT_CONTAINMENT_FIX: track WHICH root contained target_path so the
+        # rel_str below is computed relative to that root. An external-contained
+        # target lies under effective_target_root(working_dir) but NOT under
+        # worktree_root, so an unconditional relative_to(worktree_root) would raise
+        # ValueError and crash the orchestrator. SELF keeps _containing_root =
+        # worktree_root, so its behaviour is byte-identical.
         _contained = True
+        _containing_root = worktree_root
         try:
             target_path.relative_to(worktree_root)
+            _containing_root = worktree_root
         except ValueError:
             _contained = False
             if not _is_self:
                 try:
-                    target_path.relative_to(effective_target_root(working_dir).resolve())
+                    _ext_root = effective_target_root(working_dir).resolve()
+                    target_path.relative_to(_ext_root)
+                    _containing_root = _ext_root
                     _contained = True
                 except ValueError:
                     _contained = False
@@ -1262,7 +1282,7 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
             result['sha'] = None
             result['error'] = f'target escapes worktree: {rel}'
             return result
-        rel_str = str(target_path.relative_to(worktree_root))
+        rel_str = str(target_path.relative_to(_containing_root))
         scope_err = _enforce_apply_scope([rel_str], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, sensitive_globs=_SENSITIVE_APPLY_GLOBS if _is_self else ())
         if scope_err:
             logging.getLogger(__name__).error('_commit_accepted_output_patches: %s rejected: %s', task_id, scope_err)
