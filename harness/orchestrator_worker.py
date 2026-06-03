@@ -319,6 +319,41 @@ def main() -> int:
                 return exit_code
             mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
             _skip_ifz = (mtt == 'test_authoring') and META_TASK_POLICY.get('test_authoring', {}).get('skip_interface_fuzz')
+            if META_TASK_POLICY.get(mtt, {}).get('stateful_fuzz'):
+                set_phase(state_dir, phase='fuzzing')
+                orch._emit_lifecycle(state_dir, event='phase_transition', phase='fuzzing', task_id=task_id, phase_transition={'to': 'fuzzing'})
+                fuzz_result = orch._route_stateful_fuzz(task, agent_a_code, agent_b_code, config, session_id=f'{task_id}_stateful')
+                orch._persist_fuzz_results(state_dir, task_id, 'stateful', fuzz_result)
+                if fuzz_result.error or not fuzz_result.equivalent:
+                    set_phase(state_dir, phase='rejected')
+                    orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                    orch._mark_blocked(state_dir, task_id, 'stateful_fuzz_divergence')
+                    orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                    _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'stateful_fuzz_divergence'})
+                    return 1
+                _detect_and_append_untracked_tests(state_dir, task, task_id, processing)
+                orch._save_final_output(state_dir, task_id, agent_a_code)
+                auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
+                no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
+                if auto_commit_ok or no_diff:
+                    orch._mark_processed(state_dir, task_id)
+                else:
+                    orch._mark_blocked(state_dir, task_id, 'auto_commit_failed')
+                orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                if auto_commit_ok:
+                    set_phase(state_dir, phase='accepted')
+                    orch._emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
+                    _print_json_line({'task_id': task_id, 'outcome': 'accepted', 'path': 'stateful_fuzz'})
+                    return 0
+                if no_diff:
+                    set_phase(state_dir, phase='accepted')
+                    orch._emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
+                    _print_json_line({'task_id': task_id, 'outcome': 'no_diff', 'path': 'stateful_fuzz'})
+                    return 0
+                set_phase(state_dir, phase='rejected')
+                orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'auto_commit_failed'})
+                return 1
             if mtt in BYPASS_FUZZER_TYPES or _skip_ifz:
                 if mtt not in SKIP_SMOKE_GATE_TYPES and not _skip_ifz:
                     smoke_err = smoke_import('_smoke_candidate', agent_a_code)
