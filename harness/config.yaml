@@ -51,7 +51,6 @@ agents:
     # dies "without submitting (code 2)", so the dual-agent gate can never pass. (claude
     # avoids this via --tools Read,Glob,Grep,Write; agy has no such allowlist flag.)
     - --dangerously-skip-permissions
-    - --sandbox
     command: ${PROJECT_ROOT}/.agents/agy/agy
 autowork:
   brief_max_age_seconds: 604800

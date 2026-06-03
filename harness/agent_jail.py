@@ -262,6 +262,18 @@ def build_jail_argv(
                 argv += ["--ro-bind", _ro, _ro]
             elif os.path.isdir(os.path.dirname(_ro)):
                 argv += ["--ro-bind", "/dev/null", _ro]
+        # gemini-jail-fix (REV25 exec, agy 1.0.4): the ro-bind of ~/.gemini/config above
+        # also froze ~/.gemini/config/projects, which agy 1.0.4 (rebuilt 2026-06-03)
+        # WRITES on every startup to record per-workspace trust state. Those writes fail
+        # EROFS and agy aborts "without submitting (code 2)" -- silently killing the
+        # gemini half of the dual-agent synthesis gate (older agy builds did not write
+        # here, so gemini worked through Jun 2-3; this is a vendored-tool version bump,
+        # same class as the claude-jail --verbose / ~/.claude.json fixes). Re-carve ONLY
+        # the runtime projects/ subdir read-write (later bind wins); GEMINI.md and
+        # config/*.json stay read-only, preserving the CH2-3 operator-config protection.
+        _gemini_proj = os.path.join(home, ".gemini", "config", "projects")
+        if os.path.isdir(_gemini_proj):
+            argv += ["--bind", _gemini_proj, _gemini_proj]
     # XDG_RUNTIME_DIR (/run/user/<uid>): the D-Bus session bus + keyring socket live
     # here. agy (gemini CLI) validates/refreshes its OAuth credential through the
     # session keyring; without these the auth loops on "authentication timed out".
