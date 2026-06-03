@@ -286,6 +286,70 @@ def _split_type_args(args: str) -> list[str]:
     return parts
 from harness.planner.taxonomies import BYPASS_FUZZER_TYPES as FUZZ_BYPASS_META_TYPES
 
+def extract_class_interface(code: str, class_name: str) -> dict[str, Any] | None:
+    """Extract the constructor and public-method signatures of a class.
+
+    Parses *code* with :mod:`ast`, locates the :class:`ast.ClassDef` named
+    *class_name*, and returns a structured interface mapping::
+
+        {
+            'class_name': str,
+            'init':    {param_name: strategy, ...},   # __init__ params, sans self
+            'methods': {method_name: {param_name: strategy, ...}, ...},
+        }
+
+    Each parameter is mapped to a Hypothesis strategy built through the SAME
+    AST type-parser pathway the stateless fuzzer uses: annotated parameters go
+    through :func:`_ast_node_to_strategy` (consuming the raw annotation node),
+    while unannotated parameters fall back to ``_strategy_for_annotation('int')``
+    -- the exact default the stateless path (:func:`extract_function_signature`
+    /:func:`build_input_strategy`) applies to bare params.  No parallel
+    annotation parser is introduced.
+
+    Only ``__init__`` and PUBLIC methods (names that do not start with ``_``)
+    are kept; every other private/dunder method is discarded.  The leading
+    positional parameter (``self``) plus any ``*args``/``**kwargs`` are dropped
+    from each mapping.
+
+    Edge cases:
+      * Class without ``__init__`` -> ``init`` is an empty mapping.
+      * Class with only private/dunder methods -> ``methods`` is empty but
+        ``init`` is still returned.
+      * *class_name* absent from *code* -> returns ``None`` (the documented
+        sentinel, so callers can branch without catching an exception).
+      * Unparseable *code* -> the underlying :class:`SyntaxError` propagates;
+        module import is unaffected because parsing happens at call time.
+
+    The return shape is intentionally stable: ``build_stateful_strategy``
+    depends on the ``'class_name'`` / ``'init'`` / ``'methods'`` keys.
+    """
+
+    def _param_strategies(func: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, st.SearchStrategy]:
+        params: dict[str, st.SearchStrategy] = {}
+        for arg in func.args.args[1:]:
+            if arg.annotation is not None:
+                params[arg.arg] = _ast_node_to_strategy(arg.annotation)
+            else:
+                params[arg.arg] = _strategy_for_annotation('int')
+        return params
+    tree = ast.parse(code)
+    class_node: ast.ClassDef | None = None
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            class_node = node
+            break
+    if class_node is None:
+        return None
+    init: dict[str, st.SearchStrategy] = {}
+    methods: dict[str, dict[str, st.SearchStrategy]] = {}
+    for item in class_node.body:
+        if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if item.name == '__init__':
+            init = _param_strategies(item)
+        elif not item.name.startswith('_'):
+            methods[item.name] = _param_strategies(item)
+    return {'class_name': class_name, 'init': init, 'methods': methods}
 def extract_function_signature(code: str, func_name: str) -> dict[str, str]:
     """Parse *code* and return a mapping of parameter name -> annotation string
     for the function *func_name*.  Unannotated parameters default to "int".
