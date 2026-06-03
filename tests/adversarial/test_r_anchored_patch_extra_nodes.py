@@ -60,12 +60,15 @@ def test_A_extra_import_and_helper_inserted_before_target():
 
 
 # --------------------------------------------------------------------------- #
-# Test B — positive control, RED-equivalent both before AND after the fix.
-# An extra of a DISALLOWED kind (module-level assignment X = 1) alongside the
-# target -> ValueError on HEAD (not one def/class) and ValueError after (the
-# allowed extra set is bounded to imports + def/class only).
+# Test B — positive control, UPDATED for PATCH_ALLOW_TOPLEVEL_ASSIGN.
+# A module-level assignment (X = 1) is now an ALLOWED extra alongside the target
+# (ast.Assign/ast.AnnAssign joined Import + def/class). It is spliced in at col 0
+# before the target's replacement block, the target body is replaced, and the
+# result is valid Python with X as a module-level assignment. Collision/2-part/
+# non-Name-target guards remain (covered by the dedicated oracle).
 # --------------------------------------------------------------------------- #
-def test_B_disallowed_extra_assignment_rejected():
+def test_B_extra_assignment_applied():
+    import ast as _ast
     src = "def target():\n    return 0\n"
     new_block = (
         "X = 1\n"
@@ -73,8 +76,20 @@ def test_B_disallowed_extra_assignment_rejected():
         "def target():\n"
         "    return X\n"
     )
-    with pytest.raises(ValueError):
-        gi._apply_symbol_patch(src, "target", new_block)
+    out = gi._apply_symbol_patch(src, "target", new_block)
+    # New module-level constant applied; target body replaced.
+    assert "X = 1" in out
+    assert "return X" in out
+    assert "return 0" not in out
+    # Extra assignment comes before the target's replacement block.
+    assert out.index("X = 1") < out.index("def target")
+    # Result is valid Python with X bound at module top level.
+    mod = _ast.parse(out)
+    assert any(
+        isinstance(n, _ast.Assign)
+        and any(isinstance(t, _ast.Name) and t.id == "X" for t in n.targets)
+        for n in mod.body
+    )
 
 
 # --------------------------------------------------------------------------- #
