@@ -910,6 +910,18 @@ def get_next_task(state_dir: Path) -> dict[str, Any] | None:
     processed_dir.mkdir(parents=True, exist_ok=True)
     _reemit_blocked_rollbacks(state_dir)
     processed_names = {p.name for p in processed_dir.iterdir()}
+    accepted_names = set()
+    try:
+        with open(state_dir / 'impl_progress.jsonl', 'r') as _lf:
+            for _line in _lf:
+                try:
+                    row = json.loads(_line)
+                    if row.get('phase') == 'accepted' and row.get('event') == 'auto_commit':
+                        accepted_names.add(f"{row['task_id']}.json")
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    pass
+    except OSError:
+        pass
     candidates = sorted((p for p in tasks_dir.glob('*.json') if not p.name.startswith('current_task') and p.name not in processed_names))
     if not candidates:
         logger.debug('No unprocessed tasks found in %s', tasks_dir)
@@ -923,7 +935,7 @@ def get_next_task(state_dir: Path) -> dict[str, Any] | None:
             continue
         deps = task_data.get('dependencies', task_data.get('depends_on', []))
         if deps:
-            unmet = [d for d in deps if f'{d}.json' not in processed_names]
+            unmet = [d for d in deps if f'{d}.json' not in accepted_names]
             if unmet:
                 logger.debug('Skipping %s: unmet dependencies %s', candidate.name, unmet)
                 continue
