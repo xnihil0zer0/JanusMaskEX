@@ -20,6 +20,14 @@ from harness.brief_status import compute_brief_status
 from harness.planner.staging import stage_task
 from harness.autowork_parallelism import can_run_parallel
 from harness.autowork_parallelism import transitive_deps
+# SELFHEAL S2b: re-export the leaf-module self-heal primitives into the
+# autowork_daemon namespace so the S3 wiring (and the daemon-namespaced oracles)
+# resolve _selfheal_auto_promote_enabled / _is_selfheal_brief / _harvest_selfheal_briefs.
+from harness.selfheal import (  # noqa: F401
+    _selfheal_auto_promote_enabled,
+    _is_selfheal_brief,
+    _harvest_selfheal_briefs,
+)
 try:
     import yaml
 except ImportError:
