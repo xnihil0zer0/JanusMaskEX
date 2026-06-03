@@ -155,7 +155,13 @@ def anonymize_code(code: str) -> str:
 
 def serialize_failure(failure: FuzzFailure) -> dict:
     """Convert a FuzzFailure to a JSON-serializable dict for inclusion in
-    exam packets."""
+    exam packets.
+
+    Stateful Method-D failures (``action_sequence is not None``) summarize the
+    method call trace plus the divergent step index instead of dereferencing an
+    ExecutionResult, whose stateful step values are dict/tuple/'ok' shapes that
+    would AttributeError under the stateless summary path.
+    """
     def _result_summary(result) -> dict:
         if result.timed_out:
             return {"status": "timeout"}
@@ -168,6 +174,34 @@ def serialize_failure(failure: FuzzFailure) -> dict:
         return {
             "status": "success",
             "return_value": result.return_repr,
+        }
+
+    if getattr(failure, "action_sequence", None) is not None:
+        init_args, calls = (None, None)
+        seq = failure.action_sequence
+        if isinstance(seq, (tuple, list)) and len(seq) == 2:
+            init_args, calls = seq[0], seq[1]
+        call_strs = []
+        for mc in calls or []:
+            if isinstance(mc, dict):
+                mname = mc.get("method", mc.get("name", "?"))
+                margs = mc.get("args") or ()
+            elif isinstance(mc, (tuple, list)) and mc:
+                mname = mc[0]
+                margs = mc[1] if len(mc) > 1 else ()
+            else:
+                mname, margs = repr(mc), ()
+            call_strs.append("%s(%s)" % (mname, ", ".join(_safe_repr(a) for a in (margs or ()))))
+        return {
+            "stateful": True,
+            "init_args": _safe_repr(init_args),
+            "action_sequence": call_strs,
+            "divergent_step_index": getattr(failure, "divergent_step_index", None),
+            "output_a": _safe_repr(failure.result_a),
+            "output_b": _safe_repr(failure.result_b),
+            "result_a": _safe_repr(failure.result_a),
+            "result_b": _safe_repr(failure.result_b),
+            "reason": failure.reason,
         }
 
     return {
@@ -239,21 +273,28 @@ def prepare_exam_packets(
 
     serialized_failures = [serialize_failure(f) for f in failures[:10]]  # cap at 10
 
+    def _failure_text(i, f, review_key, other_key):
+        txt = f"\n### Failure {i}\n"
+        if f.get("stateful"):
+            txt += f"- Stateful init args: {f.get('init_args')}\n"
+            txt += f"- Action sequence: {' -> '.join(f.get('action_sequence') or [])}\n"
+            txt += f"- Divergent step index: {f.get('divergent_step_index')}\n"
+            txt += f"- Output from Code Under Review: {json.dumps(f.get(review_key))}\n"
+            txt += f"- Output from Other Code: {json.dumps(f.get(other_key))}\n"
+        else:
+            txt += f"- Input: {f['input']['args']}\n"
+            txt += f"- Result from Code Under Review: {json.dumps(f[review_key])}\n"
+            txt += f"- Result from Other Code: {json.dumps(f[other_key])}\n"
+        txt += f"- Divergence reason: {f['reason']}\n"
+        return txt
+
     claude_failures_text = ""
     for i, f in enumerate(serialized_failures, 1):
-        claude_failures_text += f"\n### Failure {i}\n"
-        claude_failures_text += f"- Input: {f['input']['args']}\n"
-        claude_failures_text += f"- Result from Code Under Review: {json.dumps(f['result_b'])}\n"
-        claude_failures_text += f"- Result from Other Code: {json.dumps(f['result_a'])}\n"
-        claude_failures_text += f"- Divergence reason: {f['reason']}\n"
+        claude_failures_text += _failure_text(i, f, "result_b", "result_a")
 
     gemini_failures_text = ""
     for i, f in enumerate(serialized_failures, 1):
-        gemini_failures_text += f"\n### Failure {i}\n"
-        gemini_failures_text += f"- Input: {f['input']['args']}\n"
-        gemini_failures_text += f"- Result from Code Under Review: {json.dumps(f['result_a'])}\n"
-        gemini_failures_text += f"- Result from Other Code: {json.dumps(f['result_b'])}\n"
-        gemini_failures_text += f"- Divergence reason: {f['reason']}\n"
+        gemini_failures_text += _failure_text(i, f, "result_a", "result_b")
 
     # Claude reviews code_B
     claude_prompt = _REVIEW_PROMPT_TEMPLATE.format(
