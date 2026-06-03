@@ -1389,6 +1389,15 @@ def create_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
     and to honour the no-new-module-level-imports constraint). A ``ValueError``
     is raised only when the staging path's parent directory is NEITHER the parent
     repository's sibling directory NOR the external staging root.
+
+    UNTRACKED_TESTS_WORKTREE: immediately after the worktree is created (and
+    BEFORE any verification runs) untracked test files in the PARENT repository
+    under ``tests/`` are best-effort COPIED into the freshly created staging
+    worktree. ``git worktree add`` only materialises tracked content, so
+    operator/planner-authored oracle tests that have not yet been committed would
+    otherwise be missing when the verification pytest runs inside staging. This
+    step only COPIES (never git-add/commit) -- it is distinct from and does not
+    disturb the POST-verification auto-commit block elsewhere in this module.
     """
     import logging
     import shutil
@@ -1444,6 +1453,32 @@ def create_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
     try:
         subprocess.run(cmd, cwd=cwd_str, check=True, capture_output=True, text=True)
         logger.info(f'Created staging worktree at {staging_path}')
+        # UNTRACKED_TESTS_WORKTREE: best-effort copy of untracked tests/** files
+        # from the parent repo into the new staging worktree so that
+        # operator/planner-authored oracle tests (not yet committed) are
+        # available to the PRE-verification pytest run. This never git-adds or
+        # commits, and any failure is logged but must not break worktree
+        # creation.
+        try:
+            status_res = subprocess.run(['git', 'status', '--porcelain', '-u'], cwd=cwd_str, check=True, capture_output=True, text=True)
+            for line in status_res.stdout.splitlines():
+                if not line:
+                    continue
+                status_code = line[:2]
+                if status_code != '??':
+                    continue
+                relpath = line[3:]
+                if not relpath.startswith('tests/'):
+                    continue
+                src = parent_root_obj / relpath
+                if not src.is_file():
+                    continue
+                dest = staging_path_obj / relpath
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+                logger.info(f'Copied untracked test file into staging worktree: {relpath}')
+        except Exception as e:
+            logger.warning(f'Failed to copy untracked tests into staging worktree: {e}')
     except subprocess.CalledProcessError as e:
         logger.error(f'Failed to create staging worktree: {e.stderr}')
         raise
