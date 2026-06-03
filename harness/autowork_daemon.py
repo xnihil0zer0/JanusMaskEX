@@ -2379,7 +2379,41 @@ def _check_inactivity_watchdog(repo_root: pathlib.Path, state_dir: pathlib.Path,
         stuck_duration = now - last_event_ts
     else:
         stuck_duration = now - _daemon_start_time
-    is_stuck = has_unfinished and stuck_duration > 1200.0
+    try:
+        _autowork = config.get('autowork', {}) or {}
+        _synthesis = config.get('synthesis', {}) or {}
+        stuck_threshold = max(
+            1200.0,
+            float(_autowork.get('planner_timeout_sec', 0.0) or 0.0),
+            float(_synthesis.get('verification_timeout_seconds', 0.0) or 0.0)
+            + float(_synthesis.get('timeout_seconds', 0.0) or 0.0),
+        )
+    except (TypeError, ValueError, AttributeError):
+        stuck_threshold = 1200.0
+    live_worker = False
+    try:
+        _rdir = state_dir / 'control' / 'autowork' / 'running'
+        if _rdir.exists():
+            for pidfile in _rdir.glob('*.pid'):
+                try:
+                    pid = int(pidfile.read_text().strip())
+                except (OSError, ValueError):
+                    continue
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    continue
+                except PermissionError:
+                    live_worker = True
+                    break
+                except OSError:
+                    continue
+                else:
+                    live_worker = True
+                    break
+    except OSError:
+        live_worker = False
+    is_stuck = has_unfinished and stuck_duration > stuck_threshold and (not live_worker)
     marker_path = state_dir / 'control' / 'autowork' / 'inactivity_escalated.json'
     if is_stuck:
         if not marker_path.exists():
