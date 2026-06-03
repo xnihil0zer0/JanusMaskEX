@@ -1572,8 +1572,13 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
                 return (False, pv)
             logger.info('%s partial-edit submission (%d patches) passed AST validation (%d warnings)', agent, len(patches), len(pv))
             return (True, pv)
-        # partial_edit task but no parseable __JANUSMASK_PATCHES__ block: fall through
-        # so the agent is told (single-file fallback validation) to fix its submission.
+        if task.get('partial_edit'):
+            msg = ("partial_edit task requires a top-level __JANUSMASK_PATCHES__ = [ {file, kind, name|marker, code}, ... ] assignment, "
+                   "but the submission contained no parseable __JANUSMASK_PATCHES__ block. Resubmit as a __JANUSMASK_PATCHES__ list "
+                   "(one entry per replaced symbol/region) so the patch encoding is deterministic.")
+            logger.warning('%s partial_edit submission missing __JANUSMASK_PATCHES__ block (task_id=%r)', agent, task.get('task_id'))
+            return (False, [Violation(rule='patches_required', severity='error', line=0, message=msg)])
+        # else (BYPASS_FUZZER_TYPES but not partial_edit): fall through unchanged.
     files_touched_raw = task.get('files_touched')
     if isinstance(files_touched_raw, list) and len(files_touched_raw) > 1:
         file_list_str = ', '.join((str(f) for f in files_touched_raw))
