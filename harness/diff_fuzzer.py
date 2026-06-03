@@ -331,9 +331,20 @@ def extract_class_interface(code: str, class_name: str) -> dict[str, Any] | None
     depends on the ``'class_name'`` / ``'init'`` / ``'methods'`` keys.
     """
 
+    def _is_staticmethod(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        for dec in func.decorator_list:
+            if isinstance(dec, ast.Name) and dec.id == 'staticmethod':
+                return True
+            if isinstance(dec, ast.Attribute) and dec.attr == 'staticmethod':
+                return True
+        return False
+
     def _param_strategies(func: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, st.SearchStrategy]:
         params: dict[str, st.SearchStrategy] = {}
-        for arg in func.args.args[1:]:
+        positional = list(func.args.posonlyargs) + list(func.args.args)
+        if not _is_staticmethod(func) and positional:
+            positional = positional[1:]
+        for arg in positional + list(func.args.kwonlyargs):
             if arg.annotation is not None:
                 params[arg.arg] = _ast_node_to_strategy(arg.annotation)
             else:
