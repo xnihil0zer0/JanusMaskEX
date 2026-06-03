@@ -614,6 +614,12 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
             parent_root = pathlib.Path(parent_output.stdout.strip()).resolve()
         else:
             parent_root = effective_target_root(working_dir).resolve()
+        # REV26 punb2a: the partial_edit patches sidecar is AUTHORITATIVE. Detect
+        # it BEFORE the _is_self untracked-synthesis block so the synthesized
+        # files.json is never seeded from the raw __JANUSMASK_PATCHES__ literal
+        # at state/output/<task_id>.py, and so the patches dispatch wins
+        # precedence over the files.json dispatch below.
+        patches_sidecar_exists = (state_dir / 'output' / f'{task_id}.patches.json').exists()
         # Remedy A/B (PHASE_M2_GAPFILL): initialize untracked_files BEFORE the try
         # block so a porcelain-scan exception cannot leave it unbound (NameError) at
         # the multi dispatch below.
@@ -631,7 +637,7 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
                     filepath = line[3:].strip().strip('"\'')
                     if fnmatch.fnmatch(filepath, 'tests/test_*.py'):
                         untracked_files.append(filepath)
-            if untracked_files:
+            if untracked_files and not patches_sidecar_exists:
                 import json
                 sidecar_path = state_dir / 'output' / f'{task_id}.files.json'
                 manifest = {}
@@ -660,15 +666,20 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
                 sidecar_path.write_text(json.dumps(manifest, indent=2), encoding='utf-8')
           except Exception as e:
             logging.getLogger(__name__).warning('Failed to auto-detect and commit untracked test files: %s', e)
+        # REV26 punb2a: PATCHES sidecar takes precedence over the files.json
+        # sidecar. The patches dispatch is checked FIRST so a partial_edit task's
+        # named symbol/region patch is applied via _commit_accepted_output_patches
+        # rather than letting any synthesized files.json win and write the raw
+        # __JANUSMASK_PATCHES__ literal verbatim into the target.
+        patches_sidecar = state_dir / 'output' / f'{task_id}.patches.json'
+        if patches_sidecar.exists():
+            return _commit_accepted_output_patches(task_id, patches_sidecar, state_dir, worktree_root, result, allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, working_dir=working_dir)
         sidecar_path = state_dir / 'output' / f'{task_id}.files.json'
         if sidecar_path.exists():
             effective_allowed = allowed_files
             if allowed_files is not None and untracked_files:
                 effective_allowed = set(allowed_files) | set(untracked_files)
             return _commit_accepted_output_multi(task_id, sidecar_path, state_dir, worktree_root, result, allowed_files=effective_allowed, meta_task_type=meta_task_type, approval_ok=approval_ok, working_dir=working_dir)
-        patches_sidecar = state_dir / 'output' / f'{task_id}.patches.json'
-        if patches_sidecar.exists():
-            return _commit_accepted_output_patches(task_id, patches_sidecar, state_dir, worktree_root, result, allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, working_dir=working_dir)
         target_path = pathlib.Path(target_file).resolve()
         # COMMIT_REROOT (§3-6): capture the ORIGINAL resolved target before the
         # parent->staging remap so the EXTERNAL containment CHECK can verify the
