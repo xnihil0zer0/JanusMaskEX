@@ -1071,12 +1071,32 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
 
     def _is_def(n: ast.AST) -> bool:
         return isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+
+    def _primary_assign_name(n: ast.AST):
+        # The bound name of a top-level AnnAssign (``Name`` target) or a
+        # single-Name ``Assign`` (exactly one ``Name`` target), else None.
+        # Tuple/list-unpacking and multi-target assigns are NOT primaries.
+        if isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name):
+            return n.target.id
+        if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
+            return n.targets[0].id
+        return None
     if len(parts) == 1:
         located = None
         for n in tree.body:
             if _is_def(n) and n.name == leaf_name:
                 located = n
                 break
+        if located is None:
+            # No def/class match -> admit a top-level AnnAssign / single-Name
+            # Assign as the PRIMARY, keyed on the assigned name. Enforce that
+            # exactly ONE top-level statement binds leaf_name (an ambiguous
+            # name bound by >1 statement is rejected, never silently resolved).
+            assign_matches = [n for n in tree.body if _primary_assign_name(n) == leaf_name]
+            if len(assign_matches) > 1:
+                raise KeyError(qualname)
+            if assign_matches:
+                located = assign_matches[0]
         if located is None:
             raise KeyError(qualname)
     elif len(parts) == 2:
@@ -1101,9 +1121,14 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
         nb_tree = ast.parse(new_block)
     except SyntaxError as exc:
         raise ValueError(f'new_block is not parseable Python: {exc}')
-    primaries = [n for n in nb_tree.body if _is_def(n) and n.name == leaf_name]
-    if len(primaries) != 1:
-        raise ValueError(f'new_block must contain exactly one def/class named {leaf_name!r}, found {len(primaries)}')
+    if _is_def(located):
+        primaries = [n for n in nb_tree.body if _is_def(n) and n.name == leaf_name]
+        if len(primaries) != 1:
+            raise ValueError(f'new_block must contain exactly one def/class named {leaf_name!r}, found {len(primaries)}')
+    else:
+        primaries = [n for n in nb_tree.body if _primary_assign_name(n) == leaf_name]
+        if len(primaries) != 1:
+            raise ValueError(f'new_block must contain exactly one assignment binding {leaf_name!r}, found {len(primaries)}')
     primary = primaries[0]
     extras = [n for n in nb_tree.body if n is not primary]
     if not extras:
