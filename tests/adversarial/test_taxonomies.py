@@ -19,7 +19,7 @@ def test_policy_dict_is_populated():
 
 def test_every_policy_entry_has_required_flags():
     required = {"bypass_fuzzer", "skip_structural_decomp"}
-    optional = {"skip_smoke_gates", "skip_interface_fuzz"}
+    optional = {"skip_smoke_gates", "skip_interface_fuzz", "stateful_fuzz"}
     allowed = required | optional
     for key, policy in META_TASK_POLICY.items():
         assert isinstance(key, str) and key
