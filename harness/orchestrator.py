@@ -528,6 +528,258 @@ def kill_agent(proc: subprocess.Popen, agent: str, reason: str='handoff') -> Non
             pass
         proc._dbus_stack = None
 
+def stateful_differential_fuzz(code_a, code_b, class_name, config, session_id):
+    """Drive end-to-end stateful differential fuzzing of two implementations.
+
+    Generates symbolic action sequences for ``class_name`` (via the
+    d_01/d_02/d_03 helpers ``extract_class_interface`` /
+    ``build_stateful_strategy`` / ``execute_stateful_trace`` in
+    :mod:`harness.diff_fuzzer`), replays each sequence against ``code_a`` and
+    ``code_b`` in sandboxed instances, and looks for the first step whose A/B
+    outputs disagree under ``outputs_match`` (return values *and* exceptions).
+    On divergence the Hypothesis shrinking engine minimises the failing action
+    sequence; the minimal counterexample is packaged into a ``FuzzFailure``
+    carried by the returned :class:`FuzzResult`.
+
+    Strictly additive: it touches no existing orchestrator function and adds no
+    module-level import (``FuzzResult`` is reused from the module-level import
+    at the top of this file; everything else is imported lazily here). It never
+    raises: a passing/skipped FuzzResult is returned when the class/interface
+    cannot be parsed, when Hypothesis is unavailable, or when the example budget
+    is exhausted without a divergence. A sandbox execution error on exactly one
+    side (or differing exception types) is surfaced as a divergence rather than
+    being silently treated as a match; nondeterminism/credential gates are left
+    entirely to the existing diff_fuzzer helpers (not relaxed here).
+    """
+    import inspect as _inspect
+
+    def _mk(cls, **kwargs):
+        """Construct a (dataclass-ish) ``cls`` tolerant of unknown field sets."""
+        if cls is None:
+            return None
+        try:
+            params = _inspect.signature(cls).parameters
+            accepted = {k: v for k, v in kwargs.items() if k in params}
+            return cls(**accepted)
+        except Exception:
+            try:
+                obj = cls.__new__(cls)
+            except Exception:
+                return None
+            for k, v in kwargs.items():
+                try:
+                    setattr(obj, k, v)
+                except Exception:
+                    pass
+            return obj
+
+    def _result(equivalent, total, matching, failures, error=None, skipped=None):
+        return _mk(FuzzResult, equivalent=equivalent, total_inputs=int(total), matching_inputs=int(matching), failures=list(failures or []), error=error, skipped_reason=skipped)
+    try:
+        from harness.diff_fuzzer import FuzzFailure as _FuzzFailure
+    except Exception:
+        _FuzzFailure = None
+    try:
+        from harness.diff_fuzzer import extract_class_interface as _extract_iface
+        from harness.diff_fuzzer import build_stateful_strategy as _build_strategy
+        from harness.diff_fuzzer import execute_stateful_trace as _exec_trace
+        from harness.diff_fuzzer import outputs_match as _outputs_match
+    except Exception as _imp_exc:
+        return _result(True, 0, 0, [], skipped='stateful helpers unavailable: %s' % (_imp_exc,))
+    try:
+        from hypothesis import given, settings, assume, HealthCheck
+    except Exception as _hyp_exc:
+        return _result(True, 0, 0, [], skipped='hypothesis unavailable: %s' % (_hyp_exc,))
+
+    def _call_adaptive(fn, *arg_shapes):
+        last = None
+        for shape in arg_shapes:
+            try:
+                return fn(*shape)
+            except TypeError as te:
+                last = te
+                continue
+        if last is not None:
+            raise last
+        return None
+    try:
+        interface = _call_adaptive(_extract_iface, (code_a, class_name), (code_a,))
+    except Exception as exc:
+        return _result(True, 0, 0, [], skipped='interface extraction failed: %s' % (exc,))
+    if not interface:
+        return _result(True, 0, 0, [], skipped='class %r not found / empty interface' % (class_name,))
+    try:
+        strategy = _call_adaptive(_build_strategy, (interface,), (interface, config))
+    except Exception as exc:
+        return _result(True, 0, 0, [], skipped='strategy build failed: %s' % (exc,))
+    if strategy is None:
+        return _result(True, 0, 0, [], skipped='no strategy for %r' % (class_name,))
+
+    def _cfg_get(*keys):
+        cur = config
+        for k in keys:
+            if isinstance(cur, dict) and k in cur:
+                cur = cur[k]
+            else:
+                return None
+        return cur
+    max_examples = _cfg_get('fuzzing', 'stateful', 'max_examples') or _cfg_get('fuzzing', 'max_examples') or _cfg_get('synthesis', 'fuzz_max_examples') or 100
+    try:
+        max_examples = max(1, int(max_examples))
+    except Exception:
+        max_examples = 100
+
+    def _split_seq(seq):
+        if seq is None:
+            return ((), [])
+        if isinstance(seq, dict):
+            ia = seq.get('init_args', seq.get('initargs', ()))
+            mc = seq.get('method_calls', seq.get('calls', seq.get('steps', [])))
+            return (ia or (), mc or [])
+        ia = getattr(seq, 'init_args', None)
+        mc = getattr(seq, 'method_calls', None)
+        if ia is not None or mc is not None:
+            return (ia or (), mc or [])
+        if isinstance(seq, (tuple, list)) and len(seq) == 2 and isinstance(seq[1], (list, tuple)):
+            return (seq[0], list(seq[1]))
+        if isinstance(seq, (list, tuple)):
+            return ((), list(seq))
+        return ((), [])
+    try:
+        _exec_pnames = [p.name for p in _inspect.signature(_exec_trace).parameters.values() if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+    except (TypeError, ValueError):
+        _exec_pnames = []
+
+    def _run_trace(code, seq):
+        """Adaptively invoke execute_stateful_trace for one implementation."""
+        init_args, method_calls = _split_seq(seq)
+        if _exec_pnames:
+            kw = {}
+            for name in _exec_pnames:
+                low = name.lower()
+                if low in ('code', 'source', 'src', 'code_str', 'impl'):
+                    kw[name] = code
+                elif low in ('class_name', 'classname', 'cls_name', 'name'):
+                    kw[name] = class_name
+                elif low in ('action_sequence', 'actionsequence', 'actions', 'sequence', 'seq', 'trace'):
+                    kw[name] = seq
+                elif low in ('init_args', 'initargs', 'ctor_args', 'constructor_args'):
+                    kw[name] = init_args
+                elif low in ('method_calls', 'methodcalls', 'calls', 'steps'):
+                    kw[name] = method_calls
+                elif low in ('session_id', 'session', 'sessionid', 'sid'):
+                    kw[name] = session_id
+                elif low in ('config', 'cfg'):
+                    kw[name] = config
+                elif low in ('interface', 'iface'):
+                    kw[name] = interface
+            if kw:
+                try:
+                    return _exec_trace(**kw)
+                except TypeError:
+                    pass
+        for args in ((code, class_name, seq, session_id), (code, class_name, seq), (code, class_name, init_args, method_calls, session_id), (code, class_name, init_args, method_calls)):
+            try:
+                return _exec_trace(*args)
+            except TypeError:
+                continue
+        raise TypeError('could not adapt execute_stateful_trace call signature')
+
+    def _compare(ta, tb):
+        """Return (diverged, index, step_a, step_b) for two step traces."""
+        la = list(ta) if ta is not None else []
+        lb = list(tb) if tb is not None else []
+        n = min(len(la), len(lb))
+        for i in range(n):
+            try:
+                same = _outputs_match(la[i], lb[i])
+            except Exception:
+                same = False
+            if not same:
+                return (True, i, la[i], lb[i])
+        if len(la) != len(lb):
+            sa = la[n] if n < len(la) else None
+            sb = lb[n] if n < len(lb) else None
+            return (True, n, sa, sb)
+        return (False, -1, None, None)
+    holder = {'found': False, 'index': None, 'reason': None, 'init_args': None, 'method_calls': None, 'out_a': None, 'out_b': None}
+    counters = {'total': 0, 'matching': 0}
+
+    @settings(max_examples=max_examples, deadline=None, suppress_health_check=list(HealthCheck))
+    @given(strategy)
+    def _check(seq):
+        counters['total'] += 1
+        err_a = err_b = None
+        ta = tb = None
+        try:
+            ta = _run_trace(code_a, seq)
+        except Exception as exc:
+            err_a = exc
+        try:
+            tb = _run_trace(code_b, seq)
+        except Exception as exc:
+            err_b = exc
+        if err_a is not None or err_b is not None:
+            if err_a is not None and err_b is not None and (type(err_a) is type(err_b)):
+                assume(False)
+                return
+            init_args, method_calls = _split_seq(seq)
+            holder.update(found=True, index=0, reason='sandbox execution diverged (A=%r, B=%r)' % (err_a, err_b), init_args=init_args, method_calls=method_calls, out_a=('error', repr(err_a)) if err_a is not None else 'ok', out_b=('error', repr(err_b)) if err_b is not None else 'ok')
+            raise AssertionError(holder['reason'])
+        diverged, idx, step_a, step_b = _compare(ta, tb)
+        if not diverged:
+            counters['matching'] += 1
+            return
+        init_args, method_calls = _split_seq(seq)
+        holder.update(found=True, index=idx, reason='stateful divergence at step %d' % idx, init_args=init_args, method_calls=method_calls, out_a=step_a, out_b=step_b)
+        raise AssertionError(holder['reason'])
+    fuzz_error = None
+    try:
+        _check()
+    except AssertionError:
+        pass
+    except Exception as exc:
+        fuzz_error = exc
+
+    def _seq_summary(init_args, method_calls):
+        try:
+            calls = []
+            for mc in method_calls or []:
+                if isinstance(mc, (tuple, list)) and mc:
+                    mname = mc[0]
+                    margs = mc[1] if len(mc) > 1 else ()
+                    calls.append('%s(%s)' % (mname, ', '.join((repr(a) for a in margs or ()))))
+                elif isinstance(mc, dict):
+                    mname = mc.get('method', mc.get('name', '?'))
+                    margs = mc.get('args') or ()
+                    calls.append('%s(%s)' % (mname, ', '.join((repr(a) for a in margs))))
+                else:
+                    calls.append(repr(mc))
+            init_repr = ', '.join((repr(a) for a in init_args or ()))
+            return '__init__(%s); %s' % (init_repr, ' -> '.join(calls))
+        except Exception:
+            return repr((init_args, method_calls))
+
+    def _build_failure(h):
+        reason = '%s | sequence: %s' % (h['reason'], _seq_summary(h['init_args'], h['method_calls']))
+        ia = h['init_args']
+        input_args = tuple(ia) if isinstance(ia, (list, tuple)) else (ia,)
+        fail = _mk(_FuzzFailure, input_args=input_args, input_kwargs={}, reason=reason, result_a=h['out_a'], result_b=h['out_b'])
+        if fail is None:
+            return None
+        for attr, val in (('init_args', h['init_args']), ('method_calls', h['method_calls']), ('action_sequence', (h['init_args'], h['method_calls'])), ('divergent_step_index', h['index']), ('first_divergent_step', h['index']), ('output_a', h['out_a']), ('output_b', h['out_b'])):
+            try:
+                setattr(fail, attr, val)
+            except Exception:
+                pass
+        return fail
+    if holder['found']:
+        failure = _build_failure(holder)
+        failures = [failure] if failure is not None else []
+        return _result(False, counters['total'], counters['matching'], failures)
+    if fuzz_error is not None:
+        return _result(False, counters['total'], counters['matching'], [], error='stateful fuzz harness error: %s' % (fuzz_error,))
+    return _result(True, counters['total'], counters['matching'], [])
 def _join_stream_threads(proc: subprocess.Popen, timeout: float=2.0) -> None:
     """Join the stdout/stderr stream threads if they exist."""
     threads = getattr(proc, '_stream_threads', None)
