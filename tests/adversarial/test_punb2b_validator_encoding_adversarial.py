@@ -47,6 +47,9 @@ def _task():
     }
 
 
+_SINGLE_FILE = 'def alpha() -> int:\n    return 1\n'
+
+
 def test_partial_edit_rejects_whole_file_encoding():
     """A partial_edit submission lacking __JANUSMASK_PATCHES__ must be rejected."""
     valid, violations = _validate_submission(WHOLE_FILE, 'claude', _task())
@@ -74,4 +77,52 @@ def test_partial_edit_two_agents_cannot_both_validate_on_divergent_encodings():
         'BOTH the whole-file and patches encodings validate on the same '
         'partial_edit task -> nondeterministic divergent commit. The validator '
         'must reject the whole-file encoding.'
+    )
+
+
+# --- SCOPE-BOUNDARY guards (GREEN on HEAD and after the fix) -----------------
+# These encode the exact line the fix must NOT cross: the new patches_required
+# rejection is gated on task.get('partial_edit') ONLY, never on the broader
+# 'partial_edit OR mtt in BYPASS_FUZZER_TYPES'. They mirror the contracts in
+# tests/adversarial/test_orchestrator_manifest_required.py so the two suites
+# cannot drift into conflict (the prior pipeline attempt was rejected for
+# over-broadening into exactly these branches).
+
+
+def test_bypass_non_partial_edit_single_file_stays_accepted():
+    """harness_self_fix (in BYPASS_FUZZER_TYPES) but NOT partial_edit + a
+    single-file whole-file body must stay ACCEPTED via the single-file
+    fallback -- it must NOT be rejected as patches_required."""
+    task = {
+        'task_id': 'rev26_punb2b_bypass_single',
+        'meta_task_type': 'harness_self_fix',
+        'files_touched': ['a.py'],
+    }
+    valid, violations = _validate_submission(_SINGLE_FILE, 'claude', task)
+    assert valid, (
+        'a BYPASS-type but non-partial_edit single-file whole-file submission '
+        'must stay valid (patches_required must be gated on partial_edit only); '
+        f'got violations={[(v.rule, v.severity) for v in violations]}'
+    )
+    assert not any(v.rule == 'patches_required' for v in violations)
+
+
+def test_bypass_non_partial_edit_multifile_stays_manifest_missing():
+    """harness_self_fix (in BYPASS_FUZZER_TYPES) but NOT partial_edit + a
+    multi-file whole-file body must reject with rule='manifest_missing'
+    (NOT 'patches_required')."""
+    task = {
+        'task_id': 'rev26_punb2b_bypass_multi',
+        'meta_task_type': 'harness_self_fix',
+        'files_touched': ['a.py', 'b.py'],
+    }
+    valid, violations = _validate_submission(_SINGLE_FILE, 'claude', task)
+    assert not valid
+    rules = {v.rule for v in violations if v.severity == 'error'}
+    assert 'manifest_missing' in rules, (
+        f"multi-file non-partial_edit must stay manifest_missing; got {rules!r}"
+    )
+    assert 'patches_required' not in rules, (
+        'the fix must NOT emit patches_required on a non-partial_edit multi-file '
+        f'task; got {rules!r}'
     )
