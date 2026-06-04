@@ -29,19 +29,12 @@ logger = logging.getLogger('janusmask.diff_fuzzer')
 
 @dataclass
 class FuzzFailure:
-    """A single input where the two code samples diverged.
-
-    For STATEFUL failures (produced by stateful_differential_fuzz) result_a /
-    result_b hold step-dicts / ('error', repr) tuples / 'ok' strings rather than
-    ExecutionResult, and action_sequence / divergent_step_index are populated.
-    """
+    """A single input where the two code samples diverged."""
     input_args: list
     input_kwargs: dict
     result_a: ExecutionResult
     result_b: ExecutionResult
     reason: str
-    action_sequence: Any = None
-    divergent_step_index: int | None = None
 
 @dataclass
 class FuzzResult:
