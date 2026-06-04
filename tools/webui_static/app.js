@@ -1127,6 +1127,18 @@ function dagSvg(tasks) {
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
+// T1: predicate for the brief editor route (#/briefs/_new or #/briefs/<slug>).
+// Mirrors renderRoute()'s own hash parsing so the router and this guard agree
+// on route shape. Keys on a truthy second segment (the slug), so the briefs
+// LIST route (#/briefs) and every non-editor route return false — only the
+// editor, whose uncontrolled #brief-slug / #brief-content fields hold unsaved
+// operator input, is exempted from the live re-render.
+function briefEditorIsOpen() {
+  const hash = location.hash.replace(/^#/, "");
+  const parts = hash.split("/").filter(Boolean);
+  return parts[0] === "briefs" && Boolean(parts[1]);
+}
+
 async function renderRoute() {
   const hash = location.hash.replace(/^#/, "") || "/dashboard";
   const parts = hash.split("/").filter(Boolean);
@@ -1176,6 +1188,12 @@ async function boot() {
   // re-render the active page on every SSE tick (cheap: page handlers are pure render)
   let renderQueued = false;
   store.subscribers.add(() => {
+    // T1: while the brief editor route is open, the uncontrolled #brief-slug /
+    // #brief-content fields hold unsaved operator input; a live re-render here
+    // would rebuild #page and discard it. Skip only this live render — the
+    // renderTopbar subscriber, hashchange navigation, and the 5s poll are
+    // untouched, so the topbar pills keep updating and other routes stay live.
+    if (briefEditorIsOpen()) return;
     if (renderQueued) return;
     renderQueued = true;
     requestAnimationFrame(() => { renderQueued = false; renderRoute(); });
