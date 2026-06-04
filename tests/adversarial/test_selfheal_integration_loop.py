@@ -111,6 +111,7 @@ def test_closed_loop_harvests_and_makes_eligible_when_flag_on(
     harvests the dead-letter brief into repo_root and the resulting
     selfheal_<task_id> slug is auto-promote-eligible WITHOUT touching the
     operator allowlist."""
+    monkeypatch.setenv("JANUSMASK_SELFHEAL_SECRET_PATH", str(tmp_path / "selfheal_hmac_secret"))
     workroot = tmp_path / "agentwork"; workroot.mkdir()
     repo = tmp_path / "repo"; repo.mkdir()
     state = tmp_path / "state"; (state / "tasks").mkdir(parents=True)
@@ -140,6 +141,7 @@ def test_closed_loop_harvests_and_makes_eligible_when_flag_on(
 def test_closed_loop_stays_open_when_flag_off(tmp_path, monkeypatch) -> None:
     """With the flag OFF the loop stays open: no harvest, repo_root untouched
     (byte-identical to today)."""
+    monkeypatch.setenv("JANUSMASK_SELFHEAL_SECRET_PATH", str(tmp_path / "selfheal_hmac_secret"))
     workroot = tmp_path / "agentwork"; workroot.mkdir()
     repo = tmp_path / "repo"; repo.mkdir()
     state = tmp_path / "state"; (state / "tasks").mkdir(parents=True)

@@ -38,6 +38,7 @@ def test_harvest_helper_exists() -> None:
 
 
 def test_harvest_delivers_when_flag_on(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("JANUSMASK_SELFHEAL_SECRET_PATH", str(tmp_path / "selfheal_hmac_secret"))
     workroot = tmp_path / "agentwork"; workroot.mkdir()
     repo = tmp_path / "repo"; repo.mkdir()
     state = tmp_path / "state"; (state / "tasks").mkdir(parents=True)
@@ -57,6 +58,7 @@ def test_harvest_delivers_when_flag_on(tmp_path, monkeypatch) -> None:
 
 
 def test_harvest_noop_when_flag_off(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("JANUSMASK_SELFHEAL_SECRET_PATH", str(tmp_path / "selfheal_hmac_secret"))
     workroot = tmp_path / "agentwork"; workroot.mkdir()
     repo = tmp_path / "repo"; repo.mkdir()
     state = tmp_path / "state"; (state / "tasks").mkdir(parents=True)

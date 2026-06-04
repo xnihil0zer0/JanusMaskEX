@@ -28,6 +28,7 @@ def _patch_workroot(monkeypatch, workroot: pathlib.Path) -> None:
 
 
 def test_selfheal_plan_refresh_on_changed_diagnosis(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("JANUSMASK_SELFHEAL_SECRET_PATH", str(tmp_path / "selfheal_hmac_secret"))
     # 1. Setup paths
     workroot = tmp_path / "agentwork"
     workroot.mkdir()
