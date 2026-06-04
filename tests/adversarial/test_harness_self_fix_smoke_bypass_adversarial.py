@@ -105,26 +105,135 @@ def test_skip_smoke_flag_default_false_for_unflagged_types():
         assert policy.get("skip_smoke_gates", False) is False
 
 
+def _is_bypass_branch_test(test_node: ast.expr) -> bool:
+    """True iff the source of an ``if`` test expresses the fuzzer-BYPASS
+    condition, in EITHER the legacy inline form or the SITE2 helper form.
+
+    Legacy inline form (pre-REV29-SITE2)::
+
+        if mtt in BYPASS_FUZZER_TYPES or _skip_ifz:
+
+    SITE2 helper-indirected form (commit e8d8825)::
+
+        if _should_bypass_or_route_task(task, config) == 'bypass':
+
+    The decision was centralized into ``_should_bypass_or_route_task`` whose
+    'bypass' return encodes the SAME condition; the separate test
+    ``test_helper_encodes_bypass_condition`` below pins that the helper still
+    keys on ``BYPASS_FUZZER_TYPES`` so this indirection cannot silently drop
+    the check. We must NOT accept a bare top-of-loop ``if mtt not in
+    SKIP_SMOKE_GATE_TYPES`` (the dangerous hoist), so the legacy branch is
+    only recognized when it is the *positive* bypass membership test, and the
+    helper branch only when it compares the helper call against ``'bypass'``.
+    """
+    test_src = ast.unparse(test_node)
+    # Legacy positive bypass-membership test: `mtt in BYPASS_FUZZER_TYPES ...`.
+    # Reject the *negated* SKIP_SMOKE check (`mtt not in SKIP_SMOKE_GATE_TYPES`)
+    # so a hoisted smoke-skip `if` can never be mistaken for the bypass branch.
+    if (
+        "BYPASS_FUZZER_TYPES" in test_src
+        and "in" in test_src
+        and "SKIP_SMOKE_GATE_TYPES" not in test_src
+        and "not in BYPASS_FUZZER_TYPES" not in test_src
+    ):
+        return True
+    # SITE2 helper-indirected form: `_should_bypass_or_route_task(...) == 'bypass'`.
+    if "_should_bypass_or_route_task" in test_src and "bypass" in test_src:
+        return True
+    return False
+
+
 def test_skip_smoke_gate_only_skips_when_inside_bypass_branch():
-    """Static check: the SKIP_SMOKE_GATE_TYPES check sits INSIDE the
-    `if mtt in BYPASS_FUZZER_TYPES:` branch, not at the top of run_pipeline.
-    Non-bypass types must continue to hit diff_fuzz regardless of the
-    skip-gate flag — the flag only governs smoke-vs-diff-fuzz selection
-    within the bypass branch.
+    """Static check: the SKIP_SMOKE_GATE_TYPES gate sits INSIDE the
+    fuzzer-BYPASS branch (the `if mtt in BYPASS_FUZZER_TYPES:` legacy form OR
+    the `if _should_bypass_or_route_task(...) == 'bypass':` SITE2 form), not
+    at the top of run_pipeline. Non-bypass types must continue to hit
+    diff_fuzz regardless of the skip-gate flag — the flag only governs
+    smoke-vs-diff-fuzz selection WITHIN the bypass branch.
+
+    Negative case still caught: if a refactor HOISTS the smoke-skip out of
+    the bypass branch (top-level `if mtt not in SKIP_SMOKE_GATE_TYPES:` whose
+    body holds smoke_import, with no enclosing bypass test), no `If` node's
+    test satisfies ``_is_bypass_branch_test`` (it explicitly rejects the
+    negated SKIP_SMOKE_GATE_TYPES form), so ``found_pattern`` stays False and
+    the test FAILS.
     """
     tree = ast.parse(ORCHESTRATOR_PATH.read_text(encoding="utf-8"))
     found_pattern = False
     for node in ast.walk(tree):
         if not isinstance(node, ast.If):
             continue
-        # Look for: if mtt in BYPASS_FUZZER_TYPES: ... if mtt not in SKIP_SMOKE_GATE_TYPES:
-        test_src = ast.unparse(node.test)
-        if "BYPASS_FUZZER_TYPES" in test_src and "in" in test_src and "not" not in test_src:
-            inner_src = ast.unparse(node)
-            if "SKIP_SMOKE_GATE_TYPES" in inner_src and "smoke_import" in inner_src:
+        if not _is_bypass_branch_test(node.test):
+            continue
+        # The SKIP_SMOKE_GATE_TYPES gate around smoke_import must be NESTED
+        # inside this bypass branch's body (not merely co-located in the file).
+        for child in ast.walk(ast.Module(body=node.body, type_ignores=[])):
+            if not isinstance(child, ast.If):
+                continue
+            child_src = ast.unparse(child)
+            if "SKIP_SMOKE_GATE_TYPES" in child_src and "smoke_import" in child_src:
                 found_pattern = True
                 break
+        if found_pattern:
+            break
     assert found_pattern, (
-        "Expected: `if mtt in BYPASS_FUZZER_TYPES:` block containing a "
-        "`SKIP_SMOKE_GATE_TYPES` gate around smoke_import"
+        "Expected a fuzzer-BYPASS `if` (mtt in BYPASS_FUZZER_TYPES, or "
+        "_should_bypass_or_route_task(...) == 'bypass') whose body NESTS a "
+        "`SKIP_SMOKE_GATE_TYPES` gate around smoke_import. If this fails, the "
+        "smoke-skip may have been HOISTED out of the bypass branch — letting "
+        "non-bypass task types skip the smoke gate."
     )
+
+
+def test_helper_encodes_bypass_condition():
+    """STRENGTHEN: the SITE2 indirection (`_should_bypass_or_route_task`) must
+    faithfully encode the bypass condition, so it cannot silently drop the
+    ``BYPASS_FUZZER_TYPES`` membership check. We assert the helper's source
+    keys on ``BYPASS_FUZZER_TYPES`` and returns ``'bypass'`` for that case,
+    AND verify behavior: a harness_self_fix-style task -> 'bypass', a plain
+    synthesis task -> not 'bypass'.
+
+    If the helper is absent (a future revert to the pure-inline form), this
+    test is a no-op for the source check but the behavioral half is skipped —
+    the inline form is then covered directly by
+    ``test_skip_smoke_gate_only_skips_when_inside_bypass_branch``.
+    """
+    src = ORCHESTRATOR_PATH.read_text(encoding="utf-8")
+    if "_should_bypass_or_route_task" not in src:
+        pytest.skip("helper not present; inline-form covered by branch test")
+
+    tree = ast.parse(src)
+    helper = next(
+        (
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef)
+            and n.name == "_should_bypass_or_route_task"
+        ),
+        None,
+    )
+    assert helper is not None, "_should_bypass_or_route_task must be a top-level def"
+    helper_src = ast.unparse(helper)
+    assert "BYPASS_FUZZER_TYPES" in helper_src, (
+        "_should_bypass_or_route_task must key its 'bypass' decision on "
+        "BYPASS_FUZZER_TYPES — the indirection must not drop the check"
+    )
+    assert "'bypass'" in helper_src or '"bypass"' in helper_src, (
+        "helper must return the 'bypass' sentinel"
+    )
+
+    # Behavioral check: import the live helper and confirm classification.
+    from harness.orchestrator import _should_bypass_or_route_task
+
+    bypass_mtt = next(iter(BYPASS_FUZZER_TYPES))
+    assert (
+        _should_bypass_or_route_task({"meta_task_type": bypass_mtt}, {}) == "bypass"
+    ), f"helper must classify bypass-eligible mtt {bypass_mtt!r} as 'bypass'"
+
+    non_bypass_mtt = "synthesis"
+    assert non_bypass_mtt not in BYPASS_FUZZER_TYPES, (
+        "test premise: 'synthesis' must not be a bypass type"
+    )
+    assert (
+        _should_bypass_or_route_task({"meta_task_type": non_bypass_mtt}, {}) != "bypass"
+    ), "helper must NOT classify a non-bypass synthesis task as 'bypass'"
