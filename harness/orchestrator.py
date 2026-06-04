@@ -2383,6 +2383,23 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     blocked AND the ceiling counter below is NOT incremented (fail-closed). The
     operator-approval path and the flag-off path are UNTOUCHED.
 
+    INV5 (TOCTOU_PIN): the eligibility + content gates above run BEFORE the
+    ``git_commit.lock`` flock, opening a TOCTOU window in which the staged
+    artifact bytes (or the parent HEAD) could be tampered between the checks
+    and the actual git write. To close it, once an auto-approve grant is
+    FINALIZED (after the content gate) we PIN ``_pinned_artifact_sha`` (sha256
+    of the staged artifact resolved .patches.json > .files.json > .py, first
+    that exists) and ``_pinned_parent_head`` (``git rev-parse HEAD`` in
+    ``worktree_root``). Then INSIDE the flock, IMMEDIATELY before
+    ``commit_accepted_output``, the artifact sha + parent HEAD are re-read and
+    compared; on ANY mismatch the auto-approve commit is ABORTED -- the commit
+    is NOT performed, ``_approval_ok`` and ``_granted_via_auto_approve`` are
+    dropped to False, a telemetry line is emitted, and an error result is
+    synthesized so the not-committed handler scrubs staging and returns False
+    (the ceiling counter is NOT incremented). hashlib is imported lazily
+    in-body (no module-level import). The operator-approval path and the
+    flag-off path are UNTOUCHED -- neither pins nor compares.
+
     Never raises (except the SEC-1 fail-closed RuntimeError above). Returns
     True only if a new commit was produced and the required verification
     command exited zero.
@@ -2571,30 +2588,88 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
         if _granted_via_auto_approve and not _auto_approve_content_safe(state_dir, task_id):
             _approval_ok = False
             _granted_via_auto_approve = False
+
+        # INV5 (TOCTOU_PIN): now that the auto-approve grant is FINALIZED (it
+        # survived the content gate above), capture the staged artifact sha256 and
+        # the parent HEAD so a tamper of either in the TOCTOU window before the
+        # flocked commit can be detected. hashlib is imported lazily here (no
+        # module-level import). Both helpers are pure reads; they are only invoked
+        # for the auto-approve path so the operator-approval and flag-off paths
+        # never pin or compare. _inv5_artifact_sha mirrors the SAME precedence the
+        # commit uses (.patches.json > .files.json > .py, first that exists);
+        # _inv5_parent_head runs `git rev-parse HEAD` in worktree_root.
+        def _inv5_artifact_sha() -> str | None:
+            import hashlib
+            _odir = Path(state_dir) / 'output'
+            for _aname in (f'{task_id}.patches.json', f'{task_id}.files.json', f'{task_id}.py'):
+                _apath = _odir / _aname
+                if _apath.exists():
+                    try:
+                        return hashlib.sha256(_apath.read_bytes()).hexdigest()
+                    except OSError:
+                        return None
+            return None
+
+        def _inv5_parent_head() -> str | None:
+            try:
+                _rp = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True, cwd=str(worktree_root), timeout=10)
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+                return None
+            return _rp.stdout.strip() if _rp.returncode == 0 else None
+
+        _pinned_artifact_sha = _inv5_artifact_sha() if _granted_via_auto_approve else None
+        _pinned_parent_head = _inv5_parent_head() if _granted_via_auto_approve else None
+
         lock_dir = state_dir / 'control' / 'autowork'
         lock_dir.mkdir(parents=True, exist_ok=True)
         lock_path = lock_dir / 'git_commit.lock'
         with open(lock_path, 'a') as lock_fd:
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
             try:
-                result = git_integration.commit_accepted_output(task_id, target_abs, state_dir, worktree_root=staging_path, allowed_files=set(files_touched), meta_task_type=_mtt, approval_ok=_approval_ok, working_dir=working_dir)
-                # P10-B CEILING INCREMENT (REV29 §3c): still holding LOCK_EX, when
-                # the commit landed AND the grant came from the auto-approve consult
-                # (not an operator decision), read-modify-write the persisted
-                # ceiling counter (mirrors the helper's count_path) bumping it by
-                # one. n defaults to 0 when the file is absent or corrupt.
-                if _granted_via_auto_approve and result.get('committed'):
-                    _count_path = Path(state_dir) / 'control' / 'autowork' / 'auto_approve_count.json'
-                    _n = 0
-                    try:
-                        _cdata = json.loads(_count_path.read_text(encoding='utf-8', errors='replace'))
-                        if isinstance(_cdata, dict) and isinstance(_cdata.get('count'), int) and not isinstance(_cdata.get('count'), bool):
-                            _n = _cdata['count']
-                        elif isinstance(_cdata, int) and not isinstance(_cdata, bool):
-                            _n = _cdata
-                    except Exception:
+                # INV5 (TOCTOU_PIN): still holding LOCK_EX and IMMEDIATELY before
+                # the commit, re-read the staged artifact sha + parent HEAD and
+                # compare against the values pinned after the content gate. Only
+                # the auto-approve path is guarded -- the operator-approval and
+                # flag-off paths skip this branch entirely (byte-identical). Any
+                # mismatch means the staged bytes were tampered or the parent HEAD
+                # shifted inside the TOCTOU window, so ABORT: do NOT call
+                # commit_accepted_output, drop both approval flags, emit a
+                # telemetry line, and synthesize an error result so the
+                # not-committed handler below scrubs staging and returns False (the
+                # ceiling counter is NOT incremented).
+                _inv5_abort = False
+                if _granted_via_auto_approve:
+                    _now_artifact_sha = _inv5_artifact_sha()
+                    _now_parent_head = _inv5_parent_head()
+                    if _now_artifact_sha != _pinned_artifact_sha or _now_parent_head != _pinned_parent_head:
+                        _inv5_abort = True
+                        _approval_ok = False
+                        _granted_via_auto_approve = False
+                        logger.warning('INV5 TOCTOU_PIN: aborting auto-approve commit for %s -- staged artifact or parent HEAD changed between pin and commit (artifact sha pinned=%s now=%s, parent HEAD pinned=%s now=%s); treating as refused apply', task_id, _pinned_artifact_sha, _now_artifact_sha, _pinned_parent_head, _now_parent_head)
+                        try:
+                            write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'auto_approve_toctou_pin_mismatch', 'commit_sha': None, 'files': files_touched, 'reason': 'staged artifact bytes or parent HEAD changed between pin and commit'})
+                        except OSError as _exc:
+                            logger.warning('auto_approve_toctou_pin_mismatch: ledger append failed for %s: %s', task_id, _exc)
+                        result = {'committed': False, 'error': 'auto_approve_toctou_pin_mismatch: staged artifact bytes or parent HEAD changed between pin and commit'}
+                if not _inv5_abort:
+                    result = git_integration.commit_accepted_output(task_id, target_abs, state_dir, worktree_root=staging_path, allowed_files=set(files_touched), meta_task_type=_mtt, approval_ok=_approval_ok, working_dir=working_dir)
+                    # P10-B CEILING INCREMENT (REV29 §3c): still holding LOCK_EX, when
+                    # the commit landed AND the grant came from the auto-approve consult
+                    # (not an operator decision), read-modify-write the persisted
+                    # ceiling counter (mirrors the helper's count_path) bumping it by
+                    # one. n defaults to 0 when the file is absent or corrupt.
+                    if _granted_via_auto_approve and result.get('committed'):
+                        _count_path = Path(state_dir) / 'control' / 'autowork' / 'auto_approve_count.json'
                         _n = 0
-                    _count_path.write_text(json.dumps({'count': _n + 1}), encoding='utf-8')
+                        try:
+                            _cdata = json.loads(_count_path.read_text(encoding='utf-8', errors='replace'))
+                            if isinstance(_cdata, dict) and isinstance(_cdata.get('count'), int) and not isinstance(_cdata.get('count'), bool):
+                                _n = _cdata['count']
+                            elif isinstance(_cdata, int) and not isinstance(_cdata, bool):
+                                _n = _cdata
+                        except Exception:
+                            _n = 0
+                        _count_path.write_text(json.dumps({'count': _n + 1}), encoding='utf-8')
             finally:
                 fcntl.flock(lock_fd, fcntl.LOCK_UN)
 
