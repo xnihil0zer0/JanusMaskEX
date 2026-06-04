@@ -762,6 +762,66 @@ def _precompute_baseline_test_results(state_dir: Path, task: dict[str, Any], tas
 RECONCILE_SLACK_SECONDS = 300.0
 
 
+def _single_agent_promotion_decision(config: dict[str, Any], task: dict[str, Any], state_dir: Path, *, valid_agent: str, valid_code: str, failing_agent: str, failing_violations: Any, consecutive_failures: int, approval_ok: bool) -> tuple[bool, str]:
+    """P5b: decide whether to promote the lone AST-valid synthesis agent and
+    drop a consistently-failing peer.
+
+    PURE, opt-in, and dead-until-wired: this helper is NOT called from main()
+    or any live dispatch path (wiring is gated behind a later joint P5+P10
+    security review). It only encodes the decision so the eventual call site
+    can stay a one-liner.
+
+    Gates, in order (any failing gate refuses with a human-readable reason):
+
+      1. ``synthesis.enable_single_agent_promotion`` must be truthy
+         (defaults OFF -- a missing config section or key never promotes).
+      2. ``consecutive_failures`` must have reached
+         ``synthesis.single_agent_promotion_ceiling`` (default 3).
+      3. SENSITIVITY: a ``harness_self_fix`` meta task, or any declared
+         ``files_touched`` path under ``_SENSITIVE_APPLY_GLOBS``
+         (``harness/**``, ``config/**``, ``scripts/**``, ``services/**``),
+         additionally requires ``approval_ok`` -- an operator-approval flag.
+      4. The valid agent's code must independently pass the canonical AST
+         validator (``orch._validate_submission``); we re-validate here rather
+         than trust a caller-supplied verdict so promotion can never apply
+         code the validator would reject.
+
+    Returns ``(promote, reason)``; ``reason`` always names the relevant agent
+    so the lifecycle ledger and operator surface a concrete cause. On success
+    the reason names the ``failing_agent`` being dropped.
+    """
+    import fnmatch
+    _SENSITIVE_APPLY_GLOBS = ('harness/**', 'config/**', 'scripts/**', 'services/**')
+    synthesis_cfg = config.get('synthesis', {}) if isinstance(config, dict) else {}
+    if not synthesis_cfg.get('enable_single_agent_promotion', False):
+        return (False, 'Single-agent promotion is disabled')
+    ceiling = synthesis_cfg.get('single_agent_promotion_ceiling', 3)
+    if consecutive_failures < ceiling:
+        return (False, f'Ceiling not reached (consecutive failures: {consecutive_failures})')
+    files_touched = task.get('files_touched', []) if isinstance(task, dict) else []
+    is_sensitive = bool(isinstance(task, dict) and task.get('meta_task_type') == 'harness_self_fix')
+    if not is_sensitive:
+        try:
+            from harness.git_integration import _matches_sensitive
+            from harness.git_integration import _SENSITIVE_APPLY_GLOBS as _GLOBS
+            for path in files_touched or []:
+                if isinstance(path, str) and _matches_sensitive(path, _GLOBS):
+                    is_sensitive = True
+                    break
+        except Exception:
+            for path in files_touched or []:
+                if not isinstance(path, str):
+                    continue
+                if any((fnmatch.fnmatch(path, glob) for glob in _SENSITIVE_APPLY_GLOBS)):
+                    is_sensitive = True
+                    break
+    if is_sensitive and (not approval_ok):
+        return (False, 'Sensitive target requires operator approval')
+    from harness import orchestrator as orch
+    valid_ok, valid_violations = orch._validate_submission(valid_code, valid_agent, task)
+    if not valid_ok:
+        return (False, f'Valid agent {valid_agent} code did not pass validation: {valid_violations}')
+    return (True, f'Promoting valid agent {valid_agent} and dropping failing agent {failing_agent}')
 def _compute_timeout_budgets(config: dict) -> tuple[float, float]:
     """Return (HARD_TIMEOUT_SECONDS, SYNTHESIS_WINDOW_SECONDS) derived from
     synthesis.timeout_seconds. window == timeout (unchanged); hard ==
