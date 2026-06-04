@@ -293,6 +293,25 @@ def _split_type_args(args: str) -> list[str]:
     return parts
 from harness.planner.taxonomies import BYPASS_FUZZER_TYPES as FUZZ_BYPASS_META_TYPES
 
+def _is_staticmethod(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    for dec in func.decorator_list:
+        if isinstance(dec, ast.Name) and dec.id == 'staticmethod':
+            return True
+        if isinstance(dec, ast.Attribute) and dec.attr == 'staticmethod':
+            return True
+    return False
+
+def _param_strategies(func: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, st.SearchStrategy]:
+    params: dict[str, st.SearchStrategy] = {}
+    positional = list(func.args.posonlyargs) + list(func.args.args)
+    if not _is_staticmethod(func) and positional:
+        positional = positional[1:]
+    for arg in positional + list(func.args.kwonlyargs):
+        if arg.annotation is not None:
+            params[arg.arg] = _ast_node_to_strategy(arg.annotation)
+        else:
+            params[arg.arg] = _strategy_for_annotation('int')
+    return params
 def extract_class_interface(code: str, class_name: str) -> dict[str, Any] | None:
     """Extract the constructor and public-method signatures of a class.
 
@@ -331,25 +350,6 @@ def extract_class_interface(code: str, class_name: str) -> dict[str, Any] | None
     depends on the ``'class_name'`` / ``'init'`` / ``'methods'`` keys.
     """
 
-    def _is_staticmethod(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
-        for dec in func.decorator_list:
-            if isinstance(dec, ast.Name) and dec.id == 'staticmethod':
-                return True
-            if isinstance(dec, ast.Attribute) and dec.attr == 'staticmethod':
-                return True
-        return False
-
-    def _param_strategies(func: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, st.SearchStrategy]:
-        params: dict[str, st.SearchStrategy] = {}
-        positional = list(func.args.posonlyargs) + list(func.args.args)
-        if not _is_staticmethod(func) and positional:
-            positional = positional[1:]
-        for arg in positional + list(func.args.kwonlyargs):
-            if arg.annotation is not None:
-                params[arg.arg] = _ast_node_to_strategy(arg.annotation)
-            else:
-                params[arg.arg] = _strategy_for_annotation('int')
-        return params
     tree = ast.parse(code)
     class_node: ast.ClassDef | None = None
     for node in tree.body:
