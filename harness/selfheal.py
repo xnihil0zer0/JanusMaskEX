@@ -129,7 +129,7 @@ def _synthesize_selfheal_plan(repo_root: Any, state_dir: Any, task_id: str, brie
         out_path.write_text(json.dumps(plan, indent=2))
     except Exception:
         pass
-def _selfheal_secret() -> bytes:
+def _selfheal_secret(state_dir: Any = None, repo_root: Any = None) -> bytes:
     """Return the operator/daemon HMAC secret bytes, minting on first use.
 
     The secret path comes from the ``JANUSMASK_SELFHEAL_SECRET_PATH``
@@ -138,11 +138,36 @@ def _selfheal_secret() -> bytes:
     every jail bind (never under ``state/`` or ``repo_root``). When the
     file is absent it is minted from ``os.urandom(32)``, written with
     ``0o600`` permissions (parent directories created), and returned.
+
+    INV2 trust-root lockdown: when the override is set, its expanded and
+    resolved path is rejected (``ValueError``) if it lies inside any
+    jail-readable root -- ``repo_root``, ``state_dir``, or the home subdirs
+    ``~/.nvm`` / ``~/.gemini`` / ``~/.claude`` -- so a jailed process cannot
+    redirect the secret to a location it can read and thereby forge the
+    self-heal trust root. Callers pass ``state_dir``/``repo_root``; when
+    absent they fall back to the static repo root
+    (``Path(__file__).resolve().parent.parent``) and ``<repo_root>/state``
+    for backwards compatibility with argument-less callers.
     """
     import os
+    repo_root_path = Path(repo_root).resolve() if repo_root is not None else Path(__file__).resolve().parent.parent
+    state_dir_path = Path(state_dir).resolve() if state_dir is not None else repo_root_path / 'state'
     path_str = os.environ.get('JANUSMASK_SELFHEAL_SECRET_PATH')
     if path_str:
-        secret_path = Path(path_str)
+        secret_path = Path(path_str).expanduser().resolve()  # home-free: allow (INV2: env override expanded+resolved, then validated against jail-readable roots)
+        # INV2-TRUST-ROOT: reject overrides resolving inside any jail-readable
+        # root (repo_root, state_dir, ~/.nvm, ~/.gemini, ~/.claude) to prevent
+        # trust-root forgery; fail-closed callers turn this into refuse/False.
+        _jail_roots = [
+            repo_root_path,
+            state_dir_path,
+            Path('~/.nvm').expanduser().resolve(),  # home-free: allow (INV2 jail-readable guard root)
+            Path('~/.gemini').expanduser().resolve(),  # home-free: allow (INV2 jail-readable guard root)
+            Path('~/.claude').expanduser().resolve(),  # home-free: allow (INV2 jail-readable guard root)
+        ]
+        for _root in _jail_roots:
+            if _root == secret_path or _root in secret_path.parents:  # INV2-TRUST-ROOT
+                raise ValueError('JANUSMASK_SELFHEAL_SECRET_PATH ' + str(secret_path) + ' lies inside jail-readable root ' + str(_root))
     else:
         secret_path = Path(os.path.expanduser('~/.config/janusmask/selfheal_hmac_secret'))  # home-free: allow (operator-provisioned default OUTSIDE every agent_jail bind per C2; env JANUSMASK_SELFHEAL_SECRET_PATH overrides; deliberate, documented per AGENT-ISOLATION §8)
     if secret_path.exists():
@@ -169,6 +194,12 @@ def _selfheal_provenance_valid(slug: str, brief_path: Any, state_dir: Any) -> bo
     stored marker using :func:`hmac.compare_digest`. Fails closed,
     returning ``False`` on any exception, a missing secret/marker, or a
     mismatch.
+
+    INV2 trust-root lockdown: the ``state_dir`` is forwarded to
+    :func:`_selfheal_secret` so a ``JANUSMASK_SELFHEAL_SECRET_PATH`` override
+    aimed inside a jail-readable root raises ``ValueError``; that exception is
+    caught here and surfaces as ``False`` (fail-closed), so a forged trust
+    root never validates.
     """
     try:
         import hashlib
@@ -184,7 +215,7 @@ def _selfheal_provenance_valid(slug: str, brief_path: Any, state_dir: Any) -> bo
         stored = marker_data.get('marker')
         if not isinstance(stored, str):
             return False
-        secret = _selfheal_secret()
+        secret = _selfheal_secret(state_dir=state_dir_path)  # INV2-TRUST-ROOT: forward state_dir so a jail-readable override fails closed (ValueError -> False)
         brief_bytes = Path(brief_path).read_bytes()
         digest = hashlib.sha256(brief_bytes).hexdigest()
         expected = hmac.new(secret, (slug + ':' + digest).encode(), hashlib.sha256).hexdigest()
@@ -226,6 +257,11 @@ def _harvest_selfheal_briefs(state_dir: Any, repo_root: Any, config: Any) -> int
     the slug to the brief bytes via the operator-only secret. Minting is
     best-effort and never raises.
 
+    INV2 trust-root lockdown: minting forwards ``state_dir``/``repo_root`` to
+    :func:`_selfheal_secret` so a ``JANUSMASK_SELFHEAL_SECRET_PATH`` override
+    aimed inside a jail-readable root raises ``ValueError``; the nested mint
+    swallows it and skips writing the marker (fail-closed refusal to mint).
+
     It never raises: per-file errors (including the refresh path, which
     is fail-closed and best-effort) are swallowed and scanning continues.
     """
@@ -250,7 +286,7 @@ def _harvest_selfheal_briefs(state_dir: Any, repo_root: Any, config: Any) -> int
             import hmac
             import json
             import time
-            secret = _selfheal_secret()
+            secret = _selfheal_secret(state_dir=state_dir_path, repo_root=repo_root_path)  # INV2-TRUST-ROOT: forward roots so a jail-readable override raises and mint is skipped (fail-closed)
             digest = hashlib.sha256(brief_bytes).hexdigest()
             marker = hmac.new(secret, (slug + ':' + digest).encode(), hashlib.sha256).hexdigest()
             prov_dir = state_dir_path / 'control' / 'autowork' / 'selfheal_provenance'
