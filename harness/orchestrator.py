@@ -2967,6 +2967,47 @@ def _promote_fuzz_failures_to_tests(task: dict, failures: list, state_dir: Path)
         return
 
 
+def _should_bypass_or_route_task(task: Any, config: dict[str, Any]) -> str:
+    """Mirror the dispatch-path MD-ROUTING decision for a single task.
+
+    Centralizes the bypass/route classification currently expressed inline in
+    ``run_pipeline`` so the in-process loop and the dispatch path share one
+    decision rule. Returns one of:
+
+    - ``'route'``  -- the task's meta_task_type policy enables stateful_fuzz
+      (e.g. ``state_machine``); the dispatch path routes it to stateful
+      differential fuzzing.
+    - ``'bypass'`` -- the task is fuzzer-bypass-eligible: ``mtt`` is in
+      ``BYPASS_FUZZER_TYPES`` (e.g. ``harness_self_fix``) or it is a
+      ``test_authoring`` task whose policy sets ``skip_interface_fuzz``.
+    - ``'fuzz'``   -- everything else, including a missing/None/unknown
+      meta_task_type.
+
+    INERT in ``run_pipeline``: the loop consults this helper ONLY to gate the
+    existing bypass branch (it bypasses iff this returns ``'bypass'``). Both
+    ``'route'`` and ``'fuzz'`` fall through to the unchanged ``fuzz_from_task``
+    path, so behavior is byte-for-byte identical for every task type on HEAD
+    (``state_machine`` is not in ``BYPASS_FUZZER_TYPES``, so it already reaches
+    ``fuzz_from_task``). ``BYPASS_FUZZER_TYPES`` and ``META_TASK_POLICY`` are
+    resolved as module globals at call time -- no new import is introduced.
+    """
+    if isinstance(task, dict):
+        mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
+    else:
+        mtt = getattr(task, 'meta_task_type', None)
+        if not mtt:
+            constraints = getattr(task, 'constraints', None)
+            if isinstance(constraints, dict):
+                mtt = constraints.get('meta_task_type')
+            elif constraints is not None:
+                mtt = getattr(constraints, 'meta_task_type', None)
+    policy = META_TASK_POLICY.get(mtt, {}) if mtt is not None else {}
+    if isinstance(policy, dict) and policy.get('stateful_fuzz'):
+        return 'route'
+    _skip_ifz = mtt == 'test_authoring' and META_TASK_POLICY.get('test_authoring', {}).get('skip_interface_fuzz')
+    if mtt in BYPASS_FUZZER_TYPES or _skip_ifz:
+        return 'bypass'
+    return 'fuzz'
 def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
     """Main pipeline loop implementing the full JanusMask task lifecycle.
 
@@ -3156,7 +3197,7 @@ def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
                 continue
             mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
             _skip_ifz = (mtt == 'test_authoring') and META_TASK_POLICY.get('test_authoring', {}).get('skip_interface_fuzz')
-            if mtt in BYPASS_FUZZER_TYPES or _skip_ifz:
+            if _should_bypass_or_route_task(task, config) == 'bypass':
                 if mtt not in SKIP_SMOKE_GATE_TYPES and not _skip_ifz:
                     smoke_err = smoke_import('_smoke_candidate', claude_code)
                     if smoke_err is not None:
