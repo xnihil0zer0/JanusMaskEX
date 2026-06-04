@@ -47,6 +47,88 @@ def _is_selfheal_brief(slug: Any) -> bool:
     """
     return isinstance(slug, str) and slug.startswith('selfheal_')
 
+def _synthesize_selfheal_plan(repo_root: Any, state_dir: Any, task_id: str, brief_path: Path) -> None:
+    """Synthesize a corrective plan file from a harvested diagnosis brief.
+
+    Writes ``<repo_root>/plan_hooks_selfheal_<task_id>.json`` containing a
+    JanusMask-shaped ``tasks`` list with exactly one task whose
+    ``task_id`` is the original inner id. The synthesized task copies
+    ``meta_task_type`` and ``dependencies`` out of the blocked sidecar
+    ``state/tasks/blocked/<task_id>.json`` (read here, BEFORE any caller
+    evicts it) and derives ``files_touched``/``objective``/corrective
+    constraint from the markdown diagnosis brief, falling back to the
+    blocked sidecar and then to reasonable defaults.
+
+    Idempotency note: the original ``plan_hooks_<slug>.json`` may also
+    target the same ``task_id``. ``stage_task`` is idempotent on identical
+    content and refuses only already-accepted tasks, so re-targeting the
+    same id from this synthesized plan does not cause a double-stage.
+    """
+    import json
+    tid = task_id
+    repo_root_path = Path(repo_root)
+    state_dir_path = Path(state_dir)
+    blocked_path = state_dir_path / 'tasks' / 'blocked' / f'{tid}.json'
+    try:
+        blocked = json.loads(blocked_path.read_text()) if blocked_path.exists() else {}
+    except Exception:
+        blocked = {}
+    if not isinstance(blocked, dict):
+        blocked = {}
+    meta_task_type = blocked.get('meta_task_type', 'refactor')
+    dependencies = blocked.get('dependencies', [])
+    brief_text = ''
+    try:
+        brief_text = Path(brief_path).read_text()
+    except Exception:
+        brief_text = ''
+
+    def _heading_section(text: str, *names: str) -> str:
+        for nm in names:
+            pat = '(?ims)^[ \\t]*#{1,6}[ \\t]*' + re.escape(nm) + '[ \\t]*:?[ \\t]*$(.*?)(?=^[ \\t]*#{1,6}[ \\t]|\\Z)'
+            m = re.search(pat, text)
+            if m and m.group(1).strip():
+                return m.group(1).strip()
+            inline = re.search('(?im)^[ \\t]*' + re.escape(nm) + '[ \\t]*[:=][ \\t]*(.+)$', text)
+            if inline and inline.group(1).strip():
+                return inline.group(1).strip()
+        return ''
+    files_touched = []
+    list_match = re.search('(?is)files[_ \\t-]*touched[ \\t]*[:=][ \\t]*(\\[[^\\]]*\\])', brief_text)
+    if list_match:
+        try:
+            parsed = json.loads(list_match.group(1))
+            if isinstance(parsed, list):
+                files_touched = [str(p).strip() for p in parsed if str(p).strip()]
+        except Exception:
+            files_touched = []
+    if not files_touched:
+        section = _heading_section(brief_text, 'files_touched', 'files touched', 'files')
+        if section:
+            for line in section.splitlines():
+                bullet = re.match('[ \\t]*[-*+][ \\t]+`?([^`\\n]+?)`?[ \\t]*$', line)
+                if bullet:
+                    files_touched.append(bullet.group(1).strip())
+                elif line.strip() and (not line.lstrip().startswith('#')):
+                    files_touched.append(line.strip().strip('`'))
+    if not files_touched:
+        fallback_ft = blocked.get('files_touched', [])
+        if isinstance(fallback_ft, list):
+            files_touched = [str(p) for p in fallback_ft]
+    objective = _heading_section(brief_text, 'objective', 'goal')
+    if not objective:
+        objective = blocked.get('objective') or f'Self-heal corrective task for {tid}'
+    constraint = _heading_section(brief_text, 'corrective constraint', 'corrective constraints', 'constraint', 'constraints', 'corrective action', 'diagnosis')
+    if not constraint:
+        constraint = objective
+    implementation_notes = constraint + '\n\nNote: stage_task is idempotent on identical content; if the original ' + f'plan also targets {tid} this synthesized plan will not double-target.'
+    task = {'task_id': tid, 'title': f'Self-heal corrective task for {tid}', 'meta_task_type': meta_task_type, 'priority': blocked.get('priority', 5), 'dependencies': dependencies, 'files_touched': files_touched, 'objective': objective, 'spec': {'objective': objective, 'implementation_notes': implementation_notes}}
+    plan = {'tasks': [task]}
+    out_path = repo_root_path / f'plan_hooks_selfheal_{tid}.json'
+    try:
+        out_path.write_text(json.dumps(plan, indent=2))
+    except Exception:
+        pass
 def _harvest_selfheal_briefs(state_dir: Any, repo_root: Any, config: Any) -> int:
     """Harvest self-heal "fix" briefs from agent outboxes into ``repo_root``.
 
@@ -55,6 +137,15 @@ def _harvest_selfheal_briefs(state_dir: Any, repo_root: Any, config: Any) -> int
     :func:`_selfheal_auto_promote_enabled` is true, copies each into
     ``<repo_root>/brief_hooks_selfheal_<task_id>.md`` (deterministic slug
     ``selfheal_<task_id>``).
+
+    For every brief newly delivered it also synthesizes the corrective
+    plan via :func:`_synthesize_selfheal_plan` (writing
+    ``plan_hooks_selfheal_<task_id>.json`` next to the brief) and then
+    evicts the three blocked-task sidecars under
+    ``state/tasks/blocked/<task_id>.*`` so that ``compute_brief_status``
+    no longer excludes the task from promotion. The synthesis is invoked
+    BEFORE the eviction so the blocked sidecar is still readable when its
+    ``meta_task_type``/``dependencies``/``files_touched`` are copied.
 
     The operation is idempotent (an existing destination is skipped) and
     returns the number of briefs newly delivered. When the flag is false
@@ -71,6 +162,7 @@ def _harvest_selfheal_briefs(state_dir: Any, repo_root: Any, config: Any) -> int
         repo_root_path = Path(repo_root)
     except Exception:
         return delivered
+    state_dir_path = Path(state_dir)
     for agent in _AGENTS:
         try:
             agent_dir = workroot / agent
@@ -100,6 +192,22 @@ def _harvest_selfheal_briefs(state_dir: Any, repo_root: Any, config: Any) -> int
                         continue
                     shutil.copyfile(str(brief), str(dest))
                     delivered += 1
+                    # Synthesize the corrective plan FIRST -- this reads the
+                    # blocked sidecar (meta_task_type/dependencies/files_touched)
+                    # which must still exist at this point.
+                    try:
+                        _synthesize_selfheal_plan(repo_root_path, state_dir_path, task_id, dest)
+                    except Exception:
+                        pass
+                    # ONLY AFTER synthesis returns do we evict the blocked
+                    # sidecars (best-effort, swallowing OSError) so the read
+                    # of blocked/<tid>.json is never preceded by its unlink.
+                    blocked_dir = state_dir_path / 'tasks' / 'blocked'
+                    for _sidecar in (f'{task_id}.json', f'{task_id}.retry.json', f'{task_id}.exhausted'):
+                        try:
+                            (blocked_dir / _sidecar).unlink()
+                        except OSError:
+                            pass
                 except Exception:
                     continue
     return delivered
