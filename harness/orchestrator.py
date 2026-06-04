@@ -2043,6 +2043,98 @@ def _apply_approval_granted(state_dir: Path, task_id: str) -> bool:
         return False
     return str(data.get('decision', '')).strip().lower() in ('approve', 'approved')
 
+def _auto_approve_content_safe(state_dir, task_id) -> bool:
+    """INV9: AST capability gate over the staged artifact an auto-approve grant will apply.
+
+    Pure + side-effect free. Mirrors ``commit_accepted_output``'s artifact
+    precedence so the bytes inspected here are EXACTLY the bytes that will be
+    applied: (1) ``state/output/<task_id>.patches.json`` (a JSON list of
+    ``{file, kind, name|marker, code}`` entries -- each entry's ``code`` string
+    is collected); else (2) ``state/output/<task_id>.files.json`` (a JSON
+    whole-file map ``{relpath: source}`` -- each VALUE is collected); else (3)
+    ``state/output/<task_id>.py`` (a single whole-file source). Only the FIRST
+    form that exists is used (forms are never merged).
+
+    Policy:
+      * No recognized artifact at all -> True. Absence of an INSPECTABLE
+        artifact is NOT a capability violation; the deny-list + apply-scope
+        gate already bind the grant, and blocking solely on absence would
+        regress legitimate flows that stage an unanticipated artifact form.
+      * Recognized artifact present but its JSON is invalid, an entry is
+        malformed, or any collected source fails ``ast.parse`` -> False
+        (fail-closed).
+      * A collected source containing a prohibited capability -> False.
+      * Otherwise (including an empty list/map with no sources to scan) -> True.
+
+    Detection is AST-based (``ast.walk``), never substring/regex, so the bare
+    names appearing inside comments or string literals never trip the gate.
+    Rejected capability node shapes: an ``ast.Call`` whose func is an
+    ``ast.Name`` in {eval, exec, compile, __import__}; an ``ast.Call`` on
+    ``os.system`` / ``os.popen`` / ``pty.spawn``; any ``ast.Call`` on the
+    ``subprocess`` module carrying a ``shell=True`` keyword.
+    """
+    output_dir = Path(state_dir) / 'output'
+    patches_path = output_dir / f'{task_id}.patches.json'
+    files_path = output_dir / f'{task_id}.files.json'
+    py_path = output_dir / f'{task_id}.py'
+    sources: list[str] = []
+    if patches_path.exists():
+        try:
+            data = json.loads(patches_path.read_text(encoding='utf-8', errors='replace'))
+        except Exception:
+            return False
+        if not isinstance(data, list):
+            return False
+        for entry in data:
+            if not isinstance(entry, dict):
+                return False
+            code = entry.get('code')
+            if not isinstance(code, str):
+                return False
+            sources.append(code)
+    elif files_path.exists():
+        try:
+            data = json.loads(files_path.read_text(encoding='utf-8', errors='replace'))
+        except Exception:
+            return False
+        if not isinstance(data, dict):
+            return False
+        for value in data.values():
+            if not isinstance(value, str):
+                return False
+            sources.append(value)
+    elif py_path.exists():
+        try:
+            sources.append(py_path.read_text(encoding='utf-8', errors='replace'))
+        except Exception:
+            return False
+    else:
+        return True
+    _dangerous_names = {'eval', 'exec', 'compile', '__import__'}
+    for src in sources:
+        try:
+            tree = ast.parse(src)
+        except Exception:
+            return False
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if isinstance(func, ast.Name):
+                if func.id in _dangerous_names:
+                    return False
+            elif isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+                base = func.value.id
+                attr = func.attr
+                if base == 'os' and attr in {'system', 'popen'}:
+                    return False
+                if base == 'pty' and attr == 'spawn':
+                    return False
+                if base == 'subprocess':
+                    for kw in node.keywords:
+                        if kw.arg == 'shell' and isinstance(kw.value, ast.Constant) and (kw.value.value is True):
+                            return False
+    return True
 def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -> bool:
     """Copy accepted output to its target and create a scoped git commit.
 
@@ -2279,6 +2371,18 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     commit, verify, mutation-gate copy, rollback, merge, cleanup) operates on
     the same task-scoped ``staging_path``.
 
+    INV9 (CONTENT_GATE): when (and only when) the apply is granted via the
+    auto-approve consult (``_granted_via_auto_approve`` True) -- never on the
+    operator-decision path -- the staged artifact bytes that
+    ``commit_accepted_output`` will actually apply are first run through the
+    pure ``_auto_approve_content_safe`` capability gate. The gate inspects the
+    SAME artifact resolved in the SAME precedence the commit uses
+    (.patches.json > .files.json > .py) and refuses dangerous dynamic-execution
+    / shell capabilities. On a refusal both ``_approval_ok`` AND
+    ``_granted_via_auto_approve`` are reset to False so the sensitive apply is
+    blocked AND the ceiling counter below is NOT incremented (fail-closed). The
+    operator-approval path and the flag-off path are UNTOUCHED.
+
     Never raises (except the SEC-1 fail-closed RuntimeError above). Returns
     True only if a new commit was produced and the required verification
     command exited zero.
@@ -2458,6 +2562,15 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
         if not _approval_ok:
             _approval_ok = _auto_approve_sensitive_eligible(state_dir, task, task_id, files_touched, load_config(), repo_root=worktree_root)
             _granted_via_auto_approve = _approval_ok
+        # INV9 (CONTENT_GATE): only when the grant came from the auto-approve
+        # consult (never the operator-decision path), require the staged artifact
+        # bytes that commit_accepted_output will actually apply to clear the pure
+        # capability gate. On a refusal fail CLOSED -- drop the approval AND the
+        # auto-approve grant flag so the sensitive apply is blocked and the
+        # ceiling counter below is NOT incremented for the refused patch.
+        if _granted_via_auto_approve and not _auto_approve_content_safe(state_dir, task_id):
+            _approval_ok = False
+            _granted_via_auto_approve = False
         lock_dir = state_dir / 'control' / 'autowork'
         lock_dir.mkdir(parents=True, exist_ok=True)
         lock_path = lock_dir / 'git_commit.lock'
