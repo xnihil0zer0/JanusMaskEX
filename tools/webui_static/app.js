@@ -1139,6 +1139,19 @@ function briefEditorIsOpen() {
   return parts[0] === "briefs" && Boolean(parts[1]);
 }
 
+// T2: predicate for the Config (#/config) and Rebuild (#/rebuild) form routes.
+// Mirrors renderRoute()'s hash parsing exactly (leading '#' stripped, split on
+// '/' filtering empties). Both pages hold uncontrolled form inputs (parallel
+// cap / heartbeat / allowlist / control fields; rebuild input/output/modules/
+// tests/seeds) that a live re-render would wipe mid-edit, so they are exempted
+// alongside the brief editor. The Config page loads once and the Rebuild page
+// keeps its own refreshRebuildStatus poll, so no live freshness is lost.
+function configOrRebuildIsOpen() {
+  const hash = location.hash.replace(/^#/, "");
+  const parts = hash.split("/").filter(Boolean);
+  return parts[0] === "config" || parts[0] === "rebuild";
+}
+
 async function renderRoute() {
   const hash = location.hash.replace(/^#/, "") || "/dashboard";
   const parts = hash.split("/").filter(Boolean);
@@ -1194,6 +1207,7 @@ async function boot() {
     // renderTopbar subscriber, hashchange navigation, and the 5s poll are
     // untouched, so the topbar pills keep updating and other routes stay live.
     if (briefEditorIsOpen()) return;
+    if (configOrRebuildIsOpen()) return;
     if (renderQueued) return;
     renderQueued = true;
     requestAnimationFrame(() => { renderQueued = false; renderRoute(); });
