@@ -147,11 +147,18 @@ def _harvest_selfheal_briefs(state_dir: Any, repo_root: Any, config: Any) -> int
     BEFORE the eviction so the blocked sidecar is still readable when its
     ``meta_task_type``/``dependencies``/``files_touched`` are copied.
 
-    The operation is idempotent (an existing destination is skipped) and
-    returns the number of briefs newly delivered. When the flag is false
-    it is a pure no-op returning ``0`` without touching ``repo_root``.
+    The operation is content-aware idempotent: an existing destination
+    whose bytes match the source (by sha256) is skipped, but a
+    destination that *differs* from the source brief is atomically
+    refreshed -- the source is copied over it, the corrective plan is
+    re-synthesized, any stale ``selfheal_<task_id>.json`` plan-attempts
+    markers are cleared, and the blocked sidecars are re-evicted, exactly
+    as on initial delivery. Returns the number of briefs newly delivered.
+    When the flag is false it is a pure no-op returning ``0`` without
+    touching ``repo_root``.
 
-    It never raises: per-file errors are swallowed and scanning continues.
+    It never raises: per-file errors (including the refresh path, which
+    is fail-closed and best-effort) are swallowed and scanning continues.
     """
     if not _selfheal_auto_promote_enabled(config):
         return 0
@@ -189,6 +196,58 @@ def _harvest_selfheal_briefs(state_dir: Any, repo_root: Any, config: Any) -> int
                     task_id = match.group(1)
                     dest = repo_root_path / f'brief_hooks_selfheal_{task_id}.md'
                     if dest.exists():
+                        # Content-aware refresh: only re-deliver when the
+                        # destination brief differs from the source. This whole
+                        # block is fail-closed -- any error (hashlib/os/IO) is
+                        # swallowed so the harvest loop never raises.
+                        try:
+                            import hashlib
+                            import os
+                            src_bytes = brief.read_bytes()
+                            dest_bytes = dest.read_bytes()
+                            if hashlib.sha256(src_bytes).hexdigest() == hashlib.sha256(dest_bytes).hexdigest():
+                                # Identical content -> idempotent skip.
+                                continue
+                            # Different content -> atomically replace dest with
+                            # the source brief (temp write + os.replace).
+                            tmp_dest = dest.with_name(dest.name + '.selfheal.tmp')
+                            try:
+                                tmp_dest.write_bytes(src_bytes)
+                                os.replace(str(tmp_dest), str(dest))
+                            except Exception:
+                                try:
+                                    shutil.copyfile(str(brief), str(dest))
+                                finally:
+                                    try:
+                                        tmp_dest.unlink()
+                                    except OSError:
+                                        pass
+                            # Re-run plan synthesis BEFORE evicting the blocked
+                            # sidecar so it is still readable for synthesis.
+                            try:
+                                _synthesize_selfheal_plan(repo_root_path, state_dir_path, task_id, dest)
+                            except Exception:
+                                pass
+                            # Clear any stale plan-attempts markers so the
+                            # refreshed brief is re-planned from scratch.
+                            for _marker in (
+                                state_dir_path / 'plan_attempts' / f'selfheal_{task_id}.json',
+                                state_dir_path / 'control' / 'autowork' / 'plan_attempts' / f'selfheal_{task_id}.json',
+                            ):
+                                try:
+                                    _marker.unlink()
+                                except OSError:
+                                    pass
+                            # Re-evict the blocked sidecars, identical to the
+                            # initial-delivery eviction below.
+                            blocked_dir = state_dir_path / 'tasks' / 'blocked'
+                            for _sidecar in (f'{task_id}.json', f'{task_id}.retry.json', f'{task_id}.exhausted'):
+                                try:
+                                    (blocked_dir / _sidecar).unlink()
+                                except OSError:
+                                    pass
+                        except Exception:
+                            pass
                         continue
                     shutil.copyfile(str(brief), str(dest))
                     delivered += 1
