@@ -5,7 +5,6 @@ agents:
     args:
     - -p
     - --dangerously-skip-permissions
-    - --sandbox
     command: ${PROJECT_ROOT}/.agents/agy/agy
   claude:
     args:
@@ -14,11 +13,6 @@ agents:
     - opus
     - --output-format
     - stream-json
-    # H6/claude-jail-fix: claude-code 2.1.156 REQUIRES --verbose for stream-json under
-    # --print/-p (errors "stream-json requires --verbose" otherwise). The vendored claude
-    # was updated past the version this config was written for; without it every jailed
-    # claude spawn aborts before submitting. agy-backed agents (gemini/claude_fallback)
-    # do not need it.
     - --verbose
     - --include-partial-messages
     - --settings
@@ -39,17 +33,10 @@ agents:
     - claude-opus-4.6
     - -p
     - --dangerously-skip-permissions
-    - --sandbox
     command: ${PROJECT_ROOT}/.agents/agy/agy
   gemini:
     args:
     - -p
-    # gemini-jail-fix (REV25 exec): agy must run with --dangerously-skip-permissions
-    # like the antigravity/claude_fallback agents above. Without it, a current agy build
-    # raises an interactive tool-permission prompt the moment the agent tries to Write its
-    # submission; in the non-interactive bwrap jail that prompt cannot be answered and agy
-    # dies "without submitting (code 2)", so the dual-agent gate can never pass. (claude
-    # avoids this via --tools Read,Glob,Grep,Write; agy has no such allowlist flag.)
     - --dangerously-skip-permissions
     command: ${PROJECT_ROOT}/.agents/agy/agy
 autowork:
@@ -116,16 +103,7 @@ synthesis:
   clarification_timeout_sec: 60
   max_ast_retries: 3
   max_clarification_requests: 2
-  # Synthesis window per agent per round. Widened 1200->1800 (2026-05-31): the
-  # hardened A-TEST (read-first grounding mandate) makes claude's thorough
-  # whole-file authoring take ~23min, which overran the old 1200s window and
-  # tripped 'TimeoutError(1 of 2 futures unfinished)'. HARD budget = 2*window+slack
-  # scales with this; fast tasks finish early (window is a ceiling, not a duration).
   timeout_seconds: 1800
-  # H5: cap for the verification_command subprocess on BOTH the accept path
-  # (_auto_commit_accepted) and the baseline precompute (_precompute_baseline_test_results).
-  # Decoupled from timeout_seconds so the verify cap can be tuned independently;
-  # if removed, the code floors timeout_seconds at 900s.
   verification_timeout_seconds: 1200
 test_author:
   review_pass: true

@@ -918,6 +918,31 @@ def _path_b_outbox_fallback(work_dir: Path, sub_path: Path, task_id: str) -> str
         logger.warning('Path-B fallback: outbox promote write failed for %s', sub_path)
     return content
 
+def _submission_target_path(state_dir: Path, task_id: str) -> str | None:
+    """Return the task's primary target file (``files_touched[0]``) so the
+    submission interceptors can apply their non-``.py`` AST-validation exemption
+    (interceptors.py: ``if path and not path.endswith('.py'): return None``).
+
+    P-UNB3: without this, ``poll_for_submission`` calls the interceptor for
+    ``submit_code`` with no ``path`` -> the non-``.py`` exemption is skipped ->
+    a whole-file non-``.py`` submission (e.g. config.yaml) is ast-parsed as
+    Python and wrongly denied (``SyntaxError`` L1). Mirrors the target-type
+    resolution already in ``_path_b_outbox_fallback``. Returns ``None`` when the
+    task/target cannot be resolved, in which case callers default to
+    ``.py``-style AST validation (the strict/safe behavior).
+    """
+    try:
+        task_file = state_dir / 'tasks' / f'current_task_{task_id}.json'
+        if task_file.is_file():
+            with open(task_file, 'r') as _f:
+                _task = json.load(_f)
+            _ft = _task.get('files_touched') or []
+            if _ft:
+                return str(_ft[0])
+    except (OSError, json.JSONDecodeError):
+        pass
+    return None
+
 def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: subprocess.Popen, timeout: int) -> str | None:
     """Poll for an agent's submission file. Returns the code or None.
 
@@ -929,6 +954,9 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
     task_id = os.environ.get('JANUSMASK_TASK_ID', 'default')
     filename = generate_submission_filename(agent, round_number, task_id)
     sub_path = sessions_dir / filename
+    # P-UNB3: resolve the task's target file so the submission interceptor can
+    # exempt non-.py targets (e.g. config.yaml) from Python AST validation.
+    target_path = _submission_target_path(state_dir, task_id)
     work_dir = getattr(proc, '_work_dir', None)
     deadline = time.monotonic() + timeout
     poll_start_wall = time.time()
@@ -942,7 +970,7 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
                     data = json.load(f)
                 code = data.get('code')
                 if code and isinstance(code, str):
-                    inter_res = interceptor_registry.pre_tool_use(agent, 'submit_code', {'code': code})
+                    inter_res = interceptor_registry.pre_tool_use(agent, 'submit_code', {'code': code, 'path': target_path})
                     if inter_res and inter_res.get('decision') == 'deny':
                         _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}submission denied by interceptor: {inter_res.get("reason")}{_C.RESET}')
                         try:
@@ -958,7 +986,7 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
         if work_dir is not None:
             code = _path_b_outbox_fallback(work_dir, sub_path, task_id)
             if code and isinstance(code, str):
-                inter_res = interceptor_registry.pre_tool_use(agent, 'submit_code', {'code': code})
+                inter_res = interceptor_registry.pre_tool_use(agent, 'submit_code', {'code': code, 'path': target_path})
                 if inter_res and inter_res.get('decision') == 'deny':
                     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}fallback submission denied by interceptor: {inter_res.get("reason")}{_C.RESET}')
                     code = None
@@ -975,7 +1003,7 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
                             data = json.load(f)
                         code = data.get('code')
                         if code:
-                            inter_res = interceptor_registry.pre_tool_use(agent, 'submit_code', {'code': code})
+                            inter_res = interceptor_registry.pre_tool_use(agent, 'submit_code', {'code': code, 'path': target_path})
                             if inter_res and inter_res.get('decision') == 'deny':
                                 _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}exited submission denied by interceptor: {inter_res.get("reason")}{_C.RESET}')
                                 code = None
@@ -988,7 +1016,7 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
                 if work_dir is not None:
                     code = _path_b_outbox_fallback(work_dir, sub_path, task_id)
                     if code and isinstance(code, str):
-                        inter_res = interceptor_registry.pre_tool_use(agent, 'submit_code', {'code': code})
+                        inter_res = interceptor_registry.pre_tool_use(agent, 'submit_code', {'code': code, 'path': target_path})
                         if inter_res and inter_res.get('decision') == 'deny':
                             _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}exited fallback submission denied by interceptor: {inter_res.get("reason")}{_C.RESET}')
                             code = None
