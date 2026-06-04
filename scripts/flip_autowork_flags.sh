@@ -119,7 +119,8 @@ set_key() { # key  value(true|false)  dry(0|1)
   cp "$CFG" "$bak"
   if [[ $absent -eq 1 ]]; then
     # Insert "  <key>: <val>" as the first entry under the parent section.
-    python3 - "$CFG" "$key" "$val" "$(key_section "$key")" <<'PY'
+    local sect; sect="$(key_section "$key")"
+    python3 - "$CFG" "$key" "$val" "$sect" <<'PY'
 import re, sys
 cfg, key, val, section = sys.argv[1:5]
 src = open(cfg).read()
@@ -129,7 +130,7 @@ if n != 1:
     sys.stderr.write("ERROR: section '%s:' not found in %s (got %d matches)\n" % (section, cfg, n)); sys.exit(3)
 open(cfg, "w").write(new)
 PY
-    echo "inserted ${key}: ${val} under ${section}:  (backup: ${bak})"
+    echo "inserted ${key}: ${val} under ${sect}:  (backup: ${bak})"
     echo "verify: $(grep -nE "^[[:space:]]*${key}:" "$CFG")"
     return 0
   fi
