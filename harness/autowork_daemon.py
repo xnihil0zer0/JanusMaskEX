@@ -904,6 +904,12 @@ def _retry_blocked_tasks(state_dir: pathlib.Path, summary: dict, max_attempts: i
         if p.name.endswith('.retry.json'):
             continue
         tid = p.name[:-len('.json')] if p.name.endswith('.json') else p.stem
+        # D-RETRY-CFG: once a task has an .exhausted marker it must never be
+        # re-staged again, regardless of a later bump to effective_max /
+        # max_attempts. Guard before the attempts logic so a raised budget
+        # cannot resurrect an already-exhausted task.
+        if (blocked_dir / f'{tid}.exhausted').exists():
+            continue
         sidecar = blocked_dir / f'{tid}.retry.json'
         attempts, last_ts, last_outcome = (0, 0.0, '')
         if sidecar.exists():
