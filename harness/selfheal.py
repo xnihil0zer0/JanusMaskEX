@@ -144,7 +144,7 @@ def _selfheal_secret() -> bytes:
     if path_str:
         secret_path = Path(path_str)
     else:
-        secret_path = Path(os.path.expanduser('~/.config/janusmask/selfheal_hmac_secret'))
+        secret_path = Path(os.path.expanduser('~/.config/janusmask/selfheal_hmac_secret'))  # home-free: allow (operator-provisioned default OUTSIDE every agent_jail bind per C2; env JANUSMASK_SELFHEAL_SECRET_PATH overrides; deliberate, documented per AGENT-ISOLATION §8)
     if secret_path.exists():
         return secret_path.read_bytes()
     secret_path.parent.mkdir(parents=True, exist_ok=True)
