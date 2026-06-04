@@ -1245,7 +1245,7 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
                 continue
             if not rec.get('has_plan'):
                 continue
-            if not _auto_promote_brief_eligible(state_dir, rec.get('slug') or '', rec.get('brief_mtime', 0), max_age_sec=_brief_max_age(config or {}), config=config or {}):
+            if not _auto_promote_brief_eligible(state_dir, rec.get('slug') or '', rec.get('brief_mtime', 0), max_age_sec=_brief_max_age(config or {}), config=config or {}, repo_root=repo_root):
                 continue
             unstaged = rec.get('unstaged_task_ids') or []
             plan_filename = rec.get('plan_filename')
@@ -1358,7 +1358,7 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
             slug = rec.get('slug') or ''
             if not slug:
                 continue
-            if not _auto_promote_brief_eligible(state_dir, slug, rec.get('brief_mtime', 0), max_age_sec=_brief_max_age(config or {}), config=config or {}):
+            if not _auto_promote_brief_eligible(state_dir, slug, rec.get('brief_mtime', 0), max_age_sec=_brief_max_age(config or {}), config=config or {}, repo_root=repo_root):
                 continue
             brief_filename = rec.get('brief_filename')
             if not isinstance(brief_filename, str) or not brief_filename:
@@ -2182,7 +2182,7 @@ def _auto_promote_allowlist(state_dir):
     return out
 
 
-def _auto_promote_brief_eligible(state_dir, slug, brief_mtime, now=None, max_age_sec=None, config=None) -> bool:
+def _auto_promote_brief_eligible(state_dir, slug, brief_mtime, now=None, max_age_sec=None, config=None, repo_root=None) -> bool:
     if max_age_sec is None:
         max_age_sec = DEFAULT_BRIEF_MAX_AGE_SEC
     if now is None:
@@ -2198,10 +2198,20 @@ def _auto_promote_brief_eligible(state_dir, slug, brief_mtime, now=None, max_age
     # When the flag is false (or config is None -> default-deny) the slug
     # falls through to the allowlist membership test, so eligibility stays
     # byte-identical to today for ALL allowlist-driven briefs.
+    #
+    # REV28 PROVENANCE GATE (fail-closed): a self-heal brief only earns the
+    # fast path when its HMAC-SHA256 provenance marker validates. The
+    # validator is imported lazily (no new module-level import) and the whole
+    # check is wrapped so that a None repo_root, a missing/garbled/mismatched
+    # marker, or ANY exception leaves _selfheal_eligible False -- the brief
+    # then falls through to the operator allowlist test (which denies
+    # self-heal briefs), i.e. fail-closed.
     _selfheal_eligible = False
     try:
         if _is_selfheal_brief(slug) and _selfheal_auto_promote_enabled(config or {}):
-            _selfheal_eligible = True
+            from harness.selfheal import _selfheal_provenance_valid
+            if repo_root is not None and _selfheal_provenance_valid(slug, repo_root / f'brief_hooks_{slug}.md', state_dir):
+                _selfheal_eligible = True
     except Exception:
         _selfheal_eligible = False
     if not _selfheal_eligible:
