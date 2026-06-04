@@ -101,8 +101,10 @@ synthesis:
   - gemini
   antigravity_mode: false
   clarification_timeout_sec: 60
+  enable_single_agent_promotion: false
   max_ast_retries: 3
   max_clarification_requests: 2
+  single_agent_promotion_ceiling: 3
   timeout_seconds: 1800
   verification_timeout_seconds: 1200
 test_author:
