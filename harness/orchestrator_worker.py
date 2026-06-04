@@ -194,12 +194,30 @@ def main() -> int:
             if use_retry_module:
                 locked_read_modify_write(_set_task_state, state_dir)
                 results: dict[str, tuple[bool, str | None]] = {}
+                # SH2B: pre-bind the per-agent AST violation lists so they are
+                # always defined under every code path (timeout, exception,
+                # success) before the S1 telemetry block reads them via
+                # locals().get(...). Each retry-loop branch overwrites the
+                # relevant slot with the third tuple element returned by
+                # synthesize_with_retries / future.result(); the except branch
+                # falls back to [] so a concrete AST violation rule name reaches
+                # the ledger on the retry path instead of the placeholder.
+                agent_a_violations: list[Any] = []
+                agent_b_violations: list[Any] = []
                 if config.get('synthesis', {}).get('antigravity_mode', True):
                     for agent_name in (agent_a, agent_b):
                         try:
                             ok, code, _violations = synthesize_with_retries(agent_name, base_prompt, config, state_dir, round_number, task, orch.run_agent_phase, (lambda a: lambda code, t: orch._validate_submission(code, a, t))(agent_name))
+                            if agent_name == agent_a:
+                                agent_a_violations = _violations or []
+                            else:
+                                agent_b_violations = _violations or []
                         except Exception:
                             ok, code = (False, None)
+                            if agent_name == agent_a:
+                                agent_a_violations = []
+                            else:
+                                agent_b_violations = []
                         results[agent_name] = (ok, code)
                 else:
                     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -208,8 +226,16 @@ def main() -> int:
                             agent_name = futures[future]
                             try:
                                 ok, code, _violations = future.result()
+                                if agent_name == agent_a:
+                                    agent_a_violations = _violations or []
+                                else:
+                                    agent_b_violations = _violations or []
                             except Exception:
                                 ok, code = (False, None)
+                                if agent_name == agent_a:
+                                    agent_a_violations = []
+                                else:
+                                    agent_b_violations = []
                             results[agent_name] = (ok, code)
                 agent_a_ok, agent_a_code = results.get(agent_a, (False, None))
                 agent_b_ok, agent_b_code = results.get(agent_b, (False, None))
