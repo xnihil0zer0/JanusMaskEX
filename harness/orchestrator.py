@@ -827,54 +827,6 @@ def stateful_differential_fuzz(code_a, code_b, class_name, config, session_id):
     if fuzz_error is not None:
         return _result(False, counters['total'], counters['matching'], [], error='stateful fuzz harness error: %s' % (fuzz_error,))
     return _result(True, counters['total'], counters['matching'], [])
-
-
-def _resolve_stateful_class_name(task, code_a):
-    """Resolve the target CLASS name for stateful fuzzing from task
-    constraints, falling back to the first class defined in ``code_a``.
-
-    ``stateful_differential_fuzz`` keys on a class name (not the function name
-    ``fuzz_from_task`` resolves), so this is a dedicated resolver (MD-ROUTING)."""
-    import ast as _ast
-    import re as _re
-    constraints = {}
-    if isinstance(task, dict):
-        constraints = task.get('constraints') or {}
-        if not isinstance(constraints, dict):
-            constraints = {}
-    for key in ('class_name', 'target_class', 'className'):
-        val = constraints.get(key)
-        if isinstance(val, str) and val.strip():
-            return val.strip()
-    sig = constraints.get('function_signature')
-    if isinstance(sig, str):
-        m = _re.search(r'class\s+(\w+)', sig)
-        if m:
-            return m.group(1)
-    try:
-        tree = _ast.parse(code_a)
-        for node in tree.body:
-            if isinstance(node, _ast.ClassDef):
-                return node.name
-    except Exception:
-        pass
-    return None
-
-
-def _route_stateful_fuzz(task, code_a, code_b, config, session_id='default'):
-    """MD-ROUTING seam: drive stateful differential fuzzing for a
-    ``state_machine`` task. Returns a ``FuzzResult`` (equivalent True/False) or,
-    when no class name can be resolved, a skipped-equivalent ``FuzzResult`` so
-    callers can fall through safely. Never raises."""
-    try:
-        class_name = _resolve_stateful_class_name(task, code_a)
-        if not class_name:
-            return FuzzResult(equivalent=True, skipped_reason='stateful routing: no class name resolved')
-        return stateful_differential_fuzz(code_a, code_b, class_name, config, session_id)
-    except Exception as exc:
-        return FuzzResult(equivalent=True, skipped_reason='stateful routing error: %s' % (exc,))
-
-
 def _join_stream_threads(proc: subprocess.Popen, timeout: float=2.0) -> None:
     """Join the stdout/stderr stream threads if they exist."""
     threads = getattr(proc, '_stream_threads', None)
