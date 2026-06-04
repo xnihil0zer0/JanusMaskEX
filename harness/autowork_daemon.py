@@ -673,7 +673,7 @@ def _runaway_counter_bump(state_dir, ceiling):
             if fcntl is not None:
                 try:
                     fcntl.flock(f, fcntl.LOCK_EX)
-                except OSError:
+                except (OSError, TypeError):
                     fcntl = None
             try:
                 count = 0
