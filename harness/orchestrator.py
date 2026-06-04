@@ -2447,6 +2447,17 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
         # + an explicit operator approval decision.
         _mtt = task.get('meta_task_type') or (task.get('constraints') or {}).get('meta_task_type')
         _approval_ok = _apply_approval_granted(state_dir, task_id)
+        # P10-B CONSULT (REV29 §3a): when the operator decision file did NOT grant
+        # the apply, consult the pure auto-approve eligibility gate for a self-heal
+        # harness submission. The helper is dead-until-flag (default-off) and
+        # side-effect free; it reads (never mutates) the persisted ceiling counter.
+        # _granted_via_auto_approve records whether the grant came from the
+        # auto-approve path so the ceiling counter below is incremented ONLY for
+        # auto-approved commits -- never for operator-decided ones.
+        _granted_via_auto_approve = False
+        if not _approval_ok:
+            _approval_ok = _auto_approve_sensitive_eligible(state_dir, task, task_id, files_touched, load_config(), repo_root=worktree_root)
+            _granted_via_auto_approve = _approval_ok
         lock_dir = state_dir / 'control' / 'autowork'
         lock_dir.mkdir(parents=True, exist_ok=True)
         lock_path = lock_dir / 'git_commit.lock'
@@ -2454,6 +2465,23 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
             try:
                 result = git_integration.commit_accepted_output(task_id, target_abs, state_dir, worktree_root=staging_path, allowed_files=set(files_touched), meta_task_type=_mtt, approval_ok=_approval_ok, working_dir=working_dir)
+                # P10-B CEILING INCREMENT (REV29 §3c): still holding LOCK_EX, when
+                # the commit landed AND the grant came from the auto-approve consult
+                # (not an operator decision), read-modify-write the persisted
+                # ceiling counter (mirrors the helper's count_path) bumping it by
+                # one. n defaults to 0 when the file is absent or corrupt.
+                if _granted_via_auto_approve and result.get('committed'):
+                    _count_path = Path(state_dir) / 'control' / 'autowork' / 'auto_approve_count.json'
+                    _n = 0
+                    try:
+                        _cdata = json.loads(_count_path.read_text(encoding='utf-8', errors='replace'))
+                        if isinstance(_cdata, dict) and isinstance(_cdata.get('count'), int) and not isinstance(_cdata.get('count'), bool):
+                            _n = _cdata['count']
+                        elif isinstance(_cdata, int) and not isinstance(_cdata, bool):
+                            _n = _cdata
+                    except Exception:
+                        _n = 0
+                    _count_path.write_text(json.dumps({'count': _n + 1}), encoding='utf-8')
             finally:
                 fcntl.flock(lock_fd, fcntl.LOCK_UN)
 
