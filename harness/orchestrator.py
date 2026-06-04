@@ -2135,6 +2135,7 @@ def _auto_approve_content_safe(state_dir, task_id) -> bool:
                         if kw.arg == 'shell' and isinstance(kw.value, ast.Constant) and (kw.value.value is True):
                             return False
     return True
+_RO_GATE_TESTS = ('tests/adversarial/test_sec_inv2_trustroot.py', 'tests/adversarial/test_p10b_denylist_widen.py', 'tests/adversarial/test_replication_clean_room_static.py')
 def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -> bool:
     """Copy accepted output to its target and create a scoped git commit.
 
@@ -2619,6 +2620,39 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
 
         _pinned_artifact_sha = _inv5_artifact_sha() if _granted_via_auto_approve else None
         _pinned_parent_head = _inv5_parent_head() if _granted_via_auto_approve else None
+
+        # SEC_RO_CHECKOUT_WIRING (H2): wire the read-only-parent verification
+        # primitive (git_integration._verify_from_ro_parent, ported by the
+        # sec_ro_checkout_primitive dependency and already in scope via the
+        # in-body ``from harness import git_integration``) into the auto-approve
+        # commit path. This runs OUTSIDE the git_commit.lock flock -- it is placed
+        # BEFORE the lock_dir/flock acquisition below -- so the RO-parent pytest
+        # battery never executes while the commit lock is held. It is
+        # DEAD-UNTIL-FLAG: the gate is consulted ONLY when the grant came from the
+        # auto-approve consult (``_granted_via_auto_approve`` True) AND the net-new
+        # default-off flag ``autowork.auto_approve_ro_gate`` is True. load_config()
+        # is read once here and the boolean defaults to False whenever the config
+        # is not a dict, ``autowork`` is missing/not a dict, or the key is absent,
+        # so existing auto-approve tests that do not set the flag are byte-identical
+        # to HEAD (and the operator-approval / flag-off paths never consult it).
+        # When the primitive returns False the grant is REFUSED fail-closed: both
+        # ``_approval_ok`` and ``_granted_via_auto_approve`` are dropped to False so
+        # the sensitive apply is blocked (commit_accepted_output's _enforce_apply_scope
+        # raises on a sensitive path with approval_ok=False, mirroring the
+        # content-gate abort) AND the ceiling counter below is NOT incremented
+        # (guarded by ``_granted_via_auto_approve and result.get('committed')``); a
+        # warning is logged and a rejected ledger row is appended (best-effort, the
+        # OSError-wrapped write mirrors the INV5 TOCTOU abort).
+        _ro_gate_cfg = load_config()
+        _ro_gate_on = bool(isinstance(_ro_gate_cfg, dict) and isinstance(_ro_gate_cfg.get('autowork'), dict) and _ro_gate_cfg['autowork'].get('auto_approve_ro_gate'))
+        if _granted_via_auto_approve and _ro_gate_on and not git_integration._verify_from_ro_parent(worktree_root, _pinned_parent_head, staging_path, _RO_GATE_TESTS):
+            _approval_ok = False
+            _granted_via_auto_approve = False
+            logger.warning('auto_approve_ro_gate_failed: aborting auto-approve commit for %s -- the RO-parent verification gate refused the staged candidate (git_integration._verify_from_ro_parent returned False against pinned parent HEAD %s); treating as refused apply', task_id, _pinned_parent_head)
+            try:
+                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'auto_approve_ro_gate_failed', 'commit_sha': None, 'files': files_touched, 'reason': 'RO-parent verification gate refused the staged candidate'})
+            except OSError as _exc:
+                logger.warning('auto_approve_ro_gate_failed: ledger append failed for %s: %s', task_id, _exc)
 
         lock_dir = state_dir / 'control' / 'autowork'
         lock_dir.mkdir(parents=True, exist_ok=True)
