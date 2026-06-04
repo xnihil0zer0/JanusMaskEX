@@ -1322,6 +1322,16 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
             for tid in unstaged:
                 if not isinstance(tid, str) or not tid:
                     continue
+                # SELFHEAL_CLOBBER_GUARD (REV29 S0b): when this record is the
+                # ORIGINAL plan (slug does not start with 'selfheal_') and a
+                # corrective self-heal plan already exists on disk for the SAME
+                # task id (plan_hooks_selfheal_<tid>.json), skip staging this
+                # task from the original plan. Staging it would clobber the
+                # newer self-heal-corrected plan content for that task id; the
+                # self-heal plan (whose slug DOES start with 'selfheal_') is
+                # exempt from this guard and stages normally.
+                if not slug.startswith('selfheal_') and (repo_root / f'plan_hooks_selfheal_{tid}.json').exists():
+                    continue
                 # STAGING_DEP_GATE: skip staging tid when any of its
                 # dependencies was processed (a tasks/processed/<d>.json
                 # exists) but is not in the accepted-set.
