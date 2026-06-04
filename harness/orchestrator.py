@@ -1928,6 +1928,102 @@ def perform_process_handover(state_dir: Path) -> None:
         logger.critical(f"os.execv handover failed! {e}")
         raise
 
+def _auto_approve_sensitive_eligible(state_dir, task, task_id, rel_paths, config, repo_root=None) -> bool:
+    """P10-A2: pure, side-effect-free eligibility gate for auto-approving a
+    self-heal harness submission that touches sensitive (harness/**) paths.
+
+    Returns True ONLY IF ALL of the following hold; otherwise False. The whole
+    body is wrapped in a broad try/except so the helper fails closed (returns
+    False) on any malformed/None/missing input or config and NEVER raises:
+
+      1. ``config['autowork']['auto_approve_sensitive_harness']`` is truthy
+         (default-deny when config is None / not a mapping / key absent).
+      2. ``task.get('meta_task_type') == 'harness_self_fix'``.
+      3. The task is self-heal-originated: derive ``slug`` (``task_id`` itself
+         if already prefixed with ``selfheal_``, else ``selfheal_<task_id>``)
+         and a valid §2c marker via
+         ``harness.selfheal._selfheal_provenance_valid(slug, brief_path,
+         state_dir)`` where ``brief_path = repo_root / f'brief_hooks_{slug}.md'``.
+         If ``repo_root`` is None, fail closed.
+      4. Narrow scope: ``rel_paths`` is non-empty and EVERY rel (a) has no raw
+         ``..`` path component (checked on the RAW string before any
+         normalization, since ``_matches_sensitive``'s normpath would collapse
+         ``harness/agent_jail.py/../test_author.py`` to an innocent-looking
+         ``harness/test_author.py`` and defeat both the deny-list and the
+         harness/ check), (b) does not match any pattern in
+         ``_NEVER_AUTO_APPROVE``, and (c) is a ``harness/**`` path.
+      5. The persisted approval count (state/control/autowork/
+         auto_approve_count.json, default 0 when absent) is strictly below the
+         configured ceiling (``auto_approve_sensitive_ceiling``, default 3).
+         P10-B is responsible for INCREMENTING this counter; this helper only
+         reads it and never mutates it.
+    """
+    try:
+        if not isinstance(config, dict):
+            return False
+        autowork = config.get('autowork')
+        if not isinstance(autowork, dict):
+            return False
+        if not autowork.get('auto_approve_sensitive_harness'):
+            return False
+        if not isinstance(task, dict):
+            return False
+        if task.get('meta_task_type') != 'harness_self_fix':
+            return False
+        if repo_root is None:
+            return False
+        if not isinstance(task_id, str) or not task_id:
+            return False
+        slug = task_id if task_id.startswith('selfheal_') else f'selfheal_{task_id}'
+        from pathlib import Path as _Path
+        brief_path = _Path(repo_root) / f'brief_hooks_{slug}.md'
+        from harness.selfheal import _selfheal_provenance_valid
+        if not _selfheal_provenance_valid(slug, brief_path, state_dir):
+            return False
+        import os as _os
+        if not rel_paths:
+            return False
+        from harness.git_integration import _matches_sensitive
+        for rel in rel_paths:
+            if not isinstance(rel, str) or not rel:
+                return False
+            components = []
+            for piece in rel.split('/'):
+                components.extend(piece.split(_os.sep))
+            if '..' in components:
+                return False
+            if _matches_sensitive(rel, _NEVER_AUTO_APPROVE):
+                return False
+            if not _matches_sensitive(rel, ('harness/**',)):
+                return False
+        ceiling = autowork.get('auto_approve_sensitive_ceiling', 3)
+        if ceiling is None:
+            ceiling = 3
+        if isinstance(ceiling, bool) or not isinstance(ceiling, int):
+            return False
+        count = 0
+        count_path = _Path(state_dir) / 'control' / 'autowork' / 'auto_approve_count.json'
+        if count_path.exists():
+            raw = count_path.read_text(encoding='utf-8', errors='replace')
+            data = json.loads(raw)
+            if isinstance(data, bool):
+                return False
+            if isinstance(data, int):
+                count = data
+            elif isinstance(data, dict):
+                value = data.get('count')
+                if isinstance(value, bool) or not isinstance(value, int):
+                    return False
+                count = value
+            else:
+                return False
+        if count >= ceiling:
+            return False
+        return True
+    except Exception:
+        return False
+
+_NEVER_AUTO_APPROVE: tuple[str, ...] = ('harness/agent_jail.py', 'harness/dbus_proxy.py', 'harness/paths.py', 'harness/git_integration.py', 'harness/orchestrator.py', 'harness/interceptors.py', 'services/**')
 def _apply_approval_granted(state_dir: Path, task_id: str) -> bool:
     """AGENT-ISOLATION §1b: True iff an operator approved this task's apply.
 
