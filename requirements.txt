@@ -7,4 +7,6 @@ pluggy==1.6.0
 psutil==7.2.2
 Pygments==2.20.0
 pytest-timeout==2.4.0
+pytest-xdist>=3.8
+pytest-testmon>=2.2
 sortedcontainers==2.4.0
