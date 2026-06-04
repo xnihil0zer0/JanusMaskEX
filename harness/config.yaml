@@ -40,7 +40,8 @@ agents:
     - --dangerously-skip-permissions
     command: ${PROJECT_ROOT}/.agents/agy/agy
 autowork:
-  auto_approve_sensitive_harness: false
+  auto_approve_ro_gate: true
+  auto_approve_sensitive_harness: true
   brief_max_age_seconds: 604800
   brief_max_size_bytes: 50000
   conservative_missing_files: true
@@ -54,7 +55,7 @@ autowork:
   planner_min_wall_sec: 10.0
   planner_timeout_sec: 1800
   poll_interval_sec: 5
-  selfheal_auto_promote: false
+  selfheal_auto_promote: true
 batch_execution:
   batch_size_per_worker: 2000
   enabled: true
@@ -102,7 +103,7 @@ synthesis:
   - gemini
   antigravity_mode: false
   clarification_timeout_sec: 60
-  enable_single_agent_promotion: false
+  enable_single_agent_promotion: true
   max_ast_retries: 3
   max_clarification_requests: 2
   single_agent_promotion_ceiling: 3
