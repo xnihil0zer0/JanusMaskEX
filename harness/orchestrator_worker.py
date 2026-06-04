@@ -349,6 +349,45 @@ def main() -> int:
                     if agent_b_valid:
                         valid_cache[agent_b] = agent_b_code
                     if not (agent_a_valid and agent_b_valid):
+                        # P5b: when EXACTLY one agent is AST-valid (XOR), consider
+                        # promoting it and dropping the consistently-failing peer instead
+                        # of burning another retry. Every gate (config opt-in, failure
+                        # ceiling, sensitive-target operator approval, and a re-run of the
+                        # canonical AST validator) lives inside
+                        # _single_agent_promotion_decision, which defaults OFF -- so when
+                        # enable_single_agent_promotion is False this block is inert and
+                        # falls through to the unchanged retry/prompt-rebuild logic below.
+                        if agent_a_valid != agent_b_valid:
+                            if agent_a_valid:
+                                valid_agent, valid_code = (agent_a, agent_a_code)
+                                failing_agent, failing_violations = (agent_b, agent_b_violations)
+                            else:
+                                valid_agent, valid_code = (agent_b, agent_b_code)
+                                failing_agent, failing_violations = (agent_a, agent_a_violations)
+                            # consecutive_failures: persisted retry attempts + 1; any
+                            # read/parse error fail-safes to 0 + 1 = 1.
+                            try:
+                                _retry_sidecar = state_dir / 'tasks' / 'blocked' / f'{task_id}.retry.json'
+                                consecutive_failures = int(json.loads(_retry_sidecar.read_text(encoding='utf-8')).get('attempts', 0)) + 1
+                            except Exception:
+                                consecutive_failures = 1
+                            # approval_ok: fail-closed read of the operator decision file;
+                            # True only for an explicit approve/approved decision.
+                            try:
+                                _decision_path = state_dir / 'control' / 'decisions' / f'{task_id}.json'
+                                _decision = json.loads(_decision_path.read_text(encoding='utf-8')).get('decision', '')
+                                approval_ok = isinstance(_decision, str) and _decision.strip().lower() in {'approve', 'approved'}
+                            except Exception:
+                                approval_ok = False
+                            promote, reason = _single_agent_promotion_decision(config, task, state_dir, valid_agent=valid_agent, valid_code=valid_code, failing_agent=failing_agent, failing_violations=failing_violations, consecutive_failures=consecutive_failures, approval_ok=approval_ok)
+                            if promote:
+                                orch._emit_lifecycle(state_dir, event='single_agent_promotion', task_id=task_id, detail=reason)
+                                agent_a_code = valid_code
+                                agent_b_code = valid_code
+                                agent_a_valid = True
+                                agent_b_valid = True
+                                synthesis_success = True
+                                break
                         ast_retries += 1
                         if not agent_a_valid:
                             error_msgs = '\n'.join((f'- {v.rule} (Line {v.line}): {v.message}' for v in agent_a_violations if v.severity == 'error'))
