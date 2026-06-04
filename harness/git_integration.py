@@ -1570,6 +1570,66 @@ def remove_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
         shutil.rmtree(staging_path_obj, ignore_errors=True)
         logger.info(f'Deleted staging directory at {staging_path}')
 
+def _verify_from_ro_parent(repo_root, parent_head_sha, staging_path, gate_test_paths, timeout_sec=600) -> bool:
+    """RO-CHECKOUT verification primitive.
+
+    Materialize the parent commit's TRACKED tree (``parent_head_sha``) into a
+    fresh, throwaway temporary directory and run the TRUSTED gate-tests from
+    that read-only snapshot against the CANDIDATE code in ``staging_path``.
+
+    The snapshot is produced with ``git -C <repo_root> archive --format=tar
+    <parent_head_sha>`` whose tar stream is captured in-memory and extracted
+    into the tmp dir. Because the trusted test bodies come from the snapshot
+    (NOT staging) while the module-under-test is resolved from ``staging_path``
+    -- which is PREPENDED to ``PYTHONPATH`` -- a candidate that weakens its own
+    copy of the gate-test cannot evade the trusted assertions.
+
+    Fail-closed: returns ``True`` ONLY when pytest exits 0; returns ``False``
+    on any error whatsoever (bogus/missing ``parent_head_sha`` -> git archive
+    failure, tar extraction failure, a gate-test path absent from the trusted
+    snapshot, a nonzero pytest exit, a pytest timeout, or any unexpected
+    exception). The temporary directory is ALWAYS removed in a ``finally``
+    block, ignoring cleanup errors.
+
+    No new module-level import is introduced: ``io`` / ``sys`` / ``tarfile`` /
+    ``tempfile`` are imported in-body (``os`` / ``pathlib`` / ``shutil`` /
+    ``subprocess`` are already module-level).
+    """
+    import io
+    import sys
+    import tarfile
+    import tempfile
+    tmp_dir = None
+    try:
+        tmp_dir = tempfile.mkdtemp(prefix='janusmask-ro-checkout-')
+        try:
+            archive = subprocess.run(['git', '-C', str(repo_root), 'archive', '--format=tar', str(parent_head_sha)], check=True, capture_output=True, timeout=timeout_sec)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return False
+        try:
+            with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode='r:*') as tf:
+                tf.extractall(tmp_dir)
+        except Exception:
+            return False
+        tmp_root = pathlib.Path(tmp_dir)
+        gate_rel = [str(g) for g in gate_test_paths]
+        for rel in gate_rel:
+            if not (tmp_root / rel).is_file():
+                return False
+        env = dict(os.environ)
+        existing = env.get('PYTHONPATH', '')
+        staging_str = str(staging_path)
+        env['PYTHONPATH'] = staging_str + (os.pathsep + existing if existing else '')
+        try:
+            proc = subprocess.run([sys.executable or 'python', '-m', 'pytest', '-p', 'no:cacheprovider', '-q', *gate_rel], cwd=tmp_dir, env=env, timeout=timeout_sec)
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError, OSError):
+            return False
+        return proc.returncode == 0
+    except Exception:
+        return False
+    finally:
+        if tmp_dir is not None:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Path | None = None, *, working_dir: str | None = None) -> None:
     """Merges the HEAD commit from staging_path back to the parent repository.
 
