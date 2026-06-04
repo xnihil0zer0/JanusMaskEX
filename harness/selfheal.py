@@ -129,6 +129,68 @@ def _synthesize_selfheal_plan(repo_root: Any, state_dir: Any, task_id: str, brie
         out_path.write_text(json.dumps(plan, indent=2))
     except Exception:
         pass
+def _selfheal_secret() -> bytes:
+    """Return the operator/daemon HMAC secret bytes, minting on first use.
+
+    The secret path comes from the ``JANUSMASK_SELFHEAL_SECRET_PATH``
+    environment override or defaults to
+    ``~/.config/janusmask/selfheal_hmac_secret`` -- deliberately outside
+    every jail bind (never under ``state/`` or ``repo_root``). When the
+    file is absent it is minted from ``os.urandom(32)``, written with
+    ``0o600`` permissions (parent directories created), and returned.
+    """
+    import os
+    path_str = os.environ.get('JANUSMASK_SELFHEAL_SECRET_PATH')
+    if path_str:
+        secret_path = Path(path_str)
+    else:
+        secret_path = Path(os.path.expanduser('~/.config/janusmask/selfheal_hmac_secret'))
+    if secret_path.exists():
+        return secret_path.read_bytes()
+    secret_path.parent.mkdir(parents=True, exist_ok=True)
+    secret = os.urandom(32)
+    fd = os.open(str(secret_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 384)
+    try:
+        os.write(fd, secret)
+    finally:
+        os.close(fd)
+    try:
+        os.chmod(str(secret_path), 384)
+    except OSError:
+        pass
+    return secret
+
+def _selfheal_provenance_valid(slug: str, brief_path: Any, state_dir: Any) -> bool:
+    """Return ``True`` iff the provenance marker for ``slug`` is authentic.
+
+    Reads ``state/control/autowork/selfheal_provenance/<slug>.json``,
+    recomputes ``HMAC_SHA256(secret, slug + ':' + sha256_hex(brief bytes))``
+    over the bytes read from ``brief_path``, and compares it with the
+    stored marker using :func:`hmac.compare_digest`. Fails closed,
+    returning ``False`` on any exception, a missing secret/marker, or a
+    mismatch.
+    """
+    try:
+        import hashlib
+        import hmac
+        import json
+        state_dir_path = Path(state_dir)
+        prov_path = state_dir_path / 'control' / 'autowork' / 'selfheal_provenance' / f'{slug}.json'
+        if not prov_path.exists():
+            return False
+        marker_data = json.loads(prov_path.read_text())
+        if not isinstance(marker_data, dict):
+            return False
+        stored = marker_data.get('marker')
+        if not isinstance(stored, str):
+            return False
+        secret = _selfheal_secret()
+        brief_bytes = Path(brief_path).read_bytes()
+        digest = hashlib.sha256(brief_bytes).hexdigest()
+        expected = hmac.new(secret, (slug + ':' + digest).encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(stored, expected)
+    except Exception:
+        return False
 def _harvest_selfheal_briefs(state_dir: Any, repo_root: Any, config: Any) -> int:
     """Harvest self-heal "fix" briefs from agent outboxes into ``repo_root``.
 
@@ -157,6 +219,13 @@ def _harvest_selfheal_briefs(state_dir: Any, repo_root: Any, config: Any) -> int
     When the flag is false it is a pure no-op returning ``0`` without
     touching ``repo_root``.
 
+    On both initial delivery and content-aware refresh it also mints an
+    HMAC-SHA256 provenance marker at
+    ``state/control/autowork/selfheal_provenance/selfheal_<task_id>.json``
+    so jailed processes cannot forge self-heal briefs: the marker binds
+    the slug to the brief bytes via the operator-only secret. Minting is
+    best-effort and never raises.
+
     It never raises: per-file errors (including the refresh path, which
     is fail-closed and best-effort) are swallowed and scanning continues.
     """
@@ -170,6 +239,33 @@ def _harvest_selfheal_briefs(state_dir: Any, repo_root: Any, config: Any) -> int
     except Exception:
         return delivered
     state_dir_path = Path(state_dir)
+
+    def _mint_provenance(slug: str, tid: str, brief_bytes: bytes) -> None:
+        # Mint an HMAC-SHA256 provenance marker binding the slug to the
+        # brief bytes. Best-effort and fail-closed: any error is swallowed
+        # so the harvest loop never raises. The marker (HMAC output) is
+        # safe to live under state/; the secret never is.
+        try:
+            import hashlib
+            import hmac
+            import json
+            import time
+            secret = _selfheal_secret()
+            digest = hashlib.sha256(brief_bytes).hexdigest()
+            marker = hmac.new(secret, (slug + ':' + digest).encode(), hashlib.sha256).hexdigest()
+            prov_dir = state_dir_path / 'control' / 'autowork' / 'selfheal_provenance'
+            prov_dir.mkdir(parents=True, exist_ok=True)
+            prov_path = prov_dir / f'{slug}.json'
+            prov_path.write_text(json.dumps({
+                'slug': slug,
+                'origin_task_id': tid,
+                'marker': marker,
+                'ts': int(time.time()),
+                'version': 1,
+            }))
+        except Exception:
+            pass
+
     for agent in _AGENTS:
         try:
             agent_dir = workroot / agent
@@ -228,6 +324,9 @@ def _harvest_selfheal_briefs(state_dir: Any, repo_root: Any, config: Any) -> int
                                 _synthesize_selfheal_plan(repo_root_path, state_dir_path, task_id, dest)
                             except Exception:
                                 pass
+                            # Mint a fresh provenance marker bound to the
+                            # refreshed brief bytes.
+                            _mint_provenance(f'selfheal_{task_id}', task_id, src_bytes)
                             # Clear any stale plan-attempts markers so the
                             # refreshed brief is re-planned from scratch.
                             for _marker in (
@@ -258,6 +357,13 @@ def _harvest_selfheal_briefs(state_dir: Any, repo_root: Any, config: Any) -> int
                         _synthesize_selfheal_plan(repo_root_path, state_dir_path, task_id, dest)
                     except Exception:
                         pass
+                    # Mint a provenance marker bound to the delivered brief
+                    # bytes so the brief cannot be forged by jailed processes.
+                    try:
+                        _delivered_bytes = dest.read_bytes()
+                    except Exception:
+                        _delivered_bytes = b''
+                    _mint_provenance(f'selfheal_{task_id}', task_id, _delivered_bytes)
                     # ONLY AFTER synthesis returns do we evict the blocked
                     # sidecars (best-effort, swallowing OSError) so the read
                     # of blocked/<tid>.json is never preceded by its unlink.
