@@ -2023,7 +2023,7 @@ def _auto_approve_sensitive_eligible(state_dir, task, task_id, rel_paths, config
     except Exception:
         return False
 
-_NEVER_AUTO_APPROVE: tuple[str, ...] = ('harness/agent_jail.py', 'harness/dbus_proxy.py', 'harness/paths.py', 'harness/git_integration.py', 'harness/orchestrator.py', 'harness/interceptors.py', 'services/**')
+_NEVER_AUTO_APPROVE: tuple[str, ...] = ('harness/agent_jail.py', 'harness/dbus_proxy.py', 'harness/paths.py', 'harness/git_integration.py', 'harness/orchestrator.py', 'harness/interceptors.py', 'harness/selfheal.py', 'harness/autowork_daemon.py', 'services/**')
 def _apply_approval_granted(state_dir: Path, task_id: str) -> bool:
     """AGENT-ISOLATION §1b: True iff an operator approved this task's apply.
 
