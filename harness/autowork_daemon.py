@@ -937,6 +937,17 @@ def _retry_blocked_tasks(state_dir: pathlib.Path, summary: dict, max_attempts: i
                     _escalate_to_autobrief(state_dir, tid, last_outcome)
                 except Exception as exc:
                     _emit_telemetry(state_dir, tid, 'escalation_failed', repr(exc))
+            # SELFHEAL SKIP MARKER: also write a persistent skip marker OUTSIDE
+            # blocked/ so the stale signal survives the harvester's blocked/
+            # eviction (which clears .exhausted each regeneration). This lets
+            # _selfheal_target_satisfied_or_stale veto re-promoting a corrective
+            # brief for an exhausted task forever. Best-effort.
+            try:
+                _skip_dir = state_dir / 'control' / 'autowork' / 'selfheal_skip'
+                _skip_dir.mkdir(parents=True, exist_ok=True)
+                (_skip_dir / tid).write_text('1', encoding='utf-8')
+            except OSError:
+                pass
             continue
         if attempts <= 1:
             threshold = 300.0
@@ -2198,6 +2209,34 @@ def _auto_promote_allowlist(state_dir):
     return out
 
 
+def _selfheal_target_satisfied_or_stale(state_dir, tid) -> bool:
+    """True when a self-heal target tid is already done or stale/exhausted.
+
+    Returns True when ``tid`` is already accepted in the ledger (an accepted
+    auto_commit row for tid in impl_progress.jsonl) OR a persistent skip marker
+    exists at state/control/autowork/selfheal_skip/<tid> (a marker written at
+    retry-budget exhaustion that the harvester's blocked/ eviction cannot
+    clear). Best-effort: any filesystem/parse error yields False rather than
+    raising.
+    """
+    try:
+        sd = pathlib.Path(state_dir)
+        marker = sd / 'control' / 'autowork' / 'selfheal_skip' / tid
+        if marker.exists():
+            return True
+        ledger = sd / 'impl_progress.jsonl'
+        if ledger.exists():
+            with open(ledger, 'r', encoding='utf-8') as f:
+                for line in f:
+                    try:
+                        row = json.loads(line)
+                    except Exception:
+                        continue
+                    if isinstance(row, dict) and row.get('phase') == 'accepted' and (row.get('event') == 'auto_commit') and (row.get('task_id') == tid):
+                        return True
+    except Exception:
+        return False
+    return False
 def _auto_promote_brief_eligible(state_dir, slug, brief_mtime, now=None, max_age_sec=None, config=None, repo_root=None) -> bool:
     if max_age_sec is None:
         max_age_sec = DEFAULT_BRIEF_MAX_AGE_SEC
@@ -2209,6 +2248,18 @@ def _auto_promote_brief_eligible(state_dir, slug, brief_mtime, now=None, max_age
         mtime = 0.0
     if mtime <= 0:
         return False
+    # SELFHEAL DONE/STALE GUARD: a self-heal brief whose target task is already
+    # done (accepted in the ledger) or stale/exhausted (a persistent skip marker
+    # exists) must NOT auto-promote -- this short-circuits BEFORE the provenance
+    # fast-path can set _selfheal_eligible = True, so the guard wins even when
+    # the HMAC provenance marker validates. Fixes the infinite loop where a task
+    # already shipped under a different id loops forever because the harvester
+    # evicts blocked/<tid>.exhausted each regeneration. Best-effort; only runs
+    # for self-heal slugs, so every NON-self-heal branch below is unchanged.
+    if _is_selfheal_brief(slug):
+        tid = slug[len('selfheal_'):]
+        if _selfheal_target_satisfied_or_stale(state_dir, tid):
+            return False
     # SELFHEAL S3: a slug recognized as a self-heal brief becomes eligible
     # under the flag WITHOUT consulting or writing the operator allowlist.
     # When the flag is false (or config is None -> default-deny) the slug
