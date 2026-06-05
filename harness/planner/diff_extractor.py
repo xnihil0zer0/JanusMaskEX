@@ -107,12 +107,102 @@ def _is_near_miss(c_task: dict, g_task: dict) -> bool:
     return (NEAR_MISS_FILES_JACCARD_LOW <= round(jaccard, 5) < MATCH_FILES_JACCARD_PAIR) or \
            (NEAR_MISS_TITLE_RATIO_LOW <= round(ratio, 5) < MATCH_TITLE_RATIO_SOLO)
 
-def extract_diff(claude_plan: dict, gemini_plan: dict) -> PlanDiff:
+def _compare_brief_fields(claude_brief: dict, gemini_brief: dict) -> Tuple[Tuple[FieldKind, Any, Any], ...]:
+    divergences = []
+
+    # scope -> scope_text
+    claude_scope = claude_brief.get("scope")
+    gemini_scope = gemini_brief.get("scope")
+    if claude_scope != gemini_scope:
+        divergences.append((FieldKind.scope_text, claude_scope, gemini_scope))
+
+    # deliverables
+    claude_deliverables = claude_brief.get("deliverables")
+    gemini_deliverables = gemini_brief.get("deliverables")
+    if claude_deliverables != gemini_deliverables:
+        divergences.append((FieldKind.deliverables, claude_deliverables, gemini_deliverables))
+
+    # inputs
+    claude_inputs = claude_brief.get("inputs")
+    gemini_inputs = gemini_brief.get("inputs")
+    if claude_inputs != gemini_inputs:
+        divergences.append((FieldKind.inputs, claude_inputs, gemini_inputs))
+
+    # interfaces
+    claude_interfaces = claude_brief.get("interfaces")
+    gemini_interfaces = gemini_brief.get("interfaces")
+    if claude_interfaces != gemini_interfaces:
+        divergences.append((FieldKind.interfaces, claude_interfaces, gemini_interfaces))
+
+    # non_goals
+    claude_non_goals = claude_brief.get("non_goals")
+    gemini_non_goals = gemini_brief.get("non_goals")
+    if claude_non_goals != gemini_non_goals:
+        divergences.append((FieldKind.non_goals, claude_non_goals, gemini_non_goals))
+
+    # dependencies (compared as sets so ordering does not create false divergence)
+    claude_deps = claude_brief.get("dependencies", [])
+    gemini_deps = gemini_brief.get("dependencies", [])
+    if set(claude_deps) != set(gemini_deps):
+        divergences.append((FieldKind.dependencies, claude_deps, gemini_deps))
+
+    return tuple(divergences)
+
+def _extract_brief_diff(claude_plan: dict, gemini_plan: dict) -> PlanDiff:
     items = []
-    
+
+    c_briefs = claude_plan.get("child_briefs", []) or []
+    g_briefs = gemini_plan.get("child_briefs", []) or []
+
+    c_by_slug = {}
+    for b in c_briefs:
+        slug = b.get("slug")
+        if slug is None:
+            continue
+        c_by_slug[str(slug)] = b
+
+    g_by_slug = {}
+    for b in g_briefs:
+        slug = b.get("slug")
+        if slug is None:
+            continue
+        g_by_slug[str(slug)] = b
+
+    for slug in sorted(set(c_by_slug.keys()).union(g_by_slug.keys())):
+        c_brief = c_by_slug.get(slug)
+        g_brief = g_by_slug.get(slug)
+        if c_brief is not None and g_brief is not None:
+            divs = _compare_brief_fields(c_brief, g_brief)
+            kind = DiffKind.divergent if divs else DiffKind.convergent
+            items.append(DiffItem(
+                kind=kind,
+                claude_task=c_brief,
+                gemini_task=g_brief,
+                field_divergences=divs,
+                match_reason="slug"
+            ))
+        elif c_brief is not None:
+            items.append(DiffItem(
+                kind=DiffKind.claude_only,
+                claude_task=c_brief
+            ))
+        else:
+            items.append(DiffItem(
+                kind=DiffKind.gemini_only,
+                gemini_task=g_brief
+            ))
+
+    return PlanDiff(items=tuple(items))
+
+def extract_diff(claude_plan: dict, gemini_plan: dict) -> PlanDiff:
+    if 'child_briefs' in claude_plan or 'child_briefs' in gemini_plan:
+        return _extract_brief_diff(claude_plan, gemini_plan)
+
+    items = []
+
     c_tasks = claude_plan.get("tasks", [])
     g_tasks = gemini_plan.get("tasks", [])
-    
+
     # 1. task_id matching
     from collections import defaultdict
     c_by_id = defaultdict(list)
@@ -133,7 +223,7 @@ def extract_diff(claude_plan: dict, gemini_plan: dict) -> PlanDiff:
             g_unmatched.append(g)
         else:
             g_by_id[tid].append(g)
-    
+
     for tid in set(c_by_id.keys()).union(g_by_id.keys()):
         c_list = c_by_id[tid]
         g_list = g_by_id[tid]
@@ -155,22 +245,22 @@ def extract_diff(claude_plan: dict, gemini_plan: dict) -> PlanDiff:
             c_unmatched.extend(c_list)
         else:
             g_unmatched.extend(g_list)
-            
+
     # 2. Heuristic matching
     # Build candidate graph
     c_candidates = defaultdict(list)
     g_candidates = defaultdict(list)
-    
+
     for i, c_task in enumerate(c_unmatched):
         for j, g_task in enumerate(g_unmatched):
             reason, score = _get_match_reason_and_score(c_task, g_task)
             if reason:
                 c_candidates[i].append((j, reason, score))
                 g_candidates[j].append((i, reason, score))
-                
+
     matched_c = set()
     matched_g = set()
-    
+
     # Find components
     for i in range(len(c_unmatched)):
         if i in matched_c: continue
@@ -190,16 +280,16 @@ def extract_diff(claude_plan: dict, gemini_plan: dict) -> PlanDiff:
                 ))
                 matched_c.add(i)
                 matched_g.add(j)
-                
+
     ambiguous_c = set()
     ambiguous_g = set()
-    
+
     # Now for degree > 1
     for i in range(len(c_unmatched)):
         if i in matched_c: continue
         if len(c_candidates[i]) > 1:
             cand_tuples = tuple(
-                (g_unmatched[j].get("task_id", ""), r, s) 
+                (g_unmatched[j].get("task_id", ""), r, s)
                 for j, r, s in c_candidates[i]
             )
             cand_tuples = tuple(sorted(cand_tuples, key=lambda x: x[0]))
@@ -211,12 +301,12 @@ def extract_diff(claude_plan: dict, gemini_plan: dict) -> PlanDiff:
             ambiguous_c.add(i)
             for j, _, _ in c_candidates[i]:
                 ambiguous_g.add(j)
-                
+
     for j in range(len(g_unmatched)):
         if j in matched_g: continue
         if len(g_candidates[j]) > 1:
             cand_tuples = tuple(
-                (c_unmatched[i].get("task_id", ""), r, s) 
+                (c_unmatched[i].get("task_id", ""), r, s)
                 for i, r, s in g_candidates[j]
             )
             cand_tuples = tuple(sorted(cand_tuples, key=lambda x: x[0]))
@@ -243,7 +333,7 @@ def extract_diff(claude_plan: dict, gemini_plan: dict) -> PlanDiff:
             claude_task=c_task,
             candidate_near_miss=near_miss
         ))
-        
+
     for j in range(len(g_unmatched)):
         if j in matched_g or j in ambiguous_g: continue
         g_task = g_unmatched[j]
@@ -257,5 +347,5 @@ def extract_diff(claude_plan: dict, gemini_plan: dict) -> PlanDiff:
             gemini_task=g_task,
             candidate_near_miss=near_miss
         ))
-        
+
     return PlanDiff(items=tuple(items))
