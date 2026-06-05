@@ -246,11 +246,6 @@ def main(args=None):
             shutil.copy2(gen_critique_path, parsed.output_critique)
     amend_result = auto_amend_gate(merged_plan, parsed.output_critique, config, state_dir)
     final_plan = amend_result.amended_plan
-    # Deterministic leaf-plan backstop: dedupe duplicate oracles + enforce
-    # module-first deps so the daemon's auto-planned child plans are executable
-    # with ZERO operator vetting (the persisted plan is what gets staged).
-    from harness.planner.plan_normalizer import normalize_plan
-    final_plan = normalize_plan(final_plan)
     persist_plan(final_plan, parsed.output_plan, brief_obj=brief_obj)
     from harness.planner.plan_validator import validate_plan
     violations = validate_plan(final_plan)
