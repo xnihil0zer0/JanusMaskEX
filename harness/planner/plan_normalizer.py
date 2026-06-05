@@ -176,6 +176,68 @@ def _enforce_module_first(tasks: List[Dict[str, Any]]) -> None:
             if not removed:
                 break
 
+def _sanitize_impl_verification_commands(plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Rewrite impl verification_commands that reference a sibling oracle's tests.
+
+    ``ORACLE_FILES`` is the union of ``files_touched`` across every
+    ``test_authoring`` task.  Each non-``test_authoring`` task whose
+    ``verification_command`` is a non-empty string naming any oracle file is
+    rewritten to a smoke import (``python -c "import <m1>, <m2>"``) of that
+    task's own importable modules -- its ``files_touched`` entries ending in
+    ``.py``, not under ``tests/`` and not themselves oracle files, with
+    slashes turned into dots and the trailing ``.py`` dropped, in stable
+    ``files_touched`` order.  When the task has no importable target the oracle
+    tokens are stripped from the command while the rest is preserved; if
+    nothing meaningful would remain the command is left unchanged (never a
+    bare ``pytest``).
+
+    The pass is pure (operates on a deep copy, no I/O), idempotent, and a
+    strict no-op when no impl command references an oracle file.
+    """
+    import os
+    if not isinstance(plan, dict):
+        return plan
+    result = copy.deepcopy(plan)
+    tasks = result.get('tasks')
+    if not isinstance(tasks, list):
+        return result
+    oracle_files: Set[str] = set()
+    for t in tasks:
+        if isinstance(t, dict) and _is_test_authoring(t):
+            for f in _files_touched(t):
+                if isinstance(f, str) and f:
+                    oracle_files.add(f)
+    if not oracle_files:
+        return result
+    boilerplate = {'python', 'python3', 'pytest'}
+    for t in tasks:
+        if not isinstance(t, dict) or _is_test_authoring(t):
+            continue
+        vcmd = t.get('verification_command')
+        if not isinstance(vcmd, str) or not vcmd:
+            continue
+        if not any((of in vcmd for of in oracle_files)):
+            continue
+        modules: List[str] = []
+        for f in _files_touched(t):
+            if not isinstance(f, str) or not f.endswith('.py'):
+                continue
+            if f.startswith('tests/') or '/tests/' in f or '\\tests\\' in f:
+                continue
+            if f in oracle_files:
+                continue
+            mod = f[:-len('.py')].replace(os.sep, '.').replace('/', '.')
+            if mod and mod not in modules:
+                modules.append(mod)
+        if modules:
+            t['verification_command'] = 'python -c "import ' + ', '.join(modules) + '"'
+            continue
+        tokens = vcmd.split()
+        kept = [tok for tok in tokens if tok not in oracle_files]
+        meaningful = [tok for tok in kept if tok not in boilerplate and (not tok.startswith('-'))]
+        if meaningful:
+            t['verification_command'] = ' '.join(kept)
+    return result
 def normalize_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
     """Auto-correct a leaf plan: dedupe oracles + enforce module-first order.
 
@@ -193,4 +255,5 @@ def normalize_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
     tasks = _dedupe_oracles(tasks)
     normalized['tasks'] = tasks
     _enforce_module_first(tasks)
+    normalized = _sanitize_impl_verification_commands(normalized)
     return normalized
