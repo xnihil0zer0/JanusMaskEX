@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Dict
 from typing import List
@@ -8,6 +9,19 @@ from typing import Union
 from pathlib import Path
 from harness.planner.taxonomies import META_TASK_TYPES
 PRIORITY_CANONICAL = {'critical', 'high', 'medium', 'low'}
+
+
+def _valid_mutation_module(v: Any) -> bool:
+    """A2: a ``mutation_target`` must be a bare dotted module name (the
+    module-under-test), e.g. ``harness.symbol_ledger``. Mirrors the
+    ``_valid_mut_module`` accepted by the auto-commit mutation gate
+    (orchestrator.py): reject path-like values, parent-traversal, explicit
+    ``.py`` extensions, and anything that is not dotted identifiers."""
+    if not isinstance(v, str) or not v:
+        return False
+    if '/' in v or '\\' in v or '..' in v or v.endswith('.py'):
+        return False
+    return re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*', v) is not None
 
 @dataclass(frozen=True, order=True)
 class PlanViolation:
@@ -93,6 +107,19 @@ def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]
             violations.append(PlanViolation('missing_meta_task_type', f'{path_prefix}.meta_task_type', 'meta_task_type must be a non-empty string from the canonical taxonomy'))
         elif meta_task_type not in META_TASK_TYPES:
             violations.append(PlanViolation('unknown_meta_task_type', f'{path_prefix}.meta_task_type', f'Unknown meta_task_type: {meta_task_type}'))
+        # A2: a test_authoring task is forced through the auto-commit non-vacuity
+        # gate, which fail-closed-rejects it unless it declares a mutation_target
+        # (bare dotted module-under-test) or a non-empty mutations[]. Catch the
+        # omission here at planning time instead of late at the mutation gate.
+        if meta_task_type == 'test_authoring':
+            mut_target = task.get('mutation_target')
+            mutations = task.get('mutations')
+            has_mutations = isinstance(mutations, list) and len(mutations) > 0
+            if mut_target is not None:
+                if not _valid_mutation_module(mut_target):
+                    violations.append(PlanViolation('invalid_mutation_target', f'{path_prefix}.mutation_target', f'mutation_target must be a bare dotted module name (the module-under-test), got {mut_target!r}'))
+            elif not has_mutations:
+                violations.append(PlanViolation('missing_mutation_target', f'{path_prefix}.mutation_target', "test_authoring task must declare a 'mutation_target' (bare dotted module-under-test) or a non-empty 'mutations[]' so the non-vacuity gate can fail-detect"))
         priority = task.get('priority')
         if priority is not None:
             if not isinstance(priority, str):
