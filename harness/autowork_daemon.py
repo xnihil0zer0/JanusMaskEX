@@ -1876,6 +1876,98 @@ def _autowork_watch_mtime(repo_root: pathlib.Path, state_dir: pathlib.Path) -> f
 def _push_enabled(state_dir: pathlib.Path) -> bool:
     return (pathlib.Path(state_dir) / 'control' / 'autowork' / 'push.enabled').exists()
 
+def _acquire_commit_lock_or_reclaim(state_dir: pathlib.Path, deadline_sec: float=10.0):
+    """Bounded, stale-aware acquisition of the AW3 ``git_commit.lock``.
+
+    THE #1 hands-off killer this fixes: an unconditional blocking
+    ``flock(LOCK_EX)`` on the daemon push/commit path means a stale 0-byte
+    ``state/control/autowork/git_commit.lock`` left by a DEAD prior session
+    wedges the daemon forever (it blocks waiting on a lock whose owner will
+    never release it). This helper never blocks indefinitely.
+
+    Non-blocking ``flock(LOCK_NB|LOCK_EX)`` retry loop up to ``deadline_sec``.
+    On acquire the holder PID is stamped into the lock file and
+    ``(fd, 'acquired')`` is returned -- the CALLER releases via
+    ``fcntl.flock(fd, fcntl.LOCK_UN); fd.close()``. If the deadline passes with
+    the lock still held: the recorded owner PID is probed with
+    ``os.kill(pid, 0)`` -- a NOT-alive (or absent/0-byte) owner means the lock
+    is STALE, so it is reclaimed -> ``(fd, 'reclaimed')``; a LIVE owner yields
+    ``(None, 'busy')`` WITHOUT blocking so the caller can skip the tick.
+
+    ``fcntl`` is imported in-body (mirrors the existing lock sites); no new
+    module-level import. Fail-safe: any unexpected error degrades to a bounded
+    ``(None, 'busy')`` rather than blocking.
+    """
+    import fcntl
+    lock_path = pathlib.Path(state_dir) / 'control' / 'autowork' / 'git_commit.lock'
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _try_acquire():
+        # O_RDWR|O_CREAT (NOT append) so the holder-PID stamp can seek/truncate.
+        try:
+            fd_int = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o644)
+        except OSError:
+            return None
+        fd = os.fdopen(fd_int, 'r+')
+        try:
+            fcntl.flock(fd, fcntl.LOCK_NB | fcntl.LOCK_EX)
+        except (OSError, BlockingIOError):
+            fd.close()
+            return None
+        return fd
+
+    def _stamp(fd):
+        try:
+            fd.seek(0)
+            fd.truncate()
+            fd.write(str(os.getpid()))
+            fd.flush()
+        except OSError:
+            pass
+
+    deadline = time.monotonic() + max(0.0, float(deadline_sec))
+    while True:
+        fd = _try_acquire()
+        if fd is not None:
+            _stamp(fd)
+            return (fd, 'acquired')
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.05)
+
+    # Deadline elapsed, lock still held -- decide stale vs live by owner PID.
+    recorded_pid = None
+    try:
+        for tok in lock_path.read_text(encoding='utf-8', errors='replace').split():
+            if tok.lstrip('-').isdigit():
+                recorded_pid = int(tok)
+                break
+    except OSError:
+        recorded_pid = None
+
+    holder_alive = False
+    if recorded_pid is not None and recorded_pid > 0:
+        try:
+            os.kill(recorded_pid, 0)
+            holder_alive = True
+        except ProcessLookupError:
+            holder_alive = False
+        except OSError:
+            # PermissionError or other: process exists but not ours -> treat live.
+            holder_alive = True
+    # recorded_pid None/<=0 (e.g. a 0-byte stale lock) -> holder_alive stays False.
+
+    if holder_alive:
+        return (None, 'busy')
+
+    # Stale owner: its advisory flock died with the process, so LOCK_NB succeeds.
+    fd = _try_acquire()
+    if fd is not None:
+        _stamp(fd)
+        return (fd, 'reclaimed')
+    # Lost a race re-acquiring; never block.
+    return (None, 'busy')
+
 def _maybe_push_and_rebase_pin(repo_root: pathlib.Path, state_dir: pathlib.Path) -> dict:
     """Opt-in post-commit durability (G-PUSH/G-DRIFT). Default-OFF, never raises.
 
@@ -1897,12 +1989,19 @@ def _maybe_push_and_rebase_pin(repo_root: pathlib.Path, state_dir: pathlib.Path)
         return {'pushed': False, 'reason': 'disabled'}
     repo_root = pathlib.Path(repo_root)
     out: dict = {'pushed': False, 'rebased': False}
-    lock_path = pathlib.Path(state_dir) / 'control' / 'autowork' / 'git_commit.lock'
     try:
         import fcntl
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(lock_path, 'a') as lock_fd:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        # AW3 lock acquisition is now BOUNDED + stale-aware: a dead prior
+        # session's lock is reclaimed; a LIVE holder yields 'busy' so we skip
+        # this push tick instead of blocking the daemon forever.
+        lock_fd, _lock_status = _acquire_commit_lock_or_reclaim(state_dir)
+        if lock_fd is None:
+            _emit_telemetry(state_dir, '', 'push_lock_busy', 'git_commit.lock held by a live owner; skipping push tick')
+            out['reason'] = 'lock_busy'
+            return out
+        try:
+            if _lock_status == 'reclaimed':
+                _emit_telemetry(state_dir, '', 'push_lock_reclaimed', 'reclaimed a stale git_commit.lock from a dead owner')
             try:
                 ahead = subprocess.run(['git', 'rev-list', '--count', 'origin/main..HEAD'], cwd=str(repo_root), capture_output=True, text=True, timeout=30)
                 try:
@@ -1928,6 +2027,11 @@ def _maybe_push_and_rebase_pin(repo_root: pathlib.Path, state_dir: pathlib.Path)
                         _emit_telemetry(state_dir, '', 'drift_pin_rebased', '')
             finally:
                 fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        finally:
+            try:
+                lock_fd.close()
+            except Exception:
+                pass
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
         _emit_telemetry(state_dir, '', 'push_error', repr(exc))
     return out
