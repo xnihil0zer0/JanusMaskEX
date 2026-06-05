@@ -1,0 +1,224 @@
+{
+  "tasks": [
+    {
+      "task_id": "symbol-ledger-module",
+      "title": "Create NEW lazy-derived module harness/symbol_ledger.py (record_symbols + resolve_interfaces)",
+      "meta_task_type": "harness_plumbing",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/symbol_ledger.py"
+      ],
+      "acceptance_criteria": [
+        "A brand-new file harness/symbol_ledger.py exists exposing exactly resolve_interfaces(interfaces_spec: str, state_dir: Path) -> str and record_symbols(state_dir: Path) -> dict[str, str].",
+        "record_symbols reads state/impl_progress.jsonl at call time, filters rows where phase==accepted and event==auto_commit, opens each referenced committed file, and extracts top-level signatures by reusing harness/ast_enforcer.py (no new parser).",
+        "record_symbols returns a fresh dict[str, str] mapping top-level symbol name -> committed signature on every call (lazy, never persisted/cached to disk).",
+        "resolve_interfaces returns its interfaces_spec input UNCHANGED on any miss (symbol not derivable, or jsonl missing/empty); it performs NO config-flag gating.",
+        "The change lands entirely outside the _NEVER_AUTO_APPROVE deny-list, adds no eager record_symbols call to the orchestrator, and modifies no existing class methods.",
+        "The oracle from symbol-ledger-oracle passes: python -m pytest tests/harness/test_symbol_ledger.py -q."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -c \"import harness.symbol_ledger as m; assert callable(m.resolve_interfaces) and callable(m.record_symbols)\"",
+      "spec": {
+        "objective": "Implement the new lazy-derived symbol/interface ledger as a standalone read-only helper module that records the top-level signatures actually committed by accepted tasks and resolves a downstream task's spec.interfaces prose against what upstream siblings really produced.",
+        "functional_requirements": [
+          "Expose record_symbols(state_dir: Path) -> dict[str, str] that opens state_dir/state/impl_progress.jsonl (or the equivalent path layout used by the ledger) and iterates its append-only rows.",
+          "Filter to accepted rows only: phase == \"accepted\" and event == \"auto_commit\"; ignore all other rows.",
+          "For each accepted row, resolve each path in its `files` list relative to state_dir and read the committed file content if it exists.",
+          "Extract top-level function signatures by REUSING harness/ast_enforcer.py (_extract_func_name_from_signature, the FunctionDef return-type extraction, and visit_FunctionDef/visit_AsyncFunctionDef) \u2014 do not invent a new AST or signature parser.",
+          "Return a mapping of top-level symbol name -> its committed signature string, freshly derived on each call (lazy; nothing persisted or cached between calls).",
+          "Expose resolve_interfaces(interfaces_spec: str, state_dir: Path) -> str that derives the mapping via record_symbols and rewrites the interfaces_spec prose to the committed signature for any named symbol it can resolve.",
+          "resolve_interfaces returns the interfaces_spec input UNCHANGED on any miss: symbol not present in the derived mapping, empty mapping, or missing/empty impl_progress.jsonl; this module performs no flag gating (the staging caller owns that).",
+          "Handle malformed/blank jsonl lines, absent files, and an absent ledger file gracefully \u2014 never raise; degrade to an empty mapping / unchanged input."
+        ],
+        "interfaces": "exposes `resolve_interfaces(interfaces_spec: str, state_dir: Path) -> str`; exposes `record_symbols(state_dir: Path) -> dict[str, str]`",
+        "edge_cases": [
+          "impl_progress.jsonl missing -> record_symbols returns {}; resolve_interfaces returns input unchanged.",
+          "No row matches phase==accepted & event==auto_commit -> empty mapping.",
+          "A `files` entry points at a path that no longer exists -> skip that file, continue.",
+          "A committed file that fails to parse -> skip without raising (extraction yields nothing for it).",
+          "interfaces_spec referencing a symbol absent from the mapping -> returned byte-for-byte unchanged.",
+          "Duplicate symbol names across accepted rows -> last accepted row wins (deterministic ordering by ledger append order)."
+        ],
+        "non_goals": [
+          "Do NOT wire resolve_interfaces into the staging/materialization seam (staging_resolve_interfaces owns that).",
+          "Do NOT add an eager record_symbols call inside orchestrator._auto_commit_accepted or anywhere in the orchestrator.",
+          "Do NOT touch harness/brief_status.py, harness/planner/cli.py, or any _NEVER_AUTO_APPROVE deny-list file.",
+          "Do NOT add new config flags \u2014 the hierarchical_planning.symbol_ledger key already exists and is read by the downstream caller, not here.",
+          "Do NOT invent a new AST/signature parser."
+        ],
+        "implementation_notes": "New module = new file (oracle-first): create harness/symbol_ledger.py as a BRAND-NEW FILE; do not edit existing modules and do not modify existing class methods via partial edit. Import and REUSE the extraction primitives in harness/ast_enforcer.py rather than writing a parser. The module is a pure read-derived helper: every call re-reads state/impl_progress.jsonl and the referenced committed files (lazy derivation), persisting nothing. Land entirely OUTSIDE the _NEVER_AUTO_APPROVE deny-list (harness/agent_jail.py, harness/dbus_proxy.py, harness/paths.py, harness/git_integration.py, harness/orchestrator.py, harness/interceptors.py, harness/selfheal.py, harness/autowork_daemon.py, services/). Keep verification_command to this child's own oracle (tests/harness/test_symbol_ledger.py) plus hermetic regression files only \u2014 never glob tests/planner/, never touch network or pip. [OPERATOR] Create harness/symbol_ledger.py as a single NEW top-level module file (no edits to any existing file; stays OFF the _NEVER_AUTO_APPROVE deny-list). Expose exactly resolve_interfaces(interfaces_spec: str, state_dir: Path) -> str and record_symbols(state_dir: Path) -> dict[str, str], lazy-derived from accepted auto_commit rows in state/impl_progress.jsonl, reusing harness/ast_enforcer.py for signature extraction. resolve_interfaces returns its input unchanged on any miss."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_record_symbols_returns_dict_str_str"
+          },
+          {
+            "name": "test_record_symbols_filters_accepted_auto_commit_only"
+          },
+          {
+            "name": "test_record_symbols_reads_committed_files_from_files_list"
+          },
+          {
+            "name": "test_record_symbols_reuses_ast_enforcer_extraction"
+          },
+          {
+            "name": "test_record_symbols_lazy_recomputes_each_call"
+          },
+          {
+            "name": "test_resolve_interfaces_rewrites_named_symbol_on_hit"
+          },
+          {
+            "name": "test_resolve_interfaces_returns_unchanged_on_miss"
+          },
+          {
+            "name": "test_record_symbols_handles_missing_ledger_gracefully"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_accepted_row_plus_committed_file_yields_signature_mapping"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_resolve_interfaces_miss_is_identity_on_arbitrary_prose"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_no_eager_record_symbols_call_in_orchestrator"
+          },
+          {
+            "name": "test_module_stays_outside_deny_list"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "Reuse the hermetic fixtures from symbol-ledger-oracle (state/impl_progress.jsonl with accepted auto_commit rows + committed sample .py files under a tmp state_dir), plus malformed-line and missing-file variants. No network/pip; no tests/planner glob."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "Implementation is a small pure read-derived helper; the bulk of correctness pressure comes from the oracle, so test budget remains weighted above implementation."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "symbol-ledger-oracle",
+      "title": "Hermetic oracle for harness/symbol_ledger.py (signatures + lazy-derivation contract)",
+      "meta_task_type": "test_authoring",
+      "priority": "high",
+      "dependencies": [
+        "symbol-ledger-module"
+      ],
+      "mutation_target": "harness.symbol_ledger",
+      "files_touched": [
+        "tests/harness/test_symbol_ledger.py"
+      ],
+      "acceptance_criteria": [
+        "A NEW hermetic oracle test file tests/harness/test_symbol_ledger.py exists and imports harness.symbol_ledger.",
+        "The oracle pins the exact public signatures: resolve_interfaces(interfaces_spec: str, state_dir: Path) -> str and record_symbols(state_dir: Path) -> dict[str, str].",
+        "A fixture impl_progress.jsonl with an accepted auto_commit row plus a committed fixture file proves record_symbols lazy-derives top-level symbol -> committed signature at call time.",
+        "The oracle asserts resolve_interfaces returns the resolved committed signature on a hit and returns its input UNCHANGED on a miss.",
+        "The oracle is fully hermetic: it builds its inputs from local fixture files only, never globs tests/planner/, and touches no network or pip.",
+        "The authored test FAILS against the declared mutant of harness.symbol_ledger (non-vacuity)."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/harness/test_symbol_ledger.py -q",
+      "spec": {
+        "objective": "Author the hermetic, oracle-first test that locks the public contract of the new harness/symbol_ledger.py module: both exposed signatures, the lazy (read-at-call-time) derivation of committed symbols from state/impl_progress.jsonl accepted rows, and the unchanged-input-on-miss behavior of resolve_interfaces.",
+        "functional_requirements": [
+          "Pin resolve_interfaces signature exactly as resolve_interfaces(interfaces_spec: str, state_dir: Path) -> str (assert via inspect.signature against the imported module).",
+          "Pin record_symbols signature exactly as record_symbols(state_dir: Path) -> dict[str, str] (assert via inspect.signature against the imported module).",
+          "Provide a hermetic fixture: a state/impl_progress.jsonl containing at least one accepted row {\"phase\":\"accepted\",\"event\":\"auto_commit\",...,\"files\":[...]} and a committed sample .py file referenced by that row, written under a tmp_path-style state_dir.",
+          "Assert record_symbols(state_dir) lazy-derives a mapping of top-level symbol name -> committed signature from those accepted auto_commit rows + committed files, recomputed on each call (no persisted ledger required to exist).",
+          "Assert resolve_interfaces returns the resolved committed signature when the interfaces_spec prose names a symbol that exists in the derived mapping (hit).",
+          "Assert resolve_interfaces returns its interfaces_spec input UNCHANGED when the named symbol is absent from the derived mapping or when impl_progress.jsonl is missing/empty (miss)."
+        ],
+        "interfaces": "Tests import the module under test as `harness.symbol_ledger` and exercise its public functions resolve_interfaces(interfaces_spec: str, state_dir: Path) -> str and record_symbols(state_dir: Path) -> dict[str, str]. No other module surface is asserted.",
+        "edge_cases": [
+          "impl_progress.jsonl absent entirely -> record_symbols returns {} and resolve_interfaces returns input unchanged.",
+          "Rows present but none with phase==accepted and event==auto_commit -> empty mapping, input returned unchanged.",
+          "An accepted row referencing a committed file that no longer exists on disk -> that row is skipped without raising.",
+          "interfaces_spec prose that names no derivable symbol -> returned verbatim, byte-for-byte unchanged."
+        ],
+        "non_goals": [
+          "Do NOT test wiring into the staging/materialization seam (that is staging_resolve_interfaces).",
+          "Do NOT test the config flag gating (the caller in the staging child gates the flag; this module is a pure read-derived helper).",
+          "Do NOT exercise harness/orchestrator.py or any _NEVER_AUTO_APPROVE deny-list module.",
+          "Do NOT glob tests/planner/ or reach network/pip."
+        ],
+        "implementation_notes": "Oracle-first: this is the authoritative spec for the brand-new module. Build all inputs from local fixture files under a temporary state_dir so the test is fully hermetic. Reference signature extraction expectations against the same shapes harness/ast_enforcer.py produces (function name via _extract_func_name_from_signature, return-type from FunctionDef/AsyncFunctionDef visits) so the implementation is forced to reuse that extractor rather than invent a parser. Keep verification_command to this oracle plus hermetic regression files only \u2014 never glob tests/planner/, never touch network or pip. Stay entirely outside the deny-list (harness/agent_jail.py, harness/dbus_proxy.py, harness/paths.py, harness/git_integration.py, harness/orchestrator.py, harness/interceptors.py, harness/selfheal.py, harness/autowork_daemon.py, services/). [OPERATOR] Single NEW test file tests/harness/test_symbol_ledger.py. Build ALL fixtures (impl_progress.jsonl rows + a committed sample .py) inside tmp_path within each test \u2014 do NOT commit separate fixture files. The test MUST import and exercise harness.symbol_ledger (real calls) so the non-vacuity mutation gate (mutation_target=harness.symbol_ledger) can fail-detect a stubbed module. Pin both signatures + the lazy-derivation contract (fixture -> resolved signature; miss -> input returned unchanged)."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_resolve_interfaces_signature_pinned"
+          },
+          {
+            "name": "test_record_symbols_signature_pinned"
+          },
+          {
+            "name": "test_record_symbols_lazy_derives_from_accepted_auto_commit_rows"
+          },
+          {
+            "name": "test_record_symbols_recomputed_at_call_time"
+          },
+          {
+            "name": "test_resolve_interfaces_hit_returns_committed_signature"
+          },
+          {
+            "name": "test_resolve_interfaces_miss_returns_input_unchanged"
+          },
+          {
+            "name": "test_record_symbols_ignores_non_accepted_rows"
+          },
+          {
+            "name": "test_record_symbols_skips_missing_committed_file"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_fixture_jsonl_plus_committed_file_to_resolved_signature"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_unknown_symbol_prose_always_returned_verbatim"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_missing_impl_progress_jsonl_returns_empty_and_unchanged"
+          },
+          {
+            "name": "test_oracle_is_hermetic_no_planner_glob_no_network"
+          }
+        ],
+        "minimum_test_count": 9,
+        "test_data_requirements": "A tmp_path state_dir containing state/impl_progress.jsonl with at least one accepted auto_commit row and a committed sample .py module whose top-level def has a known signature; plus a variant with no accepted rows and a variant with the jsonl absent. All data created in-test from fixtures \u2014 no external resources."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "test_authoring child: the deliverable IS the oracle test; budget weighted to authoring thorough hermetic cases that pin both signatures and the lazy-derivation/miss contract."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "brief_hooks_symbol_ledger_module.md",
+  "source_brief_sha256": "f8487fb455e7c3bcc2924ada5ed6d3bdbb48a3234202576cad6b33d367fd9862"
+}
