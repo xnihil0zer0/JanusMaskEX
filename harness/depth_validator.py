@@ -3,6 +3,67 @@ import logging
 from pathlib import Path
 logger = logging.getLogger(__name__)
 
+def check_brief_depth(slug: str, repo_root, max_depth: int=4) -> bool:
+    """
+    Check if an epic brief's lineage depth exceeds max_depth.
+
+    Reconstructs the brief lineage from epic ``plan_hooks_*.json`` records
+    in ``repo_root`` and walks upward from ``slug`` counting ancestor edges.
+
+    Edges are derived from records with ``plan_kind == 'epic'``: each entry
+    in ``child_slugs`` gets the record's ``epic_slug`` as parent, and a
+    record's own ``parent_epic_slug`` adds an upward edge
+    ``epic_slug -> parent_epic_slug``. Non-epic records contribute no edges.
+
+    Args:
+        slug: The brief/epic slug to walk from
+        repo_root: Directory containing plan_hooks_*.json records
+        max_depth: Maximum allowed lineage depth (default: 4)
+
+    Returns:
+        False if lineage depth > max_depth, on cycle, or on bad input;
+        True otherwise.
+    """
+    if not isinstance(slug, str) or not slug:
+        return False
+    try:
+        repo_root = Path(repo_root)
+    except Exception:
+        return False
+    parent_of = {}
+    try:
+        hook_paths = sorted(repo_root.glob('plan_hooks_*.json'))
+    except Exception:
+        return False
+    for path in hook_paths:
+        try:
+            with open(path, 'r') as f:
+                rec = json.load(f)
+        except Exception:
+            continue
+        if not isinstance(rec, dict) or rec.get('plan_kind') != 'epic':
+            continue
+        es = rec.get('epic_slug')
+        for cs in rec.get('child_slugs') or []:
+            if isinstance(cs, str) and cs and isinstance(es, str) and es:
+                parent_of[cs] = es
+        pe = rec.get('parent_epic_slug')
+        if isinstance(pe, str) and pe and isinstance(es, str) and es:
+            parent_of[es] = pe
+    depth = 0
+    cur = slug
+    visited = set()
+    while cur in parent_of:
+        if cur in visited:
+            logger.warning(f'Circular reference detected in brief lineage starting from {slug}')
+            return False
+        visited.add(cur)
+        cur = parent_of[cur]
+        depth += 1
+        if depth > max_depth:
+            logger.warning(f'Brief {slug} lineage depth {depth} exceeds max_depth {max_depth}')
+            return False
+    return True
 def check_true_depth(task_id: str, tasks_dir: Path, max_depth: int=3) -> bool:
     """
     Check if a task's true lineage depth exceeds max_depth.
@@ -63,6 +124,8 @@ def check_true_depth(task_id: str, tasks_dir: Path, max_depth: int=3) -> bool:
                 p_val = task_data['parent_task']
             elif 'parent_task_id' in task_data:
                 p_val = task_data['parent_task_id']
+            elif 'parent_epic' in task_data:
+                p_val = task_data['parent_epic']
 
             if p_val is None:
                 break
