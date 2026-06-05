@@ -788,7 +788,14 @@ class ControlHandlers:
         result = {'pid': pid, 'alive': alive, 'running_jobs': running_jobs, 'cap': cap, 'free_slots': free_slots, 'paused': paused, 'full_stop': full_stop}
         try:
             from harness.brief_status import compute_autowork_eligibility
-            result['eligibility'] = compute_autowork_eligibility(self.repo_root, self.state_dir)
+            _cfg = {}
+            try:
+                _cfg = yaml.safe_load((self.repo_root / 'harness' / 'config.yaml').read_text()) or {}
+                if not isinstance(_cfg, dict):
+                    _cfg = {}
+            except Exception:
+                _cfg = {}
+            result['eligibility'] = compute_autowork_eligibility(self.repo_root, self.state_dir, config=_cfg)
         except Exception as exc:
             result['eligibility'] = {'error': str(exc)}
         return (200, result)
