@@ -2281,7 +2281,24 @@ def _auto_promote_brief_eligible(state_dir, slug, brief_mtime, now=None, max_age
                 _selfheal_eligible = True
     except Exception:
         _selfheal_eligible = False
-    if not _selfheal_eligible:
+    # EPIC-CHILD FAST-PATH (flag-gated, fail-closed): a slug whose parent epic
+    # is allowlisted earns eligibility WITHOUT requiring a direct allowlist
+    # entry, mirroring the self-heal fast-path above. Read-derived over the
+    # current allowlist set via harness.brief_status._resolve_allowlisted_child_slugs
+    # (imported lazily -- no new module-level import). The whole check is wrapped
+    # so that a disabled flag, config None, repo_root None, an empty/comment-only
+    # allowlist, or ANY exception leaves _epicchild_eligible False -- the slug
+    # then falls through to the operator allowlist membership test (fail-closed).
+    _epicchild_eligible = False
+    try:
+        if (config or {}).get('hierarchical_planning', {}).get('enabled', False) and repo_root is not None:
+            from harness.brief_status import _resolve_allowlisted_child_slugs
+            allow = _auto_promote_allowlist(state_dir)
+            if allow and slug in _resolve_allowlisted_child_slugs(repo_root, allow):
+                _epicchild_eligible = True
+    except Exception:
+        _epicchild_eligible = False
+    if not _selfheal_eligible and not _epicchild_eligible:
         allow = _auto_promote_allowlist(state_dir)
         if slug not in (allow or set()):
             return False
