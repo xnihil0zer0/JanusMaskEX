@@ -34,6 +34,8 @@ class PlanningBrief:
     source_path: str
     sha256: str
     working_dir: str | None = None
+    epic: bool = False
+    complexity_score: int | None = None
 
     def to_agent_prompt(self) -> str:
         return f"""Title: {self.title}
