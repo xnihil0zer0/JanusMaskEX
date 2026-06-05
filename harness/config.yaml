@@ -29,8 +29,6 @@ agents:
     command: ${PROJECT_ROOT}/.agents/claude-code/node_modules/.bin/claude
   claude_fallback:
     args:
-    - -m
-    - claude-opus-4.6
     - -p
     - --dangerously-skip-permissions
     command: ${PROJECT_ROOT}/.agents/agy/agy
