@@ -1522,6 +1522,15 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
     entry; all other entries (including non-symbol region patches, which
     carry no name) receive ``None`` and are never return-type-checked.
 
+    DEDENT_NORMALIZE: each ``__JANUSMASK_PATCHES__`` entry's ``code`` block
+    is run through ``textwrap.dedent`` before ``validate_code``. A column-0
+    top-level def/class is left byte-identical (no common leading
+    whitespace), while an indented class-method body (the symbol code copied
+    verbatim with its class-level indentation) is normalized to column 0 so
+    it parses cleanly instead of failing with ``SyntaxError: unexpected
+    indent``. This mirrors the dedent at the apply site
+    (git_integration._apply_symbol_patch).
+
     G2_RELAX (REV22 §4-3, CR-1/CR-2/CR-3): external targets relax
     eval/exec/__import__ at commit-time too -- threaded into all three
     ``validate_code`` calls (manifest, partial-edit, single-file).
@@ -1532,6 +1541,7 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
     self/default stays fully strict. Credentials/os_system/bare_except/
     nondeterminism stay strict for all targets.
     """
+    import textwrap
     mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
     allow_nondet = task.get('constraints', {}).get('deterministic') is False
     if not allow_nondet:
@@ -1586,6 +1596,7 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
                 if not str(entry.get('file', '')).endswith('.py'):
                     continue
                 blk = entry.get('code', '')
+                blk = textwrap.dedent(blk)
                 entry_name = entry.get('name') if entry.get('kind') == 'symbol' else None
                 blk_sig = declared_signature if (sig_func is not None and entry_name == sig_func) else None
                 pv.extend(validate_code(blk, allow_nondeterminism=allow_nondet, declared_signature=blk_sig, relax_external_constructs=relax_external))

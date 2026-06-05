@@ -1061,6 +1061,15 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
     whose leaf name equals *qualname*'s leaf -- otherwise ``ValueError``
     (zero or >1 name-matching def/class nodes is rejected).
 
+    DEDENT_NORMALIZE: *new_block* is run through ``textwrap.dedent`` at the
+    very top of the function (before it is ``ast.parse``'d and before the
+    ``col_offset`` re-indent). ``textwrap.dedent`` strips only the COMMON
+    leading whitespace, so a column-0 top-level def/class is left
+    byte-identical, while an indented class-method body (copied verbatim
+    with its class-level indentation) is normalized to column 0 -- it then
+    parses cleanly and is re-indented exactly once to the located node's
+    ``col_offset`` (no double-indent), with sibling methods preserved.
+
     PHASE_R_ANCHORED_PATCH: a BOUNDED set of EXTRA top-level nodes may
     accompany the primary, but ONLY for a 1-part (top-level) qualname.
     Each extra must be one of ``ast.Import`` / ``ast.ImportFrom`` /
@@ -1076,6 +1085,8 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
     NO extras (the common case) the result is BYTE-IDENTICAL to today's
     single-def replacement. Raises ``KeyError`` when *qualname* is not found.
     """
+    import textwrap
+    new_block = textwrap.dedent(new_block)
     tree = ast.parse(source)
     parts = qualname.split('.')
     leaf_name = parts[-1]
