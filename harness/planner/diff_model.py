@@ -19,6 +19,10 @@ class FieldKind(str, Enum):
     files_touched = "files_touched"
     edge_cases = "edge_cases"
     non_goals = "non_goals"
+    scope_text = "scope_text"
+    deliverables = "deliverables"
+    interfaces = "interfaces"
+    inputs = "inputs"
 
 @dataclass(frozen=True)
 class DiffItem:
@@ -32,13 +36,13 @@ class DiffItem:
     diff_item_id: str = field(init=False)
 
     def __post_init__(self):
-        claude_task_id = self.claude_task.get("task_id", "") if self.claude_task else ""
-        gemini_task_id = self.gemini_task.get("task_id", "") if self.gemini_task else ""
-        
+        claude_task_id = (self.claude_task.get("task_id") or self.claude_task.get("slug", "")) if self.claude_task else ""
+        gemini_task_id = (self.gemini_task.get("task_id") or self.gemini_task.get("slug", "")) if self.gemini_task else ""
+
         # Canonicalize field divergences for hashing
         # Sorting by the FieldKind string value
         sorted_divergences = sorted(self.field_divergences, key=lambda x: x[0].value if hasattr(x[0], 'value') else str(x[0]))
-        
+
         # Serialize the tuple to a JSON string for hashing
         # Need to ensure we sort keys and use stable serialization
         payload = [
@@ -48,18 +52,18 @@ class DiffItem:
             sorted_divergences,
             self.candidates
         ]
-        
+
         def _serialize(obj):
             if isinstance(obj, Enum):
                 return obj.value
             return obj
-            
+
         payload_str = json.dumps(payload, sort_keys=True, separators=(',', ':'), default=_serialize)
-        
+
         # Calculate SHA1
         object.__setattr__(
-            self, 
-            'diff_item_id', 
+            self,
+            'diff_item_id',
             hashlib.sha1(payload_str.encode('utf-8')).hexdigest()
         )
 
