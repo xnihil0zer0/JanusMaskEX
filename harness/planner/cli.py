@@ -293,7 +293,7 @@ def main(args=None):
     amend_result = auto_amend_gate(merged_plan, parsed.output_critique, config, state_dir)
     final_plan = amend_result.amended_plan
     from harness.planner.plan_normalizer import normalize_plan
-    final_plan = normalize_plan(final_plan)
+    final_plan = normalize_plan(final_plan, repo_root=Path.cwd())
     persist_plan(final_plan, parsed.output_plan, brief_obj=brief_obj)
     from harness.planner.plan_validator import validate_plan
     violations = validate_plan(final_plan)
