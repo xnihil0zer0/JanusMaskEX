@@ -247,6 +247,20 @@ def validate_child_brief_plan(plan: Union[Dict[str, Any], str, Path]) -> List[Pl
             if dep not in valid_slugs:
                 violations.append(PlanViolation('unknown_dependency', f'{prefix}.dependencies', f'Unknown dependency: {dep!r}'))
     return violations
+def validate_draft(plan: Union[Dict[str, Any], str, Path], mode: str='leaf') -> List[PlanViolation]:
+    """Unified entrypoint for draft validation that routes by ``mode``.
+
+    Purely additive dispatcher sitting alongside validate_plan and
+    validate_child_brief_plan. When ``mode == 'epic'`` the plan is validated
+    against the child-brief schema via validate_child_brief_plan; for the
+    'leaf' mode, the default, ``None``, or any other unexpected value, it falls
+    back to leaf validation via validate_plan. Plan format issues (parse
+    errors, non-dict input, etc.) are handled gracefully by the delegate
+    validators, which return a list of PlanViolation rather than raising.
+    """
+    if mode == 'epic':
+        return validate_child_brief_plan(plan)
+    return validate_plan(plan)
 def validate_plan_wrapper(plan):
     """Validate schema v2.1 wrapper fields (source_brief_path + source_brief_sha256).
 
