@@ -41,7 +41,7 @@ def _resolve_outbox_artifact(agent_dir: Path, agent: str, filename: str, round_n
         return None
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
-def collect_agent_draft(agent: str, agent_dir: Path, state_dir: Path, elapsed: float, timeout: float, spawn_start_epoch: Optional[float]=None, min_response_seconds: float=10.0) -> Tuple[Optional[Dict[str, Any]], str]:
+def collect_agent_draft(agent: str, agent_dir: Path, state_dir: Path, elapsed: float, timeout: float, spawn_start_epoch: Optional[float]=None, min_response_seconds: float=10.0, mode: str='leaf') -> Tuple[Optional[Dict[str, Any]], str]:
     """Collect an agent's plan draft from canonical paths, falling back to
     per-spawn outbox when the post_tool promoter didn't fire.
 
@@ -49,6 +49,10 @@ def collect_agent_draft(agent: str, agent_dir: Path, state_dir: Path, elapsed: f
     outbox glob (mtime-sorted, newest wins). Returns ``(draft, "ok")`` on
     success, ``(None, "timeout"|"crashed"|"invalid")`` on the various
     failure modes (preserves the prior closure semantics).
+
+    ``mode`` selects the validation schema: ``"leaf"`` (default) validates
+    with the leaf plan validator; ``"epic"`` validates the draft against the
+    child-brief schema via ``validate_child_brief_plan``.
     """
     draft_file = agent_dir / 'planning' / 'sessions' / f'{agent}_draft.json'
     if not draft_file.exists():
@@ -76,7 +80,13 @@ def collect_agent_draft(agent: str, agent_dir: Path, state_dir: Path, elapsed: f
             draft = json.load(f)
     except Exception:
         return (None, 'invalid')
-    violations = _validate_plan(draft)
+    if mode == 'epic':
+        # Local import avoids a module-level circular dependency between the
+        # planner validator and the blind-draft collector.
+        from harness.planner.plan_validator import validate_child_brief_plan
+        violations = validate_child_brief_plan(draft)
+    else:
+        violations = _validate_plan(draft)
     if violations:
         logger.warning(f'{agent} draft invalid: %s', violations)
         return (None, 'invalid')
@@ -114,7 +124,7 @@ class _PerAgentConfig(dict):
         return super().__getitem__(key)
 
 def run_blind_drafts(brief: PlanningBrief, config: Dict[str, Any], state_dir: Path) -> BlindDraftResult:
-    """Spawns both agents in planning mode and returns their drafts."""
+    '''Spawns both agents in planning mode and returns their drafts.'''
     planning_dir = state_dir / 'planning'
     planning_dir.mkdir(parents=True, exist_ok=True)
     brief_path = planning_dir / 'brief.json'
@@ -150,6 +160,7 @@ def run_blind_drafts(brief: PlanningBrief, config: Dict[str, Any], state_dir: Pa
             del os.environ['JANUSMASK_MODE']
         else:
             os.environ['JANUSMASK_MODE'] = old_env
-    c_draft, c_status = collect_agent_draft('claude', claude_dir, state_dir, elapsed, timeout, spawn_start_epoch=spawn_wall_start)
-    g_draft, g_status = collect_agent_draft('gemini', gemini_dir, state_dir, elapsed, timeout, spawn_start_epoch=spawn_wall_start)
+    mode = 'epic' if getattr(brief, 'epic', False) else 'leaf'
+    c_draft, c_status = collect_agent_draft('claude', claude_dir, state_dir, elapsed, timeout, spawn_start_epoch=spawn_wall_start, mode=mode)
+    g_draft, g_status = collect_agent_draft('gemini', gemini_dir, state_dir, elapsed, timeout, spawn_start_epoch=spawn_wall_start, mode=mode)
     return BlindDraftResult(claude_draft=c_draft, claude_status=c_status, gemini_draft=g_draft, gemini_status=g_status)
