@@ -1,2 +1,0 @@
-          RESUME                   0
-          RETURN_CONST             0 (None)
