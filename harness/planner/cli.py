@@ -105,6 +105,51 @@ def persist_plan(plan, out_path, brief_obj=None):
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(plan, f, indent=2)
 
+def _should_run_epic(brief_obj, config) -> bool:
+    """Return True only for an epic brief when hierarchical planning is enabled.
+
+    Both conditions must hold: the brief carries a truthy ``epic`` attribute and
+    ``config['hierarchical_planning']['enabled']`` is truthy. Missing keys/attrs
+    default to falsy, so anything underspecified falls through to the leaf pipeline.
+    """
+    return bool(getattr(brief_obj, 'epic', False)) and bool(config.get('hierarchical_planning', {}).get('enabled', False))
+
+def _run_epic_pipeline(brief_obj, config, state_dir, output_plan) -> int:
+    """Decompose an epic brief into re-plannable child briefs plus an epic record.
+
+    Drafts the epic with both agents, diffs and reconciles in ``mode='epic'``,
+    writes a ``brief_hooks_<slug>.md`` for each merged child that carries a slug,
+    and persists an epic plan record to ``output_plan``. Returns 0 on success,
+    2 when both agents fail, 1 when reconciliation yields no children.
+    """
+    from harness.planner.blind_draft import run_blind_drafts
+    from harness.planner.diff_extractor import extract_diff
+    from harness.planner.reconciliation import run_reconciliation
+    from harness.planner.brief_generator import serialize_child_brief_to_markdown
+    drafts = run_blind_drafts(brief_obj, config, state_dir)
+    if not drafts.claude_draft and (not drafts.gemini_draft):
+        print('Both agents failed to produce a valid epic draft.', file=sys.stderr)
+        return 2
+    c = drafts.claude_draft or {'plan_kind': 'epic', 'child_briefs': []}
+    g = drafts.gemini_draft or {'plan_kind': 'epic', 'child_briefs': []}
+    diff_obj = extract_diff(c, g)
+    recon = run_reconciliation(diff_obj, c, g, config, state_dir, mode='epic')
+    merged = list(recon.merged_tasks)
+    if not merged:
+        print('Epic reconciliation produced no child briefs.', file=sys.stderr)
+        return 1
+    repo_root = state_dir.parent
+    child_slugs = []
+    for child in merged:
+        slug = child.get('slug')
+        if not slug:
+            continue
+        (repo_root / ('brief_hooks_' + slug + '.md')).write_text(serialize_child_brief_to_markdown(child), encoding='utf-8')
+        child_slugs.append(slug)
+    epic_record = {'plan_kind': 'epic', 'epic': True, 'child_briefs': merged, 'child_slugs': child_slugs}
+    persist_plan(epic_record, output_plan, brief_obj=brief_obj)
+    return 0
+
 def main(args=None):
     parser = argparse.ArgumentParser(description='Planning CLI driver')
     parser.add_argument('brief', type=Path, help='Path to the planning brief')
@@ -152,6 +197,8 @@ def main(args=None):
     except Exception as e:
         print(f'Brief load failed: {e}', file=sys.stderr)
         sys.exit(3)
+    if _should_run_epic(brief_obj, config):
+        sys.exit(_run_epic_pipeline(brief_obj, config, state_dir, parsed.output_plan))
     try:
         drafts = blind_drafts(brief_obj, config, state_dir)
     except Exception as e:
@@ -197,5 +244,6 @@ def main(args=None):
         print(f'Merged plan failed validation: {violations}', file=sys.stderr)
         sys.exit(1)
     sys.exit(0)
+
 if __name__ == '__main__':
     main()
