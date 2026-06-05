@@ -87,6 +87,11 @@ fuzzing:
   program_level_inputs: 1000
   seed: 42
   timeout_per_input_ms: 5000
+hierarchical_planning:
+  enabled: false
+  failure_propagation: false
+  max_planner_depth: 4
+  symbol_ledger: false
 hooks:
   enforce_verbs: []
   mode: shadow
