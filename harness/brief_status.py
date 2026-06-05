@@ -64,7 +64,7 @@ def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
             state = 'in_flight'
         elif not remaining:
             state = 'complete'
-        elif processed_unaccepted and all(tid in processed_unaccepted for tid in remaining):
+        elif processed_unaccepted and all((tid in processed_unaccepted for tid in remaining)):
             state = 'zombie'
         else:
             state = 'queued'
@@ -107,6 +107,7 @@ def _resolve_allowlisted_child_slugs(repo_root, allow) -> set:
                 if c in epic_children:
                     frontier.append(c)
     return admitted
+
 def compute_autowork_eligibility(repo_root: Path, state_dir: Path, now=None, max_age_sec: int=604800, config=None) -> dict:
     import time
     if now is None:
@@ -147,9 +148,15 @@ def compute_autowork_eligibility(repo_root: Path, state_dir: Path, now=None, max
                 dispatchable.append(slug)
     return {'eligible': eligible, 'blocked': blocked, 'eligible_count': len(eligible), 'blocked_count': len(blocked), 'allowlist_present': allow is not None, 'allowlist_slugs': sorted(allow) if allow else [], 'max_age_sec': int(max_age_sec), 'dispatchable': dispatchable, 'parked': parked}
 
-def compute_epic_status(repo_root: Path, state_dir: Path) -> list[dict]:
+def compute_epic_status(repo_root: Path, state_dir: Path, config=None) -> list[dict]:
     records = compute_brief_status(repo_root, state_dir)
     index = {r['slug']: r['state'] for r in records}
+    failure_propagation = False
+    if isinstance(config, dict):
+        hp = config.get('hierarchical_planning')
+        if isinstance(hp, dict):
+            failure_propagation = bool(hp.get('failure_propagation'))
+    epic_children = _build_epic_children_map(repo_root) if failure_propagation else {}
     result: list[dict] = []
     for p in sorted(repo_root.glob('plan_hooks_*.json')):
         try:
@@ -172,6 +179,9 @@ def compute_epic_status(repo_root: Path, state_dir: Path) -> list[dict]:
             state = 'complete'
         else:
             state = 'in_flight'
+        if failure_propagation and state != 'blocked':
+            if epic_has_failed_descendant(epic_slug, epic_children, index):
+                state = 'blocked'
         result.append({'epic_slug': epic_slug, 'state': state, 'children': children})
     return result
 
@@ -182,6 +192,7 @@ def record_epic_complete(epic_slug: str, state_dir: Path) -> None:
         write_jsonl_row(Path(state_dir) / 'impl_progress.jsonl', {'ts': time.time(), 'phase': 'epic', 'event': 'epic_complete', 'epic_slug': epic_slug})
     except Exception:
         pass
+
 def compute_autowork_backlog(repo_root: Path, state_dir: Path, now=None, max_age_sec: int=604800, config=None) -> dict:
     eligibility = compute_autowork_eligibility(repo_root, state_dir, now, max_age_sec, config)
     records = compute_brief_status(repo_root, state_dir)
@@ -203,3 +214,56 @@ def compute_autowork_backlog(repo_root: Path, state_dir: Path, now=None, max_age
             eligible_without_work.append(slug)
         detail.append({'slug': slug, 'has_unfinished_work': has_unfinished_work, 'state': state})
     return {'eligible_with_work': eligible_with_work, 'eligible_without_work': eligible_without_work, 'detail': detail}
+_FAILED_CHILD_STATES = frozenset({'blocked', 'zombie'})
+
+def _build_epic_children_map(repo_root: Path) -> dict:
+    """Read-derived epic -> direct child slug map built from plan_hooks_*.json.
+
+    Mirrors the substrate _resolve_allowlisted_child_slugs already reads; performs
+    no new I/O beyond globbing the same plan files and writes nothing.
+    """
+    epic_children: dict = {}
+    try:
+        paths = sorted(Path(repo_root).glob('plan_hooks_*.json'))
+    except Exception:
+        return epic_children
+    for path in paths:
+        try:
+            rec = json.loads(path.read_text(encoding='utf-8'))
+        except Exception:
+            continue
+        if not isinstance(rec, dict) or rec.get('plan_kind') != 'epic':
+            continue
+        es = rec.get('epic_slug')
+        if not es:
+            es = path.stem.removeprefix('plan_hooks_')
+        cs = rec.get('child_slugs') or []
+        if isinstance(es, str) and es and isinstance(cs, list):
+            epic_children.setdefault(es, []).extend([c for c in cs if isinstance(c, str) and c])
+    return epic_children
+
+def epic_has_failed_descendant(epic_slug, epic_children, status_index) -> bool:
+    """Read-derived: True if any transitive descendant of ``epic_slug`` is in a
+    failed leaf/child state (blocked/zombie) per the existing brief-status index.
+
+    Walks the epic -> child relation (``epic_children``) breadth/depth first over
+    the full transitive closure, cycle-safe, consulting only ``status_index``
+    (the same slug->state roll-up Phase-1 already reads). No I/O, no persistence.
+    """
+    if not isinstance(epic_slug, str) or not epic_slug:
+        return False
+    children = epic_children or {}
+    statuses = status_index or {}
+    seen: set = set()
+    frontier = [c for c in children.get(epic_slug, []) if isinstance(c, str) and c]
+    while frontier:
+        slug = frontier.pop()
+        if slug in seen:
+            continue
+        seen.add(slug)
+        if statuses.get(slug) in _FAILED_CHILD_STATES:
+            return True
+        for grandchild in children.get(slug, []):
+            if isinstance(grandchild, str) and grandchild and (grandchild not in seen):
+                frontier.append(grandchild)
+    return False
