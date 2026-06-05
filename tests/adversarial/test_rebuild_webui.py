@@ -53,8 +53,10 @@ def test_post_rebuild_start_module_slice(tmp_path):
     })
     assert st == 200
     assert body["job_id"] == "rebuild_depth_validator"
-    # exactly the sliced module's units, not the whole repo
-    assert body["units"] == 1
+    # exactly the sliced module's units, not the whole repo.
+    # Brief 14 (hierarchical planner) added check_brief_depth alongside
+    # check_true_depth, so depth_validator.py now slices to 2 units.
+    assert body["units"] == 2
 
 
 def test_get_rebuild_status_lists_jobs(tmp_path):
