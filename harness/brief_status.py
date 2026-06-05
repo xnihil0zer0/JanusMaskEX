@@ -111,6 +111,41 @@ def compute_autowork_eligibility(repo_root: Path, state_dir: Path, now=None, max
                 dispatchable.append(slug)
     return {'eligible': eligible, 'blocked': blocked, 'eligible_count': len(eligible), 'blocked_count': len(blocked), 'allowlist_present': allow is not None, 'allowlist_slugs': sorted(allow) if allow else [], 'max_age_sec': int(max_age_sec), 'dispatchable': dispatchable, 'parked': parked}
 
+def compute_epic_status(repo_root: Path, state_dir: Path) -> list[dict]:
+    records = compute_brief_status(repo_root, state_dir)
+    index = {r['slug']: r['state'] for r in records}
+    result: list[dict] = []
+    for p in sorted(repo_root.glob('plan_hooks_*.json')):
+        try:
+            with open(p, 'r', encoding='utf-8') as f:
+                rec = json.load(f)
+        except Exception:
+            continue
+        if not isinstance(rec, dict) or rec.get('plan_kind') != 'epic':
+            continue
+        epic_slug = rec.get('epic_slug')
+        if not epic_slug:
+            epic_slug = p.stem.removeprefix('plan_hooks_')
+        child_slugs = rec.get('child_slugs') or []
+        children = [{'slug': cs, 'state': index.get(cs, 'unplanned')} for cs in child_slugs]
+        if not children:
+            state = 'planned'
+        elif any((c['state'] in {'blocked', 'zombie'} for c in children)):
+            state = 'blocked'
+        elif all((c['state'] == 'complete' for c in children)):
+            state = 'complete'
+        else:
+            state = 'in_flight'
+        result.append({'epic_slug': epic_slug, 'state': state, 'children': children})
+    return result
+
+def record_epic_complete(epic_slug: str, state_dir: Path) -> None:
+    try:
+        import time
+        from harness._journal import write_jsonl_row
+        write_jsonl_row(Path(state_dir) / 'impl_progress.jsonl', {'ts': time.time(), 'phase': 'epic', 'event': 'epic_complete', 'epic_slug': epic_slug})
+    except Exception:
+        pass
 def compute_autowork_backlog(repo_root: Path, state_dir: Path, now=None, max_age_sec: int=604800) -> dict:
     eligibility = compute_autowork_eligibility(repo_root, state_dir, now, max_age_sec)
     records = compute_brief_status(repo_root, state_dir)
