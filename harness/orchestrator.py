@@ -913,6 +913,44 @@ def _path_b_outbox_fallback(work_dir: Path, sub_path: Path, task_id: str) -> str
         logger.warning('Path-B fallback: outbox promote write failed for %s', sub_path)
     return content
 
+# A1: in planning/reconciliation mode the agent submits a JSON artifact written
+# to outbox/<filename>, NOT the synthesis outbox/submission.py. Mirrors the
+# mode->mandatory-output mapping in harness/hooks/claude/stop.py:MANDATORY_VERBS.
+_MODE_OUTBOX_ARTIFACT: dict[str, str] = {
+    'planning': 'plan_draft.json',
+    'reconciliation': 'reconciliation.json',
+}
+
+
+def _poll_mode_artifact(work_dir: Path | None, mode: str) -> str | None:
+    """Return the planning/reconciliation outbox artifact text, or None.
+
+    A1: without this, ``poll_for_submission`` only recognizes the synthesis
+    submission, so a planning/reconciliation agent that correctly wrote
+    ``outbox/plan_draft.json`` / ``outbox/reconciliation.json`` is reported
+    "died without submitting" -> ``run_both_agents`` fires the agy
+    ``claude_fallback`` (Antigravity / Google credits) needlessly. The JSON
+    artifact is NOT Python code and was already gate-validated on the agent's
+    Write (hooks/claude/pre_tool.py), so it deliberately bypasses the
+    ``submit_code`` interceptor (which would AST-deny JSON). The planner
+    re-validates the draft via ``collect_agent_draft``; this return value is
+    only used to keep the needless fallback from firing.
+    """
+    if work_dir is None:
+        return None
+    filename = _MODE_OUTBOX_ARTIFACT.get(mode)
+    if not filename:
+        return None
+    artifact = Path(work_dir) / 'outbox' / filename
+    if not artifact.is_file():
+        return None
+    try:
+        text = artifact.read_text()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return text if text.strip() else None
+
+
 def _submission_target_path(state_dir: Path, task_id: str) -> str | None:
     """Return the task's primary target file (``files_touched[0]``) so the
     submission interceptors can apply their non-``.py`` AST-validation exemption
@@ -953,12 +991,20 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
     # exempt non-.py targets (e.g. config.yaml) from Python AST validation.
     target_path = _submission_target_path(state_dir, task_id)
     work_dir = getattr(proc, '_work_dir', None)
+    # A1: planning/reconciliation agents submit a JSON outbox artifact, not the
+    # synthesis submission. Detect it so the agy fallback isn't fired needlessly.
+    mode = os.environ.get('JANUSMASK_MODE', 'synthesis')
     deadline = time.monotonic() + timeout
     poll_start_wall = time.time()
     poll_interval = 0.5
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.INFO}waiting for submission...{_C.RESET}')
     while time.monotonic() < deadline:
         from harness.interceptors import registry as interceptor_registry
+        if mode in _MODE_OUTBOX_ARTIFACT:
+            artifact = _poll_mode_artifact(work_dir, mode)
+            if artifact is not None:
+                _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.OK}{mode} artifact received{_C.RESET} {_C.DIM}({len(artifact)} chars){_C.RESET}')
+                return artifact
         if sub_path.is_file():
             try:
                 with open(sub_path, 'r') as f:
@@ -992,6 +1038,11 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
         if proc.poll() is not None:
             rc = proc.returncode
             for _attempt in range(3):
+                if mode in _MODE_OUTBOX_ARTIFACT:
+                    artifact = _poll_mode_artifact(work_dir, mode)
+                    if artifact is not None:
+                        _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.OK}exited (code {rc}); {mode} artifact found{_C.RESET}')
+                        return artifact
                 if sub_path.is_file():
                     try:
                         with open(sub_path, 'r') as f:
