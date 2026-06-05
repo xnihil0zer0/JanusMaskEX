@@ -1979,18 +1979,33 @@ def _auto_approve_sensitive_eligible(state_dir, task, task_id, rel_paths, config
             return False
         if not isinstance(task, dict):
             return False
-        if task.get('meta_task_type') != 'harness_self_fix':
-            return False
-        if repo_root is None:
-            return False
         if not isinstance(task_id, str) or not task_id:
             return False
-        slug = task_id if task_id.startswith('selfheal_') else f'selfheal_{task_id}'
+        # AUTONOMY POSTURE (owner decision 2026-06-05; memory
+        # phase2-autonomy-security-posture): the security posture is CONDITIONAL on
+        # the webui-controlled ``autowork.enabled`` toggle (put_config_autowork
+        # writes it to harness/config.yaml).
+        #   * enabled  -> WIDENED: auto-approve ANY harness/** path that is not on
+        #     the irreducible _NEVER_AUTO_APPROVE deny-list. The INV9 content gate
+        #     at the call site still applies. Drops the self-heal-only gates
+        #     (harness_self_fix meta + HMAC provenance + ceiling) so the daemon
+        #     runs fully unattended.
+        #   * disabled/absent -> STRICT FLOOR (unchanged): self-heal-only
+        #     (harness_self_fix + HMAC provenance + ceiling<configured-ceiling).
         from pathlib import Path as _Path
-        brief_path = _Path(repo_root) / f'brief_hooks_{slug}.md'
-        from harness.selfheal import _selfheal_provenance_valid
-        if not _selfheal_provenance_valid(slug, brief_path, state_dir):
-            return False
+        _widened = bool(autowork.get('enabled'))
+        if not _widened:
+            if task.get('meta_task_type') != 'harness_self_fix':
+                return False
+            if repo_root is None:
+                return False
+            slug = task_id if task_id.startswith('selfheal_') else f'selfheal_{task_id}'
+            brief_path = _Path(repo_root) / f'brief_hooks_{slug}.md'
+            from harness.selfheal import _selfheal_provenance_valid
+            if not _selfheal_provenance_valid(slug, brief_path, state_dir):
+                return False
+        # PATH SCOPE (both modes): rel_paths non-empty; every rel has no raw '..'
+        # component, is not on the deny-list, and is under harness/**.
         import os as _os
         if not rel_paths:
             return False
@@ -2007,29 +2022,30 @@ def _auto_approve_sensitive_eligible(state_dir, task, task_id, rel_paths, config
                 return False
             if not _matches_sensitive(rel, ('harness/**',)):
                 return False
-        ceiling = autowork.get('auto_approve_sensitive_ceiling', 3)
-        if ceiling is None:
-            ceiling = 3
-        if isinstance(ceiling, bool) or not isinstance(ceiling, int):
-            return False
-        count = 0
-        count_path = _Path(state_dir) / 'control' / 'autowork' / 'auto_approve_count.json'
-        if count_path.exists():
-            raw = count_path.read_text(encoding='utf-8', errors='replace')
-            data = json.loads(raw)
-            if isinstance(data, bool):
+        if not _widened:
+            ceiling = autowork.get('auto_approve_sensitive_ceiling', 3)
+            if ceiling is None:
+                ceiling = 3
+            if isinstance(ceiling, bool) or not isinstance(ceiling, int):
                 return False
-            if isinstance(data, int):
-                count = data
-            elif isinstance(data, dict):
-                value = data.get('count')
-                if isinstance(value, bool) or not isinstance(value, int):
+            count = 0
+            count_path = _Path(state_dir) / 'control' / 'autowork' / 'auto_approve_count.json'
+            if count_path.exists():
+                raw = count_path.read_text(encoding='utf-8', errors='replace')
+                data = json.loads(raw)
+                if isinstance(data, bool):
                     return False
-                count = value
-            else:
+                if isinstance(data, int):
+                    count = data
+                elif isinstance(data, dict):
+                    value = data.get('count')
+                    if isinstance(value, bool) or not isinstance(value, int):
+                        return False
+                    count = value
+                else:
+                    return False
+            if count >= ceiling:
                 return False
-        if count >= ceiling:
-            return False
         return True
     except Exception:
         return False
