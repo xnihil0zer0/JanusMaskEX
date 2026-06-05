@@ -190,6 +190,63 @@ def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]
     return violations
 _SHA256_HEX_CHARS = set('0123456789abcdef')
 
+def validate_child_brief_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]:
+    """Validate the child-brief schema for epic-decomposition plans.
+
+    Sibling of validate_plan that enforces the brief-level schema rather than
+    the leaf-task schema. Each brief carries slug, title, scope, non_goals,
+    inputs, deliverables, plus optional dependencies (a list of sibling slugs)
+    and interfaces (a string). Returns an empty list when the plan is
+    well-formed. Purely additive — reuses the frozen PlanViolation dataclass,
+    requires/checks no leaf-task field, and is not wired into any call site.
+    """
+    if isinstance(plan, (str, Path)):
+        try:
+            with open(plan, 'r', encoding='utf-8') as f:
+                plan = json.load(f)
+        except Exception as e:
+            return [PlanViolation('parse_error', 'plan', str(e))]
+    if not isinstance(plan, dict):
+        return [PlanViolation('invalid_structure', 'plan', 'Plan must be a JSON object')]
+    children = plan.get('child_briefs', [])
+    if not isinstance(children, list):
+        return [PlanViolation('invalid_structure', 'plan.child_briefs', 'child_briefs must be a list')]
+    violations: List[PlanViolation] = []
+    if len(children) == 0:
+        violations.append(PlanViolation('empty_child_briefs', 'plan.child_briefs', 'child_briefs must contain at least one brief'))
+    required_fields = ['slug', 'title', 'scope', 'non_goals', 'inputs', 'deliverables']
+    valid_slugs = set()
+    for i, entry in enumerate(children):
+        prefix = f'child_briefs[{i}]'
+        if not isinstance(entry, dict):
+            violations.append(PlanViolation('invalid_structure', prefix, 'Child brief must be an object'))
+            continue
+        for field in required_fields:
+            if field not in entry:
+                violations.append(PlanViolation('missing_field', f'{prefix}.{field}', f'Missing required field {field}'))
+        if 'slug' in entry:
+            slug = entry.get('slug')
+            if not isinstance(slug, str) or not slug.strip():
+                violations.append(PlanViolation('invalid_slug', f'{prefix}.slug', 'slug must be a non-empty string'))
+            elif slug in valid_slugs:
+                violations.append(PlanViolation('duplicate_slug', f'{prefix}.slug', f'Duplicate slug: {slug}'))
+            else:
+                valid_slugs.add(slug)
+        if 'dependencies' in entry and (not isinstance(entry.get('dependencies'), list)):
+            violations.append(PlanViolation('invalid_dependencies', f'{prefix}.dependencies', 'dependencies must be a list'))
+        if 'interfaces' in entry and (not isinstance(entry.get('interfaces'), str)):
+            violations.append(PlanViolation('invalid_interfaces', f'{prefix}.interfaces', 'interfaces must be a string'))
+    for i, entry in enumerate(children):
+        if not isinstance(entry, dict):
+            continue
+        prefix = f'child_briefs[{i}]'
+        deps = entry.get('dependencies')
+        if not isinstance(deps, list):
+            continue
+        for dep in deps:
+            if dep not in valid_slugs:
+                violations.append(PlanViolation('unknown_dependency', f'{prefix}.dependencies', f'Unknown dependency: {dep!r}'))
+    return violations
 def validate_plan_wrapper(plan):
     """Validate schema v2.1 wrapper fields (source_brief_path + source_brief_sha256).
 
