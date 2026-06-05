@@ -59,6 +59,9 @@ def test_other_bypass_types_still_smoke_gated():
         "test_e2e",
         "test_integration",
         "test_unit",
+        # hierarchical-planner Brief 4: epic_planning emits child BRIEFS, not
+        # code, so there is nothing to smoke-test -> skip_smoke_gates=True.
+        "epic_planning",
     }
     assert SKIP_SMOKE_GATE_TYPES == expected_skip
 
