@@ -151,13 +151,19 @@ def test_phase1_epic_loop_closes(tmp_path, monkeypatch):
     for slug in CHILD_SLUGS:
         assert check_brief_depth(slug, repo, 4) is True   # Brief 14
 
-    # --- operator allowlist step (Brief 15 auto-admission is owner-gated)
+    # --- Brief 15: allowlist ONLY the epic; children are auto-admitted -----
+    # transitively (read-derived, gated by hierarchical_planning.enabled). No
+    # manual per-child allowlist append is needed once the epic is trusted.
     allow = state / "control" / "autowork" / "auto_promote.allowlist"
     allow.parent.mkdir(parents=True, exist_ok=True)
-    allow.write_text("\n".join([EPIC_SLUG, *CHILD_SLUGS]) + "\n", encoding="utf-8")
-    elig = compute_autowork_eligibility(repo, state)
+    allow.write_text(EPIC_SLUG + "\n", encoding="utf-8")  # epic only
+    elig = compute_autowork_eligibility(repo, state, config=config)
     for slug in CHILD_SLUGS:
-        assert slug in elig["eligible"], f"{slug} should be allowlist-eligible"
+        assert slug in elig["eligible"], f"{slug} should be auto-admitted via its epic"
+    # And with the flag OFF, the same epic-only allowlist leaves children blocked.
+    elig_off = compute_autowork_eligibility(repo, state)
+    for slug in CHILD_SLUGS:
+        assert slug not in elig_off["eligible"], f"{slug} must be blocked when flag off"
 
     # --- children re-plan: their leaf tasks land (simulated outcome) ----
     for slug in CHILD_SLUGS:
