@@ -2267,7 +2267,15 @@ def _auto_approve_content_safe(state_dir, task_id) -> bool:
                         if kw.arg == 'shell' and isinstance(kw.value, ast.Constant) and (kw.value.value is True):
                             return False
     return True
-_RO_GATE_TESTS = ('tests/adversarial/test_sec_inv2_trustroot.py', 'tests/adversarial/test_p10b_denylist_widen.py', 'tests/adversarial/test_replication_clean_room_static.py')
+# GAP2 (hands-off): the RO-parent gate (git_integration._verify_from_ro_parent)
+# runs these from a bare `git archive` snapshot (no .git, no runtime state/), so
+# every gate test MUST be hermetic. test_replication_clean_room_static.py was
+# REMOVED — its TestSmokeArtifactsTracked cases read git-tracking + the
+# state/impl_progress.jsonl ledger (both absent from the archive) and so errored,
+# making the gate fail-closed on EVERY auto-approve commit. The two that remain
+# are the hermetic security invariants the RO gate exists to protect (trust-root
+# integrity + the deny-list-no-widen invariant); both pass in a bare snapshot.
+_RO_GATE_TESTS = ('tests/adversarial/test_sec_inv2_trustroot.py', 'tests/adversarial/test_p10b_denylist_widen.py')
 def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -> bool:
     """Copy accepted output to its target and create a scoped git commit.
 
@@ -2818,7 +2826,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                             logger.warning('auto_approve_toctou_pin_mismatch: ledger append failed for %s: %s', task_id, _exc)
                         result = {'committed': False, 'error': 'auto_approve_toctou_pin_mismatch: staged artifact bytes or parent HEAD changed between pin and commit'}
                 if not _inv5_abort:
-                    result = git_integration.commit_accepted_output(task_id, target_abs, state_dir, worktree_root=staging_path, allowed_files=set(files_touched), meta_task_type=_mtt, approval_ok=_approval_ok, working_dir=working_dir)
+                    result = git_integration.commit_accepted_output(task_id, target_abs, state_dir, worktree_root=staging_path, allowed_files=set(files_touched), meta_task_type=_mtt, approval_ok=_approval_ok, working_dir=working_dir, widened_auto_approve=_granted_via_auto_approve)
                     # P10-B CEILING INCREMENT (REV29 §3c): still holding LOCK_EX, when
                     # the commit landed AND the grant came from the auto-approve consult
                     # (not an operator decision), read-modify-write the persisted

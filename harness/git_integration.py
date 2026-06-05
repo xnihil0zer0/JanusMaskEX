@@ -41,7 +41,8 @@ def _matches_sensitive(rel_str: str, globs: tuple[str, ...]) -> bool:
 
 
 def _enforce_apply_scope(rel_strs, *, allowed_files, meta_task_type, approval_ok,
-                         sensitive_globs: tuple[str, ...] = _SENSITIVE_APPLY_GLOBS):
+                         sensitive_globs: tuple[str, ...] = _SENSITIVE_APPLY_GLOBS,
+                         widened_auto_approve: bool = False):
     """Return an error string if any rel path violates apply-path policy, else None.
 
     AGENT-ISOLATION §1b. Two independent constraints:
@@ -51,8 +52,16 @@ def _enforce_apply_scope(rel_strs, *, allowed_files, meta_task_type, approval_ok
       Callers that pass ``None`` (e.g. low-level unit tests) opt out of the
       membership check but still get the sensitive-path gate below.
     * **sensitive** — a rel-path under ``harness/**`` / ``config/**`` /
-      ``scripts/**`` is rejected unless the task is a sanctioned
-      ``harness_self_fix`` AND ``approval_ok`` is True (operator approval).
+      ``scripts/**`` is rejected unless EITHER (a) the task is a sanctioned
+      ``harness_self_fix`` AND ``approval_ok`` is True (operator approval), OR
+      (b) ``widened_auto_approve`` AND ``approval_ok`` are both True — the
+      WIDENED posture (owner B0 decision: when ``autowork.enabled``, auto-approve
+      ANY non-deny ``harness/**`` path so the daemon runs fully unattended). The
+      widened grant is only ever passed by the orchestrator AFTER B0's deny-list
+      + content + RO gates cleared (``_granted_via_auto_approve``); even so, the
+      irreducible ``_NEVER_AUTO_APPROVE`` deny-list is RE-checked here and refused
+      under the widened branch (defense-in-depth — a deny-list path can never
+      auto-approve regardless of the widened signal).
     """
     # GAP_H1: normalize ('./', '..', '//') BOTH sides before the membership
     # compare. The candidate rel-path is derived from a .resolve()d relative_to
@@ -70,11 +79,24 @@ def _enforce_apply_scope(rel_strs, *, allowed_files, meta_task_type, approval_ok
             return (f'apply-path scope violation: {reln} is not a member of the '
                     f'declared files_touched {sorted(allowed)}')
         if _matches_sensitive(reln, sensitive_globs):
-            if not (meta_task_type == 'harness_self_fix' and approval_ok):
+            ok_strict = (meta_task_type == 'harness_self_fix' and approval_ok)
+            ok_widened = False
+            if widened_auto_approve and approval_ok:
+                # Defense-in-depth: re-check the irreducible deny-list here so a
+                # widened grant can NEVER auto-approve a _NEVER_AUTO_APPROVE path.
+                try:
+                    from harness.orchestrator import _NEVER_AUTO_APPROVE
+                except Exception:
+                    _NEVER_AUTO_APPROVE = ()
+                ok_widened = not _matches_sensitive(reln, _NEVER_AUTO_APPROVE)
+            if not (ok_strict or ok_widened):
                 return (f'apply-path scope violation: {reln} targets a protected path '
                         f'(harness/**, config/**, scripts/**); requires '
                         f'meta_task_type=harness_self_fix + operator approval '
-                        f'(got meta_task_type={meta_task_type!r}, approval_ok={approval_ok})')
+                        f'(or a widened autowork.enabled auto-approve grant for a '
+                        f'non-deny harness/** path) '
+                        f'(got meta_task_type={meta_task_type!r}, approval_ok={approval_ok}, '
+                        f'widened_auto_approve={widened_auto_approve})')
     return None
 
 
@@ -566,7 +588,7 @@ def _is_tracked(file_path: str, cwd: str) -> bool:
     except Exception:
         return False
 
-def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Path, worktree_root: pathlib.Path | None=None, *, allowed_files=None, meta_task_type=None, approval_ok: bool=False, working_dir: str | None = None) -> dict:
+def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Path, worktree_root: pathlib.Path | None=None, *, allowed_files=None, meta_task_type=None, approval_ok: bool=False, working_dir: str | None = None, widened_auto_approve: bool=False) -> dict:
     """Copy validated output to target, then commit it scoped to target_file.
 
     Args:
@@ -673,13 +695,13 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
         # __JANUSMASK_PATCHES__ literal verbatim into the target.
         patches_sidecar = state_dir / 'output' / f'{task_id}.patches.json'
         if patches_sidecar.exists():
-            return _commit_accepted_output_patches(task_id, patches_sidecar, state_dir, worktree_root, result, allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, working_dir=working_dir)
+            return _commit_accepted_output_patches(task_id, patches_sidecar, state_dir, worktree_root, result, allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, working_dir=working_dir, widened_auto_approve=widened_auto_approve)
         sidecar_path = state_dir / 'output' / f'{task_id}.files.json'
         if sidecar_path.exists():
             effective_allowed = allowed_files
             if allowed_files is not None and untracked_files:
                 effective_allowed = set(allowed_files) | set(untracked_files)
-            return _commit_accepted_output_multi(task_id, sidecar_path, state_dir, worktree_root, result, allowed_files=effective_allowed, meta_task_type=meta_task_type, approval_ok=approval_ok, working_dir=working_dir)
+            return _commit_accepted_output_multi(task_id, sidecar_path, state_dir, worktree_root, result, allowed_files=effective_allowed, meta_task_type=meta_task_type, approval_ok=approval_ok, working_dir=working_dir, widened_auto_approve=widened_auto_approve)
         target_path = pathlib.Path(target_file).resolve()
         # COMMIT_REROOT (§3-6): capture the ORIGINAL resolved target before the
         # parent->staging remap so the EXTERNAL containment CHECK can verify the
@@ -715,7 +737,7 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
             except ValueError:
                 result['error'] = 'target escapes worktree'
                 return result
-        scope_err = _enforce_apply_scope([str(target_path.relative_to(worktree_root))], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, sensitive_globs=_SENSITIVE_APPLY_GLOBS if _is_self else ())
+        scope_err = _enforce_apply_scope([str(target_path.relative_to(worktree_root))], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, sensitive_globs=_SENSITIVE_APPLY_GLOBS if _is_self else (), widened_auto_approve=widened_auto_approve)
         if scope_err:
             logging.getLogger(__name__).error('commit_accepted_output: %s rejected: %s', task_id, scope_err)
             result['error'] = scope_err
@@ -859,7 +881,7 @@ def _apply_file_to_target(out_code: str, target_path: pathlib.Path, task_id: str
     else:
         target_path.write_text(out_code, encoding='utf-8')
 
-def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, state_dir: pathlib.Path, worktree_root: pathlib.Path, result: dict, *, allowed_files=None, meta_task_type=None, approval_ok: bool=False, working_dir: str | None = None) -> dict:
+def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, state_dir: pathlib.Path, worktree_root: pathlib.Path, result: dict, *, allowed_files=None, meta_task_type=None, approval_ok: bool=False, working_dir: str | None = None, widened_auto_approve: bool=False) -> dict:
     """Multi-file commit driven by a state/output/<task_id>.files.json sidecar.
 
     Reads the sidecar (JSON dict mapping rel-path -> source-code string),
@@ -934,7 +956,7 @@ def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, stat
             result['error'] = f'target escapes worktree: {rel}'
             return result
         rel_str = str(target_path.relative_to(_containing_root))
-        scope_err = _enforce_apply_scope([rel_str], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, sensitive_globs=_SENSITIVE_APPLY_GLOBS if _is_self else ())
+        scope_err = _enforce_apply_scope([rel_str], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, sensitive_globs=_SENSITIVE_APPLY_GLOBS if _is_self else (), widened_auto_approve=widened_auto_approve)
         if scope_err:
             logging.getLogger(__name__).error('_commit_accepted_output_multi: %s rejected: %s', task_id, scope_err)
             result['committed'] = False
@@ -1265,7 +1287,7 @@ def _apply_region_patch(source: str, sentinel: str, new_region: str) -> str:
         new_text += '\n'
     return ''.join(before) + new_text + ''.join(after)
 
-def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, worktree_root, result, *, allowed_files=None, meta_task_type=None, approval_ok=False, working_dir: str | None = None):
+def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, worktree_root, result, *, allowed_files=None, meta_task_type=None, approval_ok=False, working_dir: str | None = None, widened_auto_approve: bool=False):
     """Partial-edit commit driven by a ``state/output/<task_id>.patches.json`` sidecar.
 
     Modeled on ``_commit_accepted_output_multi``: loads the JSON list of
@@ -1364,7 +1386,7 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
             result['error'] = f'target escapes worktree: {rel}'
             return result
         rel_str = str(target_path.relative_to(_containing_root))
-        scope_err = _enforce_apply_scope([rel_str], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, sensitive_globs=_SENSITIVE_APPLY_GLOBS if _is_self else ())
+        scope_err = _enforce_apply_scope([rel_str], allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, sensitive_globs=_SENSITIVE_APPLY_GLOBS if _is_self else (), widened_auto_approve=widened_auto_approve)
         if scope_err:
             logging.getLogger(__name__).error('_commit_accepted_output_patches: %s rejected: %s', task_id, scope_err)
             result['committed'] = False
