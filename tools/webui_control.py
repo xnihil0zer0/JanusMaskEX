@@ -360,7 +360,35 @@ class ControlHandlers:
                 return (400, {'error': 'invalid_output_path', 'value': v})
         argv = [sys.executable, '-m', 'harness.planner.cli', str(brief), '--output-plan', out_plan, '--output-critique', out_crit]
         info = self._spawn_tracked(argv, job_id=f'planner-{slug}-{int(time.time())}')
-        return (200, {'job_id': info['job_id'], 'pid': info['pid'], 'brief': str(brief.relative_to(self.repo_root)), 'output_plan': out_plan, 'output_critique': out_crit})
+        # Treat the authenticated kickoff as authorization for hands-off
+        # autowork completion: append this brief's slug to the auto-promote
+        # allowlist (idempotent, best-effort, preserving existing entries).
+        auto_promote_allowlisted = False
+        try:
+            path = _autowork_allowlist_path(self.state_dir)
+            active: set[str] = set()
+            if path.exists():
+                for line in path.read_text(encoding='utf-8').splitlines():
+                    s = line.strip()
+                    if not s or s.startswith('#'):
+                        continue
+                    active.add(s)
+            if slug in active:
+                auto_promote_allowlisted = True
+            else:
+                if not path.parent.exists():
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                if path.exists():
+                    existing = path.read_text(encoding='utf-8')
+                    if existing and not existing.endswith('\n'):
+                        existing += '\n'
+                    path.write_text(existing + slug + '\n', encoding='utf-8')
+                else:
+                    path.write_text(slug + '\n', encoding='utf-8')
+                auto_promote_allowlisted = True
+        except OSError:
+            auto_promote_allowlisted = False
+        return (200, {'job_id': info['job_id'], 'pid': info['pid'], 'brief': str(brief.relative_to(self.repo_root)), 'output_plan': out_plan, 'output_critique': out_crit, 'auto_promote_allowlisted': auto_promote_allowlisted})
 
     def get_planner_jobs(self) -> tuple[int, dict]:
         jobs = []
