@@ -76,9 +76,12 @@ def test_validate_draft_epic_rejects_malformed_child() -> None:
     assert validate_draft(_malformed_epic_draft(), mode="epic") != []
 
 
-def test_validate_draft_leaf_vacuously_accepts_epic_draft() -> None:
-    # Demonstrates the latent bug: leaf validation ignores child_briefs.
-    assert validate_draft(_malformed_epic_draft(), mode="leaf") == []
+def test_validate_draft_leaf_now_catches_epic_shaped_draft() -> None:
+    # Brief 13 SUPERSEDED the old latent bug: validate_plan now dispatches any
+    # plan_kind=='epic' to validate_epic_plan, so leaf-mode no longer vacuously
+    # accepts a malformed epic-shaped draft. The dispatcher's core contract —
+    # validate_draft(leaf) == validate_plan — still holds (see the test above).
+    assert validate_draft(_malformed_epic_draft(), mode="leaf") != []
 
 
 # ---- Part B: collect_agent_draft mode threading --------------------------
@@ -109,11 +112,24 @@ def test_collect_epic_mode_accepts_valid_child(tmp_path) -> None:
     assert status == "ok" and draft is not None and "child_briefs" in draft
 
 
-def test_collect_leaf_mode_default_unchanged(tmp_path) -> None:
-    # With no mode kwarg (default leaf) the malformed epic draft is vacuously
-    # accepted exactly as on HEAD — proves back-compat of the default path.
+def test_collect_leaf_default_catches_epic_shaped_draft(tmp_path) -> None:
+    # Brief 13: validate_plan dispatches plan_kind=='epic' to the epic validator,
+    # so even the default (leaf) collect path now rejects a malformed epic-shaped
+    # draft instead of vacuously accepting it (the old latent bug is fixed).
     ad = tmp_path / "ad"
     _write_draft(ad, "claude", _malformed_epic_draft())
+    draft, status = bd.collect_agent_draft(
+        "claude", ad, tmp_path, elapsed=100.0, timeout=200.0,
+        spawn_start_epoch=None,
+    )
+    assert status == "invalid" and draft is None
+
+
+def test_collect_leaf_default_true_leaf_draft_unchanged(tmp_path) -> None:
+    # Back-compat proof preserved: a TRUE leaf draft (no plan_kind) is unaffected
+    # by Brief 13 and is accepted on the default path exactly as on HEAD.
+    ad = tmp_path / "ad"
+    _write_draft(ad, "claude", {"tasks": []})
     draft, status = bd.collect_agent_draft(
         "claude", ad, tmp_path, elapsed=100.0, timeout=200.0,
         spawn_start_epoch=None,

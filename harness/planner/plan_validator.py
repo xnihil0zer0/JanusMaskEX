@@ -66,6 +66,8 @@ def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]
             return [PlanViolation('parse_error', 'plan', str(e))]
     if not isinstance(plan, dict):
         return [PlanViolation('invalid_structure', 'plan', 'Plan must be a JSON object')]
+    if plan.get('plan_kind') == 'epic':
+        return validate_epic_plan(plan)
     tasks = plan.get('tasks', [])
     if not isinstance(tasks, list):
         return [PlanViolation('invalid_structure', 'plan.tasks', 'tasks must be a list')]
@@ -246,6 +248,51 @@ def validate_child_brief_plan(plan: Union[Dict[str, Any], str, Path]) -> List[Pl
         for dep in deps:
             if dep not in valid_slugs:
                 violations.append(PlanViolation('unknown_dependency', f'{prefix}.dependencies', f'Unknown dependency: {dep!r}'))
+    return violations
+def validate_epic_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]:
+    """Validate a persisted epic plan record (plan_kind='epic').
+
+    Sibling of validate_plan / validate_child_brief_plan that validates the
+    epic-record schema: the brief-level structure (delegated to
+    validate_child_brief_plan) plus the epic-record-level fields plan_kind,
+    child_slugs (each must match a child_briefs slug) and epic_slug. Returns
+    list[PlanViolation] (empty when well-formed); never raises on malformed
+    input. Reuses the frozen PlanViolation dataclass.
+    """
+    if isinstance(plan, (str, Path)):
+        try:
+            with open(plan, 'r', encoding='utf-8') as f:
+                plan = json.load(f)
+        except Exception as e:
+            return [PlanViolation('parse_error', 'plan', str(e))]
+    if not isinstance(plan, dict):
+        return [PlanViolation('invalid_structure', 'plan', 'Plan must be a JSON object')]
+    violations: List[PlanViolation] = []
+    if plan.get('plan_kind') != 'epic':
+        violations.append(PlanViolation('invalid_plan_kind', 'plan.plan_kind', "epic plan record must declare plan_kind == 'epic'"))
+    violations.extend(validate_child_brief_plan(plan))
+    valid_slugs = set()
+    children = plan.get('child_briefs', [])
+    if isinstance(children, list):
+        for entry in children:
+            if isinstance(entry, dict):
+                slug = entry.get('slug')
+                if isinstance(slug, str) and slug.strip():
+                    valid_slugs.add(slug)
+    if 'child_slugs' in plan:
+        child_slugs = plan.get('child_slugs')
+        if not isinstance(child_slugs, list):
+            violations.append(PlanViolation('invalid_structure', 'plan.child_slugs', 'child_slugs must be a list'))
+        else:
+            for s in child_slugs:
+                if not isinstance(s, str) or not s.strip():
+                    violations.append(PlanViolation('invalid_slug', 'plan.child_slugs', 'child_slug must be a non-empty string'))
+                elif s not in valid_slugs:
+                    violations.append(PlanViolation('slug_mismatch', 'plan.child_slugs', f'child_slug {s!r} has no matching child brief'))
+    if 'epic_slug' in plan:
+        epic_slug = plan.get('epic_slug')
+        if not isinstance(epic_slug, str) or not epic_slug.strip():
+            violations.append(PlanViolation('invalid_epic_slug', 'plan.epic_slug', 'epic_slug must be a non-empty string'))
     return violations
 def validate_draft(plan: Union[Dict[str, Any], str, Path], mode: str='leaf') -> List[PlanViolation]:
     """Unified entrypoint for draft validation that routes by ``mode``.
