@@ -1876,6 +1876,86 @@ def _autowork_watch_mtime(repo_root: pathlib.Path, state_dir: pathlib.Path) -> f
 def _push_enabled(state_dir: pathlib.Path) -> bool:
     return (pathlib.Path(state_dir) / 'control' / 'autowork' / 'push.enabled').exists()
 
+def _acquire_commit_lock_or_reclaim(state_dir: pathlib.Path, deadline_sec: float=10.0):
+    """Bounded, stale-aware acquisition of the AW3 ``git_commit.lock``.
+
+    Runs a NON-BLOCKING ``flock(LOCK_NB | LOCK_EX)`` retry loop bounded by
+    ``deadline_sec`` so a stale lock from a DEAD prior session can never wedge
+    the daemon. On acquire the holder PID is stamped into the lock file and
+    ``(fd, 'acquired')`` is returned; the CALLER is responsible for releasing
+    the fd (``fcntl.flock(fd, fcntl.LOCK_UN); fd.close()``).
+
+    When the deadline passes with the lock still held, the recorded owner PID
+    is probed via ``os.kill(pid, 0)``: a NOT-alive / absent / 0-byte owner is
+    STALE and is reclaimed -> ``(fd, 'reclaimed')`` (PID re-stamped); a LIVE
+    owner returns ``(None, 'busy')`` without blocking. Any unexpected error
+    degrades to a bounded ``(None, 'busy')`` rather than raising or blocking.
+
+    ``fcntl`` is imported in-body (no new module-level import) and the lock
+    file is opened ``os.O_RDWR | os.O_CREAT`` (not append) so the PID stamp can
+    seek/truncate.
+    """
+    import fcntl
+    lock_path = pathlib.Path(state_dir) / 'control' / 'autowork' / 'git_commit.lock'
+    fd = None
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 420)
+        fd = os.fdopen(raw_fd, 'r+')
+
+        def _stamp(handle) -> None:
+            try:
+                handle.seek(0)
+                handle.truncate()
+                handle.write(str(os.getpid()))
+                handle.flush()
+            except OSError:
+                pass
+        deadline = time.monotonic() + max(0.0, float(deadline_sec))
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_NB | fcntl.LOCK_EX)
+                _stamp(fd)
+                return (fd, 'acquired')
+            except OSError:
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(0.02)
+        owner_alive = False
+        try:
+            fd.seek(0)
+            raw = (fd.read() or '').strip()
+        except OSError:
+            raw = ''
+        if raw:
+            try:
+                owner_pid = int(raw)
+            except ValueError:
+                owner_pid = 0
+            if owner_pid > 0:
+                try:
+                    os.kill(owner_pid, 0)
+                    owner_alive = True
+                except ProcessLookupError:
+                    owner_alive = False
+                except OSError:
+                    owner_alive = True
+        if owner_alive:
+            fd.close()
+            return (None, 'busy')
+        try:
+            fcntl.flock(fd, fcntl.LOCK_NB | fcntl.LOCK_EX)
+        except OSError:
+            pass
+        _stamp(fd)
+        return (fd, 'reclaimed')
+    except Exception:
+        if fd is not None:
+            try:
+                fd.close()
+            except OSError:
+                pass
+        return (None, 'busy')
 def _maybe_push_and_rebase_pin(repo_root: pathlib.Path, state_dir: pathlib.Path) -> dict:
     """Opt-in post-commit durability (G-PUSH/G-DRIFT). Default-OFF, never raises.
 
@@ -1897,37 +1977,41 @@ def _maybe_push_and_rebase_pin(repo_root: pathlib.Path, state_dir: pathlib.Path)
         return {'pushed': False, 'reason': 'disabled'}
     repo_root = pathlib.Path(repo_root)
     out: dict = {'pushed': False, 'rebased': False}
-    lock_path = pathlib.Path(state_dir) / 'control' / 'autowork' / 'git_commit.lock'
+    lock_fd, status = _acquire_commit_lock_or_reclaim(state_dir)
+    if lock_fd is None:
+        _emit_telemetry(state_dir, '', 'push_lock_busy', 'commit lock held by a live owner; skipping push tick')
+        out['reason'] = 'lock_busy'
+        return out
+    if status == 'reclaimed':
+        _emit_telemetry(state_dir, '', 'push_lock_reclaimed', 'reclaimed stale commit lock from a dead prior owner')
     try:
         import fcntl
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(lock_path, 'a') as lock_fd:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            ahead = subprocess.run(['git', 'rev-list', '--count', 'origin/main..HEAD'], cwd=str(repo_root), capture_output=True, text=True, timeout=30)
             try:
-                ahead = subprocess.run(['git', 'rev-list', '--count', 'origin/main..HEAD'], cwd=str(repo_root), capture_output=True, text=True, timeout=30)
-                try:
-                    n_ahead = int((ahead.stdout or '0').strip() or '0')
-                except ValueError:
-                    n_ahead = 0
-                if ahead.returncode != 0 or n_ahead <= 0:
-                    out['reason'] = 'up_to_date'
-                    return out
-                push = subprocess.run(['git', 'push', 'origin', 'main'], cwd=str(repo_root), capture_output=True, text=True, timeout=180)
-                if push.returncode != 0:
-                    _emit_telemetry(state_dir, '', 'push_failed', (push.stderr or '')[-256:])
-                    return out
-                out['pushed'] = True
-                _emit_telemetry(state_dir, '', 'pushed', f'origin/main +{n_ahead}')
-                reb = subprocess.run([sys.executable, 'scripts/impl_rebase_drift_pin.py'], cwd=str(repo_root), capture_output=True, text=True, timeout=60)
-                if reb.returncode == 0:
-                    dirty = subprocess.run(['git', 'diff', '--quiet', '--', 'scripts/impl_common.py'], cwd=str(repo_root), timeout=30)
-                    if dirty.returncode != 0:
-                        subprocess.run(['git', 'commit', '-m', 'META: rebase EXPECTED_BASE_SHA drift pin (autowork post-push)', '--', 'scripts/impl_common.py'], cwd=str(repo_root), capture_output=True, text=True, timeout=30)
-                        subprocess.run(['git', 'push', 'origin', 'main'], cwd=str(repo_root), capture_output=True, text=True, timeout=180)
-                        out['rebased'] = True
-                        _emit_telemetry(state_dir, '', 'drift_pin_rebased', '')
-            finally:
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                n_ahead = int((ahead.stdout or '0').strip() or '0')
+            except ValueError:
+                n_ahead = 0
+            if ahead.returncode != 0 or n_ahead <= 0:
+                out['reason'] = 'up_to_date'
+                return out
+            push = subprocess.run(['git', 'push', 'origin', 'main'], cwd=str(repo_root), capture_output=True, text=True, timeout=180)
+            if push.returncode != 0:
+                _emit_telemetry(state_dir, '', 'push_failed', (push.stderr or '')[-256:])
+                return out
+            out['pushed'] = True
+            _emit_telemetry(state_dir, '', 'pushed', f'origin/main +{n_ahead}')
+            reb = subprocess.run([sys.executable, 'scripts/impl_rebase_drift_pin.py'], cwd=str(repo_root), capture_output=True, text=True, timeout=60)
+            if reb.returncode == 0:
+                dirty = subprocess.run(['git', 'diff', '--quiet', '--', 'scripts/impl_common.py'], cwd=str(repo_root), timeout=30)
+                if dirty.returncode != 0:
+                    subprocess.run(['git', 'commit', '-m', 'META: rebase EXPECTED_BASE_SHA drift pin (autowork post-push)', '--', 'scripts/impl_common.py'], cwd=str(repo_root), capture_output=True, text=True, timeout=30)
+                    subprocess.run(['git', 'push', 'origin', 'main'], cwd=str(repo_root), capture_output=True, text=True, timeout=180)
+                    out['rebased'] = True
+                    _emit_telemetry(state_dir, '', 'drift_pin_rebased', '')
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
         _emit_telemetry(state_dir, '', 'push_error', repr(exc))
     return out
