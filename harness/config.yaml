@@ -48,7 +48,7 @@ autowork:
   cooldown_tier_1: 100.0
   cooldown_tier_2: 1000.0
   cooldown_tier_3: 10000.0
-  enabled: false
+  enabled: true
   heartbeat_sec: 1800
   min_ram_mb: 1024
   parallel_cap: 5
