@@ -54,7 +54,24 @@ def _log_reconciliation_decision(log_file: Path, diff_item_id: str, decision: st
     with open(log_file, 'a', encoding='utf-8') as f:
         f.write(json.dumps(entry) + '\n')
 
-def run_reconciliation(diff: PlanDiff, claude_draft: Dict[str, Any], gemini_draft: Dict[str, Any], config: Dict[str, Any], state_dir: Path) -> ReconciliationResult:
+def _reconciliation_prompt(mode: str = 'leaf') -> str:
+    """Return the reconciliation prompt text for the given planning mode.
+
+    Leaf mode (the default, and any non-epic value) returns the inline
+    reconcile prompt byte-for-byte. Epic mode loads
+    prompts/epic_reconciliation_prompt.md, falling back to the leaf prompt
+    when that file is absent. The prompt file may contain literal JSON
+    braces, so it is returned verbatim (no str.format).
+    """
+    if mode == 'epic':
+        epic_path = Path(__file__).parent / 'prompts' / 'epic_reconciliation_prompt.md'
+        try:
+            return epic_path.read_text(encoding='utf-8')
+        except OSError:
+            pass
+    return 'You are a reconciliation agent. Two planning agents produced divergent task plans for the same brief; the system needs your stance on each divergent item before merging.\n\nRead the current diff from:\n    {STATE_DIR}/planning/current_diff.json\nEach entry under `items` has a `diff_item_id` plus the competing task definitions from claude and gemini.\n\nSubmit your stances by writing a single JSON file at:\n    {OUTBOX_PATH}/reconciliation.json\nWriting this file IS how you submit; the harness intercepts the Write via a PostToolUse/AfterTool hook and persists the JSON for the planner. The MCP janusmask execute tool is NOT registered in this worker session — only file read/write and read-only exploration tools (Read, Glob, Grep) are available.\n\nIf the PreToolUse hook rejects the Write with a validation error, fix the JSON and Write the same path again — the gate is single-shot only on accepted submissions.\n\nIMPORTANT SCHEMA REQUIREMENTS for reconciliation.json:\nThe file MUST contain a JSON object with a `responses` array. You MUST provide one entry per divergent item in current_diff.json. Each entry MUST have:\n{\n  "diff_item_id": "<the diff_item_id from current_diff.json>",\n  "stance": "defend" | "concede" | "amend"\n}\n'
+
+def run_reconciliation(diff: PlanDiff, claude_draft: Dict[str, Any], gemini_draft: Dict[str, Any], config: Dict[str, Any], state_dir: Path, mode: str = 'leaf') -> ReconciliationResult:
     """Run a single-round reconciliation using track-record tiebreaker."""
     merged_tasks: List[Dict[str, Any]] = []
     unresolved_items: List[DiffItem] = []
@@ -98,7 +115,7 @@ def run_reconciliation(diff: PlanDiff, claude_draft: Dict[str, Any], gemini_draf
     derived_config.setdefault('synthesis', {})['timeout_seconds'] = timeout
     old_env = os.environ.get('JANUSMASK_MODE')
     os.environ['JANUSMASK_MODE'] = 'reconciliation'
-    prompt = 'You are a reconciliation agent. Two planning agents produced divergent task plans for the same brief; the system needs your stance on each divergent item before merging.\n\nRead the current diff from:\n    {STATE_DIR}/planning/current_diff.json\nEach entry under `items` has a `diff_item_id` plus the competing task definitions from claude and gemini.\n\nSubmit your stances by writing a single JSON file at:\n    {OUTBOX_PATH}/reconciliation.json\nWriting this file IS how you submit; the harness intercepts the Write via a PostToolUse/AfterTool hook and persists the JSON for the planner. The MCP janusmask execute tool is NOT registered in this worker session — only file read/write and read-only exploration tools (Read, Glob, Grep) are available.\n\nIf the PreToolUse hook rejects the Write with a validation error, fix the JSON and Write the same path again — the gate is single-shot only on accepted submissions.\n\nIMPORTANT SCHEMA REQUIREMENTS for reconciliation.json:\nThe file MUST contain a JSON object with a `responses` array. You MUST provide one entry per divergent item in current_diff.json. Each entry MUST have:\n{\n  "diff_item_id": "<the diff_item_id from current_diff.json>",\n  "stance": "defend" | "concede" | "amend"\n}\n'
+    prompt = _reconciliation_prompt(mode)
     spawn_wall_start = time.time()
     try:
         _c_code, _g_code = run_both_agents(prompt, prompt, derived_config, state_dir, 1, 'reconciliation')
@@ -237,4 +254,5 @@ def run_reconciliation(diff: PlanDiff, claude_draft: Dict[str, Any], gemini_draf
             unresolved_items.append(item)
             _log_reconciliation_decision(reconciliation_log_file, item.diff_item_id, 'unresolved_policy', 'flag_for_human')
     return ReconciliationResult(merged_tasks, unresolved_items, per_agent_errors)
+
 import time
