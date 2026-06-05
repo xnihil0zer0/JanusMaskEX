@@ -43,6 +43,49 @@ def _control_dir(state_dir: Path) -> Path:
     p.mkdir(parents=True, exist_ok=True)
     return p
 
+def _parse_autobrief_stdout(stdout_text: str) -> dict:
+    """Tolerantly parse autobrief agent stdout into a {slug, content} dict.
+
+    Supports two shapes:
+      * a single JSON document {slug, content} (optionally fence-wrapped),
+        as produced by agy/antigravity/gemini plain -p output; and
+      * Claude CLI --output-format stream-json NDJSON, whose terminal
+        {"type": "result"} event carries the {slug, content} payload as a
+        JSON STRING in its 'result' field.
+
+    Raises ValueError when no {slug, content} payload can be found.
+    """
+
+    def _strip_fence(s: str) -> str:
+        lines = (s or '').strip().splitlines()
+        if lines and lines[0].strip().startswith('```'):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == '```':
+            lines = lines[:-1]
+        return '\n'.join(lines).strip()
+    text = (stdout_text or '').strip()
+    try:
+        obj = json.loads(_strip_fence(text))
+        if isinstance(obj, dict) and 'slug' in obj and ('content' in obj):
+            return obj
+    except (json.JSONDecodeError, ValueError):
+        pass
+    result_payload = None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            evt = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(evt, dict) and evt.get('type') == 'result' and isinstance(evt.get('result'), str):
+            result_payload = evt['result']
+    if result_payload is not None:
+        inner = json.loads(_strip_fence(result_payload))
+        if isinstance(inner, dict) and 'slug' in inner and ('content' in inner):
+            return inner
+    raise ValueError('no slug/content payload in autobrief stdout')
 def _jobs_dir(state_dir: Path) -> Path:
     p = _control_dir(state_dir) / 'jobs'
     p.mkdir(parents=True, exist_ok=True)
@@ -211,7 +254,7 @@ class ControlHandlers:
         agent_cfg = agents_block.get(req_agent, {})
         command = _subst(agent_cfg.get('command', req_agent))
         args = [_subst(a) for a in agent_cfg.get('args', [])]
-        
+
         if args:
             try:
                 p_index = args.index('-p')
@@ -260,9 +303,7 @@ class ControlHandlers:
             stdout_path = job_dir / 'stdout.log'
             try:
                 stdout_text = stdout_path.read_text()
-                parsed = json.loads(stdout_text)
-                if 'slug' not in parsed or 'content' not in parsed:
-                    raise ValueError('missing slug or content')
+                parsed = _parse_autobrief_stdout(stdout_text)
                 return (True, parsed, {'job_id': full_job_id, 'stderr_tail': stderr_tail})
             except (OSError, json.JSONDecodeError, ValueError):
                 return (False, {'error': 'autobrief_parse_failed', 'detail': stderr_tail, 'job_id': full_job_id}, None)
