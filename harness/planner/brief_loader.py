@@ -36,6 +36,8 @@ class PlanningBrief:
     working_dir: str | None = None
     epic: bool = False
     complexity_score: int | None = None
+    dependencies: tuple[str, ...] = ()
+    interfaces: str | None = None
 
     def to_agent_prompt(self) -> str:
         return f"""Title: {self.title}
@@ -121,6 +123,40 @@ def _parse_markdown_sections(text: str) -> dict:
     return sections
 
 
+def _coerce_optional_brief_fields(fm: dict) -> dict:
+    out: dict = {}
+    if not isinstance(fm, dict):
+        return out
+    normalized: dict = {}
+    for k, v in fm.items():
+        norm_k = str(k).lower().replace('-', '_').replace(' ', '_')
+        normalized[norm_k] = v
+    if 'epic' in normalized:
+        value = normalized['epic']
+        if isinstance(value, bool):
+            out['epic'] = value
+        elif isinstance(value, str):
+            out['epic'] = value.strip().lower() in {'true', '1', 'yes', 'on'}
+        else:
+            out['epic'] = bool(value)
+    if 'complexity_score' in normalized:
+        value = normalized['complexity_score']
+        try:
+            out['complexity_score'] = int(value)
+        except (TypeError, ValueError):
+            out['complexity_score'] = None
+    if 'dependencies' in normalized:
+        value = normalized['dependencies']
+        if isinstance(value, (list, tuple)):
+            out['dependencies'] = tuple((str(item).strip() for item in value if str(item).strip()))
+        elif isinstance(value, str):
+            out['dependencies'] = tuple((part.strip() for part in value.split(',') if part.strip()))
+        else:
+            out['dependencies'] = ()
+    if 'interfaces' in normalized:
+        value = normalized['interfaces']
+        out['interfaces'] = None if value is None else str(value)
+    return out
 def load_brief(path: Path | str, max_bytes: int = 256 * 1024) -> PlanningBrief:
     path = Path(path)
 
@@ -201,6 +237,8 @@ def load_brief(path: Path | str, max_bytes: int = 256 * 1024) -> PlanningBrief:
                 f"working_dir {working_dir!r} resolves inside the repo but is not self"
             )
 
+    optional_fields = _coerce_optional_brief_fields(fm)
+
     return PlanningBrief(
         title=data["title"],
         scope=data["scope"],
@@ -210,7 +248,11 @@ def load_brief(path: Path | str, max_bytes: int = 256 * 1024) -> PlanningBrief:
         raw_text=normalized_text,
         source_path=str(path),
         sha256=sha256,
-        working_dir=working_dir
+        working_dir=working_dir,
+        epic=optional_fields.get("epic", False),
+        complexity_score=optional_fields.get("complexity_score", None),
+        dependencies=optional_fields.get("dependencies", ()),
+        interfaces=optional_fields.get("interfaces", None),
     )
 
 
