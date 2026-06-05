@@ -159,6 +159,41 @@ def _run_epic_pipeline(brief_obj, config, state_dir, output_plan) -> int:
     persist_plan(epic_record, output_plan, brief_obj=brief_obj)
     return 0
 
+def _resolve_max_planner_depth(config) -> int:
+    """Resolve the planner depth budget from config defensively.
+
+    Reads ``config['hierarchical_planning']['max_planner_depth']`` without
+    introducing a new flag. When the key is absent/unparseable (or hierarchical
+    planning is disabled and the key is simply missing), returns ``sys.maxsize``
+    so the depth gate is a no-op and existing leaf planning is never broken.
+    """
+    try:
+        hp = config.get('hierarchical_planning', {}) or {}
+        val = hp.get('max_planner_depth', None)
+    except AttributeError:
+        return sys.maxsize
+    if val is None:
+        return sys.maxsize
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return sys.maxsize
+
+def _brief_slug(brief_obj) -> str:
+    """Derive the brief slug used for epic-lineage lookups.
+
+    Prefers an explicit ``slug`` attribute; otherwise falls back to the
+    ``source_path`` stem, stripping the conventional ``brief_hooks_`` prefix so
+    child briefs written by _run_epic_pipeline resolve to their epic slug.
+    """
+    slug = getattr(brief_obj, 'slug', None)
+    if isinstance(slug, str) and slug:
+        return slug
+    sp = getattr(brief_obj, 'source_path', None)
+    if isinstance(sp, str) and sp:
+        stem = Path(sp).stem
+        return stem[len('brief_hooks_'):] if stem.startswith('brief_hooks_') else stem
+    return ''
 def main(args=None):
     parser = argparse.ArgumentParser(description='Planning CLI driver')
     parser.add_argument('brief', type=Path, help='Path to the planning brief')
@@ -206,6 +241,17 @@ def main(args=None):
     except Exception as e:
         print(f'Brief load failed: {e}', file=sys.stderr)
         sys.exit(3)
+    # Depth-budget gate: enforced for every brief (epic or leaf) AFTER the brief
+    # is loaded and BEFORE any pipeline runs, so nested epic recursion bottoms out
+    # once the lineage reaches the configured budget. check_brief_depth lives in
+    # harness/depth_validator.py (Phase-1) and is not re-implemented here.
+    from harness.depth_validator import check_brief_depth
+    repo_root = state_dir.parent
+    slug = _brief_slug(brief_obj)
+    max_depth = _resolve_max_planner_depth(config)
+    if not check_brief_depth(slug, repo_root, max_depth):
+        print(f'Epic depth budget exceeded for brief {slug!r}; refusing to plan.', file=sys.stderr)
+        sys.exit(2)
     if _should_run_epic(brief_obj, config):
         sys.exit(_run_epic_pipeline(brief_obj, config, state_dir, parsed.output_plan))
     try:
