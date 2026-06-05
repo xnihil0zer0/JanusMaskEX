@@ -176,23 +176,38 @@ def _enforce_module_first(tasks: List[Dict[str, Any]]) -> None:
             if not removed:
                 break
 
-def _sanitize_impl_verification_commands(plan: Dict[str, Any]) -> Dict[str, Any]:
+def _sanitize_impl_verification_commands(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[str, Any]:
     """Rewrite impl verification_commands that reference a sibling oracle's tests.
 
     ``ORACLE_FILES`` is the union of ``files_touched`` across every
     ``test_authoring`` task.  Each non-``test_authoring`` task whose
     ``verification_command`` is a non-empty string naming any oracle file is
-    rewritten to a smoke import (``python -c "import <m1>, <m2>"``) of that
-    task's own importable modules -- its ``files_touched`` entries ending in
-    ``.py``, not under ``tests/`` and not themselves oracle files, with
-    slashes turned into dots and the trailing ``.py`` dropped, in stable
-    ``files_touched`` order.  When the task has no importable target the oracle
+    rewritten so it actually exercises its own touched module(s) rather than a
+    sibling oracle's tests.
+
+    A task's importable targets are its ``files_touched`` entries ending in
+    ``.py``, not under ``tests/`` and not themselves oracle files, with slashes
+    turned into dots and the trailing ``.py`` dropped, in stable
+    ``files_touched`` order.
+
+    When ``repo_root`` is ``None`` the behaviour is unchanged (pure, no I/O):
+    the command becomes a smoke import (``python -c "import <m1>, <m2>"``) of
+    those importable modules; when the task has no importable target the oracle
     tokens are stripped from the command while the rest is preserved; if
     nothing meaningful would remain the command is left unchanged (never a
     bare ``pytest``).
 
-    The pass is pure (operates on a deep copy, no I/O), idempotent, and a
-    strict no-op when no impl command references an oracle file.
+    When ``repo_root`` is not ``None``, each importable target's leaf module
+    name is used to glob ``Path(repo_root).glob('tests/**/test_<leaf>.py')``;
+    matches recorded as repo-relative posix paths, excluding any path present
+    in ``ORACLE_FILES``, de-duplicated and stably sorted.  If one or more such
+    existing test files are found the command becomes
+    ``'python -m pytest ' + ' '.join(existing_tests) + ' -q'``; otherwise the
+    smoke-import / token-strip fallback chain above applies.
+
+    The pass operates on a deep copy and is idempotent; with ``repo_root=None``
+    it is byte-identical to its prior behaviour and a strict no-op when no impl
+    command references an oracle file.
     """
     import os
     if not isinstance(plan, dict):
@@ -219,6 +234,7 @@ def _sanitize_impl_verification_commands(plan: Dict[str, Any]) -> Dict[str, Any]
         if not any((of in vcmd for of in oracle_files)):
             continue
         modules: List[str] = []
+        leaves: List[str] = []
         for f in _files_touched(t):
             if not isinstance(f, str) or not f.endswith('.py'):
                 continue
@@ -229,6 +245,28 @@ def _sanitize_impl_verification_commands(plan: Dict[str, Any]) -> Dict[str, Any]
             mod = f[:-len('.py')].replace(os.sep, '.').replace('/', '.')
             if mod and mod not in modules:
                 modules.append(mod)
+            leaf = mod.rsplit('.', 1)[-1] if mod else ''
+            if leaf and leaf not in leaves:
+                leaves.append(leaf)
+        if repo_root is not None and leaves:
+            from pathlib import Path
+            root = Path(repo_root)
+            existing_tests: List[str] = []
+            seen: Set[str] = set()
+            for leaf in leaves:
+                for match in root.glob('tests/**/test_' + leaf + '.py'):
+                    try:
+                        rel = match.relative_to(root).as_posix()
+                    except ValueError:
+                        rel = match.as_posix()
+                    if rel in oracle_files or rel in seen:
+                        continue
+                    seen.add(rel)
+                    existing_tests.append(rel)
+            existing_tests = sorted(existing_tests)
+            if existing_tests:
+                t['verification_command'] = 'python -m pytest ' + ' '.join(existing_tests) + ' -q'
+                continue
         if modules:
             t['verification_command'] = 'python -c "import ' + ', '.join(modules) + '"'
             continue
@@ -238,13 +276,18 @@ def _sanitize_impl_verification_commands(plan: Dict[str, Any]) -> Dict[str, Any]
         if meaningful:
             t['verification_command'] = ' '.join(kept)
     return result
-def normalize_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[str, Any]:
     """Auto-correct a leaf plan: dedupe oracles + enforce module-first order.
 
     The function is pure: it deep-copies ``plan`` and never mutates the
     input.  It is idempotent and a strict no-op for already-correct plans,
     preserving every top-level key and every task field it does not
     explicitly touch.
+
+    ``repo_root`` is threaded into
+    :func:`_sanitize_impl_verification_commands` so impl verification commands
+    can be mapped to existing regression tests; with ``repo_root=None`` the
+    output is byte-identical to its prior behaviour.
     """
     normalized = copy.deepcopy(plan)
     if not isinstance(normalized, dict):
@@ -255,5 +298,5 @@ def normalize_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
     tasks = _dedupe_oracles(tasks)
     normalized['tasks'] = tasks
     _enforce_module_first(tasks)
-    normalized = _sanitize_impl_verification_commands(normalized)
+    normalized = _sanitize_impl_verification_commands(normalized, repo_root)
     return normalized
