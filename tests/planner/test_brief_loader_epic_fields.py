@@ -78,7 +78,10 @@ def test_to_agent_prompt_unaffected_by_epic_fields() -> None:
 
 
 def test_fields_declared_in_dataclass_order() -> None:
-    # epic + complexity_score must be the LAST two fields (after working_dir) so
-    # the default-argument ordering of the frozen dataclass stays legal.
+    # epic + complexity_score must follow working_dir so the default-argument
+    # ordering of the frozen dataclass stays legal. (Brief 3 appends
+    # dependencies + interfaces after complexity_score, so this asserts the
+    # contiguous working_dir -> epic -> complexity_score run, not the tail.)
     names = [f.name for f in dataclasses.fields(PlanningBrief)]
-    assert names[-3:] == ["working_dir", "epic", "complexity_score"], names
+    wd = names.index("working_dir")
+    assert names[wd : wd + 3] == ["working_dir", "epic", "complexity_score"], names
