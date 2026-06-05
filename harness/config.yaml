@@ -88,7 +88,7 @@ fuzzing:
   seed: 42
   timeout_per_input_ms: 5000
 hierarchical_planning:
-  enabled: false
+  enabled: true
   failure_propagation: false
   max_planner_depth: 4
   symbol_ledger: false

@@ -28,10 +28,14 @@ def test_hierarchical_planning_block_present() -> None:
     )
 
 
-def test_hierarchical_planning_enabled_default_false() -> None:
+def test_hierarchical_planning_enabled_activated() -> None:
+    # Shipped default-off (fail-closed) through Phase-1 build; the operator
+    # activated the loop on 2026-06-05 once all 17 briefs + the webui surface
+    # landed. The Level-2 subflags below remain off, and the allowlist is still
+    # deny-all by default, so activation alone dispatches nothing.
     cfg = _load_cfg()
-    assert cfg["hierarchical_planning"].get("enabled") is False, (
-        "hierarchical_planning.enabled must be False by default (fail-closed)"
+    assert cfg["hierarchical_planning"].get("enabled") is True, (
+        "hierarchical_planning.enabled was activated by the operator post-Phase-1"
     )
 
 
