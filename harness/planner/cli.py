@@ -249,7 +249,7 @@ def main(args=None):
     repo_root = state_dir.parent
     slug = _brief_slug(brief_obj)
     max_depth = _resolve_max_planner_depth(config)
-    if not check_brief_depth(slug, repo_root, max_depth):
+    if slug and not check_brief_depth(slug, repo_root, max_depth):
         print(f'Epic depth budget exceeded for brief {slug!r}; refusing to plan.', file=sys.stderr)
         sys.exit(2)
     if _should_run_epic(brief_obj, config):
