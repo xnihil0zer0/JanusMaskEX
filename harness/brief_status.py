@@ -74,7 +74,40 @@ def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
     records.sort(key=lambda x: x['brief_mtime'], reverse=True)
     return records
 
-def compute_autowork_eligibility(repo_root: Path, state_dir: Path, now=None, max_age_sec: int=604800) -> dict:
+def _resolve_allowlisted_child_slugs(repo_root, allow) -> set:
+    if not allow:
+        return set()
+    epic_children: dict = {}
+    try:
+        paths = sorted(Path(repo_root).glob('plan_hooks_*.json'))
+    except Exception:
+        return set()
+    for path in paths:
+        try:
+            rec = json.loads(path.read_text(encoding='utf-8'))
+        except Exception:
+            continue
+        if not isinstance(rec, dict) or rec.get('plan_kind') != 'epic':
+            continue
+        es = rec.get('epic_slug')
+        cs = rec.get('child_slugs') or []
+        if isinstance(es, str) and es and isinstance(cs, list):
+            epic_children.setdefault(es, []).extend([c for c in cs if isinstance(c, str) and c])
+    admitted: set = set()
+    frontier = [e for e in allow if e in epic_children]
+    seen: set = set()
+    while frontier:
+        e = frontier.pop()
+        if e in seen:
+            continue
+        seen.add(e)
+        for c in epic_children.get(e, []):
+            if c not in admitted:
+                admitted.add(c)
+                if c in epic_children:
+                    frontier.append(c)
+    return admitted
+def compute_autowork_eligibility(repo_root: Path, state_dir: Path, now=None, max_age_sec: int=604800, config=None) -> dict:
     import time
     if now is None:
         now = time.time()
@@ -88,6 +121,9 @@ def compute_autowork_eligibility(repo_root: Path, state_dir: Path, now=None, max
             allow = {s for line in lines if (s := line.strip()) and (not s.startswith('#'))}
         except OSError:
             allow = None
+    effective_allow = allow
+    if config is not None and config.get('hierarchical_planning', {}).get('enabled', False) and allow:
+        effective_allow = allow | _resolve_allowlisted_child_slugs(repo_root, allow)
     eligible: list[str] = []
     blocked: list[dict] = []
     dispatchable: list[str] = []
@@ -103,7 +139,7 @@ def compute_autowork_eligibility(repo_root: Path, state_dir: Path, now=None, max
             mtime = 0.0
         if mtime <= 0 or now - mtime > float(max_age_sec):
             blocked.append({'slug': slug, 'reason': 'stale'})
-        elif slug not in (allow or set()):
+        elif slug not in (effective_allow or set()):
             blocked.append({'slug': slug, 'reason': 'allowlist_missing' if allow is None else 'not_in_allowlist'})
         else:
             eligible.append(slug)
@@ -146,8 +182,8 @@ def record_epic_complete(epic_slug: str, state_dir: Path) -> None:
         write_jsonl_row(Path(state_dir) / 'impl_progress.jsonl', {'ts': time.time(), 'phase': 'epic', 'event': 'epic_complete', 'epic_slug': epic_slug})
     except Exception:
         pass
-def compute_autowork_backlog(repo_root: Path, state_dir: Path, now=None, max_age_sec: int=604800) -> dict:
-    eligibility = compute_autowork_eligibility(repo_root, state_dir, now, max_age_sec)
+def compute_autowork_backlog(repo_root: Path, state_dir: Path, now=None, max_age_sec: int=604800, config=None) -> dict:
+    eligibility = compute_autowork_eligibility(repo_root, state_dir, now, max_age_sec, config)
     records = compute_brief_status(repo_root, state_dir)
     record_index = {r['slug']: r for r in records}
     eligible_with_work: list[str] = []
