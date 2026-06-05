@@ -30,14 +30,24 @@ import pathlib
 import pytest
 
 
-def test_config_keys_default_off_and_ceiling_present():
-    """The two NET-NEW synthesis config keys must exist with safe defaults."""
+def test_config_keys_present_and_ceiling_materialized():
+    """The two NET-NEW synthesis config keys must exist and be materialized.
+
+    OWNER POSTURE (2026-06-05): single-agent promotion is intentionally ON under
+    the active autonomy posture (the in-env Claude planning role dies rc=2 in-jail
+    so plans are gemini-only; single-agent promotion is what lets the daemon plan
+    children hands-off). The key must still be MATERIALIZED (present, not absent)
+    and the ceiling present.
+    """
     from harness import orchestrator as orch
     cfg = orch.load_config(pathlib.Path('harness/config.yaml'))
     syn = cfg.get('synthesis', {})
-    # default OFF
-    assert syn.get('enable_single_agent_promotion', False) is False, (
-        'enable_single_agent_promotion must exist in config.yaml and default false'
+    # materialized + ON under the active posture
+    assert 'enable_single_agent_promotion' in syn, (
+        'enable_single_agent_promotion must be a materialized synthesis config key'
+    )
+    assert syn.get('enable_single_agent_promotion') is True, (
+        'enable_single_agent_promotion is ON under the active fully-unattended posture'
     )
     # ceiling present (default 3) — key must be materialized, not absent
     assert 'single_agent_promotion_ceiling' in syn, (

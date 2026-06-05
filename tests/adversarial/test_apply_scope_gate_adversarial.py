@@ -297,14 +297,19 @@ class TestA7MttPrecedence:
 # C6 — untracked-test sidecar synthesis OVERRIDES .patches.json (memory hazard)
 # --------------------------------------------------------------------------- #
 class TestC6UntrackedTestPoisonsPatches:
-    def test_untracked_test_converts_patches_to_multi_and_fails_membership(self, tmp_repo):
-        """KNOWN cross-feature bug (MEMORY: untracked test poisons patches
-        commit). A .patches.json + an untracked tests/test_*.py in the parent
-        worktree causes commit_accepted_output to BUILD a .files.json manifest
-        (gi:603-629) and route to _commit_accepted_output_multi (gi:633) — the
-        .patches.json path (gi:636) is NEVER reached. The synthesized manifest
-        includes the untracked test, which is NOT in allowed_files, so the §1b
-        membership check then REJECTS the whole commit."""
+    def test_patches_sidecar_takes_precedence_untracked_test_not_swept(self, tmp_repo):
+        """REGRESSION BAR (REV26 punb2a fix, ITEM2): a .patches.json sidecar
+        takes PRECEDENCE over untracked-test manifest synthesis. With a
+        .patches.json + an untracked tests/test_*.py in the parent worktree,
+        commit_accepted_output must NOT synthesize a poisoning .files.json
+        manifest (the untracked-test sweep is guarded by `not patches_sidecar_exists`
+        at git_integration.py:662) and must route to _commit_accepted_output_patches
+        (gi:691-698). The patches commit succeeds, ONLY the declared target is
+        committed, and the untracked test is NEVER swept in.
+
+        Pre-fix behavior (the bug this pins): the manifest WAS synthesized,
+        included the untracked test, routed to _multi, and the §1b membership
+        check rejected the whole commit (committed False, 'not a member')."""
         sd = tmp_repo / "state"
         # patches sidecar for an in-scope, non-sensitive target
         (sd / "output" / "P.patches.json").write_text(json.dumps([
@@ -319,21 +324,23 @@ class TestC6UntrackedTestPoisonsPatches:
         _git(["commit", "-qm", "add f + track tests"], tmp_repo)
         # untracked test in parent worktree (state_dir.parent == tmp_repo)
         (tmp_repo / "tests" / "test_poison.py").write_text("def test_x():\n    assert True\n")
-        # whole-file output so manifest synthesis has a body for the target
+        # whole-file output present too; the patches sidecar must still win.
         (sd / "output" / "P.py").write_text("def f():\n    return 1\n")
         r = gi.commit_accepted_output(
             "P", str(tmp_repo / "pkg" / "mod.py"), sd, worktree_root=tmp_repo,
             allowed_files={"pkg/mod.py"}, meta_task_type=None, approval_ok=False)
-        # The .files.json sidecar was synthesized (clobbering the patches path)
+        # The poisoning .files.json manifest must NOT be synthesized.
         synthesized = (sd / "output" / "P.files.json")
-        assert synthesized.exists(), "untracked-test block did not synthesize a manifest"
-        manifest = json.loads(synthesized.read_text())
-        assert "tests/test_poison.py" in manifest, "untracked test not swept into manifest"
-        # And membership now rejects the whole commit because the untracked
-        # test is not a declared file.
-        assert r["committed"] is False
-        assert "not a member" in (r["error"] or ""), r
-        assert "tests/test_poison.py" in (r["error"] or "")
+        assert not synthesized.exists(), "patches sidecar did not suppress untracked-test manifest synthesis"
+        # The patches path was taken and the commit SUCCEEDED.
+        assert r["committed"] is True, r
+        assert str(r.get("target", "")).endswith("P.patches.json"), r
+        # Only the declared target was committed; the untracked test stays untracked.
+        committed_files = _git(["show", "--stat", "--name-only", "--format=", "HEAD"], tmp_repo).stdout
+        assert "pkg/mod.py" in committed_files, committed_files
+        assert "tests/test_poison.py" not in committed_files, committed_files
+        tracked = _git(["ls-files", "tests/test_poison.py"], tmp_repo).stdout.strip()
+        assert tracked == "", f"untracked test was swept into the repo: {tracked!r}"
 
 
 # --------------------------------------------------------------------------- #

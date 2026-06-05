@@ -700,9 +700,9 @@ def test_TC5_5_decide_write_or_replace_outbox_containment(hook_roots):
 def test_TC5_6_hook_gate_inert_for_bare_agy_GAP():
     """GAP (high) — ACCEPTED AS DOCUMENTED, NOT a code bug to fix blindly.
 
-    The production gemini command is bare ``agy -p --sandbox`` with NO
-    --settings/BeforeTool hook, so _SHELL_ALLOW / _decide_shell NEVER load for the
-    real agent; Group-5 hardening protects only a hypothetical settings-wired
+    The production gemini command is bare ``agy -p --dangerously-skip-permissions``
+    with NO --settings/BeforeTool hook, so _SHELL_ALLOW / _decide_shell NEVER load
+    for the real agent; Group-5 hardening protects only a hypothetical settings-wired
     invocation. This is AGENT_ISOLATION §5's OPEN QUESTION (project-scoped agy
     config), explicitly accepted by JANUSMASKJR_GAP_REMEDIATION_PLAN.md Phase C / H7:
     Layer C is by-design inert for agy and containment rests on CWD relocation
@@ -711,12 +711,17 @@ def test_TC5_6_hook_gate_inert_for_bare_agy_GAP():
     scoped task, NOT part of this plan's critical path. This stays a PINNED
     characterization test (it asserts the accepted limitation, must not 'go green'
     via a partial hook bolt-on). Read the real config.yaml and prove the wiring is
-    absent."""
+    absent.
+
+    NOTE (2026-06-05): ``--sandbox`` was intentionally DROPPED from the agy args
+    (agy 1.0.4 had no such flag -> rc=2 crash). The hook-gate inertness this test
+    pins is independent of --sandbox; assert it is absent so the stale expectation
+    does not silently re-introduce it."""
     cfg = orch.load_config()
     gem = cfg["agents"]["gemini"]
     assert str(gem["command"]).endswith("/agy"), gem["command"]
     args = gem["args"]
-    assert "--sandbox" in args
+    assert "--sandbox" not in args
     assert "--settings" not in args
     assert not any("gemini_settings.json" in str(a) for a in args)
 

@@ -17,6 +17,11 @@ def test_config_declares_auto_approve_sensitive_harness() -> None:
     )
     
     cfg = yaml.safe_load(cfg_text)
-    assert cfg.get("autowork", {}).get("auto_approve_sensitive_harness") is False, (
-        "autowork.auto_approve_sensitive_harness must be False by default"
+    # OWNER POSTURE (2026-06-05): autowork.enabled is the security switch; with
+    # it ON, auto_approve_sensitive_harness is intentionally True so Phase-2
+    # builds fully unattended. The irreducible _NEVER_AUTO_APPROVE deny-list
+    # (verified elsewhere) is the floor that stays regardless of this flag.
+    assert cfg.get("autowork", {}).get("auto_approve_sensitive_harness") is True, (
+        "autowork.auto_approve_sensitive_harness must be True under the active "
+        "fully-unattended autonomy posture"
     )

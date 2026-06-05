@@ -45,21 +45,23 @@ def test_run_planner_subprocess_returns_three_tuple(
     element is the planner's stderr tail (str, last 512 bytes,
     utf-8 errors='replace').
 
-    Validated by stubbing ``subprocess.run`` so the helper observes a
+    Validated by stubbing ``subprocess.Popen`` so the helper observes a
     sentinel stderr — the assertion is on the helper's return shape +
-    third-element value.
+    third-element value. The production helper uses Popen + communicate()
+    (NOT subprocess.run) so it can kill the planner's whole process group on
+    timeout; the seam is therefore Popen, and that is what we stub here.
     """
     ad = autowork
 
-    class _FakeProc:
-        returncode = 1
-        stderr = b"STDERR_SENTINEL_RP3_PROPAGATE"
-        stdout = b""
+    class _FakePopen:
+        def __init__(self, *args, **kwargs):
+            self.returncode = None
 
-    def _fake_run(*args, **kwargs):
-        return _FakeProc()
+        def communicate(self, timeout=None):
+            self.returncode = 1
+            return (b"", b"STDERR_SENTINEL_RP3_PROPAGATE")
 
-    monkeypatch.setattr(ad.subprocess, "run", _fake_run)
+    monkeypatch.setattr(ad.subprocess, "Popen", _FakePopen)
 
     brief = tmp_path / "brief.md"
     brief.write_text("# Title\n", encoding="utf-8")

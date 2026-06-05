@@ -572,8 +572,8 @@ class TestEnsureValidMutations:
             # Flip BOTH validate() and ensure_valid() defaults so the
             # call inside ensure_valid still composes coherently.
             new = txt.replace(
-                "def ensure_valid(\n    code: str, allow_nondeterminism: bool = False\n) -> list[Violation]:",
-                "def ensure_valid(\n    code: str, allow_nondeterminism: bool = True\n) -> list[Violation]:",
+                "def ensure_valid(\n    code: str, allow_nondeterminism: bool = False, relax_external_constructs: bool = False\n) -> list[Violation]:",
+                "def ensure_valid(\n    code: str, allow_nondeterminism: bool = True, relax_external_constructs: bool = False\n) -> list[Violation]:",
             )
             assert new != txt
             return {SUBMIT_PATH: new}
@@ -639,8 +639,8 @@ class TestEnsureValidMutations:
         def mutate(snap):
             txt = snap[SUBMIT_PATH]
             new = txt.replace(
-                "violations = validate_code(code, allow_nondeterminism=allow_nondeterminism)",
-                "violations = validate_code(code, allow_nondeterminism=not allow_nondeterminism)",
+                "violations = validate_code(\n        code,\n        allow_nondeterminism=allow_nondeterminism,\n        relax_external_constructs=relax_external_constructs,\n    )",
+                "violations = validate_code(\n        code,\n        allow_nondeterminism=not allow_nondeterminism,\n        relax_external_constructs=relax_external_constructs,\n    )",
             )
             return {SUBMIT_PATH: new}
         killed, tail = _apply_and_check_killed(mutate)
@@ -921,8 +921,8 @@ class TestCrossCuttingMutations:
         def mutate(snap):
             txt = snap[SUBMIT_PATH]
             new = txt.replace(
-                "def validate(code: str, *, allow_nondeterminism: bool = False) -> list[Violation]:",
-                "def validate(code: str, *, allow_nondeterminism: bool = True) -> list[Violation]:",
+                "def validate(code: str, *, allow_nondeterminism: bool = False, relax_external_constructs: bool = False) -> list[Violation]:",
+                "def validate(code: str, *, allow_nondeterminism: bool = True, relax_external_constructs: bool = False) -> list[Violation]:",
             )
             return {SUBMIT_PATH: new}
         killed, tail = _apply_and_check_killed(mutate)
