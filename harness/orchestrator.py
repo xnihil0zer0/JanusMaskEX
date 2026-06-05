@@ -1358,6 +1358,16 @@ def get_next_task(state_dir: Path) -> dict[str, Any] | None:
         if deps:
             unmet = [d for d in deps if f'{d}.json' not in accepted_names]
             if unmet:
+                # A3: an unmet dep that has TERMINALLY failed (.exhausted) can
+                # never be accepted -> terminally block this dependent instead
+                # of skipping it forever (which hangs the single-task worker).
+                terminal = _terminally_failed_task_ids(state_dir)
+                failed_deps = [d for d in unmet if d in terminal]
+                if failed_deps:
+                    logger.warning('Task %s depends on terminally-failed %s; routing to blocked/ (dependency_failed)', candidate.stem, failed_deps)
+                    _mark_dependency_failed(state_dir, candidate.stem, failed_deps)
+                    processed_names.add(candidate.name)
+                    continue
                 logger.debug('Skipping %s: unmet dependencies %s', candidate.name, unmet)
                 continue
         candidate_task_id = candidate.stem
@@ -1845,6 +1855,50 @@ def _mark_blocked(state_dir: Path, task_id: str, outcome: str='rejected') -> Non
             current_task_path.unlink()
         except OSError as e:
             logger.warning('Failed to remove current_task_%s.json: %s', task_id, e)
+
+def _terminally_failed_task_ids(state_dir: Path) -> set[str]:
+    """A3: task ids that have TERMINALLY failed.
+
+    A blocked task whose retry budget is exhausted gets a
+    ``blocked/<id>.exhausted`` marker (autowork_daemon._retry_blocked_tasks);
+    per D-RETRY-CFG it is never re-staged again. A candidate that depends on
+    such a task can therefore never have its dependency accepted, so it must be
+    routed to blocked rather than skipped forever (the dep gate only treats
+    ACCEPTED deps as met)."""
+    blocked_dir = state_dir / 'tasks' / 'blocked'
+    out: set[str] = set()
+    if not blocked_dir.is_dir():
+        return out
+    try:
+        for p in blocked_dir.glob('*.exhausted'):
+            out.add(p.name[:-len('.exhausted')])
+    except OSError:
+        pass
+    return out
+
+
+def _mark_dependency_failed(state_dir: Path, task_id: str, failed_deps: list[str]) -> None:
+    """A3: terminally block a task whose dependency has terminally failed.
+
+    Routes the task to blocked/ (via _mark_blocked) AND writes its own
+    ``blocked/<id>.exhausted`` marker so ``_retry_blocked_tasks`` never
+    re-stages it (retrying is futile -- the dep is permanently dead) and the
+    autobrief escalation (which would try to fix THIS task) does not fire.
+    Without this, a dependent of an exhausted dep is neither runnable nor
+    blocked, so the dispatch loop skips it forever / the single-task worker
+    times out."""
+    _mark_blocked(state_dir, task_id, outcome='dependency_failed')
+    blocked_dir = state_dir / 'tasks' / 'blocked'
+    try:
+        blocked_dir.mkdir(parents=True, exist_ok=True)
+        (blocked_dir / f'{task_id}.exhausted').write_text('1', encoding='utf-8')
+    except OSError as e:
+        logger.warning('Failed to write .exhausted for dependency_failed %s: %s', task_id, e)
+    try:
+        write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'autowork', 'task_id': task_id, 'event': 'dependency_failed', 'detail': f'terminally blocked: dependency terminally failed ({failed_deps})'})
+    except OSError:
+        pass
+
 
 def _resolve_files_touched(state_dir: Path, task: dict[str, Any], task_id: str) -> list[str]:
     """Return the files_touched list for a task.

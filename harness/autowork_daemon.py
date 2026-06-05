@@ -970,6 +970,74 @@ def _retry_blocked_tasks(state_dir: pathlib.Path, summary: dict, max_attempts: i
         restaged += 1
     return restaged
 
+def _block_dependency_failed_tasks(state_dir: pathlib.Path, summary: dict | None=None) -> int:
+    """A3: terminally block queued tasks whose dependency has TERMINALLY failed.
+
+    A blocked dep whose retry budget is exhausted carries a
+    ``blocked/<dep>.exhausted`` marker (see :func:`_retry_blocked_tasks`). The
+    dep gates (:func:`collect_dispatchable_tasks` /
+    ``orchestrator.get_next_task``) only treat ACCEPTED deps as met, so a
+    dependent of an exhausted dep is neither dispatchable nor blocked -> it
+    hangs the queue forever. Route it to blocked/ with its OWN ``.exhausted``
+    marker (retrying is futile; the dep is permanently dead) -- no re-stage, no
+    autobrief escalation. Returns the count blocked.
+    """
+    state_dir = pathlib.Path(state_dir)
+    tasks_dir = state_dir / 'tasks'
+    blocked_dir = tasks_dir / 'blocked'
+    if not tasks_dir.is_dir() or not blocked_dir.is_dir():
+        return 0
+    terminal: set[str] = set()
+    try:
+        for p in blocked_dir.glob('*.exhausted'):
+            terminal.add(p.name[:-len('.exhausted')])
+    except OSError:
+        return 0
+    if not terminal:
+        return 0
+    try:
+        entries = list(tasks_dir.glob('*.json'))
+    except OSError:
+        return 0
+    blocked_count = 0
+    for p in entries:
+        name = p.name
+        if name.startswith('current_task') or name.endswith('.retry.json'):
+            continue
+        tid = name[:-len('.json')]
+        try:
+            data = json.loads(p.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+        deps = data.get('dependencies') or data.get('depends_on') or []
+        failed = [d for d in deps if isinstance(d, str) and d in terminal]
+        if not failed:
+            continue
+        dest = blocked_dir / f'{tid}.json'
+        try:
+            if dest.exists():
+                p.unlink()
+            else:
+                p.rename(dest)
+        except OSError:
+            continue
+        try:
+            (blocked_dir / f'{tid}.exhausted').write_text('1', encoding='utf-8')
+        except OSError:
+            pass
+        _bump_blocked_sidecar(state_dir, tid, 'dependency_failed')
+        cur = tasks_dir / f'current_task_{tid}.json'
+        if cur.exists():
+            try:
+                cur.unlink()
+            except OSError:
+                pass
+        _emit_telemetry(state_dir, tid, 'dependency_failed', f'dependency terminally failed {failed}; terminally blocked')
+        blocked_count += 1
+    if blocked_count and isinstance(summary, dict):
+        summary['dependency_failed'] = summary.get('dependency_failed', 0) + blocked_count
+    return blocked_count
+
 def _write_pidfile(state_dir: pathlib.Path, task_id: str, pid: int) -> None:
     rdir = _running_dir(state_dir)
     try:
@@ -1238,6 +1306,15 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
     except Exception as exc:
         try:
             write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.time(), 'phase': 'autowork', 'task_id': '', 'event': 'silent_skip', 'detail': f'retry_blocked: {type(exc).__name__}: {exc!r}', 'phase_tag': 'auto_promote_step_0_retry_blocked', 'exit': 0})
+        except OSError:
+            pass
+    # A3: terminally block dependents of an .exhausted dep BEFORE the dispatch
+    # scan so a dead dependency never hangs the queue (best-effort; never raises).
+    try:
+        _block_dependency_failed_tasks(state_dir, summary)
+    except Exception as exc:
+        try:
+            write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.time(), 'phase': 'autowork', 'task_id': '', 'event': 'silent_skip', 'detail': f'block_dependency_failed: {type(exc).__name__}: {exc!r}', 'phase_tag': 'auto_promote_step_0b_block_dependency_failed', 'exit': 0})
         except OSError:
             pass
     # SELFHEAL S3: best-effort harvest of dead-letter self-heal briefs back
