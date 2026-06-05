@@ -102,6 +102,15 @@ def persist_plan(plan, out_path, brief_obj=None):
         wd = getattr(brief_obj, 'working_dir', None)
         if isinstance(wd, str) and wd and 'working_dir' not in plan:
             plan['working_dir'] = wd
+        pe = getattr(brief_obj, 'parent_epic_slug', None)
+        if isinstance(pe, str) and pe and 'parent_epic_slug' not in plan:
+            plan['parent_epic_slug'] = pe
+        if plan.get('plan_kind') == 'epic' and 'epic_slug' not in plan:
+            sp2 = getattr(brief_obj, 'source_path', None)
+            if isinstance(sp2, str):
+                stem = Path(sp2).stem
+                slug = stem[len('brief_hooks_'):] if stem.startswith('brief_hooks_') else stem
+                plan['epic_slug'] = slug
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(plan, f, indent=2)
 
