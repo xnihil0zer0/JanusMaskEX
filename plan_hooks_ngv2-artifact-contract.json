@@ -1,0 +1,127 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2_contracts_impl",
+      "title": "Implement ngv2/contracts.py artifact dataclasses (Finding / PoC / LiveTestReport)",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/contracts.py"
+      ],
+      "acceptance_criteria": [
+        "NEW file ngv2/contracts.py is created; pure, deterministic, stdlib-only importing ONLY from dataclasses and typing.",
+        "Module exposes SEVERITIES = ('low','medium','high','critical') and VERDICTS = ('confirmed','refuted','error','inconclusive') as module-level tuples.",
+        "Finding is a @dataclass with fields in exact order: id:str, target:str, category:str, severity:str, title:str, description:str, evidence:list = field(default_factory=list).",
+        "PoC is a @dataclass with fields: finding_id:str, language:str, code:str, entrypoint:str.",
+        "LiveTestReport is a @dataclass with fields: poc_finding_id:str, verdict:str, exit_code (int or None), stdout:str, stderr:str, duration_ms:int.",
+        "Each class exposes to_dict() -> dict keyed EXACTLY by its field names, classmethod from_dict(d) reconstructing an equal instance, and validate() -> None.",
+        "Finding.from_dict defaults evidence to [] when the key is absent; from_dict(to_dict(x)) == x for all three classes via default __eq__.",
+        "Finding.validate raises ValueError if severity not in SEVERITIES or if any of id/target/category/title is not a non-empty str.",
+        "PoC.validate raises ValueError if any of the four fields is not a non-empty str.",
+        "LiveTestReport.validate raises ValueError if verdict not in VERDICTS, or duration_ms < 0, or poc_finding_id is not a non-empty str (exit_code may be int or None).",
+        "No eval/exec/__import__, no I/O, file access, network, globals, or randomness; no fields/methods/symbols beyond those specified; no field name or order changes.",
+        "python -m pytest tests/test_contracts.py -q passes."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/test_contracts.py -q",
+      "spec": {
+        "objective": "Create the L0 artifact contract module ngv2/contracts.py defining the Finding, PoC, and LiveTestReport dataclasses plus the SEVERITIES and VERDICTS constants, each with deterministic to_dict/from_dict round-tripping and validate() rules, satisfying the already-committed oracle tests/test_contracts.py.",
+        "functional_requirements": [
+          "Define module constants SEVERITIES = ('low','medium','high','critical') and VERDICTS = ('confirmed','refuted','error','inconclusive') as tuples.",
+          "Define @dataclass Finding with fields in order id:str, target:str, category:str, severity:str, title:str, description:str, evidence:list=field(default_factory=list), using default __eq__.",
+          "Define @dataclass PoC with fields finding_id:str, language:str, code:str, entrypoint:str, using default __eq__.",
+          "Define @dataclass LiveTestReport with fields poc_finding_id:str, verdict:str, exit_code (int or None), stdout:str, stderr:str, duration_ms:int, using default __eq__.",
+          "Each class implements to_dict() -> dict keyed exactly by its field names with no extra keys.",
+          "Each class implements classmethod from_dict(d) reconstructing an instance equal to the original under default __eq__, with Finding.from_dict defaulting evidence to [] when the key is absent.",
+          "Finding.validate() raises ValueError when severity not in SEVERITIES or when any of id/target/category/title is not a non-empty str; otherwise returns None.",
+          "PoC.validate() raises ValueError when any of finding_id/language/code/entrypoint is not a non-empty str; otherwise returns None.",
+          "LiveTestReport.validate() raises ValueError when verdict not in VERDICTS, or duration_ms < 0, or poc_finding_id is not a non-empty str (exit_code may be int or None); otherwise returns None."
+        ],
+        "interfaces": "SEVERITIES = ('low','medium','high','critical'); VERDICTS = ('confirmed','refuted','error','inconclusive'); @dataclass Finding(id:str, target:str, category:str, severity:str, title:str, description:str, evidence:list=field(default_factory=list)) with to_dict()->dict, classmethod from_dict(d)->Finding, validate()->None; @dataclass PoC(finding_id:str, language:str, code:str, entrypoint:str) with to_dict()->dict, classmethod from_dict(d)->PoC, validate()->None; @dataclass LiveTestReport(poc_finding_id:str, verdict:str, exit_code, stdout:str, stderr:str, duration_ms:int) with to_dict()->dict, classmethod from_dict(d)->LiveTestReport, validate()->None.",
+        "edge_cases": [
+          "Finding.from_dict called with a dict lacking the 'evidence' key must produce a Finding with evidence == [].",
+          "Round-trip from_dict(to_dict(x)) == x must hold including when evidence is a populated list.",
+          "validate() must treat empty strings and non-str values (e.g. None, ints) as invalid for the non-empty str checks.",
+          "LiveTestReport.exit_code may legitimately be None or an int and validate() must accept both.",
+          "LiveTestReport.validate() must reject negative duration_ms (boundary: 0 is valid, -1 is invalid).",
+          "to_dict() must contain exactly the declared field names as keys and no others."
+        ],
+        "non_goals": [
+          "Do NOT author, create, or modify any test file; tests/test_contracts.py is already committed.",
+          "Do NOT use eval, exec, or __import__.",
+          "Do NOT add fields, methods, or symbols beyond those specified, and do NOT change field names or order.",
+          "Do NOT add I/O, file access, network, globals, or randomness; import only from dataclasses/typing.",
+          "Do NOT define the state machine or detonation chamber here, and do NOT collapse modules."
+        ],
+        "implementation_notes": "Single new file ngv2/contracts.py. Use dataclasses.dataclass, dataclasses.field, and dataclasses.fields/asdict as helpers if desired (still stdlib-only). Implement to_dict() by enumerating the dataclass field names (e.g. {f.name: getattr(self, f.name) for f in fields(self)}). Implement from_dict() as a classmethod selecting only known keys; for Finding default evidence to [] when absent. Rely on default dataclass __eq__ so round-trip equality holds. validate() should perform explicit isinstance(..., str) and truthiness checks for non-empty-str rules and membership checks against SEVERITIES/VERDICTS. Keep the module free of side effects at import time."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_severities_and_verdicts_constants_exact"
+          },
+          {
+            "name": "test_finding_fields_order_and_evidence_default_factory"
+          },
+          {
+            "name": "test_poc_fields"
+          },
+          {
+            "name": "test_livetestreport_fields"
+          },
+          {
+            "name": "test_to_dict_keyed_exactly_by_field_names"
+          },
+          {
+            "name": "test_from_dict_roundtrip_equal_via_default_eq"
+          },
+          {
+            "name": "test_finding_from_dict_defaults_evidence_when_absent"
+          },
+          {
+            "name": "test_finding_validate_severity_and_nonempty_str_rules"
+          },
+          {
+            "name": "test_poc_validate_nonempty_str_rules"
+          },
+          {
+            "name": "test_livetestreport_validate_verdict_duration_and_exit_code_rules"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_committed_oracle_test_contracts_passes"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_roundtrip_equality_property_for_all_three_dataclasses"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_no_extra_symbols_or_imports_introduced"
+          }
+        ],
+        "minimum_test_count": 14,
+        "test_data_requirements": "Valid and invalid instances of each dataclass: Findings with/without evidence and with invalid severity or empty/non-str id/target/category/title; PoCs with empty/non-str fields; LiveTestReports with valid/invalid verdict, negative duration_ms, and exit_code as int and None. The authoritative tests are the already-committed tests/test_contracts.py; no new test data files are created."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "IMPL-ONLY task: tests/test_contracts.py is already committed, so no test authoring is performed; the test_tokens figure reflects the committed oracle that gates this task rather than new test work."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "brief_hooks_ngv2-artifact-contract.md",
+  "source_brief_sha256": "cbe35e1ae75494fb0119c769d86899a1480024bd74517dd20f5eb41c65ed3a73",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

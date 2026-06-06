@@ -1,0 +1,150 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2-state-machine",
+      "title": "ngv2 state machine: deterministic hunt phase machine over Finding",
+      "meta_task_type": "state_machine",
+      "priority": "high",
+      "dependencies": [
+        "ngv2_contracts_impl"
+      ],
+      "files_touched": [
+        "ngv2/state_machine.py"
+      ],
+      "acceptance_criteria": [
+        "NEW file ngv2/state_machine.py exists and imports Finding via 'from ngv2.contracts import Finding' (does NOT redefine Finding).",
+        "Module exposes PHASES = ('hunt','triage','poc','detonate','report','done').",
+        "Module exposes ALLOWED_TRANSITIONS = {'hunt':('triage','done'),'triage':('poc','done'),'poc':('detonate','done'),'detonate':('report','done'),'report':('done',),'done':()} typed as dict[str, tuple[str,...]].",
+        "@dataclass HuntState(phase:str='hunt', findings:list=field(default_factory=list)) is defined with exactly those fields in that order.",
+        "HuntStateMachine.__init__(self, state: HuntState | None = None) sets self.state = state or HuntState().",
+        "can_transition(self, to) -> bool returns to in ALLOWED_TRANSITIONS.get(self.state.phase, ()).",
+        "transition(self, to) raises ValueError when not can_transition, else sets self.state.phase = to.",
+        "add_finding(self, finding) appends finding to self.state.findings.",
+        "to_dict(self) returns {'phase': self.state.phase, 'findings': [f.to_dict() for f in self.state.findings]}.",
+        "from_dict(cls, d) classmethod returns cls(HuntState(phase=d['phase'], findings=[Finding.from_dict(x) for x in d.get('findings', [])])).",
+        "No eval/exec/__import__, no I/O, no network, no globals, no randomness; stdlib only (dataclasses/typing) plus the ngv2.contracts import.",
+        "python -m pytest tests/test_state_machine.py -q passes against the committed oracle test."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/test_state_machine.py -q",
+      "spec": {
+        "objective": "Implement NEW file ngv2/state_machine.py as a deterministic, serializable hunt->triage->poc->detonate->report->done phase machine over Finding, using stdlib only, so the already-committed oracle tests/test_state_machine.py pass.",
+        "functional_requirements": [
+          "Define module-level PHASES = ('hunt','triage','poc','detonate','report','done').",
+          "Define module-level ALLOWED_TRANSITIONS: dict[str, tuple[str,...]] = {'hunt':('triage','done'),'triage':('poc','done'),'poc':('detonate','done'),'detonate':('report','done'),'report':('done',),'done':()}.",
+          "Define @dataclass HuntState with phase: str = 'hunt' and findings: list = field(default_factory=list), in that field order.",
+          "Define class HuntStateMachine with __init__(self, state: HuntState | None = None) that sets self.state = state or HuntState().",
+          "Implement can_transition(self, to) -> bool returning to in ALLOWED_TRANSITIONS.get(self.state.phase, ()).",
+          "Implement transition(self, to) that raises ValueError if not self.can_transition(to), otherwise sets self.state.phase = to.",
+          "Implement add_finding(self, finding) that appends finding to self.state.findings.",
+          "Implement to_dict(self) returning {'phase': self.state.phase, 'findings': [f.to_dict() for f in self.state.findings]}.",
+          "Implement classmethod from_dict(cls, d) returning cls(HuntState(phase=d['phase'], findings=[Finding.from_dict(x) for x in d.get('findings', [])])).",
+          "Import Finding via 'from ngv2.contracts import Finding' and do not redefine the Finding dataclass."
+        ],
+        "interfaces": "from ngv2.contracts import Finding (Finding.from_dict(d) -> Finding, Finding.to_dict() -> dict keyed exactly by field names id,target,category,severity,title,description,evidence); PHASES = ('hunt','triage','poc','detonate','report','done'); ALLOWED_TRANSITIONS: dict[str, tuple[str,...]] = {'hunt':('triage','done'),'triage':('poc','done'),'poc':('detonate','done'),'detonate':('report','done'),'report':('done',),'done':()}; @dataclass HuntState(phase:str='hunt', findings:list=field(default_factory=list)); class HuntStateMachine: __init__(self, state: HuntState | None = None); can_transition(self, to) -> bool; transition(self, to); add_finding(self, finding); to_dict(self) -> dict; classmethod from_dict(cls, d).",
+        "edge_cases": [
+          "transition to a non-allowed target (e.g. hunt->poc) must raise ValueError and leave self.state.phase unchanged.",
+          "transition from terminal 'done' phase must raise ValueError for any target since ALLOWED_TRANSITIONS['done'] == ().",
+          "can_transition must use ALLOWED_TRANSITIONS.get(phase, ()) so an unknown/unexpected phase returns False rather than raising KeyError.",
+          "from_dict with a dict missing the 'findings' key must default to an empty list via d.get('findings', []).",
+          "to_dict on a state with no findings must return {'phase': <phase>, 'findings': []}.",
+          "Round-trip from_dict(to_dict(...)) must preserve phase and reconstruct Finding objects via Finding.from_dict.",
+          "Each phase allows transition to 'done' (early-stop) in addition to its next phase."
+        ],
+        "non_goals": [
+          "Do NOT author, create, or modify any test file; tests/test_state_machine.py is already committed.",
+          "Do NOT redefine the Finding contract dataclass; import it from ngv2.contracts.",
+          "Do NOT use eval, exec, or __import__.",
+          "Do NOT add fields, methods, or symbols beyond those specified, and do not change field names or order.",
+          "Do NOT add I/O, file access, network, globals, or randomness; stdlib only (dataclasses/typing plus the ngv2.contracts import).",
+          "Do NOT collapse modules or build the detonation chamber here."
+        ],
+        "implementation_notes": "Single new file ngv2/state_machine.py. Use 'from dataclasses import dataclass, field' and 'from ngv2.contracts import Finding'. Keep PHASES and ALLOWED_TRANSITIONS as exact module-level literals matching the brief; annotate ALLOWED_TRANSITIONS as dict[str, tuple[str,...]]. HuntState is a plain @dataclass; HuntStateMachine wraps it. Mutating methods (transition, add_finding) operate in place on self.state. to_dict/from_dict are the serialization boundary and must delegate to Finding.to_dict/Finding.from_dict for the findings list. Depends on sibling ngv2-artifact-contract providing ngv2.contracts.Finding."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_phases_tuple_exact_value_and_order"
+          },
+          {
+            "name": "test_allowed_transitions_exact_mapping"
+          },
+          {
+            "name": "test_huntstate_defaults_phase_hunt_and_empty_findings"
+          },
+          {
+            "name": "test_machine_init_defaults_to_fresh_huntstate"
+          },
+          {
+            "name": "test_machine_init_uses_provided_state"
+          },
+          {
+            "name": "test_can_transition_true_for_allowed_target"
+          },
+          {
+            "name": "test_can_transition_false_for_disallowed_target"
+          },
+          {
+            "name": "test_transition_updates_phase_on_allowed"
+          },
+          {
+            "name": "test_transition_raises_valueerror_on_disallowed"
+          },
+          {
+            "name": "test_transition_from_done_always_raises"
+          },
+          {
+            "name": "test_add_finding_appends_to_findings"
+          },
+          {
+            "name": "test_to_dict_shape_and_finding_serialization"
+          },
+          {
+            "name": "test_from_dict_reconstructs_state_and_findings"
+          },
+          {
+            "name": "test_from_dict_defaults_missing_findings_key"
+          },
+          {
+            "name": "test_finding_imported_not_redefined"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_full_phase_walk_hunt_to_done_via_pipeline"
+          },
+          {
+            "name": "test_round_trip_to_dict_from_dict_preserves_state"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_can_transition_consistent_with_allowed_transitions_for_all_phases"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_no_eval_exec_dunder_import_or_io_in_module_source"
+          }
+        ],
+        "minimum_test_count": 15,
+        "test_data_requirements": "Finding instances built from ngv2.contracts.Finding with the canonical field set (id, target, category, severity, title, description, evidence); dict fixtures with and without the 'findings' key for from_dict; phase strings drawn from PHASES for transition coverage. Oracle tests/test_state_machine.py is the source of truth and is already committed."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 400,
+        "test_tokens": 600,
+        "note": "IMPL-ONLY task: the oracle tests/test_state_machine.py is already committed, so no test authoring is performed. test_tokens reflects the committed oracle suite's relative weight (>=1.5x impl) used solely for verification budgeting."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "brief_hooks_ngv2-state-machine.md",
+  "source_brief_sha256": "eed68e11d2d807b52f96212cf83a819f11d69bcca6016c08b2e27204682d22e7",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

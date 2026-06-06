@@ -1,0 +1,54 @@
+{
+  "plan_kind": "implementation",
+  "tasks": [
+    {
+      "task_id": "fix-brief-gen-working-dir",
+      "title": "serialize_child_brief_to_markdown: carry working_dir into child-brief frontmatter (NGv2 epic prop 1/3)",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": ["harness/planner/brief_generator.py"],
+      "acceptance_criteria": [
+        "harness/planner/brief_generator.py::serialize_child_brief_to_markdown emits a `working_dir:` frontmatter key (a YAML double-quoted scalar) when brief_data carries a non-empty string `working_dir`, so load_brief recovers it.",
+        "When `working_dir` is absent, None, empty, or whitespace-only, NO working_dir frontmatter key is emitted and the existing output is unchanged (backward compatible).",
+        "The working_dir key coexists with the existing dependencies/interfaces frontmatter, and the frontmatter block is still only emitted when at least one optional key (working_dir, dependencies, or interfaces) is present.",
+        "The committed oracle tests/planner/test_brief_generator_working_dir.py passes 4/4 and tests/planner/test_brief_generator.py still passes."
+      ],
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/planner/test_brief_generator_working_dir.py tests/planner/test_brief_generator.py -q",
+      "spec": {
+        "objective": "Close step 1/3 of the NobleGreedv2 epic auto-decompose working_dir propagation: the child-brief markdown serializer drops working_dir, so an epic-generated child brief loads with working_dir=None and the child plan never targets the external repo. Make serialize_child_brief_to_markdown serialize a non-empty working_dir into the YAML frontmatter (which load_brief already reads, brief_loader.py:196,225).",
+        "functional_requirements": [
+          "In serialize_child_brief_to_markdown, read working_dir = brief_data.get('working_dir').",
+          "If isinstance(working_dir, str) and working_dir.strip(): append a frontmatter line `working_dir: ` + _double_quote(working_dir) to frontmatter_lines (reusing the existing local _double_quote helper).",
+          "Otherwise emit no working_dir key.",
+          "Keep the existing dependencies and interfaces frontmatter handling and the 'frontmatter only when non-empty' rule intact: the frontmatter block is emitted when frontmatter_lines is non-empty (now including the working_dir case)."
+        ],
+        "interfaces": "harness/planner/brief_generator.py::serialize_child_brief_to_markdown(brief_data: dict) -> str signature is UNCHANGED. The new line uses the existing nested _double_quote helper. Ordering among optional keys is unconstrained.",
+        "edge_cases": [
+          "brief_data with working_dir='/abs/path' -> frontmatter has working_dir: \"/abs/path\"; load_brief(written).working_dir == '/abs/path'.",
+          "brief_data with working_dir and dependencies and interfaces -> all three round-trip.",
+          "brief_data without working_dir -> output byte-identical to prior behaviour (no working_dir key).",
+          "brief_data with working_dir='   ' (whitespace) -> no working_dir key emitted."
+        ],
+        "non_goals": [
+          "Do not change load_brief or any other module; load_brief already reads working_dir from frontmatter.",
+          "Do not change the five required section headings or their rendering.",
+          "Do not add a new module-level import or a new top-level symbol; reuse the nested _double_quote helper.",
+          "Do not use eval, exec, or __import__."
+        ],
+        "implementation_notes": "Emit a SINGLE kind:'symbol' partial-edit patch via __JANUSMASK_PATCHES__ with name 'serialize_child_brief_to_markdown' (a small top-level function). Insert the working_dir handling alongside the existing dependencies/interfaces blocks that build frontmatter_lines, e.g. after the interfaces block:\n\n    working_dir = brief_data.get('working_dir')\n    if isinstance(working_dir, str) and working_dir.strip():\n        frontmatter_lines.append('working_dir: ' + _double_quote(working_dir))\n\nThe rest of the function (sections rendering, frontmatter-only-when-non-empty) is unchanged."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {"name": "test_working_dir_roundtrips_external"},
+          {"name": "test_working_dir_coexists_with_other_frontmatter"},
+          {"name": "test_absent_working_dir_loads_none"},
+          {"name": "test_empty_working_dir_not_emitted"}
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": []
+      }
+    }
+  ]
+}
