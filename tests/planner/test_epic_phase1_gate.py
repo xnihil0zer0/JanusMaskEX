@@ -38,7 +38,10 @@ from harness.brief_status import compute_epic_status, compute_autowork_eligibili
 
 
 EPIC_SLUG = "my_epic"
-CHILD_SLUGS = ["child_alpha", "child_beta"]
+# Canonical kebab-case slugs: _run_epic_pipeline canonicalizes child slugs
+# (underscore -> hyphen) to dedupe the two agents' naming variants, so child
+# briefs/slugs are emitted in hyphen form.
+CHILD_SLUGS = ["child-alpha", "child-beta"]
 
 
 # ---------------------------------------------------------------------------

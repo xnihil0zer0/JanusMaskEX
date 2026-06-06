@@ -71,16 +71,15 @@ def test_duplicate_slug_variants_deduped(monkeypatch, tmp_path) -> None:
     assert not (tmp_path / "brief_hooks_alpha_one.md").exists()
 
 
-def test_dedup_preserves_original_slug_not_mangled(monkeypatch, tmp_path) -> None:
-    # A legitimately underscore-named slug (no conflicting variant) must be
-    # PRESERVED verbatim, not rewritten to hyphen form. Dedup canonicalizes only
-    # for the comparison key.
+def test_slugs_canonicalized_to_hyphen(monkeypatch, tmp_path) -> None:
+    # Child slugs are canonicalized to kebab-case (underscore -> hyphen) so the
+    # two agents' naming variants collapse to one consistent hyphen form.
     _, plan = _run(monkeypatch, tmp_path,
                    _brief(working_dir=str(tmp_path / "ext")),
                    [_cb("gamma_two"), _cb("gamma-two")])
-    assert plan["child_slugs"] == ["gamma_two"]
-    assert (tmp_path / "brief_hooks_gamma_two.md").exists()
-    assert not (tmp_path / "brief_hooks_gamma-two.md").exists()
+    assert plan["child_slugs"] == ["gamma-two"]
+    assert (tmp_path / "brief_hooks_gamma-two.md").exists()
+    assert not (tmp_path / "brief_hooks_gamma_two.md").exists()
 
 
 # ---- defect 2a: mark children epic when parent declares child_epics --------
