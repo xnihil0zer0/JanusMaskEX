@@ -27,13 +27,7 @@ from __future__ import annotations
 import json
 import pathlib
 
-import pytest
 
-
-@pytest.mark.xfail(
-    strict=False,
-    reason="AW12 not landed: brief_status.py:48 only recognizes the legacy state/tasks/processing/<id>.json subdir variant, not the worker's actual <id>.json.processing suffix rename target. Drops post-AW12.",
-)
 def test_processing_suffix_excluded_from_unstaged(tmp_path: pathlib.Path) -> None:
     """A task at state/tasks/<id>.json.processing must be classified
     as in-flight and excluded from unstaged_task_ids."""

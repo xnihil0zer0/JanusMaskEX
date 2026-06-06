@@ -62,10 +62,6 @@ def _ledger_rows(state_dir: pathlib.Path) -> list[dict]:
     return out
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="AW11 not landed: _auto_promote has no kill-switch. Drops post-AW11.",
-)
 def test_disable_flag_short_circuits(
     repo_state: tuple[pathlib.Path, pathlib.Path],
     monkeypatch: pytest.MonkeyPatch,
@@ -105,10 +101,6 @@ def test_disable_flag_short_circuits(
     )
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="AW11 not landed: _auto_promote has no brief_mtime staleness filter. Drops post-AW11.",
-)
 def test_stale_brief_skipped(
     repo_state: tuple[pathlib.Path, pathlib.Path],
     monkeypatch: pytest.MonkeyPatch,
@@ -143,10 +135,6 @@ def test_stale_brief_skipped(
     ), "AW11: no extract row should be emitted for a stale brief"
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="AW11 not landed: _auto_promote has no allowlist scoping. Drops post-AW11.",
-)
 def test_allowlist_restricts_processing(
     repo_state: tuple[pathlib.Path, pathlib.Path],
     monkeypatch: pytest.MonkeyPatch,
