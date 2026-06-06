@@ -293,7 +293,10 @@ def test_end_to_end_escalation_and_warning_injection(temp_state_dir, mock_popen,
     task_path = temp_state_dir / 'tasks' / 'blocked' / f'{task_id}.json'
     task_path.write_text(json.dumps({'task_id': task_id, 'files_touched': ['critical_file.py'], 'objective': 'fix core bug', 'priority': 'high'}), encoding='utf-8')
     sidecar_path = temp_state_dir / 'tasks' / 'blocked' / f'{task_id}.retry.json'
-    sidecar_path.write_text(json.dumps({'attempts': 1, 'ts': time.time(), 'last_outcome': 'smoke_failed'}), encoding='utf-8')
+    # embedded_tests_failed stays a deterministic budget-1 outcome (escalates at
+    # attempt 1). smoke_failed was re-classified as a re-synthesis flake with the
+    # full retry budget (gap#1) so it would re-stage here, not escalate.
+    sidecar_path.write_text(json.dumps({'attempts': 1, 'ts': time.time(), 'last_outcome': 'embedded_tests_failed'}), encoding='utf-8')
     summary = {}
     _retry_blocked_tasks(temp_state_dir, summary, max_attempts=3)
     assert mock_popen.called
@@ -303,7 +306,7 @@ def test_end_to_end_escalation_and_warning_injection(temp_state_dir, mock_popen,
     assert len(lines) == 1
     record = json.loads(lines[0])
     assert record['task_id'] == task_id
-    assert record['outcome'] == 'smoke_failed'
+    assert record['outcome'] == 'embedded_tests_failed'
     assert record['files_touched'] == ['critical_file.py']
     workdir = temp_state_dir / 'workdirs' / 'claude' / 'sessE2E'
     (workdir / 'inbox').mkdir(parents=True)
@@ -325,5 +328,5 @@ def test_end_to_end_escalation_and_warning_injection(temp_state_dir, mock_popen,
     msg = out['hookSpecificOutput']['additionalContext']
     assert '--- RECENT SELF-HEALING HISTORY FOR RELATED COMPONENTS ---' in msg
     assert task_id in msg
-    assert 'smoke_failed' in msg
+    assert 'embedded_tests_failed' in msg
 'Unit + integration tests for the autowork self-healing escalation flow.\n\nCovers:\n  * ``harness.autowork_daemon._escalate_to_autobrief`` — config loading,\n    history-log append, prompt + command assembly, and subprocess spawn.\n  * ``harness.autowork_daemon._retry_blocked_tasks`` — escalation triggered\n    when a deterministic failure exhausts its 1-attempt retry budget.\n  * ``harness.hooks.claude.user_prompt_submit`` / ``harness.hooks.gemini.user_prompt_submit``\n    — file-touched history overlap detection and warning-section injection.\n'
