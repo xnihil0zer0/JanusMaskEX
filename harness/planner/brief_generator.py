@@ -49,6 +49,8 @@ def serialize_child_brief_to_markdown(brief_data: dict) -> str:
     working_dir = brief_data.get('working_dir')
     if isinstance(working_dir, str) and working_dir.strip():
         frontmatter_lines.append('working_dir: ' + _double_quote(working_dir))
+    if brief_data.get('epic'):
+        frontmatter_lines.append('epic: true')
     lines: list = []
     if frontmatter_lines:
         lines.append('---')
