@@ -119,6 +119,20 @@ def sandbox_child_env(extra: dict | None = None) -> dict:
         env.update(extra)
     env["OPENBLAS_NUM_THREADS"] = "1"
     env["MKL_NUM_THREADS"] = "1"
+    # gap#2b: the differential fuzzer runs candidates in a plain subprocess with
+    # this env. For an EXTERNAL-target build the candidate may import packages
+    # rooted at the external working_dir (e.g. `from ngv2.contracts import ...`),
+    # not on the JM PYTHONPATH. Prepend that root so those imports resolve; a
+    # self build (env unset / self) is inert. Mirrors the smoke-gate fix.
+    try:
+        _wd = env.get('JANUSMASK_WORKING_DIR')
+        if _wd:
+            from harness.paths import _target_is_self
+            if not _target_is_self(_wd):
+                _existing = env.get('PYTHONPATH')
+                env['PYTHONPATH'] = str(_wd) + os.pathsep + _existing if _existing else str(_wd)
+    except Exception:
+        pass
     return env
 
 
