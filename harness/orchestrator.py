@@ -328,6 +328,22 @@ def _boost_antigravity_mcp_config(state_dir: Path) -> None:
     except Exception as e:
         logger.error(f"Failed to boost antigravity MCP config: {e}")
 
+def _external_jail_extra_ro(jail_repo_root):
+    """Extra ro-bind paths for a synthesis jail whose repo_root is EXTERNAL.
+
+    When the jail repo_root is not the JM PROJECT_DIR (an external-target build),
+    also ro-bind PROJECT_DIR so the VENDORED claude binary
+    (${PROJECT_ROOT}/.agents/claude-code/node_modules/.bin/claude) and the
+    `python3 -m harness.hooks.*` entrypoints -- both under the JM repo -- resolve
+    inside the jail. Returns [] for a self build (repo_root == PROJECT_DIR), where
+    PROJECT_DIR is already ro-bound as repo_root. Never raises.
+    """
+    try:
+        if Path(jail_repo_root).resolve() != PROJECT_DIR.resolve():
+            return [str(PROJECT_DIR)]
+    except Exception:
+        pass
+    return []
 def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: int=1) -> subprocess.Popen:
     """Spawn an agent CLI as a managed subprocess with live output streaming.
 
@@ -397,7 +413,7 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
             _jail_repo_root = effective_target_root(working_dir)
         else:
             _jail_repo_root = PROJECT_DIR
-        cmd = agent_jail.build_jail_argv(cmd, repo_root=_jail_repo_root, work_dir=env['JANUSMASK_WORK_DIR'], state_dir=env['JANUSMASK_STATE_DIR'], dbus_proxy_socket=_dbus_sock)
+        cmd = agent_jail.build_jail_argv(cmd, repo_root=_jail_repo_root, work_dir=env['JANUSMASK_WORK_DIR'], state_dir=env['JANUSMASK_STATE_DIR'], dbus_proxy_socket=_dbus_sock, extra_ro=_external_jail_extra_ro(_jail_repo_root))
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.OK}spawning{_C.RESET} {_C.DIM}{cmd[0]}{_C.RESET}')
     logger.info('Spawning %s: %s', agent, ' '.join(cmd[:6]) + ' ...')
     # AGENT-ISOLATION §3.2: cwd is the isolated, outside-repo workdir.
