@@ -59,6 +59,7 @@ GEMINI_PATH = REPO_ROOT / "harness" / "hooks" / "gemini" / "post_tool.py"
 EVAL_SUITES = [
     "tests/adversarial/test_P2_rpc_submit_persist_gate.py",
     "tests/adversarial/test_P2_persist_gate_attacks.py",
+    "tests/adversarial/test_P2_submit_code_coverage.py",
 ]
 
 # Module-level lock to guarantee serial mutation application (prevents
