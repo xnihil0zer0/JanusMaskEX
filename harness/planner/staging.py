@@ -13,6 +13,47 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+def _maybe_resolve_interfaces(task: dict, state_dir: Path) -> None:
+    """Flag-gated, best-effort rewrite of ``task['spec']['interfaces']``.
+
+    When ``config['hierarchical_planning']['symbol_ledger']`` is truthy and the
+    task carries a non-empty string ``spec.interfaces``, replace it in place
+    with ``resolve_interfaces(interfaces, state_dir)`` from
+    ``harness.symbol_ledger`` so resolved signatures flow through the normal
+    specification. On flag-off, missing/empty/non-str interfaces, a config-load
+    failure, or any exception raised by the resolver, the task is left
+    untouched and no exception is propagated.
+    """
+    try:
+        spec = task.get('spec')
+        if not isinstance(spec, dict):
+            return
+        interfaces = spec.get('interfaces')
+        if not isinstance(interfaces, str) or not interfaces:
+            return
+        cfg = None
+        try:
+            from harness import config as _config
+            _loader = getattr(_config, 'load_config', None)
+            if callable(_loader):
+                cfg = _loader()
+            else:
+                cfg = getattr(_config, 'CONFIG', None)
+                if cfg is None:
+                    cfg = getattr(_config, 'config', None)
+        except Exception:
+            cfg = None
+        if not isinstance(cfg, dict):
+            return
+        _hp = cfg.get('hierarchical_planning') or {}
+        if not isinstance(_hp, dict) or not _hp.get('symbol_ledger'):
+            return
+        from harness.symbol_ledger import resolve_interfaces
+        resolved = resolve_interfaces(interfaces, state_dir)
+        if isinstance(resolved, str):
+            spec['interfaces'] = resolved
+    except Exception:
+        return
 def stage_task(plan_path: Path, task_id: str, state_dir: Path, canonical: bool=True, *, working_dir: str | None = None) -> Path:
     """Extract a single task from ``plan_path`` and write it under ``state_dir``.
 
@@ -69,6 +110,9 @@ def stage_task(plan_path: Path, task_id: str, state_dir: Path, canonical: bool=T
     if len(matches) > 1:
         raise KeyError(f'task_id {task_id!r} appears {len(matches)}x in {plan_path}')
     task = matches[0]
+    # Symbol-ledger seam: flag-gated, best-effort resolution of interface
+    # signatures before the task is serialized to JSON. Never raises.
+    _maybe_resolve_interfaces(task, state_dir)
     if canonical:
         out = state_dir / 'tasks' / f'{task_id}.json'
     else:
