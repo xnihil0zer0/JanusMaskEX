@@ -1,30 +1,27 @@
-"""Adversarial regression bar for escalating_backoff_recently_failed_to_plan.
+"""Adversarial regression bar for ``_recently_failed_to_plan`` backoff.
 
-Pin the contract that ``harness.autowork_daemon._recently_failed_to_plan``
-switches from a fixed 1-hour cooldown to attempt-count-driven exponential
-backoff:
+Pins the contract that ``harness.autowork_daemon._recently_failed_to_plan``
+gives a GRACE RETRY BUDGET OF 2 before the escalating backoff begins, then
+escalates by attempt count:
 
-- attempts <= 1  -> 300s (5 minutes)
-- attempts == 2  -> 3600s (1 hour)
-- attempts >= 3  -> 86400s (24 hours)
+- attempts <= 2  -> 0s     (grace budget: retry immediately, no backoff)
+- attempts == 3  -> 300s   (5 minutes; first backoff tier after the budget)
+- attempts == 4  -> 3600s  (1 hour)
+- attempts >= 5  -> 86400s (24 hours)
 
-The marker file format on disk migrates from a text file ending in
-``.failed`` (whose mtime drove the TTL) to a JSON document ending in
-``.json`` containing ``{"attempts": int, "last_ts": float}``.
+This SUPERSEDES the prior tiering (attempts<=1 -> 300s, ==2 -> 3600s,
+>=3 -> 86400s). Motivation: planner kickoffs fail *stochastically*
+(dual-agent reconciliation flakes), so the first couple of failures must
+be retried promptly instead of being penalised as if deterministic. The
+budget of 2 converts an unlucky stochastic streak into "retry twice, then
+back off".
 
-Pattern mirrors ``tests/adversarial/test_autowork_auto_promote_staleness.py``
-(session #17 AW11): tests ship with ``xfail(strict=True, reason=...)`` and
-the post-accept verifier runs pytest with ``--runxfail`` so the markers
-are bypassed at gate time. A follow-up META commit drops the markers and
-the tests pass naturally.
+The marker file is a JSON document ending in ``.json`` containing
+``{"attempts": int, "last_ts": float}``.
 
-Each test asserts a value that is a load-bearing DIFFERENTIAL between the
-legacy fixed-1h-TTL implementation and the new tiered implementation:
-- Legacy and new disagree -> xfail-strict succeeds today, flips PASS post-accept.
-- Legacy and new agree -> would XPASS today and break the xfail-strict bar.
-
-Authored by session #24 sub-agent P3.4 against
-``brief_hooks_escalating_backoff_recently_failed_to_plan.md``.
+Each behavioural test asserts a value that is a load-bearing DIFFERENTIAL
+between the legacy tiering and the new budget-of-2 tiering, so the legacy
+implementation fails it (RED today) and the post-fix implementation passes.
 """
 from __future__ import annotations
 
@@ -45,14 +42,7 @@ def state_dir(tmp_path: pathlib.Path) -> pathlib.Path:
 
 
 def _write_marker(state_dir: pathlib.Path, slug: str, attempts: int, last_ts: float) -> pathlib.Path:
-    """Write a JSON plan-attempts marker for ``slug`` and return its path.
-
-    Also pins the file's mtime to ``last_ts`` so the legacy mtime-based
-    implementation observes the SAME age that the post-accept JSON-aware
-    implementation reads from the file body. Without this, the legacy
-    implementation always sees mtime~=now (the file was just created) and
-    the XFAIL discriminator collapses.
-    """
+    """Write a JSON plan-attempts marker for ``slug`` and return its path."""
     from harness.autowork_daemon import _plan_attempt_marker_path
 
     marker = _plan_attempt_marker_path(state_dir, slug)
@@ -66,82 +56,97 @@ def _write_marker(state_dir: pathlib.Path, slug: str, attempts: int, last_ts: fl
 
 
 def test_marker_path_suffix_is_json(state_dir: pathlib.Path) -> None:
-    """The marker filename must end in ``.json`` (NOT ``.failed``).
-
-    Load-bearing differential: legacy returns ``demo.failed``, new returns
-    ``demo.json``. This is the canary that the file-format migration
-    landed.
-    """
+    """The marker filename must end in ``.json`` (NOT ``.failed``)."""
     from harness.autowork_daemon import _plan_attempt_marker_path
 
     marker = _plan_attempt_marker_path(state_dir, "demo_suffix")
     assert str(marker).endswith(".json"), (
-        f"marker path must end in .json, got {marker!r}; "
-        "legacy .failed suffix means the file-format migration has not landed"
+        f"marker path must end in .json, got {marker!r}"
     )
 
 
-def test_first_attempt_past_5min_out_of_cooldown(state_dir: pathlib.Path) -> None:
-    """attempts=1, age=2000s -> past 5min but under 1h -> False.
+def test_first_attempt_within_grace_budget_immediately_retriable(state_dir: pathlib.Path) -> None:
+    """attempts=1 is within the grace budget -> always retriable (False).
 
-    Load-bearing differential vs legacy: legacy fixed-1h TTL returns True
-    (2000 < 3600); new tier returns False (2000 > 300). This test
-    asserts False, so legacy fails it (XFAIL today) and new passes
-    (drops xfail post-accept).
+    Differential vs legacy: legacy gave attempts<=1 a 300s cooldown, so a
+    fresh marker (age ~0) returned True. The budget-of-2 contract returns
+    False for any age because the first failure is free.
     """
     from harness.autowork_daemon import _recently_failed_to_plan
 
-    _write_marker(state_dir, "demo_first_stale", attempts=1, last_ts=time.time() - 2000)
+    _write_marker(state_dir, "demo_grace_1", attempts=1, last_ts=time.time() - 5)
 
-    assert _recently_failed_to_plan(state_dir, "demo_first_stale") is False, (
-        "attempts=1, age=2000s must be OUTSIDE the 5min cooldown (300s threshold); "
-        "the legacy fixed-1h TTL would have returned True here (2000 < 3600), "
-        "which is the bug this brief fixes"
+    assert _recently_failed_to_plan(state_dir, "demo_grace_1") is False, (
+        "attempts=1 is within the grace budget of 2 and must be retriable "
+        "immediately; legacy gave it a 300s cooldown (True at age=5s)"
     )
 
 
-def test_third_attempt_within_24h_still_in_cooldown(state_dir: pathlib.Path) -> None:
-    """attempts=3, age=3700s -> past 1h, within 24h -> True.
+def test_second_attempt_within_grace_budget_immediately_retriable(state_dir: pathlib.Path) -> None:
+    """attempts=2 is the last grace retry -> still retriable (False).
 
-    Load-bearing differential vs legacy: legacy fixed-1h TTL returns
-    False (3700 > 3600); new tier returns True (3700 < 86400). This
-    test asserts True, so legacy fails it (XFAIL today) and new passes
-    (drops xfail post-accept).
+    Differential vs legacy: legacy gave attempts==2 a 3600s cooldown, so a
+    fresh marker returned True. The budget-of-2 contract returns False.
     """
     from harness.autowork_daemon import _recently_failed_to_plan
 
-    _write_marker(state_dir, "demo_third_escalated", attempts=3, last_ts=time.time() - 3700)
+    _write_marker(state_dir, "demo_grace_2", attempts=2, last_ts=time.time() - 5)
 
-    assert _recently_failed_to_plan(state_dir, "demo_third_escalated") is True, (
-        "attempts=3, age=3700s must be INSIDE the 24h cooldown (86400s threshold); "
-        "the legacy fixed-1h TTL would have returned False here (3700 > 3600), "
-        "which is the bug this brief fixes"
+    assert _recently_failed_to_plan(state_dir, "demo_grace_2") is False, (
+        "attempts=2 is still within the grace budget of 2 and must be "
+        "retriable immediately; legacy gave it a 3600s cooldown (True at age=5s)"
     )
 
 
-def test_attempts_key_drives_threshold_not_just_mtime(state_dir: pathlib.Path) -> None:
-    """Two markers with the SAME age but different ``attempts`` must
-    yield different boolean results.
+def test_third_attempt_begins_300s_backoff(state_dir: pathlib.Path) -> None:
+    """attempts=3 exhausts the budget and enters the 300s tier.
 
-    Construct one marker with attempts=1 (5min tier) and another with
-    attempts=3 (24h tier), both at age=4000s. Under the legacy mtime-
-    only check, both return False (4000 > 3600). Under the new
-    tiered check, attempts=1 returns False (4000 > 300) and
-    attempts=3 returns True (4000 < 86400). This pinpoints that the
-    backoff is genuinely attempt-count-driven and not just a longer
-    fixed TTL.
+    Pins both sides of the 300s threshold, and the stale side is a
+    differential vs legacy (which put attempts>=3 in the 86400s tier).
     """
     from harness.autowork_daemon import _recently_failed_to_plan
 
-    _write_marker(state_dir, "demo_low_attempts", attempts=1, last_ts=time.time() - 4000)
-    _write_marker(state_dir, "demo_high_attempts", attempts=3, last_ts=time.time() - 4000)
+    _write_marker(state_dir, "demo_t3_fresh", attempts=3, last_ts=time.time() - 100)
+    _write_marker(state_dir, "demo_t3_stale", attempts=3, last_ts=time.time() - 400)
 
-    low = _recently_failed_to_plan(state_dir, "demo_low_attempts")
-    high = _recently_failed_to_plan(state_dir, "demo_high_attempts")
+    assert _recently_failed_to_plan(state_dir, "demo_t3_fresh") is True, (
+        "attempts=3 at age=100s is inside the 300s backoff -> True"
+    )
+    assert _recently_failed_to_plan(state_dir, "demo_t3_stale") is False, (
+        "attempts=3 at age=400s is past the 300s backoff -> False; "
+        "legacy put attempts>=3 in the 86400s tier (True here)"
+    )
 
-    assert low is False and high is True, (
-        f"attempts must drive the tier: attempts=1 at age=4000s -> False (was {low!r}); "
-        f"attempts=3 at age=4000s -> True (was {high!r}); "
-        "the legacy mtime-only implementation would return False for both, "
-        "which is the bug this brief fixes"
+
+def test_fourth_attempt_3600s_backoff(state_dir: pathlib.Path) -> None:
+    """attempts=4 enters the 3600s tier.
+
+    The stale side is a differential vs legacy (attempts>=3 -> 86400s).
+    """
+    from harness.autowork_daemon import _recently_failed_to_plan
+
+    _write_marker(state_dir, "demo_t4_fresh", attempts=4, last_ts=time.time() - 1000)
+    _write_marker(state_dir, "demo_t4_stale", attempts=4, last_ts=time.time() - 4000)
+
+    assert _recently_failed_to_plan(state_dir, "demo_t4_fresh") is True, (
+        "attempts=4 at age=1000s is inside the 3600s backoff -> True"
+    )
+    assert _recently_failed_to_plan(state_dir, "demo_t4_stale") is False, (
+        "attempts=4 at age=4000s is past the 3600s backoff -> False; "
+        "legacy put attempts>=3 in the 86400s tier (True here)"
+    )
+
+
+def test_fifth_attempt_24h_backoff(state_dir: pathlib.Path) -> None:
+    """attempts>=5 enters the 86400s (24h) tier."""
+    from harness.autowork_daemon import _recently_failed_to_plan
+
+    _write_marker(state_dir, "demo_t5_in", attempts=5, last_ts=time.time() - 4000)
+    _write_marker(state_dir, "demo_t5_out", attempts=5, last_ts=time.time() - 90000)
+
+    assert _recently_failed_to_plan(state_dir, "demo_t5_in") is True, (
+        "attempts=5 at age=4000s is inside the 24h backoff -> True"
+    )
+    assert _recently_failed_to_plan(state_dir, "demo_t5_out") is False, (
+        "attempts=5 at age=90000s is past the 24h backoff -> False"
     )
