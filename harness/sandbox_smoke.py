@@ -42,7 +42,6 @@ import tempfile
 __all__ = ['smoke_import']
 _WORKER_SCRUB_ENV = {'PATH': '/usr/bin:/bin', 'LANG': 'C'}
 
-
 def _site_packages_dirs() -> list[str]:
     """Return the project's site-packages directories (venv-aware).
 
@@ -66,11 +65,11 @@ def _site_packages_dirs() -> list[str]:
         if isinstance(result, str):
             result = [result]
         for d in result:
-            if d and os.path.isdir(d) and d not in dirs:
+            if d and os.path.isdir(d) and (d not in dirs):
                 dirs.append(d)
     return dirs
 
-def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> str | None:
+def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0, extra_paths: 'Iterable[str | os.PathLike]'=()) -> str | None:
     """Import ``module_src`` under a scrubbed subprocess; return error on failure.
 
     Args:
@@ -80,6 +79,8 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
         module_src: The candidate module source. Written to
             ``<tempdir>/<module_name>.py`` verbatim.
         timeout: Seconds to wait for the subprocess.
+        extra_paths: External dependency root(s) to make resolvable on both
+            PYTHONPATH and (jailed) the ro-bind list.
 
     Returns:
         ``None`` if the subprocess exits 0 (import succeeded). Otherwise a
@@ -87,9 +88,6 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
         containing the subprocess stderr (or stdout if stderr is empty).
         On timeout, returns ``sandbox import timed out``.
     """
-    # SEC-1c: route the jailed smoke-import subprocess through the filtered
-    # xdg-dbus-proxy session bus when sandboxing is enabled. Lazy in-body
-    # imports keep the module surface free of new top-level imports/symbols.
     from contextlib import ExitStack
     from harness.dbus_proxy import proxied_session_bus
     with tempfile.TemporaryDirectory() as td, ExitStack() as _dbus_stack:
@@ -97,34 +95,31 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
         td_path = pathlib.Path(td)
         mod_path = td_path / f'{module_name}.py'
         mod_path.write_text(module_src, encoding='utf-8')
+        _extra = [str(p) for p in extra_paths if str(p)]
+        if not _extra:
+            try:
+                _wd = os.environ.get('JANUSMASK_WORKING_DIR')
+                if _wd:
+                    from harness.paths import _target_is_self
+                    if not _target_is_self(_wd):
+                        _extra = [str(_wd)]
+            except Exception:
+                _extra = []
         env = dict(_WORKER_SCRUB_ENV)
         path_parts = [str(td_path)]
         root = _discover_project_root()
         if root is not None:
             path_parts.append(str(root))
         path_parts.extend(_site_packages_dirs())
+        path_parts.extend(_extra)
         env['PYTHONPATH'] = os.pathsep.join(path_parts)
         cmd = [sys.executable, '-S', '-c', f'import {module_name}']
-        # Route the smoke-import subprocess through the bubblewrap jail when the
-        # sandbox is enabled. load_config is the canonical loader (resolves
-        # HARNESS_DIR/config.yaml, interpolates paths) used by every other jail
-        # call site; importing orchestrator lazily here avoids the module-level
-        # circular import (orchestrator imports smoke_import at import time).
         from harness.orchestrator import load_config
         from harness import agent_jail
         if agent_jail.sandbox_enabled(load_config()):
             repo_root = root if root is not None else pathlib.Path(__file__).resolve().parents[1]
             state_dir = repo_root / 'state'
-            # Bind both the real interpreter tree (sys.base_prefix, which holds
-            # the binary the venv python3 symlink targets) and the venv prefix
-            # (sys.prefix, which supplies bin/python3) so the jailed python3
-            # launches as the venv's interpreter rather than bare system python.
-            extra_ro = [sys.base_prefix, sys.prefix] + _site_packages_dirs()
-            # SEC-1 fail-closed: if the proxy binary RESOLVES on PATH but the
-            # context manager fails to start, REFUSE rather than dial the real
-            # (unfiltered) host session bus. Only fall back to the real bus
-            # (dbus_proxy_socket=None) when xdg-dbus-proxy is genuinely ABSENT
-            # (graceful degrade on a host without the proxy).
+            extra_ro = [sys.base_prefix, sys.prefix] + _site_packages_dirs() + _extra
             try:
                 _dbus_sock = _dbus_stack.enter_context(proxied_session_bus())
             except Exception:
@@ -133,38 +128,10 @@ def smoke_import(module_name: str, module_src: str, *, timeout: float=5.0) -> st
                     raise RuntimeError('filtered D-Bus proxy failed to start')
                 _dbus_sock = None
             try:
-                # Use a jail-resolvable interpreter ('python3', not
-                # sys.executable) so it resolves from the ro-bound /usr,/bin and
-                # the ro-bound sys.base_prefix interpreter tree. cmd is the only
-                # positional argument; build_jail_argv self-appends it.
-                #
-                # CRED-EXFIL: smoke-import is an EXECUTE path -- pass
-                # bind_credentials=False so the jail drops the ~/.gemini /
-                # ~/.claude credential surface and unshares net/IPC namespaces.
-                cmd = agent_jail.build_jail_argv(
-                    ['python3', '-S', '-c', f'import {module_name}'],
-                    repo_root=repo_root,
-                    work_dir=td_path,
-                    state_dir=state_dir,
-                    extra_ro=extra_ro,
-                    dbus_proxy_socket=_dbus_sock,
-                    bind_credentials=False,
-                )
-                # Prepend the venv bin dir to PATH so bare 'python3' inside the
-                # jail resolves to the venv's 3.13 interpreter (not system
-                # python3 < 3.11, which triggers pytest's py310 exceptiongroup
-                # shim and false-rejects the smoke). Only on the jailed path.
+                cmd = agent_jail.build_jail_argv(['python3', '-S', '-c', f'import {module_name}'], repo_root=repo_root, work_dir=td_path, state_dir=state_dir, extra_ro=extra_ro, dbus_proxy_socket=_dbus_sock, bind_credentials=False)
                 env['PATH'] = os.pathsep.join([os.path.join(sys.prefix, 'bin'), env['PATH']])
             except FileNotFoundError:
-                # bwrap absent on the host while the sandbox is ENABLED -> FAIL
-                # CLOSED: refuse to import the candidate unjailed rather than
-                # silently dropping the bubblewrap barrier. Return a clear
-                # rejection string and dispatch NO subprocess. A TypeError
-                # (call-site bug) is intentionally NOT caught here so it still
-                # propagates (fail-closed on call-site bug).
-                return ('sandbox import failed: agent_sandbox.bwrap is enabled '
-                        'but bwrap is not on PATH; refusing to import the '
-                        'candidate unjailed (fail-closed)')
+                return 'sandbox import failed: agent_sandbox.bwrap is enabled but bwrap is not on PATH; refusing to import the candidate unjailed (fail-closed)'
         try:
             proc = subprocess.run(cmd, cwd=str(td_path), env=env, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
