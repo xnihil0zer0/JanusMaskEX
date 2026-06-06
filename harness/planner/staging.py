@@ -31,18 +31,8 @@ def _maybe_resolve_interfaces(task: dict, state_dir: Path) -> None:
         interfaces = spec.get('interfaces')
         if not isinstance(interfaces, str) or not interfaces:
             return
-        cfg = None
-        try:
-            from harness import config as _config
-            _loader = getattr(_config, 'load_config', None)
-            if callable(_loader):
-                cfg = _loader()
-            else:
-                cfg = getattr(_config, 'CONFIG', None)
-                if cfg is None:
-                    cfg = getattr(_config, 'config', None)
-        except Exception:
-            cfg = None
+        from harness.orchestrator import load_config
+        cfg = load_config()
         if not isinstance(cfg, dict):
             return
         _hp = cfg.get('hierarchical_planning') or {}
