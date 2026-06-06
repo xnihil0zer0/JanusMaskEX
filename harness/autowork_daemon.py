@@ -1053,8 +1053,24 @@ def _spawn_worker(state_dir: pathlib.Path, task_id: str) -> int | None:
     # orchestrator.spawn_agent (jailed). Asserted by test_TC1_1; if a future change
     # ever routes an agent CLI through here it MUST go through _contain_selfheal.
     cmd = [sys.executable, '-m', 'harness.orchestrator_worker', '--state-dir', str(state_dir), '--task-id', task_id]
+    # EXTERNAL_WORKING_DIR_PROPAGATION (NGv2 gap #3): the worker's jail retarget
+    # (orchestrator.py:391) reads JANUSMASK_WORKING_DIR from the env, but the worker
+    # never sets it (only serial run_pipeline does). Propagate the staged task's
+    # trusted working_dir so an EXTERNAL target's synthesis jail retargets onto the
+    # external tree. Fail-safe: any read/parse error or a self build leaves the var
+    # unset (popped), so it is never inherited from the parent.
+    _worker_env = os.environ.copy()
     try:
-        proc = subprocess.Popen(cmd, start_new_session=True)
+        _task_obj = json.loads((state_dir / 'tasks' / f'{task_id}.json').read_text(encoding='utf-8'))
+        _wd = _task_obj.get('working_dir') if isinstance(_task_obj, dict) else None
+        if isinstance(_wd, str) and _wd:
+            _worker_env['JANUSMASK_WORKING_DIR'] = _wd
+        else:
+            _worker_env.pop('JANUSMASK_WORKING_DIR', None)
+    except (OSError, ValueError, TypeError):
+        _worker_env.pop('JANUSMASK_WORKING_DIR', None)
+    try:
+        proc = subprocess.Popen(cmd, start_new_session=True, env=_worker_env)
         return proc.pid
     except (OSError, ValueError) as exc:
         _emit_telemetry(state_dir, task_id, 'spawn_failed', repr(exc))
