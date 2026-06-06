@@ -1,0 +1,104 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2-semgrep-adapter-impl",
+      "title": "Implement ngv2/semgrep_adapter.py: build_semgrep_argv + run_semgrep (injected-runner static-analysis grounding)",
+      "meta_task_type": "io_adapter",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/semgrep_adapter.py"
+      ],
+      "acceptance_criteria": [
+        "New single-file module ngv2/semgrep_adapter.py exists and imports cleanly with stdlib only (no third-party imports).",
+        "build_semgrep_argv(...) deterministically constructs the semgrep command-line argument vector from its inputs (same inputs => identical argv, with stable flag/value ordering).",
+        "run_semgrep(target, *, runner) builds argv via build_semgrep_argv and reaches semgrep ONLY through the injected runner callable \u2014 no real subprocess, shell, file, or network I/O.",
+        "run_semgrep passes the build_semgrep_argv-produced argv to runner and normalizes/returns the runner's result per the oracle contract.",
+        "python -m pytest tests/test_semgrep_adapter.py -q passes against the already-committed oracle without modifying any test.",
+        "No dependency on fp_filter/confidence siblings or intake/triage/submission sub-epics; only plain imports of stable public shapes if strictly needed."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/test_semgrep_adapter.py -q",
+      "spec": {
+        "objective": "Provide static-analysis grounding by implementing a NEW single-file, whole-file, pure/deterministic, stdlib-only module ngv2/semgrep_adapter.py exposing build_semgrep_argv(...) and run_semgrep(target, *, runner), where semgrep is reached exclusively through the injected runner. The committed oracle tests/test_semgrep_adapter.py is the sole source of truth for exact signatures, argv shape, and runner contract.",
+        "functional_requirements": [
+          "Expose build_semgrep_argv(...) that constructs the semgrep argv (e.g. base command plus config/rules, output format, target) deterministically from its inputs with stable ordering, matching the exact argv shape pinned by the oracle.",
+          "build_semgrep_argv is pure and deterministic: identical inputs yield byte-for-byte identical argv lists; no global/environment/time/randomness dependence.",
+          "Expose run_semgrep(target, *, runner) that builds the argv via build_semgrep_argv and invokes semgrep ONLY by calling the injected runner with that argv.",
+          "run_semgrep normalizes and returns the runner's result exactly as the oracle expects (preserving/translating fields per the pinned contract), performing no real subprocess/file/network I/O of its own.",
+          "Module uses stdlib only (no third-party imports) and consumes Epic-1/Epic-2 sibling modules, if at all, only via plain imports of already-tested public shapes.",
+          "Module is a single self-contained file with no cross-module wiring or integration glue beyond what the oracle requires."
+        ],
+        "interfaces": "ngv2/semgrep_adapter.py exposes build_semgrep_argv(...) and run_semgrep(target, *, runner). semgrep is reached only via the injected runner callable, which receives the argv produced by build_semgrep_argv. Exact parameter names, defaults, and return normalization are dictated by tests/test_semgrep_adapter.py.",
+        "edge_cases": [
+          "Optional/defaulted inputs to build_semgrep_argv (e.g. config/rules, output format) must produce the deterministic argv the oracle pins.",
+          "runner that returns a non-zero/empty/error-shaped result must be normalized per the oracle rather than raising uncontrolled exceptions, if the oracle requires it.",
+          "Determinism must hold across repeated calls and across dict/iterable input ordering where the oracle requires canonicalization.",
+          "No reliance on a real semgrep binary, PATH, cwd, or environment \u2014 runner is the only boundary."
+        ],
+        "non_goals": [
+          "No real subprocess, shell-out, file, or network I/O; semgrep reached exclusively via the injected runner.",
+          "No live exploit execution.",
+          "No third-party imports (stdlib only).",
+          "Do NOT author or modify tests/test_semgrep_adapter.py or any other test/oracle.",
+          "No dependency on fp_filter/confidence siblings or on intake/triage/submission sub-epics; no cross-module wiring or integration glue."
+        ],
+        "implementation_notes": "Read tests/test_semgrep_adapter.py first and mirror its exact expectations: the precise argv element order, flag names, how target/config are encoded, the runner call signature, and the return normalization. Keep the runner as the single seam to the outside world so run_semgrep stays pure given the injected callable. Implement as one whole-file module; do not edit the oracle. Verify with python -m pytest tests/test_semgrep_adapter.py -q in working_dir /home/xnihil0zer0/NobleGreedv2.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_semgrep_adapter.py\n```python\n\"\"\"RED oracle for ngv2.semgrep_adapter \u2014 deterministic injected-runner adapter\naround the semgrep CLI. The tool is mocked via a runner callable; pure stdlib.\"\"\"\nimport json\n\nfrom ngv2.semgrep_adapter import build_semgrep_argv, run_semgrep\n\n\ndef test_build_semgrep_argv_shape():\n    argv = build_semgrep_argv('repo/path', config='auto')\n    assert argv[0] == 'semgrep'\n    assert '--json' in argv and '--quiet' in argv\n    assert '--config' in argv\n    assert argv[argv.index('--config') + 1] == 'auto'\n    assert argv[-1] == 'repo/path'\n\n\ndef test_build_semgrep_argv_custom_config():\n    argv = build_semgrep_argv('t', config='p/security-audit')\n    assert argv[argv.index('--config') + 1] == 'p/security-audit'\n\n\ndef test_run_semgrep_parses_runner_json():\n    payload = {'results': [{'check_id': 'x'}], 'errors': []}\n    calls = []\n\n    def runner(argv):\n        calls.append(argv)\n        return (0, json.dumps(payload), '')\n\n    out = run_semgrep('repo/path', runner=runner)\n    assert out == payload\n    # the runner was invoked with the built argv\n    assert calls and calls[0][0] == 'semgrep' and calls[0][-1] == 'repo/path'\n\n\ndef test_run_semgrep_nonzero_rc_returns_empty_results():\n    def runner(argv):\n        return (2, '', 'boom')\n\n    out = run_semgrep('t', runner=runner)\n    assert out['results'] == []\n    assert out.get('errors')  # error surfaced, not raised\n\n\ndef test_run_semgrep_bad_json_returns_empty_results():\n    def runner(argv):\n        return (0, 'not json', '')\n\n    out = run_semgrep('t', runner=runner)\n    assert out['results'] == []\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_build_semgrep_argv_shape_matches_oracle (committed)"
+          },
+          {
+            "name": "test_build_semgrep_argv_deterministic_identical_inputs (committed)"
+          },
+          {
+            "name": "test_run_semgrep_calls_runner_with_built_argv (committed)"
+          },
+          {
+            "name": "test_run_semgrep_normalizes_runner_result (committed)"
+          },
+          {
+            "name": "test_no_real_subprocess_or_network_io_only_runner (committed)"
+          },
+          {
+            "name": "test_stdlib_only_no_third_party_imports (committed)"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_build_then_run_with_fake_runner_end_to_end (committed)"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_build_semgrep_argv_idempotent_across_repeated_calls (committed)"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_run_semgrep_handles_error_shaped_runner_result (committed)"
+          }
+        ],
+        "minimum_test_count": 9,
+        "test_data_requirements": "All verification uses the already-committed oracle tests/test_semgrep_adapter.py, which supplies fake/injected runner callables and the canonical expected argv. No new test data or fixtures are authored by this task; the listed names are descriptive references to the pinned oracle behaviors, not new tests to write."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "IMPL-only task: the oracle is already committed, so no new tests are authored. The test-token allocation reflects effort to read and conform to the pinned oracle (argv shape + runner contract) rather than writing new tests."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2-semgrep-adapter.md",
+  "source_brief_sha256": "9eb4871ce10c0895748b3c651c7b278a6f79815970c527e2cc652fef05f075f3",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

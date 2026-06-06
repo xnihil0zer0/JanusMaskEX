@@ -1,0 +1,48 @@
+{
+  "plan_kind": "epic",
+  "epic": true,
+  "child_briefs": [
+    {
+      "slug": "ngv2-cvss",
+      "title": "ngv2/cvss.py \u2014 deterministic CVSS v3.1 scoring",
+      "scope": "Build ngv2/cvss.py as a NEW single-file, whole-file, pure/deterministic, stdlib-only Python module (IMPL-only; oracle already committed at tests/test_cvss.py). Implement `parse_vector(...)` to parse a CVSS v3.1 vector string into its metric components, deterministic `base_score(vector)` computing the CVSS v3.1 base score per the official spec arithmetic (exploitability + impact subscores, scope-aware roundup), and `severity_label(score)` mapping a numeric base score to its qualitative severity rating. All functions must be pure and deterministic with no I/O. working_dir: /home/xnihil0zer0/NobleGreedv2. Verify with `python -m pytest tests/test_cvss.py -q`.",
+      "non_goals": "No file or network I/O. No third-party imports (stdlib only). No tests authored (oracle tests/test_cvss.py already committed). Must NOT import any sibling leaf (ngv2/huntr_form.py, ngv2/submission.py) nor any sibling sub-epic module. No live exploit execution. No cross-module wiring or integration glue.",
+      "inputs": "The NobleGreedv2 repo at working_dir /home/xnihil0zer0/NobleGreedv2 with committed Epic-1/Epic-2 substrate available via plain imports of stable public shapes if needed (ngv2/contracts.py etc.). The committed oracle tests/test_cvss.py pins exact behavior. No inputs from sibling leaves.",
+      "deliverables": "NEW file ngv2/cvss.py exposing `parse_vector(...)`, deterministic CVSS v3.1 `base_score(vector)`, and `severity_label(score)`. Pure/deterministic, stdlib-only. verification_command: `python -m pytest tests/test_cvss.py -q`.",
+      "dependencies": [],
+      "interfaces": "ngv2/cvss.py exposes `parse_vector(...)`, `base_score(vector)` (deterministic CVSS v3.1), and `severity_label(score)`.",
+      "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+    },
+    {
+      "slug": "ngv2-huntr-form",
+      "title": "ngv2/huntr_form.py \u2014 huntr submission form construction",
+      "scope": "Build ngv2/huntr_form.py as a NEW single-file, whole-file, pure/deterministic, stdlib-only Python module (IMPL-only; oracle already committed at tests/test_huntr_form.py). Define `HUNTR_FORM_FIELDS` (the ordered set of huntr form field identifiers), `CWE_VULN_TYPES` (CWE-to-vulnerability-type mapping), and `build_form(finding, poc, context)` which assembles and returns the 12 huntr form fields from a Finding-shaped object, a poc-shaped object, and a context-shaped object. All pure and deterministic with no I/O. working_dir: /home/xnihil0zer0/NobleGreedv2. Verify with `python -m pytest tests/test_huntr_form.py -q`.",
+      "non_goals": "No file or network I/O. No third-party imports (stdlib only). No tests authored (oracle tests/test_huntr_form.py already committed). Must NOT import any sibling leaf (ngv2/cvss.py, ngv2/submission.py) nor any sibling sub-epic module \u2014 shared shapes are restated as prose only. No live exploit execution. No cross-module wiring or integration glue.",
+      "inputs": "The NobleGreedv2 repo at working_dir /home/xnihil0zer0/NobleGreedv2 with the committed stable `Finding` shape from ngv2/contracts.py (consumed via plain import) and other Epic-1/Epic-2 public shapes as needed. `build_form(finding, poc, context)` consumes a Finding-shaped object, a poc result/object, and a context object as plain data. The committed oracle tests/test_huntr_form.py pins exact field names, the 12-field output, and the CWE mapping. No inputs from sibling leaves.",
+      "deliverables": "NEW file ngv2/huntr_form.py exposing `HUNTR_FORM_FIELDS`, `CWE_VULN_TYPES`, and `build_form(finding, poc, context)` returning the 12 huntr form fields. Pure/deterministic, stdlib-only. verification_command: `python -m pytest tests/test_huntr_form.py -q`.",
+      "dependencies": [],
+      "interfaces": "ngv2/huntr_form.py exposes `HUNTR_FORM_FIELDS`, `CWE_VULN_TYPES`, and `build_form(finding, poc, context)` returning the 12 huntr form fields.",
+      "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+    },
+    {
+      "slug": "ngv2-submission",
+      "title": "ngv2/submission.py \u2014 submission-package rendering",
+      "scope": "Build ngv2/submission.py as a NEW single-file, whole-file, pure/deterministic, stdlib-only Python module (IMPL-only; oracle already committed at tests/test_submission.py). Implement `render_submission(form)` producing a deterministic markdown rendering of a huntr form (a 12-field form mapping/object), and `assemble_package(finding, poc, live_test)` building the full submission package from a Finding-shaped object, a poc-shaped object, and a passed-through `live_test` data value (never executed). All pure and deterministic with no I/O. working_dir: /home/xnihil0zer0/NobleGreedv2. Verify with `python -m pytest tests/test_submission.py -q`.",
+      "non_goals": "No file or network I/O. No third-party imports (stdlib only). No tests authored (oracle tests/test_submission.py already committed). Must NOT import any sibling leaf \u2014 ngv2/submission.py must NOT import ngv2/huntr_form.py or ngv2/cvss.py \u2014 nor any sibling sub-epic module; shared shapes (form fields, Finding) are restated as prose only. The `live_test` argument is passed-through data and must NEVER be executed (live work stays at NobleGreedv2 runtime). No cross-module wiring or integration glue.",
+      "inputs": "The NobleGreedv2 repo at working_dir /home/xnihil0zer0/NobleGreedv2 with the committed stable `Finding` shape from ngv2/contracts.py (consumed via plain import) and other Epic-1/Epic-2 public shapes as needed. `render_submission(form)` consumes a huntr form object/mapping shaped as the 12 huntr form fields (restated as prose, NOT imported from ngv2/huntr_form.py). `assemble_package(finding, poc, live_test)` consumes a Finding-shaped object, a poc-shaped object, and an opaque pass-through `live_test` value. The committed oracle tests/test_submission.py pins exact markdown output and package shape. No inputs from sibling leaves.",
+      "deliverables": "NEW file ngv2/submission.py exposing `render_submission(form)` (markdown) and `assemble_package(finding, poc, live_test)`. Pure/deterministic, stdlib-only, with no import of any sibling leaf. verification_command: `python -m pytest tests/test_submission.py -q`.",
+      "dependencies": [],
+      "interfaces": "ngv2/submission.py exposes `render_submission(form)` and `assemble_package(finding, poc, live_test)`.",
+      "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+    }
+  ],
+  "child_slugs": [
+    "ngv2-cvss",
+    "ngv2-huntr-form",
+    "ngv2-submission"
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2-submission-pkg.md",
+  "source_brief_sha256": "31c665cd5d38bb155c66159bd6ee36699c4d2ed0289021ce5c466bc69595a890",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2",
+  "epic_slug": "ngv2-submission-pkg"
+}

@@ -1,0 +1,59 @@
+{
+  "plan_kind": "implementation",
+  "tasks": [
+    {
+      "task_id": "fix-epic-hallucination-guard",
+      "title": "Special-case epic plans in _check_hallucination so sub-epic plan-kickoffs are not discarded (NGv2 Epic-3)",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": ["harness/autowork_daemon.py"],
+      "acceptance_criteria": [
+        "harness/autowork_daemon.py::_check_hallucination gains an epic-plan special-case BEFORE the existing `tasks` check and AFTER the `wall < min_wall` guard: when plan_dict.get('plan_kind') == 'epic', a non-empty list child_slugs returns (False, '') and an empty/missing child_slugs returns (True, 'empty_epic').",
+        "The `wall < float(min_wall)` guard stays ABOVE the new epic branch (a sub-min-wall epic kickoff still returns (True, 'wall<min')).",
+        "The existing leaf-plan logic is reproduced byte-identically: a leaf plan with no tasks list still returns (True, 'empty_plan'); the all_gemini/any_reconciled loop returning (True, 'all_gemini_no_reconciled') or (False, '') is unchanged.",
+        "Gate green: tests/adversarial/test_epic_hallucination_guard.py (6/6) passes; tests/adversarial/test_autowork_auto_promote.py stays green."
+      ],
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/adversarial/test_epic_hallucination_guard.py tests/adversarial/test_autowork_auto_promote.py -q",
+      "spec": {
+        "objective": "Close the NGv2 Epic-3 daemon-driven epic-kickoff blocker. _check_hallucination treats any plan with no `tasks` list as an empty_plan hallucination, but an EPIC plan legitimately carries no tasks (only child_slugs + child_briefs). So every daemon plan-kickoff of a sub-epic is mis-flagged empty_plan, the epic plan is unlinked, a .failed backoff marker is written, and no sub-epic plan ever persists -> the whole multi-level run stalls at 0 builds. Fix: special-case plan_kind=='epic' in _check_hallucination so a non-empty child_slugs decomposition is valid, while a genuinely empty epic decomposition is still flagged.",
+        "functional_requirements": [
+          "In _check_hallucination, after the existing `if wall < float(min_wall): return (True, 'wall<min')` guard and BEFORE reading `tasks`, add: if isinstance(plan_dict, dict) and plan_dict.get('plan_kind') == 'epic': read child_slugs = plan_dict.get('child_slugs'); if isinstance(child_slugs, list) and child_slugs: return (False, ''); else return (True, 'empty_epic').",
+          "Make NO other change to _check_hallucination. The wall guard, the `tasks` extraction, the empty-tasks `empty_plan` return, and the all_gemini/any_reconciled loop and its `all_gemini_no_reconciled`/`(False,'')` returns are reproduced byte-for-byte.",
+          "Preserve the function signature `_check_hallucination(plan_dict: dict, wall_seconds: float, min_wall: float=10.0) -> tuple[bool, str]` and the wall_seconds float-coercion try/except exactly."
+        ],
+        "interfaces": "harness/autowork_daemon._check_hallucination(plan_dict: dict, wall_seconds: float, min_wall: float=10.0) -> tuple[bool, str]. Signature and return contract UNCHANGED. The new epic branch returns (False, '') for a non-empty child_slugs epic plan and (True, 'empty_epic') for an empty/missing one; leaf-plan behavior is identical to before.",
+        "edge_cases": [
+          "Epic plan {'plan_kind':'epic','child_slugs':['a','b']} with wall>=min_wall -> (False, '').",
+          "Epic plan {'plan_kind':'epic','child_slugs':[]} -> (True, 'empty_epic').",
+          "Epic plan {'plan_kind':'epic'} (missing child_slugs) -> (True, 'empty_epic').",
+          "Epic plan with wall<min_wall -> still (True, 'wall<min') (wall guard is above the epic branch).",
+          "Leaf plan {'tasks':[...]} well-attributed -> (False, '') unchanged; leaf plan {'tasks':[]} -> (True, 'empty_plan') unchanged; all-gemini-no-reconciled leaf -> (True, 'all_gemini_no_reconciled') unchanged."
+        ],
+        "non_goals": [
+          "Do NOT change the wall<min_wall guard, the empty_plan path for leaf plans, or the all_gemini_no_reconciled logic.",
+          "Do NOT touch _auto_promote, the discard/unlink path, or any other function in autowork_daemon.py.",
+          "Do not add imports or use eval/exec/__import__.",
+          "integration: single-function contract pinned by the committed oracle tests/adversarial/test_epic_hallucination_guard.py plus the existing tests/adversarial/test_autowork_auto_promote.py regression suite; no broader wiring."
+        ],
+        "implementation_notes": "Emit a SINGLE kind:'symbol' partial-edit patch via __JANUSMASK_PATCHES__ with name '_check_hallucination' (the function already exists -> plain symbol replacement, no new top-level symbol, no R-anchor). The file is in the jail (self build, repo_root=PROJECT_DIR) so READ harness/autowork_daemon.py and reproduce _check_hallucination (def at line ~1259, the whole function from the `try: wall = float(wall_seconds)` body through `return (False, '')`) byte-for-byte EXCEPT insert the epic branch right after the wall guard:\n\n    if isinstance(plan_dict, dict) and plan_dict.get('plan_kind') == 'epic':\n        child_slugs = plan_dict.get('child_slugs')\n        if isinstance(child_slugs, list) and child_slugs:\n            return (False, '')\n        return (True, 'empty_epic')\n\nDo not truncate the function; reproduce the wall float-coercion try/except, the wall<min guard, the tasks extraction, the empty_plan return, and the all_gemini/any_reconciled loop exactly."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {"name": "test_epic_plan_with_child_slugs_is_not_hallucinated"},
+          {"name": "test_epic_plan_with_empty_child_slugs_is_hallucinated"},
+          {"name": "test_epic_plan_with_missing_child_slugs_is_hallucinated"},
+          {"name": "test_sub_min_wall_epic_still_flagged_wall"},
+          {"name": "test_leaf_plan_with_tasks_unchanged"},
+          {"name": "test_leaf_plan_without_tasks_still_empty_plan"}
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {"name": "test_leaf_plan_without_tasks_still_empty_plan"}
+        ]
+      }
+    }
+  ]
+}

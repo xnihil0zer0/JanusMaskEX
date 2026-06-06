@@ -1,0 +1,107 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2-dedup-impl",
+      "title": "Implement ngv2/dedup.py: normalize_title, is_duplicate, filter_new over Finding",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/dedup.py"
+      ],
+      "acceptance_criteria": [
+        "New single-file whole-file module ngv2/dedup.py is created (no edits to any other file).",
+        "Module exposes top-level callables normalize_title, is_duplicate, and filter_new(findings, existing_titles).",
+        "Module imports only the Python standard library and ngv2.contracts (Finding); no third-party imports.",
+        "Module is pure and deterministic: no file or network I/O, no global mutable state, no randomness, no clock/time dependence.",
+        "The committed oracle passes: `python -m pytest tests/test_dedup.py -q` succeeds under working_dir /home/xnihil0zer0/NobleGreedv2.",
+        "Public function signatures match exactly what the committed oracle tests/test_dedup.py imports and calls."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/test_dedup.py -q",
+      "spec": {
+        "objective": "Create the new single-file, whole-file, pure/deterministic, stdlib-only Python module ngv2/dedup.py (working_dir /home/xnihil0zer0/NobleGreedv2) that provides deduplication over ngv2.contracts.Finding by exposing normalize_title, is_duplicate, and filter_new(findings, existing_titles). The module must satisfy the already-committed leaf oracle tests/test_dedup.py without authoring any new tests and without touching any other module.",
+        "functional_requirements": [
+          "normalize_title(title) returns a canonical, deterministic normalized form of a finding title (e.g. case-folded, leading/trailing whitespace stripped, internal whitespace collapsed, and punctuation/formatting normalized) such that titles that differ only by these incidental variations map to the identical normalized string.",
+          "is_duplicate(...) reports whether a given finding/title is a duplicate of previously-seen titles by comparing normalized forms, returning a deterministic boolean; the exact parameter shape (e.g. (title, existing_titles) or (finding, existing_titles)) must match the call sites in the committed oracle tests/test_dedup.py.",
+          "filter_new(findings, existing_titles) returns the subset of findings whose normalized title is not present among the normalized existing_titles, preserving the input order of the surviving findings and suppressing intra-batch duplicates (the first occurrence of each newly-seen normalized title is kept).",
+          "The module operates correctly over the ngv2.contracts.Finding shape, importing Finding from ngv2.contracts, and uses only the Python standard library with no I/O, no shared mutable state, and fully deterministic behavior."
+        ],
+        "interfaces": "ngv2/dedup.py exposes normalize_title(...), is_duplicate(...), and filter_new(findings, existing_titles) over ngv2.contracts.Finding. working_dir: /home/xnihil0zer0/NobleGreedv2. verification_command: python -m pytest tests/test_dedup.py -q.",
+        "edge_cases": [
+          "Empty title string and title that is only whitespace/punctuation normalize to a stable, well-defined value.",
+          "Titles differing only by case, surrounding/internal whitespace, or punctuation are treated as the same after normalization.",
+          "filter_new with an empty findings sequence returns an empty result; with empty existing_titles returns all findings minus intra-batch duplicates.",
+          "Two findings in the same input batch that normalize to the same title: only the first is kept by filter_new.",
+          "existing_titles supplied with non-normalized (raw) titles are still matched because both sides are normalized before comparison.",
+          "Unicode and mixed-width whitespace in titles are handled deterministically.",
+          "None or missing title handling is consistent with what the committed oracle expects (do not crash on the inputs the oracle exercises)."
+        ],
+        "non_goals": [
+          "No live exploit execution; behavior stays at NobleGreedv2 runtime.",
+          "No authoring of tests by this leaf; the oracle tests/test_dedup.py is already committed.",
+          "No file or network I/O; no third-party imports (stdlib plus ngv2.contracts only).",
+          "No dependency on other Epic-3 leaves or sibling sub-epics (grounding/triage/submission).",
+          "No cross-module wiring or integration glue; only ngv2/dedup.py is created."
+        ],
+        "implementation_notes": "Single file, whole-file deliverable at ngv2/dedup.py. Inspect the committed oracle tests/test_dedup.py first to lock the exact import names, function signatures, and expected normalization/duplicate semantics, then implement to match. Import Finding from ngv2.contracts. Keep all functions pure (deterministic, no I/O, no globals). Normalization should be the single shared primitive that is_duplicate and filter_new both delegate to so duplicate detection is consistent. Run `python -m pytest tests/test_dedup.py -q` under working_dir /home/xnihil0zer0/NobleGreedv2 to verify; do not modify the oracle or any other module.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_dedup.py\n```python\n\"\"\"RED oracle for ngv2.dedup \u2014 drop findings whose title collides with an\nexisting huntr submission (saturation/dup guard). Imports ngv2.contracts.Finding.\"\"\"\nfrom ngv2.contracts import Finding\nfrom ngv2.dedup import normalize_title, is_duplicate, filter_new\n\n\ndef _f(fid, title):\n    return Finding(id=fid, target='berriai/litellm', category='CWE-918',\n                   severity='high', title=title, description='d')\n\n\nEXISTING = ['SSRF in LiteLLM proxy', 'XSS in admin UI']\n\n\ndef test_normalize_title_lowercases_and_collapses_ws():\n    assert normalize_title('  SSRF   in   Proxy ') == 'ssrf in proxy'\n\n\ndef test_is_duplicate_substring_either_direction():\n    # candidate is substring of an existing title (normalized)\n    assert is_duplicate('ssrf in litellm proxy', EXISTING) is True\n    # existing is substring of candidate\n    assert is_duplicate('A new XSS in admin UI via avatar upload', EXISTING) is True\n    # genuinely new\n    assert is_duplicate('SQL injection in billing', EXISTING) is False\n\n\ndef test_filter_new_keeps_only_novel_findings():\n    findings = [\n        _f('1', 'SSRF in LiteLLM proxy'),       # dup\n        _f('2', 'SQL injection in billing'),    # new\n        _f('3', 'XSS in admin UI'),             # dup\n    ]\n    out = filter_new(findings, EXISTING)\n    assert [f.id for f in out] == ['2']\n    # returns Finding objects, input order preserved among kept\n    assert all(isinstance(f, Finding) for f in out)\n\n\ndef test_filter_new_empty_existing_keeps_all():\n    findings = [_f('1', 'anything'), _f('2', 'else')]\n    assert [f.id for f in filter_new(findings, [])] == ['1', '2']\n\n\ndef test_filter_new_does_not_mutate_input():\n    findings = [_f('1', 'SSRF in LiteLLM proxy'), _f('2', 'novel')]\n    _ = filter_new(findings, EXISTING)\n    assert [f.id for f in findings] == ['1', '2']\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_normalize_title_casefolds_and_trims_whitespace"
+          },
+          {
+            "name": "test_normalize_title_collapses_internal_whitespace_and_punctuation"
+          },
+          {
+            "name": "test_is_duplicate_true_for_titles_equal_after_normalization"
+          },
+          {
+            "name": "test_is_duplicate_false_for_distinct_titles"
+          },
+          {
+            "name": "test_filter_new_returns_only_unseen_findings_preserving_order"
+          },
+          {
+            "name": "test_filter_new_suppresses_intra_batch_duplicates"
+          },
+          {
+            "name": "test_module_imports_only_stdlib_and_ngv2_contracts"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_normalize_title_is_idempotent"
+          },
+          {
+            "name": "test_filter_new_output_is_subset_of_input_in_order"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_committed_oracle_test_dedup_passes"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Verification is performed exclusively against the already-committed oracle tests/test_dedup.py (the leaf authors no tests). The oracle is expected to supply Finding instances built from ngv2.contracts with varying titles (case, whitespace, punctuation variants), existing-title collections, and empty/edge inputs. The unit/property/regression names above describe the coverage the implementation must satisfy via that committed oracle, not new leaf-authored test files."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 200,
+        "test_tokens": 300,
+        "note": "IMPL-only leaf: verification rides on the committed oracle tests/test_dedup.py rather than leaf-authored tests, so the test budget covers reading/satisfying the oracle and edge-case alignment. Implementation is a small, pure, single-file module."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2-dedup.md",
+  "source_brief_sha256": "2f08fe68e4d505b343636671888cc1db9d6b1d6692ae91ee0d10abdd0dd4477a",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

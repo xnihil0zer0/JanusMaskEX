@@ -1,0 +1,111 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2-confidence-impl",
+      "title": "Implement ngv2/confidence.py \u2014 4-tier confidence scoring from multi-tool agreement",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/confidence.py"
+      ],
+      "acceptance_criteria": [
+        "A new single file ngv2/confidence.py is created (whole-file authoring, no edits to other files).",
+        "The module exposes a top-level CONFIDENCE_TIERS object defining exactly 4 confidence tiers in a fixed, deterministic order.",
+        "The module exposes a callable classify(signals) that maps multi-tool agreement signals to exactly one of the 4 tiers defined in CONFIDENCE_TIERS.",
+        "classify is pure and deterministic: identical inputs always yield identical outputs, with no randomness, wall-clock, or environment dependence.",
+        "The module imports only the Python standard library; no third-party imports and no file/network I/O.",
+        "The command `python -m pytest tests/test_confidence.py -q` passes against the already-committed oracle without modifying that oracle.",
+        "No new test files are authored or modified; tests/test_confidence.py remains untouched."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/test_confidence.py -q",
+      "spec": {
+        "objective": "Author a new, single-file, pure/deterministic, stdlib-only Python module ngv2/confidence.py that provides multi-tool confidence scoring by exposing CONFIDENCE_TIERS (the ordered definition of the 4 confidence tiers) and classify(signals) (a deterministic mapping from multi-tool agreement signals to one of those 4 tiers). The committed oracle tests/test_confidence.py is the sole source of truth for the exact tier names/order and classify semantics.",
+        "functional_requirements": [
+          "Define and expose CONFIDENCE_TIERS as a top-level, ordered definition of exactly four confidence tiers, with names/values and ordering matching exactly what tests/test_confidence.py pins.",
+          "Define and expose classify(signals) as a top-level callable that accepts the multi-tool agreement signals shape required by the oracle and returns one of the four tiers defined in CONFIDENCE_TIERS.",
+          "Implement the agreement-to-tier mapping so that the degree of multi-tool agreement deterministically selects the tier exactly as specified by the oracle's expected (input, tier) pairs.",
+          "Guarantee determinism: classify(signals) is a pure function of its argument(s) with no use of randomness, wall-clock time, or environment/OS state, so repeated calls on equal inputs return equal results.",
+          "Restrict the module to the Python standard library only \u2014 no third-party imports \u2014 and perform no file or network I/O at import time or call time.",
+          "Handle the boundary/degenerate signal inputs covered by the oracle (e.g. no agreement / single tool / partial agreement / full agreement) by routing each to its pinned tier without raising unless the oracle expects an error."
+        ],
+        "interfaces": "ngv2/confidence.py exposes module-level `CONFIDENCE_TIERS` (the ordered set/definition of the 4 confidence tiers) and `classify(signals)` returning one of the 4 tiers. Exact tier identifiers, ordering, the accepted `signals` shape, and the precise classify mapping are dictated verbatim by the committed oracle tests/test_confidence.py and must be mirrored exactly.",
+        "edge_cases": [
+          "Empty / no-agreement signals (zero supporting tools) must map to the lowest tier as pinned by the oracle.",
+          "Single-tool signal must map to its designated low/medium tier rather than a high-agreement tier.",
+          "Full multi-tool agreement must map to the highest tier.",
+          "Equal inputs presented in different call invocations must yield identical tiers (idempotent/deterministic).",
+          "Any malformed/unexpected signal shape should be handled exactly as the oracle expects (either a defined tier or a defined exception type), with no nondeterministic fallback."
+        ],
+        "non_goals": [
+          "No file or network I/O.",
+          "No live exploit execution.",
+          "No third-party imports (stdlib only).",
+          "No nondeterminism: no randomness, wall-clock, or environment dependence.",
+          "Do NOT author or modify any test/oracle; tests/test_confidence.py is already committed and is the source of truth.",
+          "No dependency on the semgrep_adapter or fp_filter siblings, and no dependency on sibling sub-epics.",
+          "No cross-module wiring or integration glue; if any Epic-1/Epic-2 shape is needed it is consumed only via a plain import of an already-tested public symbol."
+        ],
+        "implementation_notes": "Read tests/test_confidence.py first and treat it as the exact specification: extract the literal tier names and their order to build CONFIDENCE_TIERS, and extract every (signals, expected_tier) assertion to derive the classify mapping (thresholds/comparisons over the count or set of agreeing tools). Prefer a simple, explicit, branch-or-threshold implementation over anything clever so behavior is obviously deterministic. Keep the whole module self-contained: only `from __future__`/stdlib imports if any. Do not add I/O, logging side effects, or global mutable state. Verify locally with `python -m pytest tests/test_confidence.py -q` from working_dir /home/xnihil0zer0/NobleGreedv2; do not edit the oracle to make it pass.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_confidence.py\n```python\n\"\"\"RED oracle for ngv2.confidence \u2014 4-tier confidence classification from\nmulti-tool agreement signals. Pure stdlib, deterministic.\"\"\"\nfrom ngv2.confidence import CONFIDENCE_TIERS, classify\n\n\ndef test_tiers_constant():\n    assert CONFIDENCE_TIERS == ('CONFIRMED', 'HIGH', 'MEDIUM', 'LOW')\n\n\ndef test_known_fp_is_low_even_with_signals():\n    assert classify({'proof': True, 'tools_agree': 3, 'known_fp': True}) == 'LOW'\n\n\ndef test_proof_is_confirmed():\n    # a formal proof (taint flow / PoC run) -> CONFIRMED\n    assert classify({'proof': True, 'tools_agree': 0, 'known_fp': False}) == 'CONFIRMED'\n\n\ndef test_multiple_tools_agree_is_high():\n    assert classify({'proof': False, 'tools_agree': 2, 'known_fp': False}) == 'HIGH'\n    assert classify({'proof': False, 'tools_agree': 5, 'known_fp': False}) == 'HIGH'\n\n\ndef test_single_tool_is_medium():\n    assert classify({'proof': False, 'tools_agree': 1, 'known_fp': False}) == 'MEDIUM'\n\n\ndef test_no_signal_is_low():\n    assert classify({'proof': False, 'tools_agree': 0, 'known_fp': False}) == 'LOW'\n    # missing keys default to no-signal -> LOW\n    assert classify({}) == 'LOW'\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_confidence_tiers_has_exactly_four_ordered_tiers"
+          },
+          {
+            "name": "test_classify_is_callable_and_returns_a_defined_tier"
+          },
+          {
+            "name": "test_classify_maps_agreement_degree_to_pinned_tier"
+          },
+          {
+            "name": "test_classify_is_deterministic_on_repeated_calls"
+          },
+          {
+            "name": "test_module_is_stdlib_only_no_io"
+          },
+          {
+            "name": "test_classify_handles_boundary_signal_shapes"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_oracle_suite_passes_against_implementation"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_classify_output_always_member_of_confidence_tiers"
+          },
+          {
+            "name": "test_classify_monotonic_nondecreasing_in_agreement"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_oracle_unmodified_and_green"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "All authoritative test data lives in the already-committed oracle tests/test_confidence.py (tier definitions and the full set of (signals, expected_tier) cases). No new fixtures are created; the implementation must satisfy those committed cases verbatim. The unit/property/regression names above describe the coverage the existing oracle provides and must NOT be authored as new files."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "IMPL-only task: the oracle tests/test_confidence.py already exists, so test_tokens represents the pre-committed oracle's pinning weight rather than new authoring. No tests are to be written; implementation effort is small and the verification surface (oracle) is comparatively larger."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2-confidence.md",
+  "source_brief_sha256": "4d0df7402e8ae50d0599820340a24f405212b5133b8597239690fe7e3b8ddd01",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

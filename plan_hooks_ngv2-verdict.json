@@ -1,0 +1,114 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2-verdict-impl",
+      "title": "Implement ngv2/verdict.py \u2014 Verdict dataclass (TP/FP + confidence) with to_dict/from_dict/validate",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/verdict.py"
+      ],
+      "acceptance_criteria": [
+        "New file ngv2/verdict.py exists and is importable as `from ngv2.verdict import Verdict`.",
+        "`Verdict` is a dataclass carrying a TP/FP label field and a confidence field.",
+        "`to_dict()` returns a plain dict representation of the verdict.",
+        "`from_dict(...)` reconstructs an equal `Verdict` from a dict produced by `to_dict()` (round-trip).",
+        "`validate(...)` enforces invariants: label is one of the allowed TP/FP values and confidence is within the allowed range.",
+        "Module is stdlib-only (no third-party imports), performs no file or network I/O, and is pure/deterministic.",
+        "Module does NOT import sibling Epic-3 leaf modules (ngv2/triage_parser.py, ngv2/triage_aggregate.py) and stands alone.",
+        "`python -m pytest tests/test_verdict.py -q` passes; no test files are created or modified."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/test_verdict.py -q",
+      "spec": {
+        "objective": "Author a single new whole-file, pure/deterministic, stdlib-only Python module ngv2/verdict.py in the NobleGreedv2 repo that defines a `Verdict` dataclass carrying a TP/FP label and a confidence value, with serialization (`to_dict`/`from_dict`) and validation (`validate`) helpers, matching the behavior pinned by the already-committed oracle tests/test_verdict.py.",
+        "functional_requirements": [
+          "Define a `Verdict` dataclass exposing a TP/FP label field and a numeric confidence field, with the exact attribute names, defaults, and types required by tests/test_verdict.py.",
+          "Provide a `to_dict()` instance method returning a plain (JSON-friendly) dict representation of the verdict with the keys expected by the oracle.",
+          "Provide a `from_dict(...)` constructor (classmethod or equivalent) that reconstructs a `Verdict` from a dict shaped like `to_dict()` output, such that round-tripping yields an equal instance.",
+          "Provide a `validate(...)` helper that checks the verdict's invariants \u2014 the label is one of the allowed TP/FP values and the confidence is within the allowed range \u2014 and signals invalid verdicts exactly as the oracle expects (raising and/or returning per the pinned behavior).",
+          "Keep the module stdlib-only, deterministic, free of file/network I/O, and standalone: it must not import ngv2/triage_parser.py or ngv2/triage_aggregate.py, and may import already-tested Epic-1/Epic-2 public shapes only if the oracle requires it."
+        ],
+        "interfaces": "ngv2/verdict.py exposes a `Verdict` dataclass (TP/FP label + confidence) with `to_dict()` returning a plain dict, `from_dict(...)` reconstructing a `Verdict` from such a dict, and `validate(...)` checking the verdict invariants.",
+        "edge_cases": [
+          "Label value outside the allowed TP/FP set must be rejected by `validate(...)`.",
+          "Confidence outside the allowed range (e.g. below the minimum or above the maximum) must be rejected by `validate(...)`.",
+          "Confidence at the inclusive boundary values of the allowed range must be accepted.",
+          "`from_dict(...)` given a dict missing or carrying extra keys must behave exactly as the oracle pins (e.g. error vs. tolerate).",
+          "Round-trip `Verdict -> to_dict() -> from_dict()` must reproduce an equal instance.",
+          "Confidence supplied as an int vs. float must be handled consistently with the oracle's expectations."
+        ],
+        "non_goals": [
+          "Do not author or modify any test files; the oracle tests/test_verdict.py is already committed.",
+          "No file or network I/O and no third-party imports (stdlib only).",
+          "Do not import sibling Epic-3 leaf modules and do not make this module a dependency of them.",
+          "No cross-module wiring, integration glue, or live exploit execution; do not depend on sibling sub-epics."
+        ],
+        "implementation_notes": "Read tests/test_verdict.py first and let it dictate the exact field names, allowed TP/FP label values, confidence range bounds (and whether they are inclusive), dict key names, and the precise error/return semantics of `validate(...)` and `from_dict(...)`. Implement `Verdict` with `dataclasses.dataclass`; prefer a frozen or plain dataclass per what the oracle's equality/round-trip checks imply. Use only stdlib (e.g. `dataclasses`, `typing`, optionally `enum`). Keep all logic pure and deterministic with no I/O. Inspect committed Epic-1/Epic-2 modules only to mirror naming/shape conventions; import from them solely if the oracle explicitly requires a shared type.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_verdict.py\n```python\n\"\"\"RED oracle for ngv2.verdict \u2014 the triage Verdict artifact (TP/FP + confidence).\nSelf-contained dataclass with to_dict/from_dict/validate; pure stdlib.\"\"\"\nfrom dataclasses import is_dataclass\n\nfrom ngv2.verdict import Verdict, VERDICT_LABELS, CONFIDENCE_LEVELS\n\n\ndef test_constants():\n    assert VERDICT_LABELS == ('TP', 'FP')\n    assert CONFIDENCE_LEVELS == ('HIGH', 'MEDIUM', 'LOW')\n\n\ndef test_is_dataclass_and_roundtrip():\n    assert is_dataclass(Verdict)\n    v = Verdict(finding_id='1', label='TP', confidence='HIGH', reasoning='clear taint flow')\n    d = v.to_dict()\n    assert d == {'finding_id': '1', 'label': 'TP', 'confidence': 'HIGH', 'reasoning': 'clear taint flow'}\n    assert Verdict.from_dict(d) == v\n\n\ndef test_validate_accepts_valid():\n    Verdict(finding_id='1', label='FP', confidence='LOW', reasoning='by design').validate()\n\n\ndef test_validate_rejects_bad_label():\n    import pytest\n    with pytest.raises(ValueError):\n        Verdict(finding_id='1', label='MAYBE', confidence='HIGH', reasoning='x').validate()\n\n\ndef test_validate_rejects_bad_confidence():\n    import pytest\n    with pytest.raises(ValueError):\n        Verdict(finding_id='1', label='TP', confidence='SURE', reasoning='x').validate()\n\n\ndef test_validate_rejects_empty_finding_id():\n    import pytest\n    with pytest.raises(ValueError):\n        Verdict(finding_id='', label='TP', confidence='HIGH', reasoning='x').validate()\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_verdict_dataclass_has_label_and_confidence_fields"
+          },
+          {
+            "name": "test_to_dict_returns_plain_dict_with_expected_keys"
+          },
+          {
+            "name": "test_from_dict_reconstructs_verdict"
+          },
+          {
+            "name": "test_to_dict_from_dict_round_trip_equal"
+          },
+          {
+            "name": "test_validate_accepts_allowed_tp_label"
+          },
+          {
+            "name": "test_validate_accepts_allowed_fp_label"
+          },
+          {
+            "name": "test_validate_rejects_unknown_label"
+          },
+          {
+            "name": "test_validate_rejects_confidence_out_of_range"
+          },
+          {
+            "name": "test_validate_accepts_confidence_boundary_values"
+          },
+          {
+            "name": "test_module_is_stdlib_only_and_standalone"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "property_round_trip_preserves_equality_for_valid_verdicts"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "regression_oracle_tests_test_verdict_passes"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Verdicts with each allowed TP/FP label and a range of confidence values including in-range, boundary, and out-of-range cases; dicts matching to_dict() output for round-trip reconstruction. All test data is already encoded in the committed oracle tests/test_verdict.py; no new test data or test files are to be authored."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 4000,
+        "test_tokens": 6000,
+        "note": "IMPL-only task: the oracle tests/test_verdict.py is already committed, so test_tokens reflect reading/understanding the pinned oracle rather than authoring new tests. Implementation effort is modest (single small dataclass module)."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2-verdict.md",
+  "source_brief_sha256": "53e17871546f84ccb2d1e8eef1a88fe5af7227f8691ca225a5019d47c450819d",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

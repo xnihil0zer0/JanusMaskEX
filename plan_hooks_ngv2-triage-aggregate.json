@@ -1,0 +1,103 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2-triage-aggregate-impl",
+      "title": "Implement ngv2/triage_aggregate.py (aggregate + keep_true_positives)",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/triage_aggregate.py"
+      ],
+      "acceptance_criteria": [
+        "New file ngv2/triage_aggregate.py exists and is a single whole-file module.",
+        "Module exposes a public function aggregate(verdicts) that returns counts over a collection of verdict dicts.",
+        "Module exposes a public function keep_true_positives(verdicts) that returns only the true-positive verdicts.",
+        "Module is pure/deterministic and stdlib-only: no file or network I/O, no third-party imports.",
+        "Module does NOT import ngv2/verdict.py nor any other Epic-3 leaf; the verdict dict shape is honored from prose only.",
+        "No test files are authored or modified; tests/test_triage_aggregate.py is left untouched.",
+        "python -m pytest tests/test_triage_aggregate.py -q passes against the committed oracle."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/test_triage_aggregate.py -q",
+      "spec": {
+        "objective": "Build one new whole-file, pure/deterministic, stdlib-only Python module ngv2/triage_aggregate.py in the NobleGreedv2 repo that exposes aggregate(verdicts) (counts over verdict dicts) and keep_true_positives(verdicts) (filter to TP verdicts), passing the already-committed oracle tests/test_triage_aggregate.py.",
+        "functional_requirements": [
+          "Expose a module-level function aggregate(verdicts) that accepts a collection/iterable of verdict dicts and returns a counts structure (e.g. total plus counts grouped by the TP/FP label), exactly as pinned by the oracle.",
+          "Expose a module-level function keep_true_positives(verdicts) that returns only the verdicts whose label field indicates a true positive, preserving the input order.",
+          "Interpret the verdict dict shape from prose only \u2014 each verdict is a dict carrying a TP/FP label field and a confidence value \u2014 without importing ngv2/verdict.py or any other Epic-3 leaf.",
+          "Keep the module pure/deterministic and stdlib-only: no file or network I/O, no third-party imports, and do not mutate the input verdict objects or the input collection.",
+          "Pass the committed oracle tests/test_triage_aggregate.py exactly, matching its expected return shapes and edge-case behavior."
+        ],
+        "interfaces": "ngv2/triage_aggregate.py exposes aggregate(verdicts) returning counts over a collection of verdict dicts, and keep_true_positives(verdicts) returning the subset of TP verdicts. Both take a collection of verdict dicts whose shape mirrors what parse_triage(debate) and Verdict.to_dict() produce (a TP/FP label field and a confidence value).",
+        "edge_cases": [
+          "Empty input collection: aggregate returns zero/empty counts and keep_true_positives returns an empty result.",
+          "All-true-positive and all-false-positive collections produce the correct extreme counts.",
+          "Verdicts whose label is false-positive are excluded by keep_true_positives but still counted by aggregate.",
+          "Input order is preserved by keep_true_positives; inputs are not mutated by either function.",
+          "Match whatever exact return container/keys the oracle pins (do not invent extra keys beyond what tests/test_triage_aggregate.py asserts)."
+        ],
+        "non_goals": [
+          "Do not author or modify any test files; the oracle at tests/test_triage_aggregate.py is already committed.",
+          "No file or network I/O and no third-party imports (stdlib only).",
+          "Do not import ngv2/verdict.py or any other Epic-3 leaf; restate the verdict shape as prose only.",
+          "No cross-module wiring, integration glue, or live exploit execution; do not depend on sibling sub-epics."
+        ],
+        "implementation_notes": "Single self-contained module. Read tests/test_triage_aggregate.py first to lock the exact label field name, the TP/FP sentinel values, the counts container/keys returned by aggregate, and the return type of keep_true_positives. Implement with plain stdlib (e.g. a dict comprehension / loop or collections.Counter). Treat verdicts as read-only dicts; build new outputs rather than mutating inputs. Epic-1/Epic-2 modules may be imported via stable public shapes only if genuinely needed, but prefer zero imports beyond stdlib.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_triage_aggregate.py\n```python\n\"\"\"RED oracle for ngv2.triage_aggregate \u2014 aggregate normalized verdict dicts into\ncounts and keep the true positives. Pure stdlib; operates on plain dicts.\"\"\"\nfrom ngv2.triage_aggregate import aggregate, keep_true_positives\n\n\nVERDICTS = [\n    {'finding_id': '1', 'label': 'TP', 'confidence': 'HIGH', 'reasoning': ''},\n    {'finding_id': '2', 'label': 'FP', 'confidence': 'LOW', 'reasoning': ''},\n    {'finding_id': '3', 'label': 'TP', 'confidence': 'MEDIUM', 'reasoning': ''},\n    {'finding_id': '4', 'label': 'TP', 'confidence': 'HIGH', 'reasoning': ''},\n]\n\n\ndef test_aggregate_counts():\n    out = aggregate(VERDICTS)\n    assert out['total'] == 4\n    assert out['tp'] == 3\n    assert out['fp'] == 1\n    assert out['by_confidence'] == {'HIGH': 2, 'MEDIUM': 1, 'LOW': 1}\n\n\ndef test_aggregate_empty():\n    out = aggregate([])\n    assert out == {'total': 0, 'tp': 0, 'fp': 0, 'by_confidence': {'HIGH': 0, 'MEDIUM': 0, 'LOW': 0}}\n\n\ndef test_keep_true_positives_filters_and_preserves_order():\n    out = keep_true_positives(VERDICTS)\n    assert [v['finding_id'] for v in out] == ['1', '3', '4']\n\n\ndef test_keep_true_positives_does_not_mutate():\n    src = list(VERDICTS)\n    _ = keep_true_positives(src)\n    assert src == VERDICTS\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "aggregate_counts_tp_and_fp_correctly"
+          },
+          {
+            "name": "aggregate_total_matches_input_length"
+          },
+          {
+            "name": "aggregate_empty_returns_zero_counts"
+          },
+          {
+            "name": "keep_true_positives_returns_only_tp"
+          },
+          {
+            "name": "keep_true_positives_preserves_input_order"
+          },
+          {
+            "name": "keep_true_positives_empty_returns_empty"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "aggregate_does_not_mutate_input"
+          },
+          {
+            "name": "keep_true_positives_result_is_subset_of_input"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "committed_oracle_test_triage_aggregate_passes"
+          }
+        ],
+        "minimum_test_count": 9,
+        "test_data_requirements": "Coverage is provided by the already-committed oracle tests/test_triage_aggregate.py; this task authors NO tests. The names above enumerate the behaviors the oracle is expected to pin (mixed TP/FP collections, all-TP, all-FP, and empty collections of verdict dicts). The implementer uses the oracle as the source of truth for exact field names and return shapes."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "IMPL-only task: the oracle is pre-committed, so no test authoring occurs. The test_tokens figure reflects effort spent reading/understanding the committed oracle and verifying against it, and satisfies the schema's >=1.5x ratio; it does not authorize creating or editing test files."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2-triage-aggregate.md",
+  "source_brief_sha256": "22103df5233c4a8b3d49b953b92027d582a233a84f666d24bff84128797ca36a",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

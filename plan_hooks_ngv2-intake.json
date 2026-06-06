@@ -1,0 +1,48 @@
+{
+  "plan_kind": "epic",
+  "epic": true,
+  "child_briefs": [
+    {
+      "slug": "ngv2-dedup",
+      "title": "ngv2-dedup",
+      "scope": "Implement the new single-file, whole-file, pure/deterministic stdlib-only Python module ngv2/dedup.py for dedup over ngv2.contracts.Finding, exposing `normalize_title`, `is_duplicate`, and `filter_new(findings, existing_titles)`. It is IMPL-only, verified with `python -m pytest tests/test_dedup.py -q` under working_dir `/home/xnihil0zer0/NobleGreedv2`.",
+      "non_goals": "No live exploit execution (stays at NobleGreedv2 runtime). No tests authored by leaves (oracles already committed). No file or network I/O; injected runners only. No third-party imports (stdlib only). No leaf depends on another Epic-3 leaf and none depends on sibling sub-epics (grounding/triage/submission). No cross-module wiring or integration glue is added in this epic.",
+      "inputs": "The external NobleGreedv2 repo at working_dir /home/xnihil0zer0/NobleGreedv2, already containing the committed Epic-1 substrate (ngv2/contracts.py with the stable Finding shape, ngv2/state_machine.py, ngv2/detonation.py) and committed Epic-2 modules. The committed leaf oracle: tests/test_dedup.py.",
+      "deliverables": "A new single-file whole-file module ngv2/dedup.py exposing `normalize_title(...)`, `is_duplicate(...)`, and `filter_new(findings, existing_titles)` over ngv2.contracts.Finding. Every brief at every level carries working_dir /home/xnihil0zer0/NobleGreedv2; verification_command is `python -m pytest tests/test_dedup.py -q`.",
+      "dependencies": [],
+      "interfaces": "ngv2/dedup.py exposes `normalize_title(...)`, `is_duplicate(...)`, and `filter_new(findings, existing_titles)` over ngv2.contracts.Finding.",
+      "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+    },
+    {
+      "slug": "ngv2-huntr-data",
+      "title": "ngv2-huntr-data",
+      "scope": "Implement the new single-file, whole-file, pure/deterministic stdlib-only Python module ngv2/huntr_data.py to load huntr eligibility/bounty/submission JSON into typed RepoBounty records, exposing `parse_bounties` and `parse_existing_submissions`. It is IMPL-only, verified with `python -m pytest tests/test_huntr_data.py -q` under working_dir `/home/xnihil0zer0/NobleGreedv2`.",
+      "non_goals": "No live exploit execution (stays at NobleGreedv2 runtime). No tests authored by leaves (oracles already committed). No file or network I/O; injected runners only. No third-party imports (stdlib only). No leaf depends on another Epic-3 leaf and none depends on sibling sub-epics (grounding/triage/submission). No cross-module wiring or integration glue is added in this epic.",
+      "inputs": "The external NobleGreedv2 repo at working_dir /home/xnihil0zer0/NobleGreedv2, already containing the committed Epic-1 substrate (ngv2/contracts.py with the stable Finding shape, ngv2/state_machine.py, ngv2/detonation.py) and committed Epic-2 modules. The committed leaf oracle: tests/test_huntr_data.py.",
+      "deliverables": "A new single-file whole-file module ngv2/huntr_data.py exposing `parse_bounties(...) -> list[RepoBounty]` and `parse_existing_submissions(...)` plus a typed `RepoBounty` record. Every brief at every level carries working_dir /home/xnihil0zer0/NobleGreedv2; verification_command is `python -m pytest tests/test_huntr_data.py -q`.",
+      "dependencies": [],
+      "interfaces": "ngv2/huntr_data.py exposes `parse_bounties(...) -> list[RepoBounty]` and `parse_existing_submissions(...)` plus a typed `RepoBounty` record.",
+      "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+    },
+    {
+      "slug": "ngv2-prioritize",
+      "title": "ngv2-prioritize",
+      "scope": "Implement the new single-file, whole-file, pure/deterministic stdlib-only Python module ngv2/prioritize.py for deterministic ROI ranking, exposing `expected_payout(bounty, severity)` and `rank_targets(bounties, *, severity)` with a saturation tie-break. It is IMPL-only, verified with `python -m pytest tests/test_prioritize.py -q` under working_dir `/home/xnihil0zer0/NobleGreedv2`.",
+      "non_goals": "No live exploit execution (stays at NobleGreedv2 runtime). No tests authored by leaves (oracles already committed). No file or network I/O; injected runners only. No third-party imports (stdlib only). No leaf depends on another Epic-3 leaf and none depends on sibling sub-epics (grounding/triage/submission). No cross-module wiring or integration glue is added in this epic.",
+      "inputs": "The external NobleGreedv2 repo at working_dir /home/xnihil0zer0/NobleGreedv2, already containing the committed Epic-1 substrate (ngv2/contracts.py with the stable Finding shape, ngv2/state_machine.py, ngv2/detonation.py) and committed Epic-2 modules. The committed leaf oracle: tests/test_prioritize.py.",
+      "deliverables": "A new single-file whole-file module ngv2/prioritize.py exposing `expected_payout(bounty, severity)` and `rank_targets(bounties, *, severity)`. Every brief at every level carries working_dir /home/xnihil0zer0/NobleGreedv2; verification_command is `python -m pytest tests/test_prioritize.py -q`.",
+      "dependencies": [],
+      "interfaces": "ngv2/prioritize.py exposes `expected_payout(bounty, severity)` and `rank_targets(bounties, *, severity)`.",
+      "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+    }
+  ],
+  "child_slugs": [
+    "ngv2-dedup",
+    "ngv2-huntr-data",
+    "ngv2-prioritize"
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2-intake.md",
+  "source_brief_sha256": "642cfa06ed1025bc05497642c4f83da3d368ceaef5db72724056a284e366d1f5",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2",
+  "epic_slug": "ngv2-intake"
+}

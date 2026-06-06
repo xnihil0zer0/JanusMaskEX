@@ -1,0 +1,108 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2-huntr-form-impl",
+      "title": "Implement ngv2/huntr_form.py: build_form exposing HUNTR_FORM_FIELDS, CWE_VULN_TYPES",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/huntr_form.py"
+      ],
+      "acceptance_criteria": [
+        "New single-file whole-file module ngv2/huntr_form.py is created (no edits to any other file).",
+        "Module defines HUNTR_FORM_FIELDS as a tuple containing the 12 ordered field identifiers.",
+        "Module defines CWE_VULN_TYPES mapping CWE numbers to vulnerability type names.",
+        "Module exposes build_form(finding, poc, context) returning a dictionary mapping the 12 huntr form fields to their values.",
+        "Module imports only the Python standard library and ngv2.contracts (Finding, PoC); no third-party imports.",
+        "Module is pure and deterministic: no file or network I/O, no global mutable state, no randomness, no clock/time dependence.",
+        "The committed oracle passes: `python -m pytest tests/test_huntr_form.py -q` succeeds under working_dir /home/xnihil0zer0/NobleGreedv2."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/test_huntr_form.py -q",
+      "spec": {
+        "objective": "Create the new single-file, whole-file, pure/deterministic, stdlib-only Python module ngv2/huntr_form.py (working_dir /home/xnihil0zer0/NobleGreedv2) that provides huntr submission form construction by defining HUNTR_FORM_FIELDS, CWE_VULN_TYPES, and build_form(finding, poc, context). The module must satisfy the already-committed leaf oracle tests/test_huntr_form.py without authoring any new tests and without touching any other module.",
+        "functional_requirements": [
+          "Define HUNTR_FORM_FIELDS as a tuple containing the 12 ordered field identifiers: 'repository', 'package_manager', 'affected_package', 'version', 'vulnerability_type', 'severity', 'cvss_vector', 'title', 'description', 'poc', 'impact', 'occurrences'.",
+          "Define CWE_VULN_TYPES as a dictionary mapping known CWE identifiers (as numeric string keys, e.g. '918', '89') to their human-readable vulnerability type strings (e.g. 'Server-Side Request Forgery (SSRF)', 'SQL Injection').",
+          "Implement build_form(finding, poc, context) returning a dictionary mapping the 12 huntr form fields to their extracted or derived values from the finding-shaped, poc-shaped, and context-shaped objects.",
+          "Implement CWE mapping lookup in build_form: parse the numeric digits out of finding.category (e.g., '918' from 'CWE-918'), and if present in CWE_VULN_TYPES, map it; otherwise fall back to the raw category value (e.g. 'CWE-99999').",
+          "The module operates correctly over the ngv2.contracts shapes (Finding, PoC), importing them from ngv2.contracts, and uses only the Python standard library with no I/O, no shared mutable state, and fully deterministic behavior."
+        ],
+        "interfaces": "ngv2/huntr_form.py exposes HUNTR_FORM_FIELDS (tuple), CWE_VULN_TYPES (dict), and build_form(finding, poc, context) -> dict. finding is Finding-shaped, poc is PoC-shaped, context is a dict or object. working_dir: /home/xnihil0zer0/NobleGreedv2. verification_command: python -m pytest tests/test_huntr_form.py -q.",
+        "edge_cases": [
+          "finding.category does not match the 'CWE-<number>' format (e.g., empty string or non-numeric category) -> fall back to the raw category value without raising an error.",
+          "CWE lookup key is not in CWE_VULN_TYPES (e.g., 'CWE-99999') -> fall back to the raw category value ('CWE-99999').",
+          "finding, poc, and context contain extra attributes or keys -> they are ignored during form building.",
+          "context is missing optional fields -> map them to None or defaults per the oracle's expectations.",
+          "All generated dictionaries must contain exactly the 12 fields defined in HUNTR_FORM_FIELDS as keys.",
+          "Inputs containing unicode or special characters are processed and returned exactly as-is without modification."
+        ],
+        "non_goals": [
+          "No live exploit execution; behavior stays at NobleGreedv2 runtime.",
+          "No authoring of tests by this leaf; the oracle tests/test_huntr_form.py is already committed.",
+          "No file or network I/O; no third-party imports (stdlib plus ngv2.contracts only).",
+          "No dependency on sibling leaves (cvss.py, submission.py) or sibling sub-epics; do not import them.",
+          "No cross-module wiring or integration glue; only ngv2/huntr_form.py is created."
+        ],
+        "implementation_notes": "Single file, whole-file deliverable at ngv2/huntr_form.py. Inspect the committed oracle tests/test_huntr_form.py first to lock the exact field names, mappings, and return structure, then implement to match. Import Finding and PoC from ngv2.contracts. Keep all functions pure (deterministic, no I/O, no globals). Run `python -m pytest tests/test_huntr_form.py -q` under working_dir /home/xnihil0zer0/NobleGreedv2 to verify; do not modify the oracle or any other module.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_huntr_form.py\n```python\n\"\"\"RED oracle for ngv2.huntr_form \u2014 build the 12 huntr submission form fields\nfrom a Finding + PoC + context. Imports ngv2.contracts; pure stdlib.\"\"\"\nfrom ngv2.contracts import Finding, PoC\nfrom ngv2.huntr_form import HUNTR_FORM_FIELDS, CWE_VULN_TYPES, build_form\n\n\nFINDING = Finding(id='MDB-1', target='berriai/litellm', category='CWE-918',\n                  severity='high', title='SSRF in proxy', description='User URL reaches request()')\nPOC = PoC(finding_id='MDB-1', language='python', code='import requests; requests.get(URL)',\n          entrypoint='exploit')\nCONTEXT = {\n    'package_manager': 'pypi',\n    'affected_package': 'litellm',\n    'version': '1.40.0',\n    'cvss_vector': 'AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N',\n    'impact': 'Server-side request forgery to internal services.',\n    'occurrences': ['https://github.com/berriai/litellm/blob/abc/proxy.py#L410'],\n}\n\n\ndef test_form_fields_constant():\n    assert HUNTR_FORM_FIELDS == (\n        'repository', 'package_manager', 'affected_package', 'version',\n        'vulnerability_type', 'severity', 'cvss_vector', 'title',\n        'description', 'poc', 'impact', 'occurrences',\n    )\n\n\ndef test_cwe_vuln_types_maps_known_cwes():\n    assert CWE_VULN_TYPES['918'] == 'Server-Side Request Forgery (SSRF)'\n    assert CWE_VULN_TYPES['89'] == 'SQL Injection'\n\n\ndef test_build_form_has_all_fields():\n    form = build_form(FINDING, POC, CONTEXT)\n    assert set(form.keys()) == set(HUNTR_FORM_FIELDS)\n\n\ndef test_build_form_values():\n    form = build_form(FINDING, POC, CONTEXT)\n    assert form['repository'] == 'berriai/litellm'\n    assert form['package_manager'] == 'pypi'\n    assert form['affected_package'] == 'litellm'\n    assert form['version'] == '1.40.0'\n    # CWE-918 -> mapped huntr vulnerability type\n    assert form['vulnerability_type'] == 'Server-Side Request Forgery (SSRF)'\n    assert form['severity'] == 'high'\n    assert form['cvss_vector'] == CONTEXT['cvss_vector']\n    assert form['title'] == 'SSRF in proxy'\n    assert form['description'] == 'User URL reaches request()'\n    assert form['poc'] == POC.code\n    assert form['impact'] == CONTEXT['impact']\n    assert form['occurrences'] == CONTEXT['occurrences']\n\n\ndef test_build_form_unknown_cwe_falls_back_to_category():\n    f = Finding(id='1', target='t', category='CWE-99999', severity='low', title='x', description='d')\n    form = build_form(f, POC, CONTEXT)\n    assert form['vulnerability_type'] == 'CWE-99999'\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_form_fields_constant_has_exact_12_keys"
+          },
+          {
+            "name": "test_cwe_vuln_types_contains_known_cwes"
+          },
+          {
+            "name": "test_build_form_contains_all_12_keys"
+          },
+          {
+            "name": "test_build_form_maps_expected_values_correctly"
+          },
+          {
+            "name": "test_build_form_handles_unknown_cwe_correctly"
+          },
+          {
+            "name": "test_build_form_handles_category_extraction_edge_cases"
+          },
+          {
+            "name": "test_module_is_isolated_from_sibling_leaves"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_build_form_is_pure_and_deterministic"
+          },
+          {
+            "name": "test_build_form_preserves_input_state"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_committed_oracle_test_huntr_form_passes"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Verification is performed exclusively against the already-committed oracle tests/test_huntr_form.py (the leaf authors no tests). The oracle supplies Finding and PoC instances built from ngv2.contracts, context dictionaries, and tests for known/unknown CWE category values. The unit/property/regression names above describe the coverage the implementation must satisfy via that committed oracle, not new leaf-authored test files."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 200,
+        "test_tokens": 300,
+        "note": "IMPL-only leaf: verification rides on the committed oracle tests/test_huntr_form.py rather than leaf-authored tests, so the test budget covers reading/satisfying the oracle and edge-case alignment. Implementation is a small, pure, single-file module."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2-huntr-form.md",
+  "source_brief_sha256": "411d32259074321598b6c7239a154a0a154e51b00c906fae0ce0e567a16de2db",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}
