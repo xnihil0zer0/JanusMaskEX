@@ -1,119 +1,138 @@
 # NobleGreedv2 — Epic-4 RUN handoff (EXECUTION session)
 
-Authored 2026-06-06 (same session that shipped TASK 1, the gate-failure error-capture fix).
-**Epic-4 is AUTHORED, not executed.** This file is the run recipe for the EXECUTION session.
+Authored 2026-06-06. **Epic-4 is AUTHORED, not executed.** This session is a DECOMPOSITION
+TEST: feed JanusMask **one big root brief** and let its planner **decide the whole multi-level
+tree itself** (root → ... → leaf, depth ≤ 4), then build all 67 leaves hands-off.
 
-## What Epic-4 is
+## The setup (what makes this a decomposition test)
 
-The **maximal, FOUR-LEVEL** epic that rebuilds **every remaining JM-gatable capability** of
-legacy NobleGreed into the external NobleGreedv2 repo. Discovered by a 67-agent parallel
-research pass (7 cluster mappers + completeness critic) over `/mnt/ai-data/NobleGreed-legacy`
-(services/ = 53 .py + orchestrator/ + knowledge/) deduped against the 20-module ngv2 spine.
+- **ONE input brief:** `brief_hooks_ngv2_epic4.md` (slug `ngv2_epic4`, ~24KB, `epic:true`,
+  `child_epics:true`). It describes the mission + the **67 capabilities to rebuild** (the body
+  of work) and **hands the decomposition decision to JM** — JM chooses the super-epics,
+  sub-epics, depth, and grouping. It offers a non-binding suggested grouping (4 domains) but
+  does NOT prescribe the tree. Verified: loads via `load_brief`, `_should_run_epic == True`.
+- **The leaf SET is anchored, the HIERARCHY is free.** The 67 leaf MODULE NAMES are fixed
+  because each is pinned by a committed oracle (`tests/test_<name>.py` does
+  `from ngv2.<name> import …`). JM must reproduce those module names exactly; what JM *decides*
+  is how to group them into the epic hierarchy.
+- **67 committed oracles** at NGv2 `master 45f5790` (87 tracked oracle files = 20 spine + 67).
+  Clean-room, stdlib-only, injected seams (clock/solver/runner/transport) for all
+  non-determinism. Oracle-injection (`e399c33`) feeds each into its leaf's build spec.
+- **16 hand-authored intermediate briefs** from the first authoring pass are PRESERVED under
+  `epic4_handauthored_reference/` (NOT used as input; `_run_epic_pipeline` generates child
+  briefs from the parent's prose and would overwrite them anyway). They're a reference for what
+  a reasonable decomposition looks like, and a fallback (see §Fallback).
 
-- **Tree (depth-4):** root `ngv2_epic4` → **4 super-epics** → **12 sub-epics** → **67 leaves**.
-  Leaf lineage depth = 3 ≤ `max_planner_depth:4` (verified; deeper than Epic-3's depth-3).
-- **67 leaf modules**, each a NEW single-file stdlib-only (or injected-seam) `ngv2/*.py`,
-  IMPL-only, pinned by a **committed clean-room oracle** at `tests/test_<leaf>.py`.
-- **The live-I/O boundary is deferred** (NOT in Epic-4): real exploit firing, real LLM/model
-  calls, GPU/RLCF/GraphMERT training, live huntr.com HTTP/Playwright, live MCP servers. Every
-  non-determinism that CAN be injected (subprocess runner, SMT solver, HTTP transport, clock,
-  model client) is an **injected seam** tested with a mock/scripted callable (poc_runner pattern).
+## The 67 leaves (the verification target — must all build, in any tree)
 
-### The tree
-- **A `ngv2-e4-analysis`** (17 leaves): A1 `ngv2-e4-grounding-pkg` (7: pattern_scanner, fp_patterns,
-  portfolio_scanner, pre_analysis, taint_spec_library, codeql_runner, joern_runner) · A2
-  `ngv2-e4-adversarial-pkg` (6: root_cause, adversarial_scorer, variant_generator, mff_root_cause,
-  mff_variant_generator, mff_scorer) · A3 `ngv2-e4-neurosymbolic-pkg` (4: ast_constraint,
-  ast_verifier, backtrack, z3_bridge).
-- **B `ngv2-e4-gating`** (13 leaves): B1 `ngv2-e4-eligibility-pkg` (8: target_qualify, bounty_gate,
-  repo_complexity, web_framework_detect, language_patterns, deser_detect, huntr_eligible_cache,
-  batch_qualify) · B2 `ngv2-e4-safety-pkg` (5: permission_model, bash_validator, prompt_integrity,
-  safety_framework, prompt_hints).
-- **C `ngv2-e4-orchestration`** (22 leaves): C1 `ngv2-e4-state-pkg` (8: worker_registry, state_update,
-  anti_entropy, state_sync, compactor, fail_fast, phase_runner, task_similarity) · C2
-  `ngv2-e4-scheduling-pkg` (3: dynamic_scheduler, rate_limiter, model_cascade) · C3
-  `ngv2-e4-workers-pkg` (4: agent_registry, work_intent_tracking, worker_command_dispatch,
-  log_watcher) · C4 `ngv2-e4-debate-pkg` (7: debate_router, debate_synthesis, rl_debate_weights,
-  trace_parser, tool_recommender, tool_registry, masf_tool_composer).
-- **D `ngv2-e4-knowledge-tools`** (15 leaves): D1 `ngv2-e4-knowledge-pkg` (6: kg_schema, kg_config,
-  kg_store, codebase_graph_extract, token_logger, state_ledger) · D2 `ngv2-e4-submission-tools-pkg`
-  (5: submission_parser, js_poc_templates, crash_analyzer, dedup_novelty, submission_readiness) ·
-  D3 `ngv2-e4-analytics-pkg` (4: hunting_roi_tracker, portfolio_intel, ops_analytics,
-  revenue_accelerator).
+intake/analysis: pattern_scanner, fp_patterns, portfolio_scanner, pre_analysis,
+taint_spec_library, codeql_runner, joern_runner, root_cause, adversarial_scorer,
+variant_generator, mff_root_cause, mff_variant_generator, mff_scorer, ast_constraint,
+ast_verifier, backtrack, z3_bridge · gating: target_qualify, bounty_gate, repo_complexity,
+web_framework_detect, language_patterns, deser_detect, huntr_eligible_cache, batch_qualify,
+permission_model, bash_validator, prompt_integrity, safety_framework, prompt_hints ·
+orchestration: worker_registry, state_update, anti_entropy, state_sync, compactor, fail_fast,
+phase_runner, task_similarity, dynamic_scheduler, rate_limiter, model_cascade, agent_registry,
+work_intent_tracking, worker_command_dispatch, log_watcher, debate_router, debate_synthesis,
+rl_debate_weights, trace_parser, tool_recommender, tool_registry, masf_tool_composer ·
+knowledge/tools: kg_schema, kg_config, kg_store, codebase_graph_extract, token_logger,
+state_ledger, submission_parser, js_poc_templates, crash_analyzer, dedup_novelty,
+submission_readiness, hunting_roi_tracker, portfolio_intel, ops_analytics, revenue_accelerator.
 
 ## STATE at handoff (verified)
 
-- **JM** `master`: TASK-1 shipped — RED oracle `2fdc68f`, pipeline fix `4b8ec8c`
-  (`orchestrator_worker._emit_gate_failure` + 3 wirings; gate failures now log the actual
-  error/traceback as a `gate_failed` ledger row). Full sweep **7031 passed, 1 failed** (the
-  failure is the PRE-EXISTING `test_brief_loader.py::test_sha256_line_ending_invariant`
-  Hypothesis bug — 0 new regressions). Epic-4 brief artifacts committed (see below).
-  Gate `paused`, allowlist deny-all, `parallel_cap:5`, `hierarchical_planning.enabled:true`,
-  `max_planner_depth:4`, no daemon, ngv2 NOT in JM venv.
-- **NGv2** `master`==`janusmask/work`: **67 Epic-4 oracles committed `45f5790`** (87 tracked
-  oracle files = 20 spine + 67). Tree clean, no git remote. The 67 ngv2 leaf modules do NOT
-  exist yet (oracles are RED).
-- **Epic-4 briefs** (JM repo): `brief_hooks_ngv2_epic4.md` (root) + 4 super-epic +
-  12 sub-epic briefs (`brief_hooks_ngv2-e4-*.md`). All 17 load cleanly via `load_brief`; slugs
-  resolve; each sub-epic brief carries the EXACT per-leaf exported symbols + contract.
+- **JM** `master` HEAD (this session): TASK-1 shipped — RED oracle `2fdc68f`, fix `4b8ec8c`
+  (`orchestrator_worker._emit_gate_failure` logs the smoke/embedded/narrow error as a
+  `gate_failed` ledger row). Epic-4 single root brief + run handoff + reference briefs committed.
+  Full sweep **7031 passed, 1 failed** (pre-existing `test_brief_loader` Hypothesis bug; 0 new
+  regressions). Gate `paused`, allowlist deny-all, `parallel_cap:5`,
+  `hierarchical_planning.enabled:true`, `max_planner_depth:4`, no daemon, ngv2 NOT in JM venv.
+- **NGv2** `master`==`janusmask/work`==`45f5790`, tree clean, no remote. 67 leaf modules NOT
+  built yet (oracles RED).
 
 ## RUN RECIPE (execution session)
 
-Same proven loop as Epic-3 (fully hands-off now, with oracle-injection `e399c33` feeding each
-committed oracle into the blind worker's spec):
-
-1. **Pre-flight:** confirm NGv2 clean (`git -C /home/xnihil0zer0/NobleGreedv2 status`), JM gate
-   `paused`, no daemon. The 67 oracles are already committed (`45f5790`).
-2. **Allowlist ONLY the root:** `printf 'ngv2_epic4\n' >> state/control/autowork/auto_promote.allowlist`
-   (transitive admission BFS-grows root → 4 super → 12 sub → 67 leaves as each epic plan lands).
-3. `printf run > state/control/orchestrator.flag`; set `harness/config.yaml` `parallel_cap:1`
-   for the run (planner kickoffs overlap a worker; cap 1 avoids gemini code-2).
-4. **Launch the daemon by EXPLICIT PID:**
+1. **Pre-flight:** NGv2 clean; JM gate `paused`; no daemon. `parallel_cap:1` for the run.
+2. **Allowlist ONLY the root:**
+   `printf 'ngv2_epic4\n' >> state/control/autowork/auto_promote.allowlist`
+   (transitive admission BFS-grows the admitted set as each epic plan lands — root → whatever
+   super/sub-epics JM mints → leaves).
+3. `printf run > state/control/orchestrator.flag`.
+4. **Launch daemon by EXPLICIT PID:**
    `nohup /home/xnihil0zer0/miniconda3/bin/python -m harness.autowork_daemon --state-dir state
    > /tmp/ngv2e4_daemon.log 2>&1 & echo $! > /tmp/ngv2e4_daemon.pid`
-5. **Monitor** (this is the LONGEST run yet — ~3 levels of plan-kickoffs + 67 builds; budget
-   hours, NO cost stop). Builds: `git -C /home/xnihil0zer0/NobleGreedv2 log --oneline master`.
-   Kickoffs/blocks/**gate_failed** (now captured by TASK 1!): `tail -f state/impl_progress.jsonl`.
-   Use a Monitor re-armed hourly + event-driven, NOT 15-min polls.
-6. **Close out:** NGv2 suite green (`python -m pytest -q` in NGv2 venv → expect 87+ files green),
-   JM sweep 0-new-reg, gate `paused`, allowlist deny-all, `parallel_cap` back to 5, kill daemon
-   by PID (`kill -TERM $(cat /tmp/ngv2e4_daemon.pid)` — NEVER `pkill -f`), ngv2 not in JM venv,
-   push with owner sign-off, update memory.
+5. **Monitor with escalating backoff** (see §Monitoring). This is the LONGEST run yet: a live
+   multi-level decomposition (several plan-kickoffs per level) + 67 builds. Budget hours; no cost
+   stop.
+6. **Close out:** NGv2 suite green (`python -m pytest -q` in NGv2 venv → 87+ files), all 67 leaf
+   modules present, JM sweep 0-new-reg, gate `paused`, allowlist deny-all, `parallel_cap` back to
+   5, kill daemon by PID (`kill -TERM $(cat /tmp/ngv2e4_daemon.pid)`; NEVER `pkill -f`), ngv2 not
+   in JM venv, push with owner sign-off, update memory.
 
-## CRITICAL run notes (carry forward)
+## THE #1 RISK — decomposition fidelity (this is what's under test)
 
-1. **ONE intra-epic dependency:** `work_intent_tracking` imports `worker_registry` (both in C3
-   `ngv2-e4-workers-pkg`; its oracle `from ngv2.worker_registry import WorkerRegistry`). BUG#3
-   (no brief-level dep gating) is still OPEN, so EITHER build `worker_registry` first and inject
-   a task-level `dependencies:['<worker_registry task_id>']` into the work_intent_tracking child
-   plan, OR dispatch worker_registry, let it accept (ff-advances master), then dispatch the rest.
-   **Every other leaf is dep-free w.r.t. Epic-4 siblings** (only the committed spine is imported;
-   one leaf uses `ngv2.state_machine`). Verified by scanning all 67 oracle imports.
-2. **meta_task_type / gap#2b:** the diff-fuzzer still can't resolve external `ngv2.*` imports, so
-   leaves MUST be smoke-gated or stateful_fuzz (NOT io_adapter/algorithm). The leaf planner
-   assigns meta_task_type during decomposition; the sub-epic briefs request, per leaf:
-   `data_model`/`orchestration` (bypass_fuzzer, smoke-gated) for pure/seam leaves and
-   `stateful_fuzz` for state-bearing leaves (worker_registry, model_cascade, kg_store,
-   token_logger, state_ledger, hunting_roi_tracker, anti_entropy, backtrack, safety_framework,
-   agent_registry, work_intent_tracking, worker_command_dispatch, log_watcher, rl_debate_weights).
-   If a leaf plan comes back with a fuzz meta-type, OVERRIDE it before dispatch (Epic-2 lesson).
-3. **Oracle-injection is live** (`e399c33`): each committed oracle's source is embedded into the
-   leaf spec, so even precise/seam leaves build from the contract. Briefs carry precise prose for
-   the DECOMPOSITION; the oracle covers the BUILD.
-4. **smoke_failed is a re-synthesis flake** (budget 3); with TASK 1 you will now SEE the actual
-   import error in the `gate_failed` ledger rows — use it to tell genuine bugs from flakes.
-5. **Kill the daemon before any manual re-dispatch** (a paused-but-alive daemon races a manual
+JM now DECIDES the tree from one brief, so the new failure mode is the decomposition itself, not
+the build:
+- **Leaf-name drift:** if a generated leaf's module name ≠ its committed oracle name, the leaf's
+  vcmd points at a missing `tests/test_<name>.py` → no oracle injection → it builds blind/fails.
+  **Mitigation/monitor:** as each sub-epic plan lands, diff its leaf slugs/modules against the
+  67 above. The brief instructs exact module names; verify JM honored them.
+- **Dropped/duplicated leaves:** the blind-draft decomposition may miss or duplicate
+  capabilities. **Monitor:** the final leaf set must be exactly the 67. Track coverage as plans
+  land (`grep` the generated `plan_hooks_*.json` for each module / `tests/test_<name>.py`).
+- **Depth/grouping:** JM may go shallower/deeper than 4 or group oddly — that's allowed and IS
+  the experiment. Only hard limit: lineage depth ≤ `max_planner_depth:4` (leaf ancestor-depth
+  ≤ 4; the planner refuses beyond). If JM produces a clean tree with all 67 leaves, the test
+  passes regardless of exact shape.
+- **Recovery:** if a level's decomposition is bad (drift/missing), you can re-kick that epic, or
+  fall back (§Fallback) for that branch.
+
+## Other run notes (carry forward)
+
+1. **ONE known intra-set dependency:** `work_intent_tracking`'s oracle imports
+   `ngv2.worker_registry`. Build/admit `worker_registry` first (it ff-advances master), then
+   `work_intent_tracking`, OR inject a task-level `dependencies:['<worker_registry tid>']` into
+   the latter's child plan (BUG#3: no brief-level dep gating). Every other leaf is dep-free vs
+   Epic-4 siblings (only the committed spine is imported; one leaf uses `ngv2.state_machine`).
+2. **meta_task_type / gap#2b:** the diff-fuzzer can't resolve external `ngv2.*` imports, so each
+   leaf must be smoke-gated (`data_model`/`orchestration`) or `stateful_fuzz` — NOT
+   io_adapter/algorithm. The leaf planner assigns meta_task_type; if it picks a fuzz type for a
+   leaf, OVERRIDE before dispatch (Epic-2 lesson). State-bearing leaves wanting `stateful_fuzz`:
+   worker_registry, model_cascade, kg_store, token_logger, state_ledger, hunting_roi_tracker,
+   anti_entropy, backtrack, safety_framework, agent_registry, work_intent_tracking,
+   worker_command_dispatch, log_watcher, rl_debate_weights.
+3. **TASK-1 benefit:** gate failures now write `gate_failed` rows with the real import traceback
+   to `state/impl_progress.jsonl` — use them to tell genuine bugs from re-synthesis flakes
+   (`smoke_failed` budget is 3; a flake usually passes on a clean re-stage).
+4. **Kill the daemon before any manual re-dispatch** (a paused-but-alive daemon races a manual
    worker → "not_found"). "not_found" from a manual worker is a benign fork artifact; verify via
    ledger `auto_commit`, not stdout.
-6. **Depth-4 is at-but-under the limit** (leaf ancestor-depth 3 ≤ max 4). If the planner ever
-   refuses on depth, FALLBACK = allowlist the 12 sub-epic slugs directly (skip the super-epic
-   level) → a depth-3 run, same 67 leaves.
-7. **Expected build count: 67.** Watch token spend manually (budgets are depth guardrails, not
-   cost-aware; a wide epic burns unbounded tokens).
 
-## How Epic-4 was authored (provenance)
-- Research: workflow `ngv2-epic4-research` (8 agents, ~627k tok) → 84 capabilities mapped + 13
-  missed cataloged → ~67 rebuildable deduped.
-- Oracles: workflow `ngv2-epic4-oracles` (67 agents, ~2.8M tok) — one clean-room stdlib oracle
-  per leaf, each reading the legacy source + ngv2 conventions. All 67 validated (parse,
-  stdlib-only, import target, ≥1 test) and committed `45f5790`.
+## Fallback (if free decomposition underperforms)
+
+The preserved `epic4_handauthored_reference/` holds a known-good depth-4 tree (4 super → 12 sub).
+If JM's free decomposition keeps drifting, you can copy those back to top-level
+`brief_hooks_*.md` and allowlist the root (or the 12 sub-epic slugs for a depth-3 run) — same 67
+leaves, prescriptive structure. This abandons the decomposition-decision test but guarantees the
+build.
+
+## Monitoring with escalating backoff (optimize context)
+
+The owner wants context optimized: **the longer it runs smoothly, the less often you check.**
+Concretely, after launch:
+- Use a single Monitor/until-loop that watches three signals: new NGv2 commits
+  (`git -C /home/xnihil0zer0/NobleGreedv2 log --oneline master | wc -l`), new ledger terminal
+  rows (`auto_commit` / `gate_failed` / `task_terminal` in `state/impl_progress.jsonl`), and the
+  daemon PID alive.
+- **Backoff schedule:** start at ~20 min between checks; after each check where progress advanced
+  AND no error signal, lengthen the interval (20 → 30 → 45 → 60 min, cap ~60). On ANY error
+  signal (`gate_failed` cluster, a stuck/dead daemon, leaf-name drift, no new commit for >2
+  intervals) drop back to ~10 min and investigate. Don't poll on a fixed short tick.
+- Each wake-up: ONE compact status line (commits built / 67, last terminal events, drift check),
+  not a full transcript dump. Only dig in when a signal says to.
+
+## Provenance
+Research: Workflow `ngv2-epic4-research` (8 agents). Oracles: Workflow `ngv2-epic4-oracles`
+(67 agents) → committed `45f5790`. First authoring pass hand-built the tree (corrected: the
+operator wanted JM to decompose, so the tree files were demoted to reference and the root brief
+was rewritten to delegate the decomposition decision).
