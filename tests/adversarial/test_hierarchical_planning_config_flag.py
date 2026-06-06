@@ -39,14 +39,21 @@ def test_hierarchical_planning_enabled_activated() -> None:
     )
 
 
-def test_hierarchical_planning_level2_subflags_default_false() -> None:
+def test_hierarchical_planning_level2_subflags_activated() -> None:
+    # Shipped default-off (fail-closed, Level-2 deferred) through Phase-1. Phase-2
+    # built + validated all five Level-2 children (symbol_ledger module, the
+    # flag-gated resolve_interfaces staging seam, failure-propagation epic status,
+    # the depth/recursion gate, and the e2e acceptance test), each with a passing
+    # oracle and a clean full serial sweep, so the operator activated both Level-2
+    # subflags on 2026-06-05. The reader pattern below still proves safe defaults
+    # when the keys are absent, so callers stay fail-closed if the block is partial.
     cfg = _load_cfg()
     hp = cfg["hierarchical_planning"]
-    assert hp.get("symbol_ledger") is False, (
-        "hierarchical_planning.symbol_ledger must be False by default (Level-2 deferred)"
+    assert hp.get("symbol_ledger") is True, (
+        "hierarchical_planning.symbol_ledger was activated by the operator post-Phase-2"
     )
-    assert hp.get("failure_propagation") is False, (
-        "hierarchical_planning.failure_propagation must be False by default (Level-2 deferred)"
+    assert hp.get("failure_propagation") is True, (
+        "hierarchical_planning.failure_propagation was activated by the operator post-Phase-2"
     )
 
 

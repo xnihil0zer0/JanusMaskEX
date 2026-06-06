@@ -87,9 +87,9 @@ fuzzing:
   timeout_per_input_ms: 5000
 hierarchical_planning:
   enabled: true
-  failure_propagation: false
+  failure_propagation: true
   max_planner_depth: 4
-  symbol_ledger: false
+  symbol_ledger: true
 hooks:
   enforce_verbs: []
   mode: shadow
