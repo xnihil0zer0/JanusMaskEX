@@ -63,12 +63,24 @@ def test_duplicate_slug_variants_deduped(monkeypatch, tmp_path) -> None:
     _, plan = _run(monkeypatch, tmp_path,
                    _brief(working_dir=str(tmp_path / "ext")),
                    [_cb("alpha-one"), _cb("alpha_one"), _cb("beta")])
-    # canonical (hyphen) dedup: alpha_one collapses into alpha-one
+    # dedup by canonical (hyphen) key; FIRST occurrence wins, keeping its
+    # ORIGINAL slug (alpha_one collapses into the already-seen alpha-one).
     assert plan["child_slugs"] == ["alpha-one", "beta"]
-    # only the canonical brief files exist
     assert (tmp_path / "brief_hooks_alpha-one.md").exists()
     assert (tmp_path / "brief_hooks_beta.md").exists()
     assert not (tmp_path / "brief_hooks_alpha_one.md").exists()
+
+
+def test_dedup_preserves_original_slug_not_mangled(monkeypatch, tmp_path) -> None:
+    # A legitimately underscore-named slug (no conflicting variant) must be
+    # PRESERVED verbatim, not rewritten to hyphen form. Dedup canonicalizes only
+    # for the comparison key.
+    _, plan = _run(monkeypatch, tmp_path,
+                   _brief(working_dir=str(tmp_path / "ext")),
+                   [_cb("gamma_two"), _cb("gamma-two")])
+    assert plan["child_slugs"] == ["gamma_two"]
+    assert (tmp_path / "brief_hooks_gamma_two.md").exists()
+    assert not (tmp_path / "brief_hooks_gamma-two.md").exists()
 
 
 # ---- defect 2a: mark children epic when parent declares child_epics --------
