@@ -923,7 +923,7 @@ def _retry_blocked_tasks(state_dir: pathlib.Path, summary: dict, max_attempts: i
                     last_outcome = lo if isinstance(lo, str) else ''
             except (OSError, ValueError):
                 attempts, last_ts, last_outcome = (0, 0.0, '')
-        _DETERMINISTIC_OUTCOMES = ('synthesis_or_ast_failed', 'smoke_failed', 'embedded_tests_failed', 'narrow_fuzz_failed')
+        _DETERMINISTIC_OUTCOMES = ('synthesis_or_ast_failed', 'embedded_tests_failed', 'narrow_fuzz_failed')
         effective_max = 1 if last_outcome in _DETERMINISTIC_OUTCOMES else max_attempts
         if attempts >= effective_max:
             exhausted = blocked_dir / f'{tid}.exhausted'
