@@ -1263,6 +1263,11 @@ def _check_hallucination(plan_dict: dict, wall_seconds: float, min_wall: float=1
         wall = 0.0
     if wall < float(min_wall):
         return (True, 'wall<min')
+    if isinstance(plan_dict, dict) and plan_dict.get('plan_kind') == 'epic':
+        child_slugs = plan_dict.get('child_slugs')
+        if isinstance(child_slugs, list) and child_slugs:
+            return (False, '')
+        return (True, 'empty_epic')
     tasks = plan_dict.get('tasks') if isinstance(plan_dict, dict) else None
     if not isinstance(tasks, list) or not tasks:
         return (True, 'empty_plan')
