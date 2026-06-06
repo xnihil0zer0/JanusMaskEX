@@ -276,6 +276,68 @@ def _sanitize_impl_verification_commands(plan: Dict[str, Any], repo_root: Option
         if meaningful:
             t['verification_command'] = ' '.join(kept)
     return result
+def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Dict[str, Any]:
+    """Embed each impl task's committed oracle source into its spec notes.
+
+    For every non-``test_authoring`` task that carries a dict ``spec`` and a
+    non-empty ``verification_command``, the pytest test-file paths named in
+    that command are resolved under ``repo_root`` and, when the file exists,
+    its source is read and appended verbatim to
+    ``task['spec']['implementation_notes']`` under a clearly-labeled block
+    carrying the literal marker ``COMMITTED ORACLE CONTRACT`` and the test
+    file's repo-relative path.  This turns a vague "see the oracle" spec into a
+    self-contained contract the jailed synthesis agent can actually satisfy.
+
+    The pass is pure (operates on a deep copy, never mutates the input) and
+    idempotent: a task whose notes already contain the marker is skipped, and
+    ``repo_root is None`` (or a non-dict ``plan``) is a strict no-op.
+    """
+    from pathlib import Path
+    if repo_root is None or not isinstance(plan, dict):
+        return plan
+    result = copy.deepcopy(plan)
+    tasks = result.get('tasks')
+    if not isinstance(tasks, list):
+        return result
+    root = Path(repo_root)
+    for t in tasks:
+        if not isinstance(t, dict) or _is_test_authoring(t):
+            continue
+        spec = t.get('spec')
+        if not isinstance(spec, dict):
+            continue
+        vcmd = t.get('verification_command')
+        if not isinstance(vcmd, str) or not vcmd:
+            continue
+        notes = spec.get('implementation_notes')
+        if isinstance(notes, str) and 'COMMITTED ORACLE CONTRACT' in notes:
+            continue
+        oracles: List[Any] = []
+        seen: Set[str] = set()
+        for tok in vcmd.split():
+            if tok.startswith('-') or not tok.endswith('.py'):
+                continue
+            if tok in seen:
+                continue
+            seen.add(tok)
+            path = root / tok
+            try:
+                if not path.is_file():
+                    continue
+                src = path.read_text(encoding='utf-8')
+            except OSError:
+                continue
+            oracles.append((tok, src))
+        if not oracles:
+            continue
+        block = '\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n'
+        for rel, src in oracles:
+            block += '\n## ' + rel + '\n```python\n' + src + '\n```\n'
+        if isinstance(notes, str) and notes:
+            spec['implementation_notes'] = notes + block
+        else:
+            spec['implementation_notes'] = block
+    return result
 def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[str, Any]:
     """Auto-correct a leaf plan: dedupe oracles + enforce module-first order.
 
@@ -299,4 +361,5 @@ def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[
     normalized['tasks'] = tasks
     _enforce_module_first(tasks)
     normalized = _sanitize_impl_verification_commands(normalized, repo_root)
+    normalized = _inject_oracle_sources(normalized, repo_root)
     return normalized
