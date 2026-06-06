@@ -123,6 +123,35 @@ def _should_run_epic(brief_obj, config) -> bool:
     """
     return bool(getattr(brief_obj, 'epic', False)) and bool(config.get('hierarchical_planning', {}).get('enabled', False))
 
+def _finalize_epic_children(merged, epic_wd, child_epics):
+    """Canonicalize, dedupe and (optionally) epic-mark reconciled child briefs.
+
+    Pure helper: returns a NEW list of NEW child dicts and never mutates the
+    input list or its dicts. For each child in ``merged`` carrying a truthy
+    ``slug``, the slug is canonicalized (``strip()`` then ``_`` -> ``-``);
+    children whose canonical slug was already seen are dropped (first wins).
+    A child lacking a truthy ``working_dir`` is stamped with ``epic_wd`` when
+    that is a non-empty str, and ``epic`` is set True when ``child_epics`` is
+    truthy.
+    """
+    finalized = []
+    seen = set()
+    for child in merged:
+        slug = child.get('slug')
+        if not slug:
+            continue
+        canonical = str(slug).strip().replace('_', '-')
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        new_child = dict(child)
+        new_child['slug'] = canonical
+        if isinstance(epic_wd, str) and epic_wd and (not new_child.get('working_dir')):
+            new_child['working_dir'] = epic_wd
+        if child_epics:
+            new_child['epic'] = True
+        finalized.append(new_child)
+    return finalized
 def _run_epic_pipeline(brief_obj, config, state_dir, output_plan) -> int:
     """Decompose an epic brief into re-plannable child briefs plus an epic record.
 
@@ -147,17 +176,22 @@ def _run_epic_pipeline(brief_obj, config, state_dir, output_plan) -> int:
     if not merged:
         print('Epic reconciliation produced no child briefs.', file=sys.stderr)
         return 1
+    from harness.planner.brief_loader import _parse_frontmatter
+    fm, _ = _parse_frontmatter(getattr(brief_obj, 'raw_text', '') or '')
+    _ce = fm.get('child_epics') if isinstance(fm, dict) else None
+    if _ce is True:
+        child_epics = True
+    elif isinstance(_ce, str):
+        child_epics = _ce.strip().lower() in {'true', '1', 'yes', 'on'}
+    else:
+        child_epics = bool(_ce)
     repo_root = state_dir.parent
     epic_wd = getattr(brief_obj, 'working_dir', None)
+    merged = _finalize_epic_children(merged, epic_wd, child_epics)
     child_slugs = []
     for child in merged:
-        slug = child.get('slug')
-        if not slug:
-            continue
-        if isinstance(epic_wd, str) and epic_wd and (not child.get('working_dir')):
-            child['working_dir'] = epic_wd
-        (repo_root / ('brief_hooks_' + slug + '.md')).write_text(serialize_child_brief_to_markdown(child), encoding='utf-8')
-        child_slugs.append(slug)
+        (repo_root / ('brief_hooks_' + child['slug'] + '.md')).write_text(serialize_child_brief_to_markdown(child), encoding='utf-8')
+        child_slugs.append(child['slug'])
     epic_record = {'plan_kind': 'epic', 'epic': True, 'child_briefs': merged, 'child_slugs': child_slugs}
     persist_plan(epic_record, output_plan, brief_obj=brief_obj)
     return 0
