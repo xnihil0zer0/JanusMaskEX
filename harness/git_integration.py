@@ -1723,6 +1723,25 @@ def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Pat
         try:
             subprocess.run(['git', 'push', '.', f'{staging_sha}:refs/heads/janusmask/work'], cwd=str(parent_root), check=True, capture_output=True, text=True)
             logger.info(f"Ref-update push of {staging_sha} to refs/heads/janusmask/work successful (external task).")
+            # EXTERNAL_MASTER_ADVANCE (NGv2 gap #2): for a JM-OWNED external repo
+            # (valid .janusmask/bootstrap.json marker) ALSO fast-forward the
+            # checked-out branch to the accepted commit so DEPENDENT children --
+            # whose staging worktree detaches from the checked-out HEAD -- build on
+            # prior accepted output. Gated on the marker so a FOREIGN repo's branch
+            # is NEVER advanced; ff-only + the EXTERNAL_DIRTY_GATE (clean tree) make
+            # it non-destructive (staging_sha descends from the current HEAD).
+            # Best-effort: a non-ff/failed advance logs and leaves janusmask/work as
+            # the source of truth without failing the accepted task.
+            try:
+                from harness.target_bootstrap import _read_valid_marker
+                if _read_valid_marker(pathlib.Path(parent_root)) is not None:
+                    _adv = subprocess.run(['git', 'merge', '--ff-only', staging_sha], cwd=str(parent_root), capture_output=True, text=True)
+                    if _adv.returncode == 0:
+                        logger.info(f"Fast-forwarded checked-out branch to {staging_sha} (JM-owned external task).")
+                    else:
+                        logger.warning(f"Skipped checked-out-branch fast-forward to {staging_sha}: {_adv.stderr.strip()}")
+            except Exception as _adv_exc:
+                logger.warning(f"Checked-out-branch fast-forward skipped: {_adv_exc!r}")
         except subprocess.CalledProcessError as e:
             logger.error(f"Ref-update push failed: {e.stderr}")
             raise RuntimeError(f"Ref-update push failed: {e.stderr}")
