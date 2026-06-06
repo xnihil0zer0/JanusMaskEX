@@ -4280,6 +4280,10 @@ def _stage_targets(inbox: Path, state_path: Path, task_json: Path) -> None:
     copies each existing target file from the repo (``state_dir.parent``) into
     ``inbox/targets/<rel>`` as read context. Missing targets (brand-new files)
     are simply skipped — the agent then authors them from scratch.
+
+    For ``test_authoring`` tasks carrying a non-empty ``mutation_target``, the
+    module-under-test is also staged so the oracle-authoring worker gets the
+    module's real interface rather than only the brief's prose.
     """
     try:
         task = json.loads(task_json.read_text(encoding='utf-8'))
@@ -4292,9 +4296,16 @@ def _stage_targets(inbox: Path, state_path: Path, task_json: Path) -> None:
         touched = _resolve_files_touched(state_path, task, task_id)
     except Exception:
         touched = task.get('files_touched') or []
+    rels = list(touched)
+    meta_task_type = task.get('meta_task_type') or (task.get('constraints') or {}).get('meta_task_type')
+    mt = task.get('mutation_target')
+    if meta_task_type == 'test_authoring' and isinstance(mt, str) and mt:
+        rel = mt.replace('.', '/') + '.py'
+        if rel not in rels:
+            rels.append(rel)
     repo_root = state_path.resolve().parent
     targets_root = inbox / 'targets'
-    for rel in touched:
+    for rel in rels:
         if not isinstance(rel, str) or not rel:
             continue
         try:
