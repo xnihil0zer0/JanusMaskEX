@@ -293,7 +293,7 @@ def main(args=None):
     amend_result = auto_amend_gate(merged_plan, parsed.output_critique, config, state_dir)
     final_plan = amend_result.amended_plan
     from harness.planner.plan_normalizer import normalize_plan
-    final_plan = normalize_plan(final_plan, repo_root=Path.cwd())
+    final_plan = normalize_plan(final_plan, repo_root=_effective_repo_root(brief_obj))
     persist_plan(final_plan, parsed.output_plan, brief_obj=brief_obj)
     from harness.planner.plan_validator import validate_plan
     violations = validate_plan(final_plan)
@@ -301,5 +301,12 @@ def main(args=None):
         print(f'Merged plan failed validation: {violations}', file=sys.stderr)
         sys.exit(1)
     sys.exit(0)
+
+def _effective_repo_root(brief_obj):
+    from harness.paths import _target_is_self
+    wd = getattr(brief_obj, 'working_dir', None)
+    if isinstance(wd, str) and wd and (not _target_is_self(wd)):
+        return Path(wd)
+    return Path.cwd()
 if __name__ == '__main__':
     main()
