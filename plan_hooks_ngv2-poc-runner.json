@@ -1,0 +1,111 @@
+{
+  "tasks": [
+    {
+      "task_id": "impl_poc_runner",
+      "title": "Implement ngv2/poc_runner.py deterministic runner-adapter factories",
+      "meta_task_type": "orchestration",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/poc_runner.py"
+      ],
+      "acceptance_criteria": [
+        "NEW file ngv2/poc_runner.py exists and imports PoC via `from ngv2.contracts import PoC`.",
+        "Module exposes constant RUNNER_RESULT_FIELDS == ('exit_code', 'stdout', 'stderr', 'duration_ms') in exactly that order.",
+        "make_mock_runner(exit_code=0, stdout='', stderr='', duration_ms=0) returns a callable runner(poc, target_spec) that ignores its arguments and returns the fixed 4-tuple (exit_code, stdout, stderr, duration_ms).",
+        "make_scripted_runner(script) returns a callable runner(poc, target_spec) that returns script[poc.finding_id] when present, and the deterministic default (None, '', '', 0) for an unmapped finding_id without raising.",
+        "No symbols beyond RUNNER_RESULT_FIELDS, make_mock_runner, make_scripted_runner are added; no Epic-2 child modules (grounding/report/pipeline) are imported; no eval/exec/__import__, no I/O, network, subprocess, globals, or randomness.",
+        "`python -m pytest tests/test_poc_runner.py -q` passes against the committed oracle test."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/test_poc_runner.py -q",
+      "spec": {
+        "objective": "Create the deterministic runner-adapter contract consumed by the DetonationChamber, providing mock and scripted runner factories for tests. Define the canonical result field order and two factory functions that return injectable callables; the real subprocess/bwrap runner is intentionally out of scope and injected at NGv2 runtime.",
+        "functional_requirements": [
+          "Import the PoC input type with `from ngv2.contracts import PoC` (documented runner input type; only poc.finding_id is read by the scripted runner). Do NOT redefine PoC.",
+          "Expose module constant RUNNER_RESULT_FIELDS = ('exit_code', 'stdout', 'stderr', 'duration_ms') \u2014 the exact tuple/order DetonationChamber unpacks.",
+          "Expose make_mock_runner(exit_code: int = 0, stdout: str = '', stderr: str = '', duration_ms: int = 0) returning a callable runner(poc, target_spec) that ignores both arguments and returns the fixed tuple (exit_code, stdout, stderr, duration_ms).",
+          "Expose make_scripted_runner(script: dict) returning a callable runner(poc, target_spec) that looks up poc.finding_id in script and returns the mapped 4-tuple.",
+          "For an unmapped finding_id the scripted runner returns the deterministic default (None, '', '', 0) and never raises."
+        ],
+        "interfaces": "from ngv2.contracts import PoC; RUNNER_RESULT_FIELDS = ('exit_code', 'stdout', 'stderr', 'duration_ms'); make_mock_runner(exit_code: int = 0, stdout: str = '', stderr: str = '', duration_ms: int = 0) -> Callable[[poc, target_spec], tuple]; make_scripted_runner(script: dict) -> Callable[[poc, target_spec], tuple]  # runner returns (exit_code, stdout, stderr, duration_ms); unmapped finding_id -> (None, '', '', 0)",
+        "edge_cases": [
+          "Unmapped finding_id: scripted runner returns (None, '', '', 0) without raising KeyError.",
+          "Empty script dict: every lookup yields the default tuple.",
+          "Mock runner called with arbitrary/None poc and target_spec: arguments are ignored, fixed tuple returned unchanged across repeated calls (deterministic).",
+          "make_mock_runner invoked with no args returns a runner producing (0, '', '', 0).",
+          "Scripted runner returns the exact tuple object/values stored in script for a mapped finding_id."
+        ],
+        "non_goals": [
+          "Do NOT author, create, or modify any test file \u2014 tests/test_poc_runner.py is already committed.",
+          "Do NOT run a real subprocess, open a socket, touch the network, or execute exploit code; the only 'execution' is calling an injected callable.",
+          "Do NOT use eval, exec, or __import__; no I/O, file access, globals, or randomness; stdlib only.",
+          "Do NOT redefine PoC or any substrate dataclass; import PoC from ngv2.contracts.",
+          "Do NOT add fields, public functions, or symbols beyond RUNNER_RESULT_FIELDS, make_mock_runner, make_scripted_runner; do NOT change their names, signatures, or return shapes.",
+          "Do NOT depend on or import any other Epic-2 child module (grounding, report, pipeline); the real subprocess/bwrap runner is not built here."
+        ],
+        "implementation_notes": "Single small stdlib-only module. Define RUNNER_RESULT_FIELDS as a module-level tuple. make_mock_runner closes over the four values and returns a nested runner(poc, target_spec) that ignores both params and returns the fixed tuple. make_scripted_runner closes over script and returns runner(poc, target_spec) implemented as script.get(poc.finding_id, (None, '', '', 0)) so unmapped ids never raise. The `from ngv2.contracts import PoC` import documents the runner input type (used for typing/clarity); only poc.finding_id is accessed. Keep the public surface to exactly the three documented symbols."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_imports_poc_from_contracts"
+          },
+          {
+            "name": "test_runner_result_fields_value_and_order"
+          },
+          {
+            "name": "test_make_mock_runner_returns_fixed_tuple"
+          },
+          {
+            "name": "test_make_mock_runner_ignores_arguments"
+          },
+          {
+            "name": "test_make_scripted_runner_returns_mapped_tuple"
+          },
+          {
+            "name": "test_make_scripted_runner_unmapped_returns_default"
+          },
+          {
+            "name": "test_make_scripted_runner_never_raises_on_unmapped"
+          },
+          {
+            "name": "test_no_extra_public_symbols"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_runner_callable_matches_detonation_chamber_contract"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_mock_runner_deterministic_across_repeated_calls"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_committed_oracle_tests_pass"
+          }
+        ],
+        "minimum_test_count": 8,
+        "test_data_requirements": "No new test data or test authoring \u2014 verification uses the already-committed oracle tests/test_poc_runner.py. PoC instances (finding_id, language, code, entrypoint) come from ngv2.contracts; scripted runner exercises a small dict mapping finding_id -> 4-tuple plus an unmapped id."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "Tests are already committed (tests/test_poc_runner.py); test_tokens reflect verification/iteration against the committed oracle only \u2014 no new test authoring per non-goals."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "brief_hooks_ngv2-poc-runner.md",
+  "source_brief_sha256": "56920b5261d9b76f2da3dc81d90db337bb573f00f70744cae3ae52bdc828d6da",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

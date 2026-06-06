@@ -1,0 +1,132 @@
+{
+  "tasks": [
+    {
+      "task_id": "grounding-adapter-impl",
+      "title": "ngv2/grounding.py \u2014 semgrep-shaped report -> Finding adapter (impl-only)",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/grounding.py"
+      ],
+      "acceptance_criteria": [
+        "NEW file ngv2/grounding.py exists and imports `Finding, SEVERITIES` from ngv2.contracts (does not redefine them).",
+        "normalize_severity(raw) is case-insensitive: CRITICAL->'critical', ERROR->'high', WARNING->'medium', INFO->'low'.",
+        "normalize_severity returns 'low' for any unknown/unmapped/None-ish input, and the return value is always a member of SEVERITIES.",
+        "parse_semgrep reads report.get('results', []) and returns [] when results is empty or missing.",
+        "For each result at 0-based index i a Finding is built with id=f\"{check_id}-{i}\" and target=target.",
+        "category is the first CWE in result['extra']['metadata']['cwe'] when that list is present and non-empty, else result['check_id']; missing metadata/cwe falls back to check_id without raising (defensive .get access).",
+        "severity=normalize_severity(result['extra']['severity']), title=result['extra']['message'], description=result['extra']['message'], evidence=[f\"{path}:{start.line}-{end.line}\"].",
+        "Every returned Finding satisfies Finding.validate().",
+        "Module is pure/deterministic/stdlib-only: no subprocess, network, file/socket I/O, eval/exec/__import__, globals, or randomness; no public symbols beyond normalize_severity and parse_semgrep.",
+        "The committed oracle passes: `python -m pytest tests/test_grounding.py -q`."
+      ],
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/test_grounding.py -q",
+      "spec_author": null,
+      "spec": {
+        "objective": "Create the NEW file ngv2/grounding.py: a pure, deterministic, stdlib-only adapter that normalizes a semgrep-shaped static-analysis JSON report (passed in as a dict; no tool invoked) into ngv2.contracts.Finding objects, exposing exactly normalize_severity and parse_semgrep, verified by the already-committed oracle tests/test_grounding.py.",
+        "functional_requirements": [
+          "Define module ngv2/grounding.py that imports `Finding, SEVERITIES` from ngv2.contracts and exposes no public symbols other than normalize_severity and parse_semgrep.",
+          "normalize_severity(raw: str) -> str maps case-insensitively CRITICAL->'critical', ERROR->'high', WARNING->'medium', INFO->'low'.",
+          "normalize_severity returns the safe default 'low' for any unknown or unmapped input, and its return value is ALWAYS a member of SEVERITIES.",
+          "parse_semgrep(report: dict, target: str) -> list[Finding] reads report.get('results', []) and returns [] for an empty or missing results list.",
+          "For each result at 0-based index i, build a Finding with id=f\"{result['check_id']}-{i}\" and target=target.",
+          "Compute category as the first CWE in result['extra']['metadata']['cwe'] if that list is present and non-empty, else result['check_id']; access defensively via .get so missing metadata/cwe falls back to check_id (a non-empty str) without raising.",
+          "Set severity=normalize_severity(result['extra']['severity']), title=result['extra']['message'], description=result['extra']['message'], evidence=[f\"{result['path']}:{result['start']['line']}-{result['end']['line']}\"].",
+          "Ensure every returned Finding satisfies Finding.validate(), and keep the module pure/deterministic/stdlib-only with no I/O, subprocess, network, eval/exec/__import__, globals, or randomness."
+        ],
+        "interfaces": "from ngv2.contracts import Finding, SEVERITIES; normalize_severity(raw: str) -> str; parse_semgrep(report: dict, target: str) -> list[Finding]",
+        "edge_cases": [
+          "report missing the 'results' key entirely -> [].",
+          "report['results'] == [] -> [].",
+          "severity strings in mixed/lower case (e.g. 'error', 'Warning') still map correctly (case-insensitive).",
+          "Unrecognized severity (e.g. 'BANANA', '', None) maps to 'low'.",
+          "result['extra'] has no 'metadata' key, or metadata has no 'cwe', or cwe is an empty list -> category falls back to result['check_id'] without raising.",
+          "cwe list present and non-empty -> category is the first element.",
+          "Multiple results -> ids are suffixed by their 0-based index preserving input order."
+        ],
+        "non_goals": [
+          "Do NOT author, create, or modify any test file; tests/test_grounding.py is already committed.",
+          "Do NOT invoke any static-analysis tool, run a subprocess, open a socket, touch the network, or perform any file/I-O access.",
+          "Do NOT use eval, exec, or __import__; no globals or randomness; stdlib only.",
+          "Do NOT redefine Finding or SEVERITIES \u2014 import them from ngv2.contracts.",
+          "Do NOT add fields, public functions, or symbols beyond normalize_severity and parse_semgrep, and do NOT change their names, signatures, or return shapes.",
+          "Do NOT depend on or import any other Epic-2 child module (poc_runner, report, pipeline)."
+        ],
+        "implementation_notes": "Implement normalize_severity with a small lowercase->canonical dict keyed on raw.lower() (e.g. {'critical':'critical','error':'high','warning':'medium','info':'low'}) and a .get(..., 'low') fallback that always yields a SEVERITIES member; guard non-str input by coercing via str() before .lower() if helpful. In parse_semgrep iterate enumerate(report.get('results', [])); compute category via cwe = result.get('extra', {}).get('metadata', {}).get('cwe') or [] then category = cwe[0] if cwe else result['check_id']. Build evidence as a single-element list with the path:start-end string. Construct each Finding via the public constructor and rely on Finding.validate() semantics from ngv2.contracts. Keep the module side-effect-free and import-light (only ngv2.contracts plus optional typing)."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_normalize_severity_critical_maps_to_critical"
+          },
+          {
+            "name": "test_normalize_severity_error_maps_to_high"
+          },
+          {
+            "name": "test_normalize_severity_warning_maps_to_medium_and_info_to_low"
+          },
+          {
+            "name": "test_normalize_severity_case_insensitive"
+          },
+          {
+            "name": "test_normalize_severity_unknown_defaults_to_low_and_is_in_SEVERITIES"
+          },
+          {
+            "name": "test_parse_semgrep_empty_results_returns_empty_list"
+          },
+          {
+            "name": "test_parse_semgrep_missing_results_key_returns_empty_list"
+          },
+          {
+            "name": "test_parse_semgrep_builds_id_target_severity_title_description_evidence"
+          },
+          {
+            "name": "test_parse_semgrep_category_from_first_cwe_when_present"
+          },
+          {
+            "name": "test_parse_semgrep_category_falls_back_to_check_id_when_cwe_absent"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_parse_semgrep_multiple_results_preserve_order_and_indexed_ids"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_normalize_severity_always_returns_member_of_SEVERITIES"
+          },
+          {
+            "name": "test_every_returned_finding_passes_validate"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_committed_oracle_test_grounding_passes"
+          },
+          {
+            "name": "test_only_normalize_severity_and_parse_semgrep_are_public"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "Verification uses the already-committed oracle tests/test_grounding.py (no new test files). The oracle supplies semgrep-shaped report dicts: results with check_id, path, start.line, end.line, extra.severity, extra.message, and optional extra.metadata.cwe lists; plus empty/missing-results cases and varied-case severity strings. No fixtures, network, or filesystem access required."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 400,
+        "test_tokens": 600,
+        "note": "IMPL-ONLY: tests/test_grounding.py is pre-committed, so no test-authoring tokens are spent by this plan. The test_tokens figure reflects the committed oracle's verification surface (>= 1.5x the implementation effort), satisfying the ratio constraint while no new tests are written."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "brief_hooks_ngv2-grounding-adapter.md",
+  "source_brief_sha256": "eb00723c1f88090a59b718968ec8740506a6dcd6ab6a74eb1d83d441d4867ee6",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

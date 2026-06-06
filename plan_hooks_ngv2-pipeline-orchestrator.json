@@ -1,0 +1,136 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2-pipeline-orchestrator",
+      "title": "ngv2/pipeline.py \u2014 hunt->triage->poc->detonate->report->done orchestrator",
+      "meta_task_type": "orchestration",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/pipeline.py"
+      ],
+      "acceptance_criteria": [
+        "NEW file ngv2/pipeline.py exists and imports HuntStateMachine from ngv2.state_machine and DetonationChamber from ngv2.detonation.",
+        "run_pipeline(handlers: dict, *, success_marker: str = 'VULNERABLE') -> dict is the ONLY public symbol added; its name, signature, dict keys, and return shape are unchanged from the brief.",
+        "run_pipeline instantiates HuntStateMachine(), feeds every finding from handlers['hunt']() into sm.add_finding(f), then walks transitions triage -> poc -> detonate -> report -> done in order.",
+        "Triage step: after sm.transition('triage'), kept = handlers['triage'](list(sm.state.findings)) and sm.state.findings = list(kept), allowing triage to DROP findings.",
+        "PoC step: after sm.transition('poc'), pocs = handlers['poc'](list(sm.state.findings)).",
+        "Detonate step: after sm.transition('detonate'), chamber = DetonationChamber(success_marker=success_marker); for each poc in pocs, chamber.detonate(poc, handlers.get('target_spec'), handlers['runner']) is collected as a LiveTestReport in poc order.",
+        "Report step: after sm.transition('report'), report = handlers['report'](sm.state, reports) if 'report' in handlers else None.",
+        "Returns {'phase': sm.state.phase, 'reports': [r.to_dict() for r in reports], 'report': report} with sm.state.phase == 'done'.",
+        "An empty findings list still walks every transition to 'done' with reports == [].",
+        "No eval/exec/__import__, no subprocess/socket/network, no file/I/O/globals/randomness; stdlib only; no import of grounding, poc_runner, or report Epic-2 modules.",
+        "python -m pytest tests/test_pipeline.py -q passes against the committed oracle tests."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/test_pipeline.py -q",
+      "spec": {
+        "objective": "Create a pure, deterministic, stdlib-only orchestrator ngv2/pipeline.py that drives a HuntStateMachine through hunt -> triage -> poc -> detonate -> report -> done over injected phase-handler callables, detonating each poc through an injected runner via DetonationChamber, and returns a fixed-shape result dict. Implementation only; the oracle tests/test_pipeline.py is already committed.",
+        "functional_requirements": [
+          "Create NEW file ngv2/pipeline.py that imports HuntStateMachine from ngv2.state_machine and DetonationChamber from ngv2.detonation (no redefinition of either, nor of substrate dataclasses).",
+          "Expose exactly run_pipeline(handlers: dict, *, success_marker: str = 'VULNERABLE') -> dict and no other public function or symbol; do not change its name, signature, dict keys, or return shape.",
+          "Inside run_pipeline, build sm = HuntStateMachine(); call handlers['hunt']() and for each returned finding f call sm.add_finding(f).",
+          "Call sm.transition('triage'); compute kept = handlers['triage'](list(sm.state.findings)); assign sm.state.findings = list(kept) so triage may drop findings.",
+          "Call sm.transition('poc'); compute pocs = handlers['poc'](list(sm.state.findings)).",
+          "Call sm.transition('detonate'); build chamber = DetonationChamber(success_marker=success_marker); for each poc in pocs compute chamber.detonate(poc, handlers.get('target_spec'), handlers['runner']) and collect the resulting LiveTestReport objects in poc order.",
+          "Call sm.transition('report'); if 'report' in handlers set report = handlers['report'](sm.state, reports) else report = None.",
+          "Call sm.transition('done'); return {'phase': sm.state.phase, 'reports': [r.to_dict() for r in reports], 'report': report}.",
+          "Guarantee that an empty findings list still walks every transition to phase 'done' with reports == [] (loops over empty pocs produce no detonations)."
+        ],
+        "interfaces": "from ngv2.state_machine import HuntStateMachine; from ngv2.detonation import DetonationChamber; run_pipeline(handlers: dict, *, success_marker: str = 'VULNERABLE') -> dict  # returns {'phase': 'done', 'reports': [LiveTestReport.to_dict() in poc order], 'report': handlers['report'](sm.state, reports) or None}. handlers supplies 'hunt'()->findings, 'triage'(findings)->kept, 'poc'(findings)->pocs, 'runner'(poc, target_spec)->(exit_code, stdout, stderr, duration_ms), optional 'target_spec', optional 'report'(state, reports)->object.",
+        "edge_cases": [
+          "handlers['hunt']() returns an empty list: no add_finding calls, triage/poc receive empty lists, pocs empty, reports == [], phase still reaches 'done'.",
+          "triage drops all findings: poc handler receives the reduced (possibly empty) findings list.",
+          "'report' key absent from handlers: report is None and no report handler is invoked.",
+          "'target_spec' key absent: handlers.get('target_spec') yields None which is forwarded to chamber.detonate.",
+          "Multiple pocs: reports preserve poc order exactly, one LiveTestReport per poc.",
+          "handlers['poc'] returns an empty list while findings exist: detonate loop runs zero times, reports == []."
+        ],
+        "non_goals": [
+          "Do NOT author, create, or modify any test file; tests/test_pipeline.py is already committed.",
+          "Do NOT run a real subprocess, open a socket, touch the network, or execute exploit code; the only execution is calling the injected runner through DetonationChamber.",
+          "Do NOT use eval, exec, or __import__; no file access, globals, or randomness; stdlib only.",
+          "Do NOT redefine HuntStateMachine, DetonationChamber, or the substrate dataclasses.",
+          "Do NOT add public functions or symbols beyond run_pipeline, and do NOT change its name, signature, dict keys, or return shape.",
+          "Do NOT depend on or import any other Epic-2 child module (grounding, poc_runner, report)."
+        ],
+        "implementation_notes": "Keep the body a straight-line sequence mirroring the brief's numbered steps so it matches the committed oracle exactly. Use list(...) copies precisely where specified (around sm.state.findings before triage and poc). Build reports as an ordered list comprehension or simple loop over pocs to preserve order. Use 'report' in handlers (not .get truthiness) to decide whether to call the report handler, and handlers.get('target_spec') for the optional target spec. Return the dict literally with phase read from sm.state.phase. No module-level state, no logging, no I/O."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_imports_huntstatemachine_and_detonationchamber"
+          },
+          {
+            "name": "test_only_run_pipeline_public_symbol"
+          },
+          {
+            "name": "test_hunt_findings_added_to_state_machine"
+          },
+          {
+            "name": "test_triage_may_drop_findings_and_replaces_state_findings"
+          },
+          {
+            "name": "test_poc_handler_receives_kept_findings"
+          },
+          {
+            "name": "test_detonate_calls_chamber_per_poc_in_order"
+          },
+          {
+            "name": "test_report_handler_invoked_when_present"
+          },
+          {
+            "name": "test_return_shape_phase_reports_report"
+          },
+          {
+            "name": "test_empty_findings_reaches_done_with_empty_reports"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_full_hunt_to_done_walk_with_multiple_pocs"
+          },
+          {
+            "name": "test_success_marker_threaded_into_detonation_chamber"
+          },
+          {
+            "name": "test_report_absent_yields_none"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_reports_length_equals_pocs_length"
+          },
+          {
+            "name": "test_phase_always_done_regardless_of_inputs"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_no_real_subprocess_or_network_only_injected_runner"
+          },
+          {
+            "name": "test_target_spec_optional_defaults_to_none"
+          }
+        ],
+        "minimum_test_count": 14,
+        "test_data_requirements": "Mock/stub handler callables: a hunt() returning a deterministic list of finding sentinels (and an empty-list variant), a triage(findings) that drops a subset, a poc(findings) returning ordered poc sentinels, an injected runner(poc, target_spec) returning a fixed (exit_code, stdout, stderr, duration_ms) tuple, and an optional report(state, reports) returning a sentinel object. Verified by the committed oracle tests/test_pipeline.py."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 700,
+        "test_tokens": 1100,
+        "note": "Implementation is a short straight-line orchestrator. Tests are NOT authored by this task (tests/test_pipeline.py is already committed); the test_tokens budget reflects the relative weight of the committed oracle verification and satisfies the >=1.5x ratio without implying a test_authoring task."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "brief_hooks_ngv2-pipeline-orchestrator.md",
+  "source_brief_sha256": "b5f0db168bba0a77521e479679242fa7b16d1a4eaab0b4ac8b638c1df076e943",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}
