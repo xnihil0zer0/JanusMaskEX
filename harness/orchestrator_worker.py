@@ -113,6 +113,10 @@ def _rollback_live_tree(state_dir: Path, files_touched: list[Any], task_id: str)
 
 
 
+def _emit_gate_failure(state_dir: Path, task_id: str, gate: str, err: Any) -> None:
+    """Record the actual gate-failure error (smoke/embedded/narrow) into the
+    ledger so a flaky import can be root-caused. Best-effort; never raises."""
+    _emit_lifecycle_safe(state_dir, event='gate_failed', task_id=task_id, gate=gate, detail=str(err)[:2000])
 def main() -> int:
     parser = argparse.ArgumentParser(description='JanusMask single-task orchestrator worker (AW2).')
     parser.add_argument('--state-dir', type=Path, required=True, help='Path to the shared state directory.')
@@ -474,6 +478,7 @@ def main() -> int:
                     if smoke_err is not None:
                         set_phase(state_dir, phase='rejected')
                         orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        _emit_gate_failure(state_dir, task_id, 'smoke', smoke_err)
                         orch._mark_blocked(state_dir, task_id, 'smoke_failed')
                         orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
                         _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'smoke_failed'})
@@ -496,6 +501,7 @@ def main() -> int:
                     if embedded_err is not None:
                         set_phase(state_dir, phase='rejected')
                         orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        _emit_gate_failure(state_dir, task_id, 'embedded', embedded_err)
                         orch._mark_blocked(state_dir, task_id, 'embedded_tests_failed')
                         orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
                         _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'embedded_tests_failed'})
@@ -514,6 +520,7 @@ def main() -> int:
                     if narrow_err is not None:
                         set_phase(state_dir, phase='rejected')
                         orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        _emit_gate_failure(state_dir, task_id, 'narrow', narrow_err)
                         orch._mark_blocked(state_dir, task_id, 'narrow_fuzz_failed')
                         orch._emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
                         _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'narrow_fuzz_failed'})
