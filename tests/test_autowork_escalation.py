@@ -154,18 +154,21 @@ class TestAutoworkEscalation(unittest.TestCase):
         task_path = self.state_dir / 'tasks' / 'blocked' / f'{task_id}.json'
         task_path.write_text(json.dumps({'task_id': task_id, 'files_touched': ['foo.py'], 'priority': 'high'}))
 
-        # sidecar attempts = 1
+        # sidecar attempts = 1. Use a genuinely-deterministic outcome
+        # (embedded_tests_failed) for the budget-1 path: smoke_failed was
+        # re-classified as a re-synthesis flake (budget 3) — see gap#1 /
+        # tests/harness/test_retry_smoke_failed_budget.py.
         sidecar_path = self.state_dir / 'tasks' / 'blocked' / f'{task_id}.retry.json'
         sidecar_path.write_text(json.dumps({
             'attempts': 1,
             'ts': time.time(),
-            'last_outcome': 'smoke_failed'
+            'last_outcome': 'embedded_tests_failed'
         }))
 
         summary = {}
         _retry_blocked_tasks(self.state_dir, summary, max_attempts=3)
 
-        mock_escalate.assert_called_once_with(self.state_dir, task_id, 'smoke_failed')
+        mock_escalate.assert_called_once_with(self.state_dir, task_id, 'embedded_tests_failed')
 
         # Verify exhausted marker created
         exhausted_marker = self.state_dir / 'tasks' / 'blocked' / f'{task_id}.exhausted'
