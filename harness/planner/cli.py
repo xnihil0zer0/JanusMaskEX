@@ -100,10 +100,10 @@ def persist_plan(plan, out_path, brief_obj=None):
         if isinstance(sh, str) and 'source_brief_sha256' not in plan:
             plan['source_brief_sha256'] = sh
         wd = getattr(brief_obj, 'working_dir', None)
-        if isinstance(wd, str) and wd and 'working_dir' not in plan:
+        if isinstance(wd, str) and wd and ('working_dir' not in plan):
             plan['working_dir'] = wd
         pe = getattr(brief_obj, 'parent_epic_slug', None)
-        if isinstance(pe, str) and pe and 'parent_epic_slug' not in plan:
+        if isinstance(pe, str) and pe and ('parent_epic_slug' not in plan):
             plan['parent_epic_slug'] = pe
         if plan.get('plan_kind') == 'epic' and 'epic_slug' not in plan:
             sp2 = getattr(brief_obj, 'source_path', None)
@@ -148,11 +148,14 @@ def _run_epic_pipeline(brief_obj, config, state_dir, output_plan) -> int:
         print('Epic reconciliation produced no child briefs.', file=sys.stderr)
         return 1
     repo_root = state_dir.parent
+    epic_wd = getattr(brief_obj, 'working_dir', None)
     child_slugs = []
     for child in merged:
         slug = child.get('slug')
         if not slug:
             continue
+        if isinstance(epic_wd, str) and epic_wd and (not child.get('working_dir')):
+            child['working_dir'] = epic_wd
         (repo_root / ('brief_hooks_' + slug + '.md')).write_text(serialize_child_brief_to_markdown(child), encoding='utf-8')
         child_slugs.append(slug)
     epic_record = {'plan_kind': 'epic', 'epic': True, 'child_briefs': merged, 'child_slugs': child_slugs}
@@ -194,6 +197,7 @@ def _brief_slug(brief_obj) -> str:
         stem = Path(sp).stem
         return stem[len('brief_hooks_'):] if stem.startswith('brief_hooks_') else stem
     return ''
+
 def main(args=None):
     parser = argparse.ArgumentParser(description='Planning CLI driver')
     parser.add_argument('brief', type=Path, help='Path to the planning brief')
@@ -241,15 +245,11 @@ def main(args=None):
     except Exception as e:
         print(f'Brief load failed: {e}', file=sys.stderr)
         sys.exit(3)
-    # Depth-budget gate: enforced for every brief (epic or leaf) AFTER the brief
-    # is loaded and BEFORE any pipeline runs, so nested epic recursion bottoms out
-    # once the lineage reaches the configured budget. check_brief_depth lives in
-    # harness/depth_validator.py (Phase-1) and is not re-implemented here.
     from harness.depth_validator import check_brief_depth
     repo_root = state_dir.parent
     slug = _brief_slug(brief_obj)
     max_depth = _resolve_max_planner_depth(config)
-    if slug and not check_brief_depth(slug, repo_root, max_depth):
+    if slug and (not check_brief_depth(slug, repo_root, max_depth)):
         print(f'Epic depth budget exceeded for brief {slug!r}; refusing to plan.', file=sys.stderr)
         sys.exit(2)
     if _should_run_epic(brief_obj, config):
@@ -301,6 +301,5 @@ def main(args=None):
         print(f'Merged plan failed validation: {violations}', file=sys.stderr)
         sys.exit(1)
     sys.exit(0)
-
 if __name__ == '__main__':
     main()
