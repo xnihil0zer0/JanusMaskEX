@@ -190,3 +190,66 @@ hours; NO cost stop. **Kill the daemon by PID before any manual re-dispatch.**
 - Prior-run partial artifacts archived to `_autowork_archive/ngv2_epic4_priorrun_partial/`.
 - **NEVER hand-edit production `harness/**` outside the pipeline** (owner directive). Oracles/
   tests MAY be hand-authored.
+
+---
+
+## 10. THROUGHPUT — findings + UNVERIFIED claims to investigate (parallel sub-agents)
+
+### What's confirmed (measured 2026-06-07)
+- **The build runs strictly SERIAL — max 1 worker-pair at a time, by design.** When
+  `'claude' in synthesis.active_agents` (it is), `autowork_daemon._iteration` (~line 1809)
+  takes the sequential path: launch one worker, `suspend_parallel_workers()` (`SIGSTOP`s all
+  others), block until done. `parallel_cap` does NOT control real concurrency in this mode
+  (it only batches how many tasks `_decide` picks; they still run one-at-a-time). Empirically
+  max concurrent pairs over the whole run = **1**. Config now has `parallel_cap: 1` — this is
+  HONEST (matches reality) but functionally a no-op for concurrency.
+- **Inter-build gaps are kickoff-bound, NOT idle.** Each build starts +0s after a kickoff ends;
+  gap ≈ one kickoff (median **228s**) + one build (~150s). Lowering `heartbeat_sec` further
+  does ~nothing (no idle slack to trim).
+- **A large slice of kickoff time is WASTED on `all_gemini_no_reconciled` discards+retries**
+  (`_check_hallucination` discards leaf plans whose tasks are all `proposed_by=gemini` with no
+  reconciled task; the grace budget retries → each retry is a full ~230s kickoff). Observed:
+  `portfolio-intel` needed 3 kickoffs (~707s) for one plan.
+- **The serial design exists because concurrent agent CLIs share the operator's single `$HOME`**
+  (`agent_jail.py:106` binds it → `~/.gemini` agy registry + `~/.claude` state). Concurrent agy
+  especially collides (the `code 2` conflict).
+
+### UNVERIFIED claims — investigate with PARALLEL SUB-AGENTS while the build runs
+Spawn these as independent `Agent`/`Explore` sub-agents (read-only/analysis; do NOT mutate the
+running daemon or repos) so investigation overlaps the serial grind. Each returns a verdict +
+a concrete proposed change (oracle-first) WITHOUT applying it — the operator reviews, then any
+production fix goes through the pipeline (`harness_self_fix` + decision file for deny-listed
+`harness/**`).
+
+- **CLAIM A (biggest lever): `_check_hallucination` can safely ACCEPT gemini-only LEAF plans.**
+  Hypothesis: for a leaf plan, after `normalize_plan` the task is a single `data_model` with the
+  committed oracle INJECTED, so a gemini-only plan is normalized to the same contract — the
+  `all_gemini_no_reconciled` discard is wasted work. Verify: (1) take a gemini-only leaf plan,
+  run it through `normalize_plan(repo_root=NGv2)`, confirm it's build-equivalent to a reconciled
+  one; (2) confirm `enable_single_agent_promotion: true` + `single_agent_promotion_ceiling: 3`
+  semantics; (3) propose a scoped `_check_hallucination` change that returns `(False,'')` for
+  all_gemini *leaf* (non-epic) plans when single-agent promotion is enabled, KEEPING the
+  empty_plan / wall<min / empty_epic guards. Quantify expected kickoff-time savings.
+- **CLAIM B: claude's draft is degraded because it's DENIED reading its work dir.** Logs show
+  *"Claude requested permission to read /home/.../JanusMaskJR_agentwork … not granted"*;
+  `config/claude_worker_planning_hooks.json` is `defaultMode: denyAll`. Verify: does the planner
+  claude actually fail/empty its draft when this fires (correlate denial events with
+  `all_gemini` discards), or does it work around it (it sometimes emits 13k-char drafts)?
+  Propose the minimal settings fix (add the agent work dir to allowed read paths /
+  `additionalDirectories` / `--add-dir`) and whether it measurably cuts discards. Confidence: MED.
+- **CLAIM C: per-worker HOME isolation enables true 2-wide parallelism.** Scope Option B from §9
+  /(the parallelism discussion): per-worker isolated `~/.claude` + `~/.gemini` in `agent_jail.py`
+  so N×(claude-code + agy) don't share auth/registry, then drop the `requires_claude` sequential
+  gate + `suspend_parallel_workers`. Deliver: exact files/functions to change, the agy
+  single-instance-registry risk, and a concurrency stress-test plan. Do NOT implement.
+- **CLAIM D: the remaining knowledge dup sub-epics can be pruned without stranding leaves.**
+  The knowledge super-epic decomposed pre-B1 (8 dup sub-epics). Verify which dup sub-epics are
+  fully redundant (their leaves are covered by a kept twin / already built) and which are still
+  the SOLE admitter of an unbuilt leaf — only prune the provably-redundant ones. Deliver the
+  safe-to-prune slug list.
+
+### After investigation
+Review the sub-agent verdicts. Apply ONLY the ones that are clearly net-positive, oracle-first,
+via the pipeline (CLAIM A is the prime candidate). CLAIM C (parallelism) is a post-Epic-4
+dedicated effort, not mid-run. None of this blocks finishing the 67-leaf build — it runs
+concurrently with the serial grind.
