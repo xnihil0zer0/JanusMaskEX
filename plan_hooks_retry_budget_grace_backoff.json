@@ -1,0 +1,114 @@
+{
+  "tasks": [
+    {
+      "task_id": "grace-budget-recently-failed-to-plan",
+      "title": "Add a grace retry budget of 2 to planner-kickoff backoff in _recently_failed_to_plan",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/autowork_daemon.py"
+      ],
+      "acceptance_criteria": [
+        "Inside harness/autowork_daemon._recently_failed_to_plan, the threshold-selection block becomes: attempts <= 2 -> threshold = 0.0; attempts == 3 -> threshold = 300.0; attempts == 4 -> threshold = 3600.0; else (attempts >= 5) -> threshold = 86400.0.",
+        "The trailing `return time.time() - last_ts < threshold` line is byte-identical to the original (with threshold == 0.0 it always evaluates False, i.e. always retriable).",
+        "The marker read, JSON parse, and the last_ts/attempts type guards that `return False` on malformed input (missing last_ts; bool or non-numeric last_ts; bool or non-int attempts) remain byte-identical.",
+        "No change to the function signature; no new module-level symbol is introduced.",
+        "Only the function _recently_failed_to_plan is edited as a single-symbol partial edit; harness/autowork_daemon.py is NOT whole-file rewritten and no other symbol is touched.",
+        "Landing is green: `python -m pytest tests/adversarial/test_escalating_backoff_recently_failed_to_plan.py -q` passes against the already-committed oracle.",
+        "Because harness/autowork_daemon.py is on the _NEVER_AUTO_APPROVE deny-list, the operator approval decision file state/control/decisions/<tid>.json is written to approve the landing."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/adversarial/test_escalating_backoff_recently_failed_to_plan.py -q",
+      "spec": {
+        "objective": "Shift the planner-kickoff cooldown escalation in _recently_failed_to_plan up by two attempts so the first two stochastic failures (dual-agent reconciliation flakes) are retried immediately instead of being penalised into a cooldown tier, by introducing a grace retry budget of 2 before any backoff begins.",
+        "functional_requirements": [
+          "When attempts <= 2, set threshold = 0.0 (grace budget: retry now, never cooled down).",
+          "When attempts == 3, set threshold = 300.0.",
+          "When attempts == 4, set threshold = 3600.0.",
+          "When attempts >= 5 (the else branch), set threshold = 86400.0.",
+          "Leave the final `return time.time() - last_ts < threshold` line exactly as-is so that threshold == 0.0 yields an always-False (always-retriable) result.",
+          "Preserve byte-for-byte the marker file read, JSON parse, and all malformed-input guards (missing last_ts; bool or non-numeric last_ts; bool or non-int attempts each still `return False`), the function signature, and the absence of any new module-level symbol."
+        ],
+        "interfaces": "Modifies only the tiered-threshold logic inside the module-level function harness/autowork_daemon._recently_failed_to_plan. No signature change, no new symbols, no other functions touched. The marker file format ({\"attempts\": int, \"last_ts\": float}, .json suffix) is unchanged.",
+        "edge_cases": [
+          "attempts == 0, 1, 2 -> threshold 0.0 -> function returns False (retriable) regardless of last_ts age.",
+          "attempts == 3 -> 300s cooldown applies (old attempts<=1 tier shifted up by two).",
+          "attempts == 4 -> 3600s cooldown (old attempts==2 tier shifted up by two).",
+          "attempts == 5 and any larger value -> 86400s cooldown via the else branch.",
+          "Missing last_ts key, last_ts as bool or non-numeric, attempts as bool or non-int -> still return False via the unchanged guards.",
+          "A marker file that is absent or contains invalid JSON -> behaviour unchanged from current code."
+        ],
+        "non_goals": [
+          "Do NOT change the function signature or the marker file format ({\"attempts\": int, \"last_ts\": float}, .json suffix).",
+          "Do NOT alter the malformed-input guards.",
+          "Do NOT touch _plan_attempt_marker_path, _auto_promote, or any other symbol.",
+          "Do NOT add a config flag.",
+          "Do NOT whole-file edit harness/autowork_daemon.py (it is large; edit only the one function).",
+          "Do NOT modify the task build-retry budget (a separate mechanism); this brief is only the plan-kickoff cooldown.",
+          "Do NOT author or modify the oracle test; it is already committed."
+        ],
+        "implementation_notes": "Deny-listed target: harness/autowork_daemon.py is on the irreducible _NEVER_AUTO_APPROVE deny-list, so the sanctioned landing path is meta_task_type harness_self_fix PLUS an operator decision file: the operator writes state/control/decisions/<tid>.json to approve. Oracle-first: the RED oracle tests/adversarial/test_escalating_backoff_recently_failed_to_plan.py is already committed and is the authoritative contract pinning the new tiers (grace budget of 2; 3 -> 300s; 4 -> 3600s; 5+ -> 86400s). Make a single-symbol partial edit of _recently_failed_to_plan ONLY \u2014 replace just the threshold-selection block (the original attempts<=1 -> 300, attempts==2 -> 3600, attempts>=3 -> 86400 cascade near lines 1213-1219); never whole-file edit the module. The trailing return and every guard line must stay byte-identical. verification_command runs only the committed oracle file (no network, no pip, no glob of tests/planner/).\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/adversarial/test_escalating_backoff_recently_failed_to_plan.py\n```python\n\"\"\"Adversarial regression bar for ``_recently_failed_to_plan`` backoff.\n\nPins the contract that ``harness.autowork_daemon._recently_failed_to_plan``\ngives a GRACE RETRY BUDGET OF 2 before the escalating backoff begins, then\nescalates by attempt count:\n\n- attempts <= 2  -> 0s     (grace budget: retry immediately, no backoff)\n- attempts == 3  -> 300s   (5 minutes; first backoff tier after the budget)\n- attempts == 4  -> 3600s  (1 hour)\n- attempts >= 5  -> 86400s (24 hours)\n\nThis SUPERSEDES the prior tiering (attempts<=1 -> 300s, ==2 -> 3600s,\n>=3 -> 86400s). Motivation: planner kickoffs fail *stochastically*\n(dual-agent reconciliation flakes), so the first couple of failures must\nbe retried promptly instead of being penalised as if deterministic. The\nbudget of 2 converts an unlucky stochastic streak into \"retry twice, then\nback off\".\n\nThe marker file is a JSON document ending in ``.json`` containing\n``{\"attempts\": int, \"last_ts\": float}``.\n\nEach behavioural test asserts a value that is a load-bearing DIFFERENTIAL\nbetween the legacy tiering and the new budget-of-2 tiering, so the legacy\nimplementation fails it (RED today) and the post-fix implementation passes.\n\"\"\"\nfrom __future__ import annotations\n\nimport json\nimport os\nimport pathlib\nimport time\n\nimport pytest\n\n\n@pytest.fixture\ndef state_dir(tmp_path: pathlib.Path) -> pathlib.Path:\n    \"\"\"Return a fresh ``state_dir`` rooted under ``tmp_path``.\"\"\"\n    d = tmp_path / \"state\"\n    (d / \"control\" / \"autowork\" / \"plan_attempts\").mkdir(parents=True)\n    return d\n\n\ndef _write_marker(state_dir: pathlib.Path, slug: str, attempts: int, last_ts: float) -> pathlib.Path:\n    \"\"\"Write a JSON plan-attempts marker for ``slug`` and return its path.\"\"\"\n    from harness.autowork_daemon import _plan_attempt_marker_path\n\n    marker = _plan_attempt_marker_path(state_dir, slug)\n    marker.parent.mkdir(parents=True, exist_ok=True)\n    marker.write_text(\n        json.dumps({\"attempts\": attempts, \"last_ts\": last_ts}, sort_keys=True),\n        encoding=\"utf-8\",\n    )\n    os.utime(marker, (last_ts, last_ts))\n    return marker\n\n\ndef test_marker_path_suffix_is_json(state_dir: pathlib.Path) -> None:\n    \"\"\"The marker filename must end in ``.json`` (NOT ``.failed``).\"\"\"\n    from harness.autowork_daemon import _plan_attempt_marker_path\n\n    marker = _plan_attempt_marker_path(state_dir, \"demo_suffix\")\n    assert str(marker).endswith(\".json\"), (\n        f\"marker path must end in .json, got {marker!r}\"\n    )\n\n\ndef test_first_attempt_within_grace_budget_immediately_retriable(state_dir: pathlib.Path) -> None:\n    \"\"\"attempts=1 is within the grace budget -> always retriable (False).\n\n    Differential vs legacy: legacy gave attempts<=1 a 300s cooldown, so a\n    fresh marker (age ~0) returned True. The budget-of-2 contract returns\n    False for any age because the first failure is free.\n    \"\"\"\n    from harness.autowork_daemon import _recently_failed_to_plan\n\n    _write_marker(state_dir, \"demo_grace_1\", attempts=1, last_ts=time.time() - 5)\n\n    assert _recently_failed_to_plan(state_dir, \"demo_grace_1\") is False, (\n        \"attempts=1 is within the grace budget of 2 and must be retriable \"\n        \"immediately; legacy gave it a 300s cooldown (True at age=5s)\"\n    )\n\n\ndef test_second_attempt_within_grace_budget_immediately_retriable(state_dir: pathlib.Path) -> None:\n    \"\"\"attempts=2 is the last grace retry -> still retriable (False).\n\n    Differential vs legacy: legacy gave attempts==2 a 3600s cooldown, so a\n    fresh marker returned True. The budget-of-2 contract returns False.\n    \"\"\"\n    from harness.autowork_daemon import _recently_failed_to_plan\n\n    _write_marker(state_dir, \"demo_grace_2\", attempts=2, last_ts=time.time() - 5)\n\n    assert _recently_failed_to_plan(state_dir, \"demo_grace_2\") is False, (\n        \"attempts=2 is still within the grace budget of 2 and must be \"\n        \"retriable immediately; legacy gave it a 3600s cooldown (True at age=5s)\"\n    )\n\n\ndef test_third_attempt_begins_300s_backoff(state_dir: pathlib.Path) -> None:\n    \"\"\"attempts=3 exhausts the budget and enters the 300s tier.\n\n    Pins both sides of the 300s threshold, and the stale side is a\n    differential vs legacy (which put attempts>=3 in the 86400s tier).\n    \"\"\"\n    from harness.autowork_daemon import _recently_failed_to_plan\n\n    _write_marker(state_dir, \"demo_t3_fresh\", attempts=3, last_ts=time.time() - 100)\n    _write_marker(state_dir, \"demo_t3_stale\", attempts=3, last_ts=time.time() - 400)\n\n    assert _recently_failed_to_plan(state_dir, \"demo_t3_fresh\") is True, (\n        \"attempts=3 at age=100s is inside the 300s backoff -> True\"\n    )\n    assert _recently_failed_to_plan(state_dir, \"demo_t3_stale\") is False, (\n        \"attempts=3 at age=400s is past the 300s backoff -> False; \"\n        \"legacy put attempts>=3 in the 86400s tier (True here)\"\n    )\n\n\ndef test_fourth_attempt_3600s_backoff(state_dir: pathlib.Path) -> None:\n    \"\"\"attempts=4 enters the 3600s tier.\n\n    The stale side is a differential vs legacy (attempts>=3 -> 86400s).\n    \"\"\"\n    from harness.autowork_daemon import _recently_failed_to_plan\n\n    _write_marker(state_dir, \"demo_t4_fresh\", attempts=4, last_ts=time.time() - 1000)\n    _write_marker(state_dir, \"demo_t4_stale\", attempts=4, last_ts=time.time() - 4000)\n\n    assert _recently_failed_to_plan(state_dir, \"demo_t4_fresh\") is True, (\n        \"attempts=4 at age=1000s is inside the 3600s backoff -> True\"\n    )\n    assert _recently_failed_to_plan(state_dir, \"demo_t4_stale\") is False, (\n        \"attempts=4 at age=4000s is past the 3600s backoff -> False; \"\n        \"legacy put attempts>=3 in the 86400s tier (True here)\"\n    )\n\n\ndef test_fifth_attempt_24h_backoff(state_dir: pathlib.Path) -> None:\n    \"\"\"attempts>=5 enters the 86400s (24h) tier.\"\"\"\n    from harness.autowork_daemon import _recently_failed_to_plan\n\n    _write_marker(state_dir, \"demo_t5_in\", attempts=5, last_ts=time.time() - 4000)\n    _write_marker(state_dir, \"demo_t5_out\", attempts=5, last_ts=time.time() - 90000)\n\n    assert _recently_failed_to_plan(state_dir, \"demo_t5_in\") is True, (\n        \"attempts=5 at age=4000s is inside the 24h backoff -> True\"\n    )\n    assert _recently_failed_to_plan(state_dir, \"demo_t5_out\") is False, (\n        \"attempts=5 at age=90000s is past the 24h backoff -> False\"\n    )\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "attempts 0,1,2 within grace budget => threshold 0.0 => not recently failed (retriable)"
+          },
+          {
+            "name": "attempts == 3 => 300s threshold gates retry"
+          },
+          {
+            "name": "attempts == 4 => 3600s threshold gates retry"
+          },
+          {
+            "name": "attempts == 5 and above => 86400s threshold gates retry"
+          },
+          {
+            "name": "trailing return uses time.time() - last_ts < threshold and is False when threshold == 0.0"
+          },
+          {
+            "name": "malformed input guards (missing/bool/non-numeric last_ts, bool/non-int attempts) still return False"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "daemon plan-kickoff loop re-attempts a brief twice immediately before any cooldown is observed"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "for attempts in 0..2 the function is always retriable regardless of last_ts age"
+          },
+          {
+            "name": "for attempts >= 3 the selected threshold is monotonic non-decreasing in attempts (300 <= 3600 <= 86400)"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "function signature and module symbol set (no new symbol; _plan_attempt_marker_path/_auto_promote untouched) unchanged"
+          },
+          {
+            "name": "marker file format {\"attempts\": int, \"last_ts\": float} with .json suffix still parsed identically"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Synthetic marker dicts covering attempts in {0,1,2,3,4,5,6}, last_ts values that are recent vs old vs bool vs non-numeric, and attempts values that are bool/non-int. The committed oracle tests/adversarial/test_escalating_backoff_recently_failed_to_plan.py already supplies the authoritative tier vectors; no new fixtures are landed by this task."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 80,
+        "test_tokens": 200,
+        "note": "Implementation is a tiny single-block edit; the oracle is already committed so test_tokens covers verifying/reading the committed contract rather than authoring new tests."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "brief_hooks_retry_budget_grace_backoff.md",
+  "source_brief_sha256": "c54fa4efdf07d4a97b6dcb60de03bec6a16c005f4b2b854c85b9ed18686722b7"
+}
