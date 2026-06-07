@@ -72,6 +72,25 @@ def test_external_impl_task_gets_credential_constraint(tmp_path):
     assert "Build the backtracking solver." in note
 
 
+def test_external_impl_task_gets_stdlib_and_determinism_constraints(tmp_path):
+    """B6-twin: the external-leaf constraint also forbids third-party imports
+    (stdlib-only) and wall-clock / nondeterministic sources — the two other
+    synthesis-quality classes that fail the stdlib-only deterministic jail
+    (pydantic/pydantic_settings import errors; datetime.now AST rejection)."""
+    _write_oracle(tmp_path, "tests/test_backtrack.py")
+    plan = {"tasks": [_impl_task(notes="Build the backtracking solver.")]}
+    out = normalize_plan(plan, repo_root=tmp_path)
+    note = _notes(out, "backtrack-impl").lower()
+    # stdlib-only: name the offending third-party packages so the agent avoids them
+    assert "stdlib" in note
+    assert "pydantic" in note
+    # determinism: ban wall-clock / nondeterministic sources, inject as a param
+    assert "datetime.now" in note or "wall-clock" in note
+    assert any(w in note for w in ("time.time", "random", "uuid", "secrets"))
+    # the original credential constraint must still be present (single block)
+    assert MARKER.lower() in note
+
+
 def test_repo_root_none_is_strict_noop():
     plan = {"tasks": [_impl_task(notes="orig")]}
     before = copy.deepcopy(plan)
