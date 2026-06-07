@@ -426,7 +426,7 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
                 t['dependencies'] = [d for d in deps if d not in removed_ids]
     return result
 def _inject_credential_naming_constraint(plan: Dict[str, Any], repo_root: Optional[Any]) -> Dict[str, Any]:
-    """Steer an EXTERNAL-build leaf plan away from credential-named variables.
+    """Steer an EXTERNAL-build leaf plan away from synthesis-quality failures.
 
     The ``ast_enforcer`` security gate flags ANY variable whose name contains
     (case-insensitive) ``password``/``secret``/``key`` assigned a string
@@ -435,13 +435,22 @@ def _inject_credential_naming_constraint(plan: Dict[str, Any], repo_root: Option
     binds a field label or check id to a variable named ``key`` therefore fails
     synthesis and exhausts its retry budget even though the code is correct.
 
-    For an external-build leaf plan this pass appends a short constraint
-    directive (carrying the literal marker ``CREDENTIAL-NAMING CONSTRAINT``) to
-    every non-``test_authoring`` task's ``spec['implementation_notes']`` so the
-    blind synthesis agent avoids binding string literals to credential-named
-    variables.  Like :func:`_inject_oracle_sources`, it changes only the spec
-    the agent reads, never the code the AST gate inspects, and does not loosen
-    the security gate.
+    Beyond that credential-naming heuristic, the STDLIB-ONLY DETERMINISTIC
+    verification jail rejects two further blind-synthesis failure classes: a
+    third-party import (e.g. ``pydantic`` / ``pydantic_settings``) is absent in
+    the verification env and fails collection, and a wall-clock /
+    nondeterministic call (``datetime.now`` / ``time.time`` / unseeded
+    ``random`` / ``uuid`` / ``secrets``) is rejected by the AST nondeterminism
+    gate.  Both park the leaf.
+
+    For an external-build leaf plan this pass appends a single multi-directive
+    constraint block (carrying the literal marker ``CREDENTIAL-NAMING
+    CONSTRAINT``) to every non-``test_authoring`` task's
+    ``spec['implementation_notes']``: (a) the credential-naming directive, (b) a
+    stdlib-only directive forbidding third-party imports, and (c) a determinism
+    directive forbidding wall-clock / nondeterministic sources.  Like
+    :func:`_inject_oracle_sources`, it changes only the spec the agent reads,
+    never the code the AST gate inspects, and does not loosen any gate.
 
     The pass is pure (operates on a deep copy, never mutates the input) and
     idempotent: a task whose notes already contain the marker is skipped.  It is
@@ -467,7 +476,11 @@ def _inject_credential_naming_constraint(plan: Dict[str, Any], repo_root: Option
     if not isinstance(tasks, list):
         return result
     marker = 'CREDENTIAL-NAMING CONSTRAINT'
-    block = '\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) "password", "secret", or "key" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n'
+    block = (
+        '\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) "password", "secret", or "key" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n'
+        '\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n'
+        '\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n'
+    )
     for t in tasks:
         if not isinstance(t, dict) or _is_test_authoring(t):
             continue
