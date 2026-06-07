@@ -1211,9 +1211,11 @@ def _recently_failed_to_plan(state_dir: pathlib.Path, slug: str) -> bool:
     if isinstance(attempts_raw, bool) or not isinstance(attempts_raw, int):
         return False
     attempts = attempts_raw
-    if attempts <= 1:
+    if attempts <= 2:
+        threshold = 0.0
+    elif attempts == 3:
         threshold = 300.0
-    elif attempts == 2:
+    elif attempts == 4:
         threshold = 3600.0
     else:
         threshold = 86400.0
