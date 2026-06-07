@@ -130,12 +130,23 @@ def _finalize_epic_children(merged, epic_wd, child_epics):
     input list or its dicts. For each child in ``merged`` carrying a truthy
     ``slug``, the slug is canonicalized (``strip()`` then ``_`` -> ``-``);
     children whose canonical slug was already seen are dropped (first wins).
-    A child lacking a truthy ``working_dir`` is stamped with ``epic_wd`` when
-    that is a non-empty str, and ``epic`` is set True when ``child_epics`` is
-    truthy.
+
+    On top of that exact-canonical pass, a near-synonym (subset-token) dedup is
+    applied: each kept child's significant-token set is ``frozenset(canonical
+    .split('-')) - _STOPWORDS``. A child whose NON-EMPTY token set is a subset
+    of, equal to, or a superset of any already-kept child's token set is a
+    near-synonym twin and is dropped (first-seen of the group wins). A child
+    with an EMPTY token set (e.g. an all-stopword slug) falls back to
+    canonical-only dedup and is never subset-matched.
+
+    A kept child lacking a truthy ``working_dir`` is stamped with ``epic_wd``
+    when that is a non-empty str, and ``epic`` is set True when ``child_epics``
+    is truthy.
     """
+    _STOPWORDS = frozenset({'and', 'of', 'the', 'for', 'to', 'a', 'an'})
     finalized = []
     seen = set()
+    kept_token_sets = []
     for child in merged:
         slug = child.get('slug')
         if not slug:
@@ -143,7 +154,13 @@ def _finalize_epic_children(merged, epic_wd, child_epics):
         canonical = str(slug).strip().replace('_', '-')
         if canonical in seen:
             continue
+        child_tokens = frozenset(canonical.split('-')) - _STOPWORDS
+        if child_tokens and any(
+            child_tokens <= ts or ts <= child_tokens for ts in kept_token_sets
+        ):
+            continue
         seen.add(canonical)
+        kept_token_sets.append(child_tokens)
         new_child = dict(child)
         new_child['slug'] = canonical
         if isinstance(epic_wd, str) and epic_wd and (not new_child.get('working_dir')):
