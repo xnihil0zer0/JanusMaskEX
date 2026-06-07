@@ -338,6 +338,93 @@ def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Di
         else:
             spec['implementation_notes'] = block
     return result
+def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any]) -> Dict[str, Any]:
+    """Force an EXTERNAL-build leaf plan to a single smoke-gated impl task.
+
+    For an external-build leaf plan (``repo_root`` outside ``PROJECT_ROOT``),
+    tasks that share the same committed oracle-test set are collapsed to a
+    single impl task retyped to ``data_model`` -- which is bypass_fuzzer and
+    smoke-gated per ``META_TASK_POLICY`` -- routing correct external builds away
+    from the diff-fuzzer (which cannot resolve external ``ngv2.*`` imports) and
+    the stateful-fuzz path (which diverges).
+
+    A task's oracle-test set is the set of whitespace tokens in its
+    ``verification_command`` that end in ``.py``, do not start with ``-``, and
+    resolve to an existing file under ``repo_root``.  Tasks with an empty oracle
+    set are never grouped and are left untouched.  Each group with at least one
+    impl candidate (a task whose ``meta_task_type`` is not an oracle-authoring
+    type) keeps the lexicographically-smallest ``task_id`` candidate, retypes it
+    to ``data_model``, removes the rest, and strips any removed id from every
+    surviving task's ``dependencies``.
+
+    The pass is pure (deep copy, no mutation of the input, no I/O beyond the
+    ``is_file()`` existence checks under ``repo_root``) and idempotent.  It is a
+    strict no-op returning the input object unchanged when ``repo_root`` is
+    ``None``, when ``plan`` is not a dict, when ``plan`` is an epic plan
+    (``child_slugs`` truthy), when ``repo_root`` resolves to ``PROJECT_ROOT`` (a
+    JM-internal self-fix plan, which must never be retyped), or when resolving
+    ``repo_root`` raises ``TypeError``/``ValueError``/``OSError``.
+    """
+    from pathlib import Path
+    from harness.paths import PROJECT_ROOT
+    if repo_root is None or not isinstance(plan, dict):
+        return plan
+    if plan.get('child_slugs'):
+        return plan
+    try:
+        if Path(repo_root).resolve() == Path(PROJECT_ROOT).resolve():
+            return plan
+    except (TypeError, ValueError, OSError):
+        return plan
+    result = copy.deepcopy(plan)
+    tasks = result.get('tasks')
+    if not isinstance(tasks, list) or not tasks:
+        return result
+    root = Path(repo_root)
+    non_impl = {'test_authoring', 'test_acceptance', 'test_unit', 'test_integration', 'test_e2e', 'validation'}
+
+    def _oracle_set(task: Dict[str, Any]) -> frozenset:
+        vcmd = task.get('verification_command')
+        if not isinstance(vcmd, str) or not vcmd:
+            return frozenset()
+        found: Set[str] = set()
+        for tok in vcmd.split():
+            if tok.startswith('-') or not tok.endswith('.py'):
+                continue
+            try:
+                if (root / tok).is_file():
+                    found.add(tok)
+            except (TypeError, ValueError, OSError):
+                continue
+        return frozenset(found)
+    groups: Dict[frozenset, List[Dict[str, Any]]] = {}
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        oset = _oracle_set(t)
+        if not oset:
+            continue
+        groups.setdefault(oset, []).append(t)
+    removed_ids: Set[str] = set()
+    for group in groups.values():
+        impl_candidates = [t for t in group if t.get('meta_task_type') not in non_impl]
+        if not impl_candidates:
+            continue
+        survivor = min(impl_candidates, key=_task_id)
+        survivor['meta_task_type'] = 'data_model'
+        for t in group:
+            if t is survivor:
+                continue
+            removed_ids.add(_task_id(t))
+    if removed_ids:
+        result['tasks'] = [t for t in tasks if not (isinstance(t, dict) and _task_id(t) in removed_ids)]
+        for t in result['tasks']:
+            if not isinstance(t, dict):
+                continue
+            deps = t.get('dependencies')
+            if isinstance(deps, list):
+                t['dependencies'] = [d for d in deps if d not in removed_ids]
+    return result
 def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[str, Any]:
     """Auto-correct a leaf plan: dedupe oracles + enforce module-first order.
 
@@ -361,5 +448,6 @@ def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[
     normalized['tasks'] = tasks
     _enforce_module_first(tasks)
     normalized = _sanitize_impl_verification_commands(normalized, repo_root)
+    normalized = _force_smoke_gated_leaf_impl(normalized, repo_root)
     normalized = _inject_oracle_sources(normalized, repo_root)
     return normalized
