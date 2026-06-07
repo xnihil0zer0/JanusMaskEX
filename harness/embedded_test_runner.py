@@ -50,22 +50,95 @@ _WORKER_SCRUB_ENV = {
 
 
 def should_run_embedded_tests(module_src: str) -> bool:
-    """Return True iff ``module_src`` has a top-level pytest target.
+    """Return True iff ``module_src`` has a genuine top-level pytest target.
 
     A top-level target is a ``FunctionDef`` whose name starts with
-    ``test_`` or a ``ClassDef`` whose name starts with ``Test``. Parse
-    failures return False — the AST-enforcer already rejects syntax
-    errors on the accept path, so hitting this branch means the module
-    is syntactically invalid and pytest collection would trivially fail.
+    ``test_`` *and* that is actually runnable as a pytest test, or a
+    ``ClassDef`` whose name starts with ``Test``. Parse failures return
+    False — the AST-enforcer already rejects syntax errors on the accept
+    path, so hitting this branch means the module is syntactically
+    invalid and pytest collection would trivially fail.
+
+    A ``test_*`` function counts as a runnable pytest target only if every
+    *required* parameter (a positional-or-keyword / positional-only arg
+    without a default, or a keyword-only arg whose default is ``None``) is
+    either ``self`` or a known pytest builtin fixture. NGv2 leaf modules
+    expose public API helpers that merely happen to be named ``test_*``
+    (e.g. ``tool_registry.test_tool`` or ``mff_scorer.test_file_against_parser``)
+    and take real arguments; those must not, by themselves, switch on the
+    embedded-test gate. Names explicitly opted out with
+    ``<name>.__test__ = False`` at module level are also ignored. The W64
+    silent-canary protection (a real no-arg canary still triggers the
+    gate) is fully preserved.
     """
     try:
         tree = ast.parse(module_src)
     except SyntaxError:
         return False
+
+    _pytest_builtin_fixtures = frozenset({
+        "tmp_path",
+        "tmp_path_factory",
+        "tmpdir",
+        "tmpdir_factory",
+        "monkeypatch",
+        "capsys",
+        "capsysbinary",
+        "capfd",
+        "capfdbinary",
+        "capteesys",
+        "caplog",
+        "request",
+        "recwarn",
+        "pytestconfig",
+        "cache",
+        "doctest_namespace",
+        "record_property",
+        "record_xml_attribute",
+        "record_testsuite_property",
+        "testrun_uid",
+        "worker_id",
+    })
+
+    def _is_runnable_test_function(node: ast.FunctionDef) -> bool:
+        args = node.args
+        positional = list(args.posonlyargs) + list(args.args)
+        num_required = len(positional) - len(args.defaults)
+        required = positional[:num_required]
+        for kwarg, kw_default in zip(args.kwonlyargs, args.kw_defaults):
+            if kw_default is None:
+                required.append(kwarg)
+        for arg in required:
+            if arg.arg == "self":
+                continue
+            if arg.arg in _pytest_builtin_fixtures:
+                continue
+            return False
+        return True
+
+    # Collect names explicitly opted out via ``<name>.__test__ = False``.
+    opted_out = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if (
+                    isinstance(target, ast.Attribute)
+                    and target.attr == "__test__"
+                    and isinstance(target.value, ast.Name)
+                    and isinstance(node.value, ast.Constant)
+                    and node.value.value is False
+                ):
+                    opted_out.add(target.value.id)
+
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
-            return True
+            if node.name in opted_out:
+                continue
+            if _is_runnable_test_function(node):
+                return True
         if isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+            if node.name in opted_out:
+                continue
             return True
     return False
 
