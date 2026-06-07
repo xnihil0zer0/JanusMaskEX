@@ -1258,7 +1258,7 @@ def _run_planner_subprocess(brief_path: pathlib.Path, output_plan: pathlib.Path,
             stderr_tail = ''
     return (rc, float(wall), stderr_tail)
 
-def _check_hallucination(plan_dict: dict, wall_seconds: float, min_wall: float=10.0) -> tuple[bool, str]:
+def _check_hallucination(plan_dict: dict, wall_seconds: float, min_wall: float=10.0, config=None) -> tuple[bool, str]:
     try:
         wall = float(wall_seconds)
     except (TypeError, ValueError):
@@ -1288,6 +1288,8 @@ def _check_hallucination(plan_dict: dict, wall_seconds: float, min_wall: float=1
         if meta.get('reconciled') is True:
             any_reconciled = True
     if all_gemini and (not any_reconciled):
+        if bool((config or {}).get('synthesis', {}).get('accept_single_agent_leaf_plans', False)):
+            return (False, '')
         return (True, 'all_gemini_no_reconciled')
     return (False, '')
 
@@ -1546,7 +1548,7 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
                         plan_dict = parsed
                 except (OSError, json.JSONDecodeError, UnicodeDecodeError):
                     plan_dict = {}
-            hallucinated, why = _check_hallucination(plan_dict, wall, min_wall=_planner_min_wall(config or {}))
+            hallucinated, why = _check_hallucination(plan_dict, wall, min_wall=_planner_min_wall(config or {}), config=config)
             if hallucinated:
                 try:
                     if output_plan.exists():
