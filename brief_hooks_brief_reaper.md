@@ -1,11 +1,22 @@
 ---
 interfaces: "tools/brief_reaper.py: reap_for_task(repo_root, task_id, *, stamp, archive=True) -> list[str]. Pure-stdlib, single-file, self-contained. Returns the list of archived brief slugs (0 or 1). NEVER raises."
-meta_task_type: harness_plumbing
+meta_task_type: data_model
 ---
 
 # Title
 
 tools/brief_reaper.py
+
+# ⚠️ NEW FILE — WHOLE-FILE SUBMISSION REQUIRED
+
+`tools/brief_reaper.py` DOES NOT EXIST YET. Submit the COMPLETE file as a single
+self-contained Python module: a module docstring, then ALL imports at the TOP of
+the file (`json`, `re`, `shutil`, `subprocess`, `sys`, `from pathlib import
+Path`), then the `def reap_for_task(...)` definition (plus any small private
+top-level helpers you want). Do NOT emit a `__JANUSMASK_PATCHES__` block, and do
+NOT bury the imports inside the function body — a patch block / symbol patch is
+ONLY for editing an existing large file, and this file does not exist, so a
+symbol patch cannot create it. Write the whole module.
 
 # Scope
 
@@ -55,7 +66,7 @@ keyword-only date string (e.g. "2026-06-08"). `archive` is a keyword-only bool.
 # Required plan shape
 
 Emit EXACTLY ONE task (do NOT decompose):
-- meta_task_type: harness_plumbing
+- meta_task_type: data_model
 - files_touched: ["tools/brief_reaper.py"]  (this file ONLY)
 - verification_command: "python -m pytest tests/tools/test_brief_reaper.py -q"
 - spec_author: null
