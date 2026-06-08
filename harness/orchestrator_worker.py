@@ -42,9 +42,39 @@ def _emit_lifecycle_safe(state_dir: Path, **fields: Any) -> None:
     except Exception:
         pass
 
+def _reap_spent_briefs_safe(payload: dict) -> None:
+    """Fail-safe bridge from an accepted terminal outcome to the brief reaper.
+
+    Runs AFTER the JSON line has already been written + flushed. Behind a
+    default-off config flag it archives the spent brief(s) for the just-accepted
+    task. The WHOLE body is wrapped in try/except so it can never raise back into
+    _print_json_line; the JSON line is emitted regardless."""
+    try:
+        if payload.get('outcome') != 'accepted':
+            return
+        from harness.orchestrator import load_config
+        cfg = load_config()
+        flag = cfg.get('autowork', {}).get('archive_spent_briefs')
+        if not flag:
+            return
+        task_id = payload.get('task_id')
+        if not isinstance(task_id, str) or not task_id:
+            return
+        import datetime
+        import pathlib
+        repo_root = pathlib.Path(__file__).resolve().parents[1]
+        stamp = datetime.date.today().isoformat()
+        from tools.brief_reaper import reap_for_task
+        reap_for_task(repo_root, task_id, stamp=stamp)
+    except Exception:
+        return
 def _print_json_line(payload: dict[str, Any]) -> None:
     sys.stdout.write(json.dumps(payload) + '\n')
     sys.stdout.flush()
+    try:
+        _reap_spent_briefs_safe(payload)
+    except Exception:
+        pass
 
 def _consume_no_diff_marker(state_dir: Path, task_id: str) -> bool:
     """True if _auto_commit_accepted wrote a no_diff marker (G-NODIFF).
