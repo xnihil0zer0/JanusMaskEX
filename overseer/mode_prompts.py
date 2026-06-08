@@ -61,6 +61,13 @@ def render_mode_context(mode: str, state: Mapping[str, Any]) -> str:
     procedure guidance, and surfaces the privileged-unlock requirement for
     Tier-S modes and the no-writes constraint for read-only modes.
 
+    When ``state`` carries durable procedure information (a truthy
+    ``'procedure_phase'`` key), additional guidance lines are appended that
+    surface, read verbatim from state and the registry binding rather than
+    inferred: the current phase, the single next action bound to that phase,
+    and -- only when the last gate failed -- its reason and fix hint.  Absent
+    a ``'procedure_phase'`` key the output is exactly the baseline contract.
+
     Raises:
         KeyError: if ``mode`` is not a registered mode.
     """
@@ -74,4 +81,17 @@ def render_mode_context(mode: str, state: Mapping[str, Any]) -> str:
         lines.append(f"Tier-S mode: '{mode}' is privileged and must be explicitly unlocked before use. Do not proceed unless the unlock requirement for this tier has been satisfied.")
     if _is_read_only(mode, mode_obj):
         lines.append('Read-only mode: you may read and inspect, but no writes or state-changing actions are permitted.')
+
+    phase = state.get('procedure_phase')
+    if phase:
+        lines.append(f'Current phase: {phase}')
+        next_action = state.get('procedure_next_action', '')
+        lines.append(f'Next action: {next_action}')
+        last_gate = state.get('procedure_last_gate')
+        if isinstance(last_gate, Mapping) and not last_gate.get('ok'):
+            reason = last_gate.get('reason', '')
+            fix_hint = last_gate.get('fix_hint', '')
+            lines.append(f'Last gate: FAILED -- {reason}')
+            lines.append(f'Fix hint: {fix_hint}')
+
     return '\n'.join(lines)
