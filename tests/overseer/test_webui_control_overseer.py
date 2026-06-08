@@ -30,13 +30,14 @@ def test_chat_mode_mutation_route_exists():
     assert any("chat/mode" in r for r in combined), "no chat mode-set route"
 
 
-def test_chat_handlers_delegate_to_overseer_web_api():
-    # Thin wiring: the handler body must route into overseer.web_api, not
-    # reimplement the logic inline.
+def test_chat_handlers_delegate_to_overseer_service():
+    # Thin wiring: the handler body must route into the overseer composition
+    # root (OverseerService, which owns the store + web_api + turn runner and
+    # the overseer.enabled gate), not reimplement the logic inline.
     for route in NEW_POST_ROUTES:
         handler_name, _ = ControlHandlers._dispatch_post[route]
         src = inspect.getsource(getattr(ControlHandlers, handler_name))
-        assert "web_api" in src, f"{handler_name} does not delegate to overseer.web_api"
+        assert "OverseerService" in src, f"{handler_name} does not delegate to overseer.service"
 
 
 def test_existing_routes_are_preserved():

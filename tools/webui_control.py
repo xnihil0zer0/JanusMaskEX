@@ -124,31 +124,19 @@ class ControlHandlers:
     _agents_override: Optional[dict] = None
 
     def post_chat_send(self, body: dict) -> tuple[int, dict]:
-        """Delegate an overseer chat-send mutation to overseer.web_api."""
-        from overseer.web_api import OverseerWebApi
-        api = OverseerWebApi(self.state_dir)
-        result = api.chat_send(body)
-        if isinstance(result, tuple):
-            return result
-        return (200, result if isinstance(result, dict) else {'result': result})
+        """Run an overseer chat-send turn via the OverseerService composition root."""
+        from overseer.service import OverseerService
+        return OverseerService(self.state_dir).chat_send(body)
 
     def post_chat_resend(self, body: dict) -> tuple[int, dict]:
-        """Delegate an overseer chat-resend mutation to overseer.web_api."""
-        from overseer.web_api import OverseerWebApi
-        api = OverseerWebApi(self.state_dir)
-        result = api.chat_resend(body)
-        if isinstance(result, tuple):
-            return result
-        return (200, result if isinstance(result, dict) else {'result': result})
+        """Re-run the last user turn via the OverseerService composition root."""
+        from overseer.service import OverseerService
+        return OverseerService(self.state_dir).chat_resend(body)
 
     def put_chat_mode(self, body: dict) -> tuple[int, dict]:
-        """Delegate an overseer chat mode-set mutation to overseer.web_api."""
-        from overseer.web_api import OverseerWebApi
-        api = OverseerWebApi(self.state_dir)
-        result = api.mode_set(body)
-        if isinstance(result, tuple):
-            return result
-        return (200, result if isinstance(result, dict) else {'result': result})
+        """Switch the overseer conversation mode via the OverseerService composition root."""
+        from overseer.service import OverseerService
+        return OverseerService(self.state_dir).mode_set(body)
 
     def __init__(self, state_dir: Path, logs_dir: Path, spawn_fn=None, kill_fn=None, repo_root: Optional[Path]=None) -> None:
         self.state_dir = Path(state_dir)
