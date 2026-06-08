@@ -138,10 +138,39 @@ def assert_route_allowed(mode: str, method: str, path: str) -> None:
         return None
     raise ModeViolation(f'route {method!r} {path!r} ({token}) withheld under mode {mode!r}')
 
-def can_switch(current: str, target: str, unlocked: Collection[str]) -> bool:
+def _is_phase_terminal(active_phase) -> bool:
+    """Whether ``active_phase`` represents no/terminal procedure (lattice resumes).
+
+    Terminal when: no active procedure (``None``), the literal ``'COMPLETE'``
+    sentinel string, or the substrate ``overseer.procedure.Complete`` value
+    (imported lazily to stay import-safe). Any other value is a non-terminal
+    procedure phase that engages the mode-switch lock.
+    """
+    if active_phase is None:
+        return True
+    if active_phase == 'COMPLETE':
+        return True
+    try:
+        from overseer.procedure import Complete
+    except Exception:
+        Complete = None
+    if Complete is not None:
+        try:
+            if active_phase is Complete or active_phase == Complete:
+                return True
+        except Exception:
+            pass
+    return False
+def can_switch(current: str, target: str, unlocked: Collection[str], *, active_phase=None) -> bool:
     """Whether a switch from ``current`` to ``target`` is permitted.
 
-    Lattice rules:
+    Procedure-phase lock (additive): when an active procedure is in a
+    *non-terminal* phase, the gate withholds every mode switch except the
+    abort (``observe``) and the no-op (staying on ``current``). Once the
+    procedure reaches its terminal ``COMPLETE`` phase -- or when there is no
+    active procedure at all -- the pre-existing lattice rules resume verbatim.
+
+    Lattice rules (terminal / no-procedure path):
       * free movement among Tier-R modes,
       * transition *down* the lattice permitted anytime,
       * R -> W permitted only for default-available W modes,
@@ -149,6 +178,9 @@ def can_switch(current: str, target: str, unlocked: Collection[str]) -> bool:
       * a switch back to the observe baseline is always permitted (revertible).
     Switching to an unknown target is never permitted.
     """
+    if not _is_phase_terminal(active_phase):
+        # In-progress procedure: only abort ('observe') or no-op ('current').
+        return target == _OBSERVE or target == current
     if not _is_known(target):
         return False
     if target == _OBSERVE:
