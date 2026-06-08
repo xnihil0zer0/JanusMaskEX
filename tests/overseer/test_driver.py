@@ -16,13 +16,26 @@ from overseer.driver import run_turn, AssistantTurn
 
 # --- injected fakes -------------------------------------------------------
 
+# Real ``claude -p --output-format stream-json --include-partial-messages``
+# shapes: the partial-message deltas/blocks are NESTED under ``stream_event``
+# (never top-level), the complete message arrives as an ``assistant`` event whose
+# ``message.content`` is a list of blocks, and a terminal ``result`` event carries
+# the authoritative answer + session id. See the captured live evidence at
+# _autowork_archive/overseer_no_output_evidence/real_claude_stream_sample.jsonl.
 CLAUDE_STREAM = [
     '{"type":"system","subtype":"init","session_id":"NEWSID"}',
-    '{"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello "}}',
-    '{"type":"content_block_delta","delta":{"type":"text_delta","text":"world"}}',
-    '{"type":"content_block_start","content_block":'
-    '{"type":"tool_use","id":"t1","name":"Read","input":{"file":"x"}}}',
-    '{"type":"result","subtype":"success","session_id":"NEWSID"}',
+    '{"type":"stream_event","event":{"type":"content_block_start","index":0,'
+    '"content_block":{"type":"text","text":""}}}',
+    '{"type":"stream_event","event":{"type":"content_block_delta","index":0,'
+    '"delta":{"type":"text_delta","text":"Hello "}}}',
+    '{"type":"stream_event","event":{"type":"content_block_delta","index":0,'
+    '"delta":{"type":"text_delta","text":"world"}}}',
+    '{"type":"stream_event","event":{"type":"content_block_start","index":1,'
+    '"content_block":{"type":"tool_use","id":"t1","name":"Read","input":{"file":"x"}}}}',
+    '{"type":"assistant","message":{"role":"assistant","content":'
+    '[{"type":"text","text":"Hello world"}]}}',
+    '{"type":"result","subtype":"success","is_error":false,'
+    '"result":"Hello world","session_id":"NEWSID"}',
 ]
 
 
