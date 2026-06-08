@@ -115,3 +115,14 @@ synthesis:
   verification_timeout_seconds: 1200
 test_author:
   review_pass: true
+overseer:
+  enabled: false
+  default_mode: observe
+  default_backend: claude
+  models:
+    claude:
+    - opus
+    - sonnet
+    - haiku
+  store_path: state/overseer/sessions.json
+  unlock_policy: {}
