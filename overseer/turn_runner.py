@@ -153,6 +153,7 @@ def run_chat_turn(store: Any, cid: str, user_text: str, *, config: Dict[str, Any
                   rewind_to_index: Optional[int] = None,
                   timeout: int = DEFAULT_TIMEOUT_SEC,
                   seams: Optional[Tuple[Callable, Callable, Callable, Any]] = None,
+                  gate_runner: Optional[Callable] = None,
                   ) -> Dict[str, Any]:
     """Run one assistant turn for *cid* and persist it.
 
@@ -163,12 +164,63 @@ def run_chat_turn(store: Any, cid: str, user_text: str, *, config: Dict[str, Any
     transcript log, and returns ``{ok, text, session_id, tool_uses}``. A spawn
     failure is caught and surfaced as an ``ok=False`` assistant turn rather than
     raising, so the UI shows the error instead of hanging.
+
+    Additively, when *cid*'s ``current_mode`` is bound to a procedure in
+    ``overseer.procedure.PROCEDURE_REGISTRY`` the turn first runs a procedure
+    step: it loads the conversation's :class:`ProcedureState`, runs the current
+    phase's gate via the INJECTED *gate_runner* seam, advances the phase via the
+    reducer (next phase / Blocked / Complete), persists the new state, and
+    threads the active phase + next action + last-gate result into *rec* so they
+    surface in the agent's system prompt every turn. Modes with no bound
+    procedure (e.g. ``observe``) are untouched -- no state file, no rec keys.
     """
     repo_root = Path(repo_root)
     state_dir = Path(state_dir)
     transcript_path = Path(logs_dir) / 'overseer_chat.jsonl'
     rec = store.get(cid)
     mode = rec.get('current_mode', 'observe')
+
+    # --- additive per-turn procedure wiring ----------------------------------
+    # Resolve the procedure substrate lazily + import-safely. For a mode with no
+    # bound procedure this whole block is a no-op (existing behaviour preserved).
+    try:
+        from overseer import procedure as _procedure
+        from overseer import procedure_state as _procedure_state
+        _registry = getattr(_procedure, 'PROCEDURE_REGISTRY', {}) or {}
+    except Exception:
+        _procedure = None
+        _procedure_state = None
+        _registry = {}
+
+    if _procedure is not None and _procedure_state is not None and mode in _registry:
+        proc = _registry[mode]
+        st = _procedure_state.load_state(cid, state_dir=state_dir)
+        phase = st.phase or (proc.phases[0].name if proc.phases else '')
+        if gate_runner is not None:
+            gr = gate_runner(mode, phase, rec, state_dir)
+            dec = _procedure.advance(proc, phase, gr)
+            if isinstance(dec, str):
+                new = _procedure_state.ProcedureState(phase=dec, last_gate=gr)
+            elif dec is _procedure.Complete:
+                new = _procedure_state.ProcedureState(phase='COMPLETE', last_gate=gr)
+            else:  # Blocked(reason, fix_hint) -- hold the phase, record the gate
+                new = _procedure_state.ProcedureState(phase=phase, last_gate=gr)
+            _procedure_state.save_state(cid, new, state_dir=state_dir)
+            st = new
+        # Thread phase guidance into the rec BEFORE run_turn so the computed next
+        # action and last-gate result surface in the per-turn system prompt.
+        rec['procedure_phase'] = st.phase
+        next_action = ''
+        for _ph in proc.phases:
+            if _ph.name == st.phase:
+                next_action = getattr(_ph, 'next_action', '') or ''
+                break
+        rec['procedure_next_action'] = next_action
+        rec['procedure_last_gate'] = (
+            {'ok': st.last_gate.ok, 'reason': st.last_gate.reason,
+             'fix_hint': st.last_gate.fix_hint}
+            if st.last_gate is not None else None
+        )
 
     transcript = rec.get('transcript') or []
     user_index = max(len(transcript) - 1, 0)
