@@ -42,6 +42,13 @@ per orphan-plan, each `{'slug': str, 'status': str, 'detail': str}`:
   brief body (an explicit `verification_command: "..."`, else the first
   `python -m pytest ...` line). If found AND green -> `'DONE'` (built, plan not
   kept); otherwise -> `'NEEDS-PLAN'`.
+  ⚠️ PARSING GOTCHA: the quoted value MAY ITSELF CONTAIN double quotes — e.g.
+  `verification_command: "python -c "import sys; sys.exit(0)""`. Capture GREEDILY
+  from the first quote after the colon to the LAST quote on that line
+  (`r'verification_command\s*:\s*"(.+)"\s*$'` with `re.MULTILINE`), NOT a
+  `[^"]+` character class — that truncates at the first inner quote and yields a
+  broken `python -c ` command. The captured value is run verbatim via
+  `shell=True`, so the inner quotes must be preserved.
 - a `plan_hooks_<slug>.json` with NO matching `brief_hooks_<slug>.md`
   -> status `'ORPHAN-PLAN'`.
 
