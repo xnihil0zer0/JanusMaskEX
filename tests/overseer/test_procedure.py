@@ -81,3 +81,46 @@ def test_advance_completes_after_the_last_phase():
 def test_advance_on_failed_last_phase_still_blocks_not_completes():
     proc = PROCEDURE_REGISTRY['brief-author']
     assert isinstance(advance(proc, 'PLAN', _failed()), Blocked)
+
+
+# --- follow-up: pipeline-overseer (daemon-supervisor) procedure ---------------
+# The daemon-supervisor mode (already in the mode registry) gains a procedure so
+# overseeing the pipeline is itself a hard-blocked, guided sequence; it inherits
+# the sequence-lock + per-turn guidance for free via the enforcement layer.
+
+def test_registry_includes_daemon_supervisor_pipeline_overseer():
+    assert 'daemon-supervisor' in PROCEDURE_REGISTRY
+
+
+def test_daemon_supervisor_phase_order():
+    proc = PROCEDURE_REGISTRY['daemon-supervisor']
+    assert [p.name for p in proc.phases] == ['OBSERVE', 'HEALTH', 'RECONCILE', 'REPORT']
+
+
+def test_daemon_supervisor_advances_and_completes():
+    proc = PROCEDURE_REGISTRY['daemon-supervisor']
+    assert advance(proc, 'OBSERVE', _passed()) == 'HEALTH'
+    assert advance(proc, 'REPORT', _passed()) is Complete
+    assert isinstance(advance(proc, 'HEALTH', _failed()), Blocked)
+
+
+# --- follow-up: red-oracle-author procedure (RED-first) ----------------------
+# oracle-author is refined to an explicitly RED-first sequence whose RED phase
+# binds the oracle_is_red gate — you cannot leave RED until the oracle fails.
+
+def test_oracle_author_is_red_first():
+    proc = PROCEDURE_REGISTRY['oracle-author']
+    assert [p.name for p in proc.phases] == ['SCOPE', 'DRAFT', 'RED', 'COMMIT']
+
+
+def test_oracle_author_red_phase_binds_the_oracle_is_red_gate():
+    proc = PROCEDURE_REGISTRY['oracle-author']
+    red = [p for p in proc.phases if p.name == 'RED'][0]
+    assert 'red' in red.gate.lower()  # the RED phase's gate is oracle_is_red
+
+
+def test_oracle_author_advances_through_red_to_commit():
+    proc = PROCEDURE_REGISTRY['oracle-author']
+    assert advance(proc, 'DRAFT', _passed()) == 'RED'
+    assert advance(proc, 'RED', _passed()) == 'COMMIT'
+    assert advance(proc, 'COMMIT', _passed()) is Complete
