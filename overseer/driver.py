@@ -151,6 +151,12 @@ def run_turn(conversation: Dict[str, Any], user_text: str, *, runner: Callable[.
     env = env_builder(conversation, **kw)
     lines = runner(cmd, env=env, stdin=user_text, **kw)
     turn = AssistantTurn()
+
+    # Three independent text sources, folded with precedence after the loop.
+    deltas = ''
+    result_text = ''
+    assistant_text = ''
+
     for line in lines:
         try:
             event = json.loads(line)
@@ -158,24 +164,75 @@ def run_turn(conversation: Dict[str, Any], user_text: str, *, runner: Callable[.
             continue
         if not isinstance(event, dict):
             continue
+
+        # (1) Every decoded raw line reaches the parser FIRST, before any
+        #     unwrapping, and the init/session-id capture branch is preserved.
         stream_parser.handle_event(event)
         if _is_init_event(event):
             sid = event.get('session_id')
             if sid is not None:
                 turn.session_id = sid
             continue
+
         etype = event.get('type')
+
+        # (2) Unwrap a ``stream_event`` envelope FIRST and re-read the inner
+        #     type so the partial-message logic runs on the inner event. A
+        #     malformed/empty envelope unwraps to {} and is skipped.
+        if etype == 'stream_event':
+            event = event.get('event') or {}
+            etype = event.get('type')
+
+        # (3) Inner content_block_delta text_delta -> accumulate + relay.
         if etype == 'content_block_delta':
             delta = event.get('delta') or {}
             if delta.get('type') == 'text_delta':
                 chunk = delta.get('text', '')
-                turn.text += chunk
+                deltas += chunk
                 if sink is not None:
                     sink(chunk)
             continue
+
+        # (4) Inner content_block_start tool_use -> the SOLE tool source.
         if etype == 'content_block_start':
             block = event.get('content_block') or {}
             if block.get('type') == 'tool_use':
                 turn.tool_uses.append(block)
             continue
+
+        # (5) Complete assistant message: claude shape nests a list of blocks
+        #     under ``message.content``; the agy shape is a bare top-level
+        #     string under ``content``.
+        if etype == 'assistant':
+            message = event.get('message')
+            if isinstance(message, dict):
+                parts: List[str] = []
+                for block in message.get('content') or []:
+                    if isinstance(block, dict) and block.get('type') == 'text':
+                        parts.append(block.get('text', ''))
+                assistant_text = ''.join(parts)
+            else:
+                assistant_text = event.get('content') or ''
+            continue
+
+        # (6) Terminal result: authoritative answer + defensive session id,
+        #     ignored when the turn errored.
+        if etype == 'result':
+            if not event.get('is_error'):
+                result_text = event.get('result') or ''
+                sid = event.get('session_id')
+                if sid is not None:
+                    turn.session_id = sid
+            continue
+
+    # Single source of truth: assistant > result > deltas. A later source that
+    # is empty never blanks an earlier non-empty one.
+    text = ''
+    if deltas:
+        text = deltas
+    if result_text:
+        text = result_text
+    if assistant_text:
+        text = assistant_text
+    turn.text = text
     return turn
