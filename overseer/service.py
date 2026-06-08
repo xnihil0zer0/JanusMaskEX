@@ -15,6 +15,7 @@ Stdlib + sibling overseer modules + the harness config loader.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -40,7 +41,11 @@ class OverseerService:
         self.logs_dir = self.repo_root / 'logs'
         self.config = config if config is not None else _load_config()
         ov = (self.config or {}).get('overseer') or {}
-        self.enabled = bool(ov.get('enabled', False))
+        # Enabled by the committed default-OFF config flag OR a launch-time env
+        # override, so an operator can enable a test session without committing
+        # an enabled:true config (HEAD ships default-OFF; the oracle stays true).
+        env_on = os.environ.get('JANUSMASK_OVERSEER_ENABLED', '').strip().lower() in ('1', 'true', 'yes', 'on')
+        self.enabled = bool(ov.get('enabled', False)) or env_on
         store_rel = ov.get('store_path') or 'state/overseer/sessions.json'
         self.store_path = (self.repo_root / store_rel).resolve()
         self._store = SessionStore(self.store_path)

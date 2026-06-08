@@ -27,6 +27,13 @@ def test_chat_send_blocked_when_disabled(tmp_path):
     assert status == 403 and body['error'] == 'overseer disabled'
 
 
+def test_env_override_enables_when_config_off(tmp_path, monkeypatch):
+    # Config ships default-OFF; the launch-time env override turns it on.
+    monkeypatch.setenv('JANUSMASK_OVERSEER_ENABLED', '1')
+    status, body = _svc(tmp_path, enabled=False).chat_send({'text': 'hi'})
+    assert status == 200 and body['text'] == 'echo:hi'
+
+
 def test_chat_send_runs_turn_when_enabled(tmp_path):
     calls = []
     status, body = _svc(tmp_path, enabled=True, calls=calls).chat_send({'text': 'hello'})
