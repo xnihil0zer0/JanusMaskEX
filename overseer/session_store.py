@@ -19,7 +19,11 @@ import). Stdlib-only and side-effect free beyond reading/writing ``store_path``.
 from __future__ import annotations
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Union
 Record = Dict[str, Any]
 PathLike = Union[str, Path]
 
@@ -93,3 +97,24 @@ class SessionStore:
         """Update the claude_session_id for the conversation."""
         self._data[cid]['claude_session_id'] = session_id
         self._save()
+
+    def list_conversations(self) -> List[Dict[str, Any]]:
+        """Return one JSON-able summary per stored conversation, read-only.
+
+        Iterates ``self._data`` in native insertion order and yields a summary
+        dict with EXACTLY the keys ``conversation_id``, ``current_mode``,
+        ``turn_count``, and ``preview`` for each conversation. ``preview`` is the
+        ``content`` of the first transcript turn whose ``role`` is ``'user'`` (or
+        ``''`` when there are no turns / no user turn). The store is never
+        mutated and no ``_save`` is performed.
+        """
+        summaries: List[Dict[str, Any]] = []
+        for cid, record in self._data.items():
+            transcript = record.get('transcript', [])
+            preview = ''
+            for turn in transcript:
+                if turn.get('role') == 'user':
+                    preview = turn.get('content', '')
+                    break
+            summaries.append({'conversation_id': cid, 'current_mode': record['current_mode'], 'turn_count': len(transcript), 'preview': preview})
+        return summaries
