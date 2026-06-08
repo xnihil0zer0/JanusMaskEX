@@ -1,0 +1,68 @@
+{
+  "tasks": [
+    {
+      "task_id": "complete-reaper-wiring",
+      "title": "Fire archive-on-integrate reaper for the no_diff DONE class",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/orchestrator_worker.py"
+      ],
+      "acceptance_criteria": [
+        "_reap_spent_briefs_safe is the ONLY symbol modified (single-symbol partial edit); _print_json_line, the emit sites, the reaper module, and the config flag default are untouched.",
+        "The outcome guard fires for BOTH 'accepted' and 'no_diff' (outcome not in ('accepted','no_diff') returns early); all other outcomes (rejected/timeout/missing) are no-ops.",
+        "The function stays behind the default-off autowork.archive_spent_briefs flag and stays fully wrapped so it can never raise into _print_json_line.",
+        "No reaper change is required: the v2 reaper counts no_diff tasks as integrated.",
+        "GREEN under python -m pytest tests/harness/test_worker_reap_wiring.py -q; no other file is touched and the pre-committed oracle is not edited."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/harness/test_worker_reap_wiring.py -q",
+      "spec": {
+        "objective": "Complete the archive-on-integrate wiring so the (already-correct v2) reaper also fires for the no_diff DONE class, by widening the outcome guard in _reap_spent_briefs_safe. Feature stays default-OFF.",
+        "functional_requirements": [
+          "Partial-edit ONLY the existing function _reap_spent_briefs_safe in harness/orchestrator_worker.py. Submit a single-symbol edit, not a whole-file rewrite.",
+          "Widen the outcome guard from `payload.get('outcome') != 'accepted'` to `payload.get('outcome') not in ('accepted','no_diff')` so both accepted and no_diff terminals reach the reaper.",
+          "Preserve the rest of the function verbatim: default-off flag gate (autowork.archive_spent_briefs), full try/except wrapping, task_id/repo_root/stamp resolution, and the reap_for_task(repo_root, task_id, stamp=stamp) call.",
+          "Do not modify _print_json_line, the emit sites, tools/brief_reaper.py, or the config flag default."
+        ],
+        "interfaces": "harness/orchestrator_worker.py: _reap_spent_briefs_safe(payload) -> None. Fires the brief reaper for accepted and no_diff terminals, behind the default-off archive_spent_briefs flag, fully fail-safe.",
+        "edge_cases": [
+          "outcome=='no_diff' with flag ON -> reaper fires.",
+          "outcome=='accepted' with flag ON -> reaper still fires (regression).",
+          "outcome in {rejected,timeout} or missing -> reaper never fires.",
+          "Flag OFF -> reaper never fires for any outcome.",
+          "Reaper raising internally must never propagate into _print_json_line.",
+          "Missing/empty task_id -> no-op."
+        ],
+        "non_goals": [
+          "Integration is out of scope: do NOT touch _print_json_line, the emit sites, the reaper module, or the config flag default; do NOT arm the feature.",
+          "Do NOT broaden repo_root resolution for external (JANUSMASK_WORKING_DIR) builds in this leaf.",
+          "Do NOT author or edit any test; tests/harness/test_worker_reap_wiring.py is a pre-committed precondition. Touch no file other than harness/orchestrator_worker.py."
+        ],
+        "implementation_notes": "PARTIAL EDIT of the EXISTING function _reap_spent_briefs_safe in harness/orchestrator_worker.py ONLY (single top-level symbol). Do NOT submit a whole-file rewrite; do NOT touch _print_json_line, the emit sites, the reaper module, or the config flag default.\n\nTHE ONLY behavioral change: the outcome guard must fire for BOTH 'accepted' AND 'no_diff'. Replace the line `if payload.get('outcome') != 'accepted': return` with `if payload.get('outcome') not in ('accepted', 'no_diff'): return`. Everything else in the function stays byte-for-byte: still gated on the default-off cfg flag autowork.archive_spent_briefs, still fully wrapped in try/except so it can never raise into _print_json_line, still resolves task_id / repo_root (pathlib.Path(__file__).resolve().parents[1]) / today's stamp, still calls reap_for_task(repo_root, task_id, stamp=stamp). The v2 reaper already treats a no_diff task as integrated (its ledger scan accepts rows with event=='no_diff', and the reaped task_id counts implicitly), so NO reaper change is needed.\n\n# CURRENT FUNCTION (the body to preserve except for the one guard line):\n```python\ndef _reap_spent_briefs_safe(payload: dict) -> None:\n    try:\n        if payload.get('outcome') != 'accepted':   # <-- change this guard\n            return\n        from harness.orchestrator import load_config\n        cfg = load_config()\n        flag = cfg.get('autowork', {}).get('archive_spent_briefs')\n        if not flag:\n            return\n        task_id = payload.get('task_id')\n        if not isinstance(task_id, str) or not task_id:\n            return\n        import datetime\n        import pathlib\n        repo_root = pathlib.Path(__file__).resolve().parents[1]\n        stamp = datetime.date.today().isoformat()\n        from tools.brief_reaper import reap_for_task\n        reap_for_task(repo_root, task_id, stamp=stamp)\n    except Exception:\n        return\n```\n\nThe oracle tests/harness/test_worker_reap_wiring.py is a PRE-COMMITTED precondition (hand-authored by the operator); read it as the source of truth and make it green. Touch no test."
+      },
+      "test_spec": {
+        "unit_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_no_diff_outcome_fires_reaper",
+            "description": "A no_diff terminal with the flag ON must invoke the reaper with the task_id."
+          },
+          {
+            "name": "test_accepted_outcome_still_fires_reaper",
+            "description": "An accepted terminal must still invoke the reaper (no regression)."
+          },
+          {
+            "name": "test_non_terminal_outcome_does_not_fire",
+            "description": "rejected/timeout terminals must not invoke the reaper."
+          }
+        ],
+        "property_tests": []
+      },
+      "token_budget_ratio": 1.0,
+      "attribution_metadata": {}
+    }
+  ]
+}
