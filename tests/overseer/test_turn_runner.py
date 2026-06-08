@@ -150,6 +150,80 @@ def test_build_overseer_env_scrubs_host_secrets(monkeypatch, tmp_path):
     assert env["JANUSMASK_PROJECT_DIR"] == str(tmp_path)
 
 
+# --- per-turn procedure wiring (runtime-wiring leaf) --------------------------
+# For a procedure-bearing mode, run_chat_turn loads the conversation's procedure
+# phase, runs the current phase's gate via an INJECTED gate_runner, advances +
+# persists the phase, and threads the phase/next-action into the system prompt so
+# the agent is guided every turn. A mode with NO procedure (e.g. observe) is
+# unaffected (every test above still holds).
+
+from overseer.procedure_state import ProcedureState, load_state, save_state
+from overseer.gates import GateResult
+
+
+def _ba_store(tmp_path):
+    store = SessionStore(tmp_path / "sessions.json")
+    store.create("conv-1", current_mode="brief-author", model="opus", agent_backend="claude")
+    store.append_turn("conv-1", {"role": "user", "content": "hi there"})
+    return store
+
+
+def test_run_chat_turn_advances_phase_when_gate_passes(tmp_path):
+    state_dir = tmp_path / "state"
+    save_state("conv-1", ProcedureState(phase="SCOPE", last_gate=None), state_dir=state_dir)
+    store = _ba_store(tmp_path)
+    captured = {}
+    turn_runner.run_chat_turn(
+        store, "conv-1", "hi there",
+        config={}, repo_root=tmp_path, state_dir=state_dir, logs_dir=tmp_path / "logs",
+        seams=_seams(captured, _canned_stream()),
+        gate_runner=lambda mode, phase, rec, state_dir: GateResult(ok=True, reason="", fix_hint=""),
+    )
+    assert load_state("conv-1", state_dir=state_dir).phase == "ORACLE"  # advanced + persisted
+
+
+def test_run_chat_turn_holds_phase_when_gate_fails(tmp_path):
+    state_dir = tmp_path / "state"
+    save_state("conv-1", ProcedureState(phase="SCOPE", last_gate=None), state_dir=state_dir)
+    store = _ba_store(tmp_path)
+    captured = {}
+    turn_runner.run_chat_turn(
+        store, "conv-1", "hi there",
+        config={}, repo_root=tmp_path, state_dir=state_dir, logs_dir=tmp_path / "logs",
+        seams=_seams(captured, _canned_stream()),
+        gate_runner=lambda mode, phase, rec, state_dir: GateResult(ok=False, reason="scope unclear", fix_hint="pin the file"),
+    )
+    st = load_state("conv-1", state_dir=state_dir)
+    assert st.phase == "SCOPE"                 # held, not advanced
+    assert st.last_gate is not None and st.last_gate.ok is False
+
+
+def test_run_chat_turn_threads_phase_guidance_into_system_prompt(tmp_path):
+    state_dir = tmp_path / "state"
+    save_state("conv-1", ProcedureState(phase="SCOPE", last_gate=None), state_dir=state_dir)
+    store = _ba_store(tmp_path)
+    captured = {}
+    turn_runner.run_chat_turn(
+        store, "conv-1", "hi there",
+        config={}, repo_root=tmp_path, state_dir=state_dir, logs_dir=tmp_path / "logs",
+        seams=_seams(captured, _canned_stream()),
+    )
+    argv_joined = " ".join(captured["argv"])
+    assert "SCOPE" in argv_joined  # the active phase surfaces in --append-system-prompt
+
+
+def test_run_chat_turn_no_procedure_mode_persists_no_phase(tmp_path):
+    state_dir = tmp_path / "state"
+    store = _store(tmp_path)  # current_mode == observe (no procedure)
+    captured = {}
+    res = turn_runner.run_chat_turn(
+        store, "conv-1", "hi there",
+        config={}, repo_root=tmp_path, state_dir=state_dir, logs_dir=tmp_path / "logs",
+        seams=_seams(captured, _canned_stream()),
+    )
+    assert res["ok"] is True  # behaves exactly as before; no procedure step runs
+
+
 def test_make_seams_jail_off_returns_argv_with_resolved_binary(tmp_path):
     # sandbox disabled -> jail_builder returns the inner argv (binary substituted)
     binp = tmp_path / ".agents" / "claude-code" / "node_modules" / ".bin" / "claude"
