@@ -773,7 +773,7 @@ def _install_signal_handlers(server: WebUIServer, tailer: StateTailer) -> None:
         pass
 
 def build_tailer(state_dir: Path, logs_dir: Path, buffer_size: int) -> StateTailer:
-    fixed_paths: list[Path] = [state_dir / 'impl_progress.jsonl', state_dir / 'track_record_events.jsonl', logs_dir / 'claude_stream.jsonl', logs_dir / 'gemini_stream.jsonl', logs_dir / 'antigravity_stream.jsonl']
+    fixed_paths: list[Path] = [state_dir / 'impl_progress.jsonl', state_dir / 'track_record_events.jsonl', logs_dir / 'claude_stream.jsonl', logs_dir / 'gemini_stream.jsonl', logs_dir / 'antigravity_stream.jsonl', logs_dir / 'overseer_chat.jsonl']
     tailer = StateTailer(fixed_paths, buffer_size=buffer_size)
     tailer.add_wildcard(str(state_dir / 'sessions' / '*.ledger.jsonl'))
     return tailer
