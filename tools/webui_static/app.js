@@ -986,15 +986,116 @@ pages.activity = async () => {
 // tick (mirrors the briefEditorIsOpen() clobber-guard precedent). #chat-resend
 // re-sends the current transcript.
 // ---------------------------------------------------------------------------
+// Self-managed append-only chat state. Rendered from the synchronous POST
+// response (the overseer runs the turn server-side and returns the assistant
+// text); the buffer lets the transcript survive navigating away and back.
+const overseerChat = { cid: null, mode: "observe", buffer: [] };
+const OVERSEER_MODES = ["observe", "analyze", "audit", "dispatch", "brief-author"];
+
+function _chatTurnNode(turn) {
+  const div = document.createElement("div");
+  const role = turn.role || "?";
+  div.className = "chat-turn chat-turn-" + role;
+  if (turn.mode) div.setAttribute("data-mode", turn.mode);
+  div.innerHTML =
+    `<span class="chat-role">${escape(role)}${turn.mode ? " · " + escape(turn.mode) : ""}</span>` +
+    `<div class="chat-content"></div>`;
+  div.querySelector(".chat-content").textContent = turn.content != null ? String(turn.content) : "";
+  return div;
+}
+
+function pushChatTurn(turn) {
+  overseerChat.buffer.push(turn);
+  if (overseerChat.buffer.length > 500) overseerChat.buffer = overseerChat.buffer.slice(-500);
+  const cont = document.getElementById("chat-transcript");
+  if (cont) { cont.appendChild(_chatTurnNode(turn)); cont.scrollTop = cont.scrollHeight; }
+}
+
+function _chatPending(on) {
+  const cont = document.getElementById("chat-transcript");
+  if (!cont) return;
+  const existing = cont.querySelector(".chat-pending");
+  if (on && !existing) {
+    const ph = document.createElement("div");
+    ph.className = "chat-turn chat-turn-assistant chat-pending";
+    ph.innerHTML = `<span class="chat-role">assistant · …</span><div class="chat-content">thinking…</div>`;
+    cont.appendChild(ph);
+    cont.scrollTop = cont.scrollHeight;
+  } else if (!on && existing) {
+    existing.remove();
+  }
+}
+
+function _applyChatResult(status, res) {
+  _chatPending(false);
+  if (status === 200 && res) {
+    if (res.conversation_id) overseerChat.cid = res.conversation_id;
+    pushChatTurn({ role: "assistant", content: res.text || "(no output)", mode: overseerChat.mode });
+  } else if (status === 403) {
+    pushChatTurn({ role: "system", content: "overseer disabled — set overseer.enabled: true in harness/config.yaml and restart the server", mode: "" });
+  } else {
+    pushChatTurn({ role: "system", content: `error ${status}: ${(res && (res.error || res.detail)) || "request failed"}`, mode: "" });
+  }
+}
+
+async function sendChat() {
+  const input = document.getElementById("chat-input");
+  const text = input ? input.value.trim() : "";
+  if (!text) return;
+  input.value = "";
+  pushChatTurn({ role: "user", content: text, mode: overseerChat.mode });
+  _chatPending(true);
+  const body = { text };
+  if (overseerChat.cid) body.conversation_id = overseerChat.cid;
+  const { status, body: res } = await api("/api/chat/send", { method: "POST", body });
+  _applyChatResult(status, res);
+}
+
+async function resendChat() {
+  if (!overseerChat.cid) { toast("nothing to resend yet", "warn"); return; }
+  _chatPending(true);
+  const { status, body: res } = await api("/api/chat/resend", { method: "POST", body: { conversation_id: overseerChat.cid } });
+  _applyChatResult(status, res);
+}
+
+async function setChatMode(mode) {
+  overseerChat.mode = mode;
+  if (!overseerChat.cid) return;  // applied on next send (boots the conversation)
+  const { status, body: res } = await api("/api/chat/mode", { method: "PUT", body: { conversation_id: overseerChat.cid, mode } });
+  if (status === 200 && res && res.ok) toast(`mode → ${res.current_mode}`, "ok");
+  else if (status === 409) toast(`mode ${mode} is locked (Tier-S needs unlock)`, "warn");
+}
+
+function _wireChatPanel() {
+  const cont = document.getElementById("chat-transcript");
+  if (cont) { cont.innerHTML = ""; for (const t of overseerChat.buffer) cont.appendChild(_chatTurnNode(t)); cont.scrollTop = cont.scrollHeight; }
+  document.getElementById("chat-send")?.addEventListener("click", sendChat);
+  document.getElementById("chat-resend")?.addEventListener("click", resendChat);
+  const input = document.getElementById("chat-input");
+  input?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendChat(); }
+  });
+  const sel = document.getElementById("chat-mode");
+  if (sel) { sel.value = overseerChat.mode; sel.addEventListener("change", () => setChatMode(sel.value)); }
+}
+
 pages.chat = async () => {
+  setTimeout(_wireChatPanel, 0);
+  const opts = OVERSEER_MODES.map((m) => `<option value="${m}"${m === overseerChat.mode ? " selected" : ""}>${m}</option>`).join("");
   return `
-    <h2>Chat</h2>
+    <h2>Chat <span class="muted" style="font-size:0.7em">overseer · default-OFF behind overseer.enabled</span></h2>
     <div class="card">
       <div id="chat-transcript" class="chat-transcript" aria-live="polite"></div>
     </div>
-    <div class="card row">
-      <textarea id="chat-input" class="chat-input" placeholder="message…"></textarea>
-      <button id="chat-resend" class="btn">↻ Resend transcript</button>
+    <div class="card">
+      <div class="row">
+        <label>mode <select id="chat-mode" class="chat-mode">${opts}</select></label>
+        <button id="chat-resend" class="btn">↻ Resend transcript</button>
+      </div>
+      <div class="row">
+        <textarea id="chat-input" class="chat-input" placeholder="message…  (Ctrl/⌘+Enter to send)"></textarea>
+        <button id="chat-send" class="btn primary">Send</button>
+      </div>
     </div>`;
 };
 
