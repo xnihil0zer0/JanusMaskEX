@@ -119,15 +119,18 @@ def test_argv_carries_stream_flags_and_model():
 
 
 def test_argv_withholds_tools_via_mode_gate_allowlist():
-    from overseer.mode_gate import resolve_tool_allowlist
+    # The mode allowlist is enforced, but the abstract capability tokens
+    # ('read'/'search'/...) are MAPPED to real claude tool names before they
+    # reach --tools (see tests/overseer/test_driver_headless.py for the full
+    # mapping contract). observe is read-only, so its --tools carries no Write.
     runner = FakeRunner(CLAUDE_STREAM)
     _run(_conversation(current_mode="observe"), "hi", runner)
     argv = runner.argv
     assert "--tools" in argv
-    # the concrete allowlist handed to the agent is the mode's, not arbitrary
-    allow = resolve_tool_allowlist("observe")
-    joined = " ".join(argv)
-    assert all(tool in joined for tool in allow)
+    i = argv.index("--tools")
+    names = set(argv[i + 1].split(","))
+    assert "Read" in names            # 'read' capability -> Read tool
+    assert "Write" not in names       # observe grants no write capability
 
 
 def test_append_resumes_the_existing_session():
