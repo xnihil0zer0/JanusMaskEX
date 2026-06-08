@@ -495,6 +495,46 @@ def _inject_credential_naming_constraint(plan: Dict[str, Any], repo_root: Option
         else:
             spec['implementation_notes'] = block
     return result
+def _correct_meta_task_type_by_target(plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Deterministically retype a leaf whose targets are off the fuzzer domain.
+
+    The Python diff-fuzzer must not run on non-Python targets.  A task is
+    retyped ONLY when its current ``meta_task_type`` is NOT already a
+    bypass-fuzzer type and its ``files_touched`` extensions are uniform:
+
+      * all non-Python static assets
+        (.js/.jsx/.ts/.tsx/.mjs/.html/.htm/.css/.scss) -> ``harness_plumbing``
+      * all config files (.yaml/.yml/.toml/.ini/.cfg) -> ``harness_self_fix``
+
+    A Python (.py) target, a mixed target set, an unknown-extension set, and an
+    empty/missing ``files_touched`` are all left untouched, as is any task
+    already on a bypass-fuzzer type.  Extensions are compared lower-cased so
+    ``.JS``/``.YAML`` still match.  The pass mutates tasks in place (consistent
+    with the sibling hooks) and returns the plan; it never raises on a non-list
+    ``tasks`` value or non-dict task entries.
+    """
+    import os
+    from harness.planner.taxonomies import BYPASS_FUZZER_TYPES
+    _ASSET_EXTS = {'.js', '.jsx', '.ts', '.tsx', '.mjs', '.html', '.htm', '.css', '.scss'}
+    _CONFIG_EXTS = {'.yaml', '.yml', '.toml', '.ini', '.cfg'}
+    if not isinstance(plan, dict):
+        return plan
+    tasks = plan.get('tasks')
+    if not isinstance(tasks, list):
+        return plan
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        if task.get('meta_task_type') in BYPASS_FUZZER_TYPES:
+            continue
+        exts = {os.path.splitext(f)[1].lower() for f in _files_touched(task) if isinstance(f, str) and f}
+        if not exts:
+            continue
+        if exts <= _ASSET_EXTS:
+            task['meta_task_type'] = 'harness_plumbing'
+        elif exts <= _CONFIG_EXTS:
+            task['meta_task_type'] = 'harness_self_fix'
+    return plan
 def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[str, Any]:
     """Auto-correct a leaf plan: dedupe oracles + enforce module-first order.
 
@@ -517,6 +557,7 @@ def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[
     tasks = _dedupe_oracles(tasks)
     normalized['tasks'] = tasks
     _enforce_module_first(tasks)
+    normalized = _correct_meta_task_type_by_target(normalized)
     normalized = _sanitize_impl_verification_commands(normalized, repo_root)
     normalized = _force_smoke_gated_leaf_impl(normalized, repo_root)
     normalized = _inject_credential_naming_constraint(normalized, repo_root)
