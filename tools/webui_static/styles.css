@@ -10,6 +10,11 @@
   --err: #f85149;
   --panel: #161b22;
   --border: #30363d;
+  /* Per-mode tier hue ramp — single source of truth for the chat/agent mode
+     tiers (r = reason/red, w = work/warn, s = synthesis/safe). */
+  --mode-tier-r: #f85149;
+  --mode-tier-w: #d29922;
+  --mode-tier-s: #3fb950;
 }
 html, body { height: 100%; margin: 0; }
 body {

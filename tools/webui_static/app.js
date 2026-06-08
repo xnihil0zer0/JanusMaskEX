@@ -977,6 +977,27 @@ pages.activity = async () => {
     </table></div>`;
 };
 
+// ---------------------------------------------------------------------------
+// Chat panel (#/chat).
+// Self-managed, append-only operator chat. The #chat-transcript container and
+// the uncontrolled #chat-input control are NOT rebuilt on each SSE tick — the
+// chatIsOpen() guard in boot()'s subscriber skips the live re-render while this
+// route is open, so an in-progress message / transcript survives a live /events
+// tick (mirrors the briefEditorIsOpen() clobber-guard precedent). #chat-resend
+// re-sends the current transcript.
+// ---------------------------------------------------------------------------
+pages.chat = async () => {
+  return `
+    <h2>Chat</h2>
+    <div class="card">
+      <div id="chat-transcript" class="chat-transcript" aria-live="polite"></div>
+    </div>
+    <div class="card row">
+      <textarea id="chat-input" class="chat-input" placeholder="message…"></textarea>
+      <button id="chat-resend" class="btn">↻ Resend transcript</button>
+    </div>`;
+};
+
 pages.rebuild = async () => {
   if (window._rebuildPoll) { clearInterval(window._rebuildPoll); window._rebuildPoll = null; }
   setTimeout(() => {
@@ -1152,6 +1173,19 @@ function configOrRebuildIsOpen() {
   return parts[0] === "config" || parts[0] === "rebuild";
 }
 
+// T3: predicate for the chat panel route (#/chat). Mirrors renderRoute()'s hash
+// parsing exactly (leading '#' stripped, split on '/' filtering empties), in the
+// same idiom as briefEditorIsOpen(). The chat page owns user-editable state —
+// the uncontrolled #chat-input control and the self-managed append-only
+// #chat-transcript — so a live SSE re-render would clobber an in-progress
+// message / transcript; it is exempted from the live render alongside the brief
+// editor and the config/rebuild forms.
+function chatIsOpen() {
+  const hash = location.hash.replace(/^#/, "");
+  const parts = hash.split("/").filter(Boolean);
+  return parts[0] === "chat";
+}
+
 async function renderRoute() {
   const hash = location.hash.replace(/^#/, "") || "/dashboard";
   const parts = hash.split("/").filter(Boolean);
@@ -1208,6 +1242,7 @@ async function boot() {
     // untouched, so the topbar pills keep updating and other routes stay live.
     if (briefEditorIsOpen()) return;
     if (configOrRebuildIsOpen()) return;
+    if (chatIsOpen()) return;
     if (renderQueued) return;
     renderQueued = true;
     requestAnimationFrame(() => { renderQueued = false; renderRoute(); });
