@@ -43,14 +43,16 @@ def _emit_lifecycle_safe(state_dir: Path, **fields: Any) -> None:
         pass
 
 def _reap_spent_briefs_safe(payload: dict) -> None:
-    """Fail-safe bridge from an accepted terminal outcome to the brief reaper.
+    """Fail-safe bridge from an integrated terminal outcome to the brief reaper.
 
     Runs AFTER the JSON line has already been written + flushed. Behind a
-    default-off config flag it archives the spent brief(s) for the just-accepted
-    task. The WHOLE body is wrapped in try/except so it can never raise back into
-    _print_json_line; the JSON line is emitted regardless."""
+    default-off config flag it archives the spent brief(s) for the just-integrated
+    task -- BOTH the 'accepted' DONE class and the 'no_diff' DONE class (the v2
+    reaper already counts a no_diff task as integrated). The WHOLE body is wrapped
+    in try/except so it can never raise back into _print_json_line; the JSON line
+    is emitted regardless."""
     try:
-        if payload.get('outcome') != 'accepted':
+        if payload.get('outcome') not in ('accepted', 'no_diff'):
             return
         from harness.orchestrator import load_config
         cfg = load_config()
