@@ -1,0 +1,137 @@
+{
+ "tasks": [
+  {
+   "task_id": "overseer-driver-headless-argv",
+   "title": "Fix overseer/driver._build_argv to emit a working headless claude invocation",
+   "meta_task_type": "data_model",
+   "priority": "high",
+   "dependencies": [],
+   "files_touched": [
+    "overseer/driver.py"
+   ],
+   "acceptance_criteria": [
+    "CLAUDE backend argv (conversation['agent_backend'] != 'agy') contains '-p'.",
+    "CLAUDE backend argv contains '--output-format stream-json', '--verbose', and '--include-partial-messages'.",
+    "'--model <conversation['model']>' is present only when conversation['model'] is not None; omitted otherwise.",
+    "'--permission-mode acceptEdits' is present for the CLAUDE backend.",
+    "mode = conversation.get('current_mode') or 'observe'; '--append-system-prompt <render_mode_context(mode, conversation)>' is appended only when the call succeeds and returns a non-empty value, with exceptions swallowed.",
+    "Abstract tokens from resolve_tool_allowlist(mode) are mapped to real claude tool names (read->Read, search->Grep, list->Glob, write->Write, diff->Read, drive-ui->Read, push->Write), order-preserving, de-duplicated, comma-joined, and emitted via '--tools'; unmapped tokens dropped; '--tools' omitted when the mapped list is empty.",
+    "'--resume <claude_session_id>' is appended when a session id exists, and '--fork-session' is appended when rewind_to_index is not None.",
+    "AGY backend keeps its minimal shape: '-p' allowed, but no '--model', '--permission-mode', '--append-system-prompt', or '--tools'; user_text still flows via stdin.",
+    "The tool-name map and abstract->real helper are NESTED inside _build_argv; no new top-level module symbols are added and run_turn/AssistantTurn/stream-folding loop/agy branch are preserved.",
+    "GREEN under: python -m pytest tests/overseer/test_driver_headless.py tests/overseer/test_driver.py -q"
+   ],
+   "spec_author": null,
+   "estimated_complexity": "medium",
+   "verification_command": "python -m pytest tests/overseer/test_driver_headless.py tests/overseer/test_driver.py -q",
+   "spec": {
+    "objective": "Edit only overseer.driver._build_argv so the per-turn claude argv it builds is a working headless invocation that mirrors the harness's canonical claude spawn, restoring non-empty assistant turns in the chat panel.",
+    "functional_requirements": [
+     "FR1: For the CLAUDE backend (conversation['agent_backend'] != 'agy'), include '-p' so vendored claude reads and processes the stdin prompt (the load-bearing fix).",
+     "FR2: For the CLAUDE backend, include '--output-format stream-json', '--verbose', and '--include-partial-messages' (verbose is required alongside stream-json in print mode).",
+     "FR3: Include '--model <conversation['model']>' only when conversation['model'] is not None; omit the flag entirely when model is None/unset.",
+     "FR4: Include '--permission-mode acceptEdits' for the CLAUDE backend (mirrors orchestrator's acceptEdits add).",
+     "FR5: Compute mode = conversation.get('current_mode') or 'observe'; call overseer.mode_prompts.render_mode_context(mode, conversation) inside try/except, and append '--append-system-prompt <value>' only when it returns a non-empty value, swallowing any exception and skipping the flag.",
+     "FR6: Map abstract tokens from overseer.mode_gate.resolve_tool_allowlist(mode) to real claude tool names via a NESTED dict (read->Read, search->Grep, list->Glob, write->Write, diff->Read, drive-ui->Read, push->Write), order-preserving and de-duplicated, comma-joined (not space-joined), emitted as '--tools <csv>'; drop unmapped tokens and omit '--tools' when the mapped list is empty.",
+     "FR7: Append '--resume <claude_session_id>' when a session id exists, and additionally append '--fork-session' when rewind_to_index is not None.",
+     "FR8: For the AGY backend (agent_backend == 'agy'), keep the existing minimal shape: '-p' allowed but no '--model', '--permission-mode', '--append-system-prompt', or '--tools'/mode knobs; user_text still flows via stdin.",
+     "FR9: Define the tool-name map and the abstract->real helper as a dict/closure nested inside _build_argv; add no new top-level module symbols and preserve run_turn, AssistantTurn, the stream-folding loop, the agy branch, and resume/fork logic."
+    ],
+    "interfaces": "overseer/driver.py: _build_argv(conversation, rewind_to_index) -> list[str]; run_turn(conversation, user_text, *, runner, env_builder, jail_builder, stream_parser, **kw) -> AssistantTurn. Imports overseer.mode_gate.resolve_tool_allowlist and overseer.mode_prompts.render_mode_context.",
+    "edge_cases": [
+     "model is None (agy or unset): omit '--model'.",
+     "current_mode missing/None: default to 'observe' before mapping tools and rendering context.",
+     "render_mode_context raising (unknown mode): swallow the exception and skip '--append-system-prompt'.",
+     "render_mode_context returns empty string: skip '--append-system-prompt'.",
+     "a mode whose mapped tool list is empty: omit '--tools' rather than emitting an empty value.",
+     "abstract token with no mapping entry: drop it silently; duplicate mapped names (e.g. diff and read both -> Read) collapse to one occurrence preserving first position.",
+     "rewind_to_index == 0 must still emit --fork-session (compare with 'is not None', never truthiness)."
+    ],
+    "non_goals": [
+     "Do not wire, call, or alter turn_runner.py, web_api.py, service.py, or any seam builder (INTEGRATION out of scope).",
+     "Do not spawn a real agent / subprocess / model API / SSE / network; the injected runner remains the only process path.",
+     "Use stdlib plus sibling overseer modules only; add no new dependencies.",
+     "Edit no test; touch no file other than overseer/driver.py.",
+     "Do not add new top-level module symbols (the map/helper must be nested inside _build_argv)."
+    ],
+    "implementation_notes": "READ the staged overseer/driver.py first and edit _build_argv in place, preserving everything else. Both oracles (tests/overseer/test_driver_headless.py and tests/overseer/test_driver.py) are pre-committed preconditions; do not author or edit any test. Branch on conversation['agent_backend'] == 'agy' early and keep that branch minimal. For the claude branch build the flag list in the order the oracles expect, using a nested dict for the abstract->real tool-name mapping and a nested helper/comprehension that preserves order while de-duplicating. Mirror harness/config.yaml agents.claude.args plus the orchestrator's acceptEdits permission-mode add.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/overseer/test_driver_headless.py\n```python\n\"\"\"RED oracle for the overseer driver HEADLESS-argv fix (overseer/driver.py).\n\nContext: the chat panel produced an EMPTY assistant turn (\"(no output)\") for\nevery prompt. Root cause: ``overseer.driver._build_argv`` built a claude argv\nthat was NOT a working headless invocation -- it omitted ``-p`` (so claude\nemitted only the init event, captured the session id, but never processed the\nstdin prompt) and ``--verbose`` (required with ``--output-format stream-json``\nin print mode), and it handed the abstract mode-capability tokens\n('read'/'search'/'write') straight to ``--tools`` space-joined, none of which is\na real claude tool name, so even a working spawn had no usable tools.\n\nThis oracle pins the FIX: a claude-backend argv must mirror the harness's\ncanonical spawn (harness/config.yaml agents.claude.args + orchestrator's\nacceptEdits): ``-p``, ``--verbose``, real comma-joined claude tool names mapped\nfrom the mode allowlist, ``--permission-mode acceptEdits``, and the per-mode\nsystem prompt injected via ``--append-system-prompt``. The agy backend keeps its\nprompt-on-stdin, no-model, no-claude-knobs shape.\n\nThe driver still NEVER spawns a real process here -- every seam is injected.\n\"\"\"\nimport pytest\n\nfrom overseer.driver import run_turn, AssistantTurn\n\n\nCLAUDE_STREAM = [\n    '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"NEWSID\"}',\n    '{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}',\n    '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"NEWSID\"}',\n]\n\n\nclass FakeRunner:\n    def __init__(self, lines):\n        self.lines = lines\n        self.argv = None\n        self.stdin = None\n\n    def __call__(self, argv, *, env=None, stdin=None, **kw):\n        self.argv = list(argv)\n        self.stdin = stdin\n        return list(self.lines)\n\n\ndef _identity_jail(cmd, **kwargs):\n    return list(cmd)\n\n\ndef _fake_env(*a, **k):\n    return {\"FAKE_ENV\": \"1\"}\n\n\nclass FakeParser:\n    def handle_event(self, event):\n        pass\n\n\ndef _conversation(**over):\n    base = {\n        \"claude_session_id\": None,\n        \"current_mode\": \"brief-author\",\n        \"model\": \"opus\",\n        \"agent_backend\": \"claude\",\n        \"transcript\": [],\n    }\n    base.update(over)\n    return base\n\n\ndef _run(conversation, text, runner, **kw):\n    return run_turn(\n        conversation, text,\n        runner=runner, env_builder=_fake_env, jail_builder=_identity_jail,\n        stream_parser=FakeParser(), **kw,\n    )\n\n\n# --- the FIX contract -----------------------------------------------------\n\ndef test_argv_is_headless_print_mode():\n    \"\"\"-p is the load-bearing fix: without it claude never processes stdin.\"\"\"\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(), \"author a brief\", runner)\n    assert \"-p\" in runner.argv\n\n\ndef test_argv_carries_verbose_for_stream_json():\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(), \"x\", runner)\n    argv = runner.argv\n    assert \"--verbose\" in argv\n    assert \"--output-format\" in argv and \"stream-json\" in argv\n\n\ndef test_argv_maps_abstract_tools_to_real_claude_names():\n    \"\"\"brief-author's ('read','search','write') -> real claude tool names,\n    comma-joined into a single --tools value (NOT space-joined abstract tokens).\"\"\"\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(current_mode=\"brief-author\"), \"x\", runner)\n    argv = runner.argv\n    i = argv.index(\"--tools\")\n    value = argv[i + 1]\n    names = set(value.split(\",\"))\n    # mapped real names present...\n    assert {\"Read\", \"Grep\", \"Write\"} <= names\n    # ...and NO abstract leakage\n    assert \"read\" not in names and \"search\" not in names and \"write\" not in names\n\n\ndef test_argv_sets_accept_edits_permission_mode():\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(), \"x\", runner)\n    argv = runner.argv\n    i = argv.index(\"--permission-mode\")\n    assert argv[i + 1] == \"acceptEdits\"\n\n\ndef test_argv_injects_mode_system_prompt():\n    \"\"\"The per-mode procedure context must reach the agent via\n    --append-system-prompt so the agent knows which mode constrains it.\"\"\"\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(current_mode=\"brief-author\"), \"x\", runner)\n    argv = runner.argv\n    assert \"--append-system-prompt\" in argv\n    i = argv.index(\"--append-system-prompt\")\n    prompt = argv[i + 1]\n    assert \"brief-author\" in prompt\n\n\ndef test_observe_mode_maps_read_only_tools():\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(current_mode=\"observe\"), \"x\", runner)\n    argv = runner.argv\n    i = argv.index(\"--tools\")\n    names = set(argv[i + 1].split(\",\"))\n    assert \"Read\" in names           # 'read' -> Read\n    assert \"Write\" not in names      # observe is read-only; no write capability\n\n\ndef test_agy_backend_keeps_stdin_and_omits_claude_knobs():\n    agy_stream = ['{\"type\":\"init\",\"session_id\":\"AGY1\"}',\n                  '{\"type\":\"assistant\",\"content\":\"hi\"}']\n    runner = FakeRunner(agy_stream)\n    out = _run(_conversation(agent_backend=\"agy\", model=None), \"drive me\", runner)\n    assert \"--model\" not in runner.argv\n    assert \"--permission-mode\" not in runner.argv\n    assert \"--append-system-prompt\" not in runner.argv\n    assert runner.stdin is not None and \"drive me\" in runner.stdin\n    assert isinstance(out, AssistantTurn)\n\n\ndef test_resume_and_fork_preserved():\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(claude_session_id=\"SID0\"), \"x\", runner)\n    argv = runner.argv\n    assert argv[argv.index(\"--resume\") + 1] == \"SID0\"\n    assert \"--fork-session\" not in argv\n\n    runner2 = FakeRunner(CLAUDE_STREAM)\n    conv = _conversation(transcript=[\n        {\"index\": 0, \"role\": \"user\", \"content\": \"a\"},\n        {\"index\": 1, \"role\": \"assistant\", \"content\": \"b\"},\n    ])\n    _run(conv, \"redo\", runner2, rewind_to_index=0)\n    assert \"--fork-session\" in runner2.argv\n\n```\n\n## tests/overseer/test_driver.py\n```python\n\"\"\"RED oracle for overseer/driver.py \u2014 the per-turn interactive loop.\n\nThe driver is a DETERMINISTIC shell around injected seams (runner/env_builder/\njail_builder/stream_parser/sink). It NEVER spawns a real process in tests. It\nbuilds the claude argv (--resume to append, --fork-session to branch a rewind,\n--model, --output-format stream-json, --include-partial-messages, --tools <mode\nallowlist>), wraps it via jail_builder, spawns via the injected runner, extracts\nthe new session_id + accumulated text + tool-use events from the stream, and\nrelays deltas to an injected sink. Tool allowlist comes from mode_gate\n(tool-withholding). Rewind reconstructs the prefix VERBATIM and forks (constraint 8).\n\"\"\"\nimport pytest\n\nfrom overseer.driver import run_turn, AssistantTurn\n\n\n# --- injected fakes -------------------------------------------------------\n\nCLAUDE_STREAM = [\n    '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"NEWSID\"}',\n    '{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello \"}}',\n    '{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"world\"}}',\n    '{\"type\":\"content_block_start\",\"content_block\":'\n    '{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Read\",\"input\":{\"file\":\"x\"}}}',\n    '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"NEWSID\"}',\n]\n\n\nclass FakeRunner:\n    \"\"\"Records the spawn and replays canned stream-json NDJSON lines.\"\"\"\n\n    def __init__(self, lines):\n        self.lines = lines\n        self.argv = None\n        self.env = None\n        self.stdin = None\n        self.spawned = 0\n\n    def __call__(self, argv, *, env=None, stdin=None, **kw):\n        self.spawned += 1\n        self.argv = list(argv)\n        self.env = env\n        self.stdin = stdin\n        return list(self.lines)\n\n\ndef _identity_jail(cmd, **kwargs):\n    # record-and-passthrough so the test can inspect the inner claude argv\n    _identity_jail.calls.append((list(cmd), kwargs))\n    return list(cmd)\n\n\n_identity_jail.calls = []\n\n\ndef _fake_env(*a, **k):\n    return {\"FAKE_ENV\": \"1\"}\n\n\nclass FakeParser:\n    def __init__(self):\n        self.events = []\n\n    def handle_event(self, event):\n        self.events.append(event)\n\n\ndef _conversation(**over):\n    base = {\n        \"claude_session_id\": \"SID0\",\n        \"current_mode\": \"observe\",\n        \"model\": \"opus\",\n        \"agent_backend\": \"claude\",\n        \"transcript\": [],\n    }\n    base.update(over)\n    return base\n\n\ndef _run(conversation, text, runner, **kw):\n    _identity_jail.calls = []\n    return run_turn(\n        conversation,\n        text,\n        runner=runner,\n        env_builder=_fake_env,\n        jail_builder=_identity_jail,\n        stream_parser=FakeParser(),\n        **kw,\n    )\n\n\n# --- tests ----------------------------------------------------------------\n\ndef test_returns_assistant_turn_with_session_text_and_tools():\n    runner = FakeRunner(CLAUDE_STREAM)\n    out = _run(_conversation(), \"hi\", runner)\n    assert isinstance(out, AssistantTurn)\n    assert out.session_id == \"NEWSID\"          # captured from the init event\n    assert out.text == \"Hello world\"           # text deltas accumulated verbatim\n    assert any(tu.get(\"name\") == \"Read\" for tu in out.tool_uses)\n\n\ndef test_only_spawns_through_the_injected_runner():\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(), \"hi\", runner)\n    assert runner.spawned == 1  # the ONLY process path is the injected seam\n\n\ndef test_argv_carries_stream_flags_and_model():\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(model=\"sonnet\"), \"hi\", runner)\n    argv = runner.argv\n    assert \"--output-format\" in argv\n    assert \"stream-json\" in argv\n    assert \"--include-partial-messages\" in argv\n    i = argv.index(\"--model\")\n    assert argv[i + 1] == \"sonnet\"\n\n\ndef test_argv_withholds_tools_via_mode_gate_allowlist():\n    # The mode allowlist is enforced, but the abstract capability tokens\n    # ('read'/'search'/...) are MAPPED to real claude tool names before they\n    # reach --tools (see tests/overseer/test_driver_headless.py for the full\n    # mapping contract). observe is read-only, so its --tools carries no Write.\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(current_mode=\"observe\"), \"hi\", runner)\n    argv = runner.argv\n    assert \"--tools\" in argv\n    i = argv.index(\"--tools\")\n    names = set(argv[i + 1].split(\",\"))\n    assert \"Read\" in names            # 'read' capability -> Read tool\n    assert \"Write\" not in names       # observe grants no write capability\n\n\ndef test_append_resumes_the_existing_session():\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(claude_session_id=\"SID0\"), \"hi\", runner)  # rewind_to_index=None\n    argv = runner.argv\n    i = argv.index(\"--resume\")\n    assert argv[i + 1] == \"SID0\"\n    assert \"--fork-session\" not in argv\n\n\ndef test_first_turn_has_no_resume():\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(claude_session_id=None), \"hi\", runner)\n    assert \"--resume\" not in runner.argv\n\n\ndef test_rewind_forks_instead_of_resuming():\n    # Constraint 8: a rewind branches into a fresh session (cache-preserving),\n    # never an in-place mid-edit.\n    runner = FakeRunner(CLAUDE_STREAM)\n    conv = _conversation(transcript=[\n        {\"index\": 0, \"role\": \"user\", \"mode\": \"observe\", \"content\": \"a\"},\n        {\"index\": 1, \"role\": \"assistant\", \"mode\": \"observe\", \"content\": \"b\"},\n        {\"index\": 2, \"role\": \"user\", \"mode\": \"observe\", \"content\": \"c\"},\n    ])\n    _run(conv, \"redo from 1\", runner, rewind_to_index=1)\n    assert \"--fork-session\" in runner.argv\n\n\ndef test_jail_and_env_seams_are_used():\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(), \"hi\", runner)\n    assert _identity_jail.calls, \"driver must wrap the command via jail_builder\"\n    assert runner.env == {\"FAKE_ENV\": \"1\"}  # env came from the injected builder\n\n\ndef test_stream_parser_seam_receives_every_event():\n    parser = FakeParser()\n    runner = FakeRunner(CLAUDE_STREAM)\n    _identity_jail.calls = []\n    run_turn(\n        _conversation(), \"hi\",\n        runner=runner, env_builder=_fake_env, jail_builder=_identity_jail,\n        stream_parser=parser,\n    )\n    assert len(parser.events) == len(CLAUDE_STREAM)\n\n\ndef test_sink_receives_streamed_deltas_for_sse_relay():\n    sink_lines = []\n    runner = FakeRunner(CLAUDE_STREAM)\n    _identity_jail.calls = []\n    run_turn(\n        _conversation(), \"hi\",\n        runner=runner, env_builder=_fake_env, jail_builder=_identity_jail,\n        stream_parser=FakeParser(), sink=sink_lines.append,\n    )\n    assert sink_lines, \"driver must write streamed deltas to the injected sink\"\n\n\ndef test_agy_backend_uses_stdin_and_no_model_flag():\n    agy_stream = ['{\"type\":\"init\",\"session_id\":\"AGY1\"}',\n                  '{\"type\":\"assistant\",\"content\":\"hi there\"}']\n    runner = FakeRunner(agy_stream)\n    out = _run(_conversation(agent_backend=\"agy\", model=None), \"drive me\", runner)\n    assert \"--model\" not in runner.argv          # agy self-selects, no model knob\n    assert runner.stdin is not None and \"drive me\" in runner.stdin\n    assert isinstance(out, AssistantTurn)\n\n``` CRITICAL EDGE CASE: append the '--fork-session' flag whenever rewind_to_index IS NOT None. Use an explicit 'is not None' comparison, NOT a truthiness test, because rewind_to_index == 0 is a VALID rewind target (forking from the very first turn). A truthiness test treats 0 as false and WRONGLY omits --fork-session. The oracle test_resume_and_fork_preserved forks with rewind_to_index=0 and asserts '--fork-session' is present in the argv."
+   },
+   "test_spec": {
+    "unit_tests": [
+     {
+      "name": "test_claude_argv_contains_dash_p_print_flag"
+     },
+     {
+      "name": "test_claude_argv_contains_stream_json_verbose_partial_messages"
+     },
+     {
+      "name": "test_model_flag_present_when_model_set"
+     },
+     {
+      "name": "test_model_flag_omitted_when_model_none"
+     },
+     {
+      "name": "test_permission_mode_accept_edits_present_for_claude"
+     },
+     {
+      "name": "test_append_system_prompt_uses_render_mode_context_when_nonempty"
+     },
+     {
+      "name": "test_append_system_prompt_skipped_when_render_raises"
+     },
+     {
+      "name": "test_append_system_prompt_skipped_when_render_empty_and_mode_defaults_observe"
+     },
+     {
+      "name": "test_tools_mapped_to_real_claude_names_comma_joined_observe"
+     },
+     {
+      "name": "test_tools_mapped_dedup_order_preserving_brief_author"
+     },
+     {
+      "name": "test_tools_flag_omitted_when_mapped_list_empty"
+     },
+     {
+      "name": "test_resume_appended_when_session_id_present_and_fork_when_rewind"
+     },
+     {
+      "name": "test_agy_backend_minimal_shape_no_model_permission_tools_append"
+     }
+    ],
+    "integration_tests": [
+     {
+      "name": "test_run_turn_uses_build_argv_via_injected_runner_unchanged"
+     }
+    ],
+    "property_tests": [
+     {
+      "name": "test_tools_csv_is_subset_of_real_tool_names_for_any_mode"
+     }
+    ],
+    "regression_tests": [
+     {
+      "name": "test_existing_driver_surface_test_driver_py_still_green"
+     },
+     {
+      "name": "test_no_new_top_level_symbols_added_to_driver_module"
+     }
+    ],
+    "minimum_test_count": 14,
+    "test_data_requirements": "Conversation dicts varying agent_backend ('agy' vs claude), model (None vs a model id), current_mode (missing/None -> observe, 'observe', 'brief-author', unknown), claude_session_id presence, and rewind_to_index (None vs int). Stub/spy render_mode_context to return values, empty string, and to raise; stub resolve_tool_allowlist to return abstract token lists including unmapped and duplicate-mapping tokens. Both oracle test files are pre-committed and used as-is."
+   },
+   "token_budget_ratio": {
+    "implementation_tokens": 100,
+    "test_tokens": 150,
+    "note": "IMPL-only task: both oracles are pre-committed preconditions, so no test authoring is performed by the implementer; ratio is nominal and satisfies the >=1.5x floor."
+   },
+   "attribution_metadata": {
+    "proposed_by": "reconciled",
+    "reconciled": true,
+    "diff_resolution": "reconciled"
+   },
+   "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+  }
+ ],
+ "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_overseer_driver_headless.md",
+ "source_brief_sha256": "042355ce36e67d5129e1d2cb6d69add7434c25a9144113090c6de241d031fa1e"
+}

@@ -1,0 +1,113 @@
+{
+  "tasks": [
+    {
+      "task_id": "chat-ui-clear-mode",
+      "title": "EDIT tools/webui_static/app.js + tools/webui_static/styles.css \u2014 add Clear button + mode-on-send",
+      "meta_task_type": "harness_plumbing",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tools/webui_static/app.js",
+        "tools/webui_static/styles.css"
+      ],
+      "acceptance_criteria": [
+        "pages.chat renders a `<button id=\"chat-clear\" class=\"btn\">\ud83d\uddd1 Clear</button>` in the same controls row that already holds #chat-resend.",
+        "app.js defines `function newChatSession()` containing the literal statements `overseerChat.cid = null` and `overseerChat.buffer = []`, then clears the #chat-transcript container's DOM (innerHTML = \"\") guarded by a getElementById null-check.",
+        "_wireChatPanel contains `document.getElementById(\"chat-clear\")?.addEventListener(\"click\", newChatSession);`.",
+        "sendChat() contains the literal line `body.mode = overseerChat.mode;` placed after the body object is built and before the POST to /api/chat/send.",
+        "All existing chat hooks remain intact: chatIsOpen, pages.chat, chat-transcript, chat-input, chat-resend, and the SSE skip guard.",
+        "styles.css keeps the existing chat styling intact (chat-input / chat-transcript still styled); the clear button reuses .btn.",
+        "GREEN under: python -m pytest tests/overseer/test_chat_ui_clear_mode.py tests/overseer/test_chat_ui.py -q"
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/overseer/test_chat_ui_clear_mode.py tests/overseer/test_chat_ui.py -q",
+      "spec": {
+        "objective": "Thin additive frontend edit to the EXISTING overseer chat panel: add a CLEAR button that starts a brand-new chat session, and transmit the operator-selected mode on send so a freshly-booted conversation starts in the selected mode. Satisfy the pre-committed RED structural oracle tests/overseer/test_chat_ui_clear_mode.py (which greps the static files for load-bearing hooks) without breaking the existing tests/overseer/test_chat_ui.py oracle.",
+        "functional_requirements": [
+          "Add a `<button id=\"chat-clear\" class=\"btn\">\ud83d\uddd1 Clear</button>` anchor into the controls row of pages.chat \u2014 the row that already holds #chat-resend.",
+          "Add a `function newChatSession()` that resets the in-memory session: it MUST contain the literal statements `overseerChat.cid = null` and `overseerChat.buffer = []`, then clear the #chat-transcript container DOM (set innerHTML to \"\"), guarding the getElementById result for null before touching innerHTML.",
+          "Wire the clear button in _wireChatPanel with `document.getElementById(\"chat-clear\")?.addEventListener(\"click\", newChatSession);`, mirroring the existing handler-wiring style.",
+          "In sendChat(), add the literal line `body.mode = overseerChat.mode;` after the body object is constructed and before the POST to /api/chat/send, so the operator-selected mode reaches the server on the first send.",
+          "Keep every existing chat hook intact (chatIsOpen, pages.chat, chat-transcript/chat-input/chat-resend, the SSE skip guard) so the existing test_chat_ui.py oracle stays green.",
+          "Leave existing chat styling in styles.css intact (chat-input/chat-transcript remain styled); the new clear button reuses the existing .btn class \u2014 no new CSS rules required beyond keeping the surface styled."
+        ],
+        "interfaces": "tools/webui_static/app.js: newChatSession() resets overseerChat (cid=null, buffer=[]) + clears #chat-transcript and is wired to a #chat-clear button in pages.chat; sendChat() sets body.mode = overseerChat.mode before the POST.",
+        "edge_cases": [
+          "newChatSession must work whether or not #chat-transcript is currently in the DOM \u2014 guard the getElementById result before touching innerHTML.",
+          "mode-on-send must not break a reused conversation: sending body.mode is harmless because the server ignores mode when conversation_id is present.",
+          "The literal strings must appear verbatim because the oracle greps the static files for them; keep the diff thin and additive so no existing greppable hook is disturbed."
+        ],
+        "non_goals": [
+          "Do NOT decompose/split this leaf \u2014 a split shares this one oracle and DEADLOCKS.",
+          "Do NOT touch any Python file, the server, or the history panel (a separate leaf).",
+          "Do NOT author or edit any test \u2014 this is IMPL-only / additive.",
+          "Do NOT remove or rewrite existing SPA logic or chat hooks.",
+          "No new dependencies."
+        ],
+        "implementation_notes": "Read the staged tools/webui_static/app.js and styles.css first. Mirror the existing function/handler style in app.js exactly. Insert the #chat-clear button beside #chat-resend in the pages.chat controls row. Add newChatSession() near the other chat helpers (pushChatTurn/sendChat). Wire it in _wireChatPanel alongside the existing addEventListener calls. Add `body.mode = overseerChat.mode;` in sendChat right after `const body = { text };` (and the existing conversation_id branch) and before fetch/POST. Pairs with the server-side chat_send mode-on-create fix (out of scope here). Keep diffs minimal and additive.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/overseer/test_chat_ui_clear_mode.py\n```python\n\"\"\"RED structural oracle for the chat panel CLEAR-button + MODE-ON-SEND edit\n(tools/webui_static/app.js + styles.css).\n\nNo DOM runtime convention exists, so this is structural (mirrors test_chat_ui.py):\nit asserts the load-bearing hooks are present in the static bundle. Live fidelity\nis checked later by the Phase H Playwright sweep.\n\nTwo behaviours:\n1. CLEAR button -> starts a NEW chat session. A handler resets the in-memory\n   overseerChat state (conversation id -> null, buffer cleared) and clears the\n   transcript DOM, so the NEXT send creates a fresh conversation server-side.\n2. MODE-ON-SEND -> sendChat() includes the selected mode in the POST body so the\n   server boots the new conversation into the operator-selected mode (the\n   companion to the overseer/web_api.py chat_send fix).\n\"\"\"\nfrom pathlib import Path\n\nREPO = Path(__file__).resolve().parents[2]\nSTATIC = REPO / \"tools\" / \"webui_static\"\n\n\ndef _read(name):\n    return (STATIC / name).read_text(encoding=\"utf-8\")\n\n\ndef test_chat_has_a_clear_control():\n    src = _read(\"app.js\")\n    assert \"chat-clear\" in src, \"no #chat-clear control anchor\"\n\n\ndef test_clear_resets_session_and_starts_new():\n    src = _read(\"app.js\")\n    # a dedicated new-session function exists and is wired to the clear control\n    assert \"function newChatSession\" in src, \"newChatSession() reset function missing\"\n    assert \"chat-clear\" in src\n    # the reset nulls the conversation id and empties the replay buffer so the\n    # next send boots a fresh conversation\n    assert \"overseerChat.cid = null\" in src, \"clear must null the conversation id\"\n    assert \"overseerChat.buffer = []\" in src, \"clear must empty the replay buffer\"\n\n\ndef test_send_transmits_the_selected_mode():\n    src = _read(\"app.js\")\n    # sendChat must put the active mode on the POST body so the server can boot\n    # the new conversation into it (pairs with web_api chat_send mode-on-create)\n    assert \"body.mode = overseerChat.mode\" in src, \"sendChat does not transmit the mode\"\n\n\ndef test_clear_button_styles_present():\n    src = _read(\"styles.css\")\n    # the clear control reuses the existing button styling; a dedicated class or\n    # the shared .btn is acceptable -- assert the chat control surface is styled\n    assert \"chat-input\" in src or \"chat-transcript\" in src\n\n```\n\n## tests/overseer/test_chat_ui.py\n```python\n\"\"\"RED oracle for the tools/webui_static/ frontend EDIT leaf (frontend).\n\nNo DOM-runtime test convention exists in this repo, so this is a STRUCTURAL\noracle: it asserts the load-bearing hooks the chat panel must add are present in\nthe static assets. Live behavior/fidelity is verified later by the Phase H\nPlaywright sweep \u2014 this just guarantees the contract the sweep depends on.\n\"\"\"\nfrom pathlib import Path\n\nREPO = Path(__file__).resolve().parents[2]\nSTATIC = REPO / \"tools\" / \"webui_static\"\n\n\ndef _read(name):\n    return (STATIC / name).read_text(encoding=\"utf-8\")\n\n\ndef test_app_js_adds_chat_is_open_guard():\n    src = _read(\"app.js\")\n    assert \"function chatIsOpen\" in src, \"chatIsOpen() predicate missing\"\n    # Wired into the same SSE re-render skip path as briefEditorIsOpen so a tick\n    # never clobbers the chat input/transcript.\n    assert \"if (chatIsOpen()) return;\" in src, \"chatIsOpen() not in the skip guard\"\n\n\ndef test_app_js_registers_the_chat_page():\n    src = _read(\"app.js\")\n    assert (\"pages.chat\" in src) or (\"pages['chat']\" in src), \"no pages.chat route\"\n\n\ndef test_app_js_has_persistent_transcript_and_input_anchors():\n    src = _read(\"app.js\")\n    # Self-managed, append-only DOM anchors (not re-rendered each tick).\n    assert \"chat-transcript\" in src\n    assert \"chat-input\" in src\n    assert \"chat-resend\" in src  # the resend-transcript control\n\n\ndef test_index_html_has_the_chat_nav_link():\n    src = _read(\"index.html\")\n    assert \"#/chat\" in src, \"no #/chat nav link\"\n\n\ndef test_styles_css_has_single_source_per_mode_color_map():\n    src = _read(\"styles.css\")\n    # Tier-grouped hue ramp as CSS custom properties \u2014 one source of truth.\n    for var in (\"--mode-tier-r\", \"--mode-tier-w\", \"--mode-tier-s\"):\n        assert var in src, f\"missing per-mode color variable {var}\"\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_pages_chat_contains_chat_clear_button"
+          },
+          {
+            "name": "test_newChatSession_defined_with_cid_null_and_buffer_reset"
+          },
+          {
+            "name": "test_newChatSession_clears_transcript_innerHTML_guarded"
+          },
+          {
+            "name": "test_wireChatPanel_binds_chat_clear_click_to_newChatSession"
+          },
+          {
+            "name": "test_sendChat_sets_body_mode_before_post"
+          },
+          {
+            "name": "test_existing_chat_hooks_preserved_chatIsOpen_resend_input_transcript"
+          },
+          {
+            "name": "test_styles_css_chat_surface_still_styled"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_chat_ui_clear_mode_oracle_green"
+          },
+          {
+            "name": "test_existing_test_chat_ui_oracle_remains_green"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_diff_is_purely_additive_no_existing_hook_removed"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_sse_skip_guard_intact"
+          },
+          {
+            "name": "test_mode_on_send_harmless_when_conversation_id_present"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "No new fixtures. The pre-committed oracles tests/overseer/test_chat_ui_clear_mode.py (authoritative; greps static files for #chat-clear, newChatSession, overseerChat.cid=null, overseerChat.buffer=[], the _wireChatPanel binding, and body.mode) and tests/overseer/test_chat_ui.py (existing hooks) are the verification surface. This leaf authors NO tests."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "IMPL-only additive leaf against pre-committed RED oracles; no tests are authored by this task. Ratio kept >=1.5x to honor schema; the verification burden lives entirely in the committed structural oracles."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_overseer_chat_clear_mode.md",
+  "source_brief_sha256": "09abb19b3ff284fd120146d3b49abe3530bd516a3c22b9c6cc99a308bb7c69c2"
+}

@@ -1,0 +1,125 @@
+{
+  "tasks": [
+    {
+      "task_id": "edit-webui-chat-panel-hooks",
+      "title": "EDIT tools/webui_static/app.js + index.html + styles.css \u2014 add chat-panel structural hooks",
+      "meta_task_type": "harness_plumbing",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tools/webui_static/app.js",
+        "tools/webui_static/index.html",
+        "tools/webui_static/styles.css"
+      ],
+      "acceptance_criteria": [
+        "tools/webui_static/app.js defines a `function chatIsOpen` predicate that mirrors the existing `briefEditorIsOpen()` function in the same style.",
+        "The literal line `if (chatIsOpen()) return;` is wired into the SAME SSE re-render skip path where `briefEditorIsOpen()` is already guarded, so a live tick never clobbers chat input/transcript.",
+        "app.js registers a chat route in the existing `pages` map using the form `pages.chat` or `pages['chat']` without removing existing routes.",
+        "app.js introduces the self-managed append-only DOM anchors `chat-transcript`, `chat-input`, and `chat-resend`.",
+        "tools/webui_static/index.html adds a `#/chat` nav link (hash route) alongside existing nav links.",
+        "tools/webui_static/styles.css declares the per-mode color custom properties `--mode-tier-r`, `--mode-tier-w`, and `--mode-tier-s` as a single source-of-truth tier hue ramp.",
+        "No existing SPA function, route, style, or oracle test is removed or rewritten; the diff is thin and purely additive.",
+        "`python -m pytest tests/overseer/test_chat_ui.py -q` is GREEN."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/overseer/test_chat_ui.py -q",
+      "spec": {
+        "objective": "Make the pre-committed RED structural oracle tests/overseer/test_chat_ui.py GREEN by additively introducing the chat-panel hooks into the existing stdlib WebUI SPA, mirroring the established briefEditorIsOpen() clobber-guard precedent. This leaf only guarantees the structural contract (the grep'd load-bearing strings); live behavioral fidelity is verified later by the Phase-H Playwright sweep.",
+        "functional_requirements": [
+          "Add a `function chatIsOpen` predicate to app.js, written in the same idiom as the existing `briefEditorIsOpen()` function (a boolean predicate reporting whether the chat panel currently owns user-editable state).",
+          "Insert the literal guard line `if (chatIsOpen()) return;` into the SAME SSE re-render skip path in app.js where `briefEditorIsOpen()` is already checked, immediately adjacent to it, so a live /events tick never clobbers the chat input or transcript.",
+          "Register a `pages.chat` route (form `pages.chat` or `pages['chat']`) in the existing pages route map without altering or removing existing routes.",
+          "Provide the self-managed append-only DOM anchor `chat-transcript` (the transcript container) within the chat page render.",
+          "Provide the self-managed DOM anchor `chat-input` (the message input control) within the chat page render.",
+          "Provide the self-managed DOM anchor `chat-resend` (the resend-transcript control) within the chat page render.",
+          "Add a `#/chat` hash-route nav link to index.html alongside the existing nav links.",
+          "Declare the per-mode color custom properties `--mode-tier-r`, `--mode-tier-w`, and `--mode-tier-s` in styles.css as a single source-of-truth tier hue ramp."
+        ],
+        "interfaces": "tools/webui_static/{app.js,index.html,styles.css}: add chat panel hooks \u2014 chatIsOpen() SSE-skip guard, pages.chat route, chat-transcript/chat-input/chat-resend anchors, #/chat nav link, --mode-tier-{r,w,s} CSS vars.",
+        "edge_cases": [
+          "The chatIsOpen() guard must not regress the existing briefEditorIsOpen() guard \u2014 both predicates must be checked in the same skip path so neither panel clobbers the other on a live tick.",
+          "The new pages.chat route must coexist with existing routes; the route map must not be re-declared or have existing keys dropped.",
+          "DOM anchors chat-transcript/chat-input/chat-resend must be append-only / self-managed so the SSE re-render does not destroy in-progress chat state.",
+          "Adding the #/chat nav link must not break existing hash-route navigation.",
+          "The new CSS custom properties must not collide with or override existing variables; they live as a single source-of-truth ramp."
+        ],
+        "non_goals": [
+          "No build step, framework, bundler, or new network dependency.",
+          "No real SSE wiring beyond the existing /events channel (already extended server-side).",
+          "Do NOT author or edit any test \u2014 the oracle tests/overseer/test_chat_ui.py is pre-committed and authoritative.",
+          "Do NOT rewrite existing SPA functions or remove existing routes/styles.",
+          "Do NOT split this leaf into subtasks \u2014 they would share this single oracle and deadlock."
+        ],
+        "implementation_notes": "Locate the existing `briefEditorIsOpen` function, the SSE /events re-render subscriber containing the `if (briefEditorIsOpen()) return;` skip, and the `pages` route map in app.js, then extend each additively in the same style. The chatIsOpen() predicate mirrors briefEditorIsOpen(); place `if (chatIsOpen()) return;` directly beside the existing guard in that subscriber. Render the chat page under pages.chat with append-only anchors id/data hooks `chat-transcript`, `chat-input`, and `chat-resend`. In index.html add a hash-route nav link to `#/chat`. In styles.css add `--mode-tier-r`, `--mode-tier-w`, `--mode-tier-s` as the single tier hue ramp. Keep all diffs thin and purely additive; the oracle greps for the exact load-bearing strings, so match them literally.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/overseer/test_chat_ui.py\n```python\n\"\"\"RED oracle for the tools/webui_static/ frontend EDIT leaf (frontend).\n\nNo DOM-runtime test convention exists in this repo, so this is a STRUCTURAL\noracle: it asserts the load-bearing hooks the chat panel must add are present in\nthe static assets. Live behavior/fidelity is verified later by the Phase H\nPlaywright sweep \u2014 this just guarantees the contract the sweep depends on.\n\"\"\"\nfrom pathlib import Path\n\nREPO = Path(__file__).resolve().parents[2]\nSTATIC = REPO / \"tools\" / \"webui_static\"\n\n\ndef _read(name):\n    return (STATIC / name).read_text(encoding=\"utf-8\")\n\n\ndef test_app_js_adds_chat_is_open_guard():\n    src = _read(\"app.js\")\n    assert \"function chatIsOpen\" in src, \"chatIsOpen() predicate missing\"\n    # Wired into the same SSE re-render skip path as briefEditorIsOpen so a tick\n    # never clobbers the chat input/transcript.\n    assert \"if (chatIsOpen()) return;\" in src, \"chatIsOpen() not in the skip guard\"\n\n\ndef test_app_js_registers_the_chat_page():\n    src = _read(\"app.js\")\n    assert (\"pages.chat\" in src) or (\"pages['chat']\" in src), \"no pages.chat route\"\n\n\ndef test_app_js_has_persistent_transcript_and_input_anchors():\n    src = _read(\"app.js\")\n    # Self-managed, append-only DOM anchors (not re-rendered each tick).\n    assert \"chat-transcript\" in src\n    assert \"chat-input\" in src\n    assert \"chat-resend\" in src  # the resend-transcript control\n\n\ndef test_index_html_has_the_chat_nav_link():\n    src = _read(\"index.html\")\n    assert \"#/chat\" in src, \"no #/chat nav link\"\n\n\ndef test_styles_css_has_single_source_per_mode_color_map():\n    src = _read(\"styles.css\")\n    # Tier-grouped hue ramp as CSS custom properties \u2014 one source of truth.\n    for var in (\"--mode-tier-r\", \"--mode-tier-w\", \"--mode-tier-s\"):\n        assert var in src, f\"missing per-mode color variable {var}\"\n\n```\n\n\nPATCH FORMAT (the prior attempt FAILED by symbol-patching JS): these are JS/HTML/CSS, NOT Python \u2014 do NOT emit `kind: symbol` patches (the symbol patcher only understands Python and silently mis-applies to a JS function like `boot`). Emit WHOLE-FILE replacements (kind whole_file / a full `files` entry) for each of the three static files: take the CURRENT file content and add ONLY the required hooks additively, returning the complete updated file. For app.js: add a top-level `function chatIsOpen()` mirroring the existing `briefEditorIsOpen()`, add the literal `if (chatIsOpen()) return;` line right beside the existing `if (briefEditorIsOpen()) return;` guard, register `pages.chat`, and include the strings 'chat-transcript', 'chat-input', 'chat-resend'. For index.html add the '#/chat' nav link. For styles.css add '--mode-tier-r', '--mode-tier-w', '--mode-tier-s'. Preserve all existing content verbatim."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "oracle_asserts_app_js_defines_function_chatIsOpen"
+          },
+          {
+            "name": "oracle_asserts_app_js_contains_literal_if_chatIsOpen_return_guard"
+          },
+          {
+            "name": "oracle_asserts_chatIsOpen_guard_colocated_with_briefEditorIsOpen_skip_path"
+          },
+          {
+            "name": "oracle_asserts_app_js_registers_pages_chat_route"
+          },
+          {
+            "name": "oracle_asserts_app_js_contains_chat_transcript_anchor"
+          },
+          {
+            "name": "oracle_asserts_app_js_contains_chat_input_anchor"
+          },
+          {
+            "name": "oracle_asserts_app_js_contains_chat_resend_anchor"
+          },
+          {
+            "name": "oracle_asserts_index_html_contains_hash_chat_nav_link"
+          },
+          {
+            "name": "oracle_asserts_styles_css_declares_mode_tier_r_w_s_vars"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "pytest_test_chat_ui_green_after_edit"
+          },
+          {
+            "name": "existing_briefEditorIsOpen_guard_still_present_no_regression"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "edit_is_additive_no_existing_routes_or_styles_removed"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "existing_pages_routes_unchanged"
+          },
+          {
+            "name": "existing_nav_links_and_hash_routing_intact"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "No new fixtures. The authoritative pre-committed structural oracle tests/overseer/test_chat_ui.py greps the three static files for the exact load-bearing strings; this leaf authors no tests and only edits the static files."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "IMPL-only/ADDITIVE leaf: no test is authored (oracle is pre-committed). Ratio field satisfied nominally; verification is grep'd by the committed structural oracle."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "brief_hooks_ov-frontend.md",
+  "source_brief_sha256": "aea51c1c3422103a0db3eaeb6f7f666a592f964aee937dd4d38784dea6c29616"
+}

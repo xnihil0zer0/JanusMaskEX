@@ -1,0 +1,262 @@
+{
+  "tasks": [
+    {
+      "task_id": "overseer-gates-impl",
+      "title": "Implement overseer/gates.py (operator recipe gate functions)",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "overseer/gates.py"
+      ],
+      "acceptance_criteria": [
+        "overseer/gates.py exists and is a single-file, whole-file, stdlib-only module.",
+        "GateResult dataclass is exposed with ok: bool, reason: str, fix_hint: str.",
+        "oracle_is_red asserts that the run_seam call returns a non-zero exit code.",
+        "oracles_committed_at_head asserts git_seam returns True for all paths.",
+        "brief_lint checks for required plan shape, one target file, no naked line citations.",
+        "plan_preflight wraps harness.planner.plan_validator.validate_plan and adds custom validation checks.",
+        "suite_green_zero_reg asserts green oracle and zero regressions.",
+        "posture_locked checks full_stop, orchestrator.flag==pause, and auto_promote.allowlist deny-all."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/overseer/test_gates.py -q",
+      "spec": {
+        "objective": "Implement the recipe gate check functions in a new module overseer/gates.py.",
+        "functional_requirements": [
+          "Define GateResult dataclass with fields ok: bool, reason: str, fix_hint: str.",
+          "Implement oracle_is_red(test_path, *, run_seam) -> GateResult to assert the test fails.",
+          "Implement oracles_committed_at_head(paths, *, git_seam) -> GateResult to check HEAD membership.",
+          "Implement brief_lint(brief_text) -> GateResult to check title, required plan shape, and citations.",
+          "Implement plan_preflight(plan, *, state_dir, validator=validate_plan) -> GateResult to wrap the plan validator and add recipe checks.",
+          "Implement suite_green_zero_reg(report) -> GateResult to assert green oracle and zero regressions.",
+          "Implement posture_locked(*, state_dir) -> GateResult to assert full_stop exists, pause flag, and auto_promote deny-all."
+        ],
+        "interfaces": "GateResult(ok: bool, reason: str, fix_hint: str); oracle_is_red(test_path, *, run_seam) -> GateResult; oracles_committed_at_head(paths, *, git_seam) -> GateResult; brief_lint(brief_text) -> GateResult; plan_preflight(plan, *, state_dir) -> GateResult; suite_green_zero_reg(report) -> GateResult; posture_locked(*, state_dir) -> GateResult",
+        "edge_cases": [
+          "brief_lint handles empty text gracefully.",
+          "brief_lint rejects naked line number citations like file.py:123.",
+          "plan_preflight handles non-'T1' task_id checking and collision checks.",
+          "posture_locked handles missing directories or files under state_dir gracefully."
+        ],
+        "non_goals": [
+          "No edits to existing overseer symbols.",
+          "No integration with external agent execution loops."
+        ],
+        "implementation_notes": "Imports only stdlib and harness.planner.plan_validator (wrapped). Use dependency injection for seams.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/overseer/test_gates.py\n```python\n\"\"\"RED oracle for overseer/gates.py \u2014 the deterministic recipe gates.\n\nEach gate is a PURE function returning a typed ``GateResult(ok, reason, fix_hint)``\nover INJECTED seams (``run_seam`` executes a test and returns its exit code;\n``git_seam`` answers HEAD-membership; ``validator`` wraps the real plan_validator)\nor plain filesystem reads under an injected ``state_dir``. No gate spawns a real\nprocess, model, network, or un-injected subprocess \u2014 the oracle drives every gate\nhermetically. One gate encodes one operator lesson.\n\"\"\"\nimport pytest\n\nfrom overseer.gates import (\n    GateResult,\n    oracle_is_red,\n    oracles_committed_at_head,\n    brief_lint,\n    plan_preflight,\n    suite_green_zero_reg,\n    posture_locked,\n)\n\n\ndef test_gateresult_carries_ok_reason_fixhint():\n    r = GateResult(ok=True, reason='', fix_hint='')\n    assert r.ok is True and r.reason == '' and r.fix_hint == ''\n\n\n# --- oracle_is_red: a FAILING test is RED (good); a passing test is not -------\n\ndef test_oracle_is_red_true_when_test_fails():\n    # run_seam returns the test's exit code; nonzero == failed == RED == ok.\n    res = oracle_is_red('tests/x.py', run_seam=lambda p: 1)\n    assert res.ok is True\n\n\ndef test_oracle_is_red_false_when_test_passes():\n    res = oracle_is_red('tests/x.py', run_seam=lambda p: 0)\n    assert res.ok is False\n    assert 'green' in (res.reason + ' ' + res.fix_hint).lower()\n\n\n# --- oracles_committed_at_head: every path committed at HEAD, not just on disk -\n\ndef test_committed_at_head_true_when_all_committed():\n    res = oracles_committed_at_head(['a.py', 'b.py'], git_seam=lambda p: True)\n    assert res.ok is True\n\n\ndef test_committed_at_head_false_names_the_uncommitted_path():\n    res = oracles_committed_at_head(['a.py', 'b.py'], git_seam=lambda p: p != 'b.py')\n    assert res.ok is False\n    assert 'b.py' in res.reason\n\n\n# --- brief_lint: Required plan shape present + no source line-number citations -\n\nGOOD_BRIEF = (\n    \"# Title\\noverseer/foo.py\\n\\n# Required plan shape\\n\"\n    \"Emit EXACTLY ONE task for overseer/foo.py described structurally.\\n\"\n)\n\n\ndef test_brief_lint_ok_for_well_formed_brief():\n    assert brief_lint(GOOD_BRIEF).ok is True\n\n\ndef test_brief_lint_flags_missing_required_plan_shape():\n    res = brief_lint(\"# Title\\nno shape section at all\\n\")\n    assert res.ok is False\n    assert 'required plan shape' in res.reason.lower()\n\n\ndef test_brief_lint_flags_naked_line_number_citation():\n    res = brief_lint(GOOD_BRIEF + \"see overseer/foo.py:123 for the bug\\n\")\n    assert res.ok is False\n    assert 'line' in (res.reason + ' ' + res.fix_hint).lower()\n\n\n# --- plan_preflight: wraps the validator + the recipe checks ------------------\n\ndef _ok_validator(plan):\n    return []\n\n\nVALID_TASK = {\n    'task_id': 'build_foo',\n    'spec': {\n        'non_goals': ['integration is explicitly out of scope'],\n        'test_spec': {'regression_tests': ['t_edge_a', 't_edge_b']},\n    },\n}\n\n\ndef test_plan_preflight_ok_for_clean_task(tmp_path):\n    res = plan_preflight(VALID_TASK, state_dir=tmp_path, validator=_ok_validator)\n    assert res.ok is True\n\n\ndef test_plan_preflight_rejects_generic_T1_task_id(tmp_path):\n    bad = dict(VALID_TASK, task_id='T1')\n    res = plan_preflight(bad, state_dir=tmp_path, validator=_ok_validator)\n    assert res.ok is False\n    assert 't1' in res.reason.lower() or 'task_id' in res.reason.lower()\n\n\ndef test_plan_preflight_rejects_processed_marker_collision(tmp_path):\n    proc = tmp_path / 'tasks' / 'processed'\n    proc.mkdir(parents=True)\n    (proc / 'build_foo.json').write_text('{}')\n    res = plan_preflight(VALID_TASK, state_dir=tmp_path, validator=_ok_validator)\n    assert res.ok is False\n\n\ndef test_plan_preflight_requires_integration_in_non_goals(tmp_path):\n    bad = {'task_id': 'x', 'spec': {'non_goals': ['nope'],\n           'test_spec': {'regression_tests': ['a', 'b']}}}\n    res = plan_preflight(bad, state_dir=tmp_path, validator=_ok_validator)\n    assert res.ok is False\n    assert 'integration' in res.reason.lower()\n\n\ndef test_plan_preflight_requires_two_edge_case_tests(tmp_path):\n    bad = {'task_id': 'x', 'spec': {'non_goals': ['integration'],\n           'test_spec': {'regression_tests': ['only_one']}}}\n    res = plan_preflight(bad, state_dir=tmp_path, validator=_ok_validator)\n    assert res.ok is False\n\n\ndef test_plan_preflight_propagates_validator_violations(tmp_path):\n    res = plan_preflight(VALID_TASK, state_dir=tmp_path, validator=lambda p: ['boom'])\n    assert res.ok is False\n\n\n# --- suite_green_zero_reg: oracle GREEN and zero new regressions --------------\n\ndef test_suite_gate_ok_when_green_and_no_regressions():\n    assert suite_green_zero_reg({'oracle_green': True, 'new_regressions': 0}).ok is True\n\n\ndef test_suite_gate_fails_on_red_oracle():\n    assert suite_green_zero_reg({'oracle_green': False, 'new_regressions': 0}).ok is False\n\n\ndef test_suite_gate_fails_and_counts_regressions():\n    res = suite_green_zero_reg({'oracle_green': True, 'new_regressions': 3})\n    assert res.ok is False and '3' in res.reason\n\n\n# --- posture_locked: full_stop + flag==pause + allowlist deny-all -------------\n\ndef _lock(state_dir, *, full_stop=True, flag='pause', allowlist_deny_all=True):\n    ctl = state_dir / 'control'\n    (ctl / 'autowork').mkdir(parents=True, exist_ok=True)\n    if full_stop:\n        (ctl / 'autowork' / 'full_stop').write_text('')\n    (ctl / 'orchestrator.flag').write_text(flag)\n    al = ctl / 'autowork' / 'auto_promote.allowlist'\n    al.write_text('# comment only \u2014 deny-all\\n' if allowlist_deny_all else '# c\\nmyslug\\n')\n\n\ndef test_posture_locked_ok_when_all_three_gates_set(tmp_path):\n    _lock(tmp_path)\n    assert posture_locked(state_dir=tmp_path).ok is True\n\n\ndef test_posture_unlocked_when_full_stop_missing(tmp_path):\n    _lock(tmp_path, full_stop=False)\n    assert posture_locked(state_dir=tmp_path).ok is False\n\n\ndef test_posture_unlocked_when_flag_not_pause(tmp_path):\n    _lock(tmp_path, flag='run')\n    assert posture_locked(state_dir=tmp_path).ok is False\n\n\ndef test_posture_unlocked_when_allowlist_has_entries(tmp_path):\n    _lock(tmp_path, allowlist_deny_all=False)\n    assert posture_locked(state_dir=tmp_path).ok is False\n\n```\n",
+        "spec_author": null
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_gateresult_carries_ok_reason_fixhint"
+          },
+          {
+            "name": "test_oracle_is_red_true_when_test_fails"
+          },
+          {
+            "name": "test_oracle_is_red_false_when_test_passes"
+          },
+          {
+            "name": "test_committed_at_head_true_when_all_committed"
+          },
+          {
+            "name": "test_committed_at_head_false_names_the_uncommitted_path"
+          },
+          {
+            "name": "test_brief_lint_ok_for_well_formed_brief"
+          },
+          {
+            "name": "test_brief_lint_flags_missing_required_plan_shape"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_brief_lint_flags_naked_line_number_citation"
+          },
+          {
+            "name": "test_plan_preflight_rejects_processed_marker_collision"
+          }
+        ],
+        "minimum_test_count": 11,
+        "test_data_requirements": "Uses mock seams and in-memory dict structures for plan validation tests."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Tests are already written in test_gates.py."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "overseer-procedure-impl",
+      "title": "Implement overseer/procedure.py (Phase, Procedure, registry and reducer)",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [
+        "overseer-gates-impl"
+      ],
+      "files_touched": [
+        "overseer/procedure.py"
+      ],
+      "acceptance_criteria": [
+        "overseer/procedure.py exists as a single-file, whole-file, stdlib-only module.",
+        "Phase and Procedure dataclasses are defined and exposed.",
+        "PROCEDURE_REGISTRY is defined and holds the four mode definitions.",
+        "advance pure reducer correctly returns next phase, Blocked, or Complete."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/overseer/test_procedure.py -q",
+      "spec": {
+        "objective": "Implement the Phase and Procedure dataclasses, the PROCEDURE_REGISTRY, and the advance reducer.",
+        "functional_requirements": [
+          "Define Phase dataclass with name, gate, and next_action.",
+          "Define Procedure dataclass with mode and phases.",
+          "Define PROCEDURE_REGISTRY mapping brief-author, oracle-author, dispatch, and push to ordered Phase lists.",
+          "Implement advance(procedure, phase, gate_result) -> Decision returning the next phase, Blocked(reason, fix_hint), or Complete."
+        ],
+        "interfaces": "Phase; Procedure; PROCEDURE_REGISTRY; advance(procedure, phase, gate_result) -> Decision; Blocked; Complete",
+        "edge_cases": [
+          "Failed gate yields Blocked(reason, fix_hint).",
+          "Passing gate on the last phase yields the Complete singleton."
+        ],
+        "non_goals": [
+          "No integration with turn runner directly in this task."
+        ],
+        "implementation_notes": "Imports only stdlib and overseer.gates (for GateResult). Pure logic.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/overseer/test_procedure.py\n```python\n\"\"\"RED oracle for overseer/procedure.py \u2014 the per-mode phase reducer.\n\nPROCEDURE_REGISTRY maps the four procedure-bearing modes to an ordered list of\nphases; each phase binds a gate NAME (a string resolved against overseer.gates)\nplus a single human-readable next-action string. ``advance(procedure, phase,\ngate_result)`` is the PURE reducer: a failed gate yields ``Blocked(reason,\nfix_hint)``; a passing gate yields the next phase name; a passing gate on the\nLAST phase yields the ``Complete`` singleton. No I/O, no spawn \u2014 pure data + logic.\n\"\"\"\nimport pytest\n\nfrom overseer.procedure import (\n    Phase,\n    Procedure,\n    PROCEDURE_REGISTRY,\n    advance,\n    Blocked,\n    Complete,\n)\nfrom overseer.gates import GateResult\n\n\ndef _passed():\n    return GateResult(ok=True, reason='', fix_hint='')\n\n\ndef _failed():\n    return GateResult(ok=False, reason='gate said no', fix_hint='do the thing')\n\n\n# --- registry shape -----------------------------------------------------------\n\ndef test_registry_has_the_four_procedure_modes():\n    for mode in ('brief-author', 'oracle-author', 'dispatch', 'push'):\n        assert mode in PROCEDURE_REGISTRY\n\n\ndef test_brief_author_phase_order_matches_the_recipe():\n    proc = PROCEDURE_REGISTRY['brief-author']\n    assert [p.name for p in proc.phases] == ['SCOPE', 'ORACLE', 'COMMIT', 'BRIEF', 'PLAN']\n\n\ndef test_dispatch_phase_order_matches_the_recipe():\n    proc = PROCEDURE_REGISTRY['dispatch']\n    assert [p.name for p in proc.phases] == ['PREFLIGHT', 'STAGE', 'BUILD', 'VERIFY', 'RESTORE']\n\n\ndef test_push_phase_order_matches_the_recipe():\n    proc = PROCEDURE_REGISTRY['push']\n    assert [p.name for p in proc.phases] == ['SWEEP', 'ZERO_REG', 'POSTURE', 'PUSH']\n\n\ndef test_every_phase_binds_a_gate_name_and_a_next_action():\n    for proc in PROCEDURE_REGISTRY.values():\n        for ph in proc.phases:\n            assert isinstance(ph.gate, str) and ph.gate\n            assert isinstance(ph.next_action, str) and ph.next_action\n\n\n# --- the reducer --------------------------------------------------------------\n\ndef test_advance_blocks_on_a_failed_gate():\n    proc = PROCEDURE_REGISTRY['brief-author']\n    d = advance(proc, 'SCOPE', _failed())\n    assert isinstance(d, Blocked)\n    assert d.reason == 'gate said no'\n    assert d.fix_hint == 'do the thing'\n\n\ndef test_advance_returns_next_phase_on_pass():\n    proc = PROCEDURE_REGISTRY['brief-author']\n    assert advance(proc, 'SCOPE', _passed()) == 'ORACLE'\n    assert advance(proc, 'ORACLE', _passed()) == 'COMMIT'\n\n\ndef test_advance_completes_after_the_last_phase():\n    proc = PROCEDURE_REGISTRY['brief-author']\n    assert advance(proc, 'PLAN', _passed()) is Complete\n\n\ndef test_advance_on_failed_last_phase_still_blocks_not_completes():\n    proc = PROCEDURE_REGISTRY['brief-author']\n    assert isinstance(advance(proc, 'PLAN', _failed()), Blocked)\n\n```\n",
+        "spec_author": null
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_registry_has_the_four_procedure_modes"
+          },
+          {
+            "name": "test_brief_author_phase_order_matches_the_recipe"
+          },
+          {
+            "name": "test_dispatch_phase_order_matches_the_recipe"
+          },
+          {
+            "name": "test_push_phase_order_matches_the_recipe"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_advance_blocks_on_a_failed_gate"
+          },
+          {
+            "name": "test_advance_completes_after_the_last_phase"
+          }
+        ],
+        "minimum_test_count": 6,
+        "test_data_requirements": "In-memory procedure definitions and mock gate results."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Tests are pre-committed."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "overseer-procedure-state-impl",
+      "title": "Implement overseer/procedure_state.py (durable per-conversation phase pointer)",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [
+        "overseer-gates-impl",
+        "overseer-procedure-impl"
+      ],
+      "files_touched": [
+        "overseer/procedure_state.py"
+      ],
+      "acceptance_criteria": [
+        "overseer/procedure_state.py exists as a single-file, whole-file, stdlib-only module.",
+        "ProcedureState dataclass carries phase: str and last_gate: GateResult | None.",
+        "load_state loads persistent state from json file.",
+        "save_state serializes and saves ProcedureState to json file.",
+        "Unknown conversation loads a fresh default state."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/overseer/test_procedure_state.py -q",
+      "spec": {
+        "objective": "Implement durable per-conversation phase pointer and recorded gate results.",
+        "functional_requirements": [
+          "Define ProcedureState dataclass carrying phase: str and last_gate: GateResult | None.",
+          "Implement load_state(conversation_id, *, state_dir) -> ProcedureState from disk.",
+          "Implement save_state(conversation_id, state, *, state_dir) -> None to disk.",
+          "Ensure load_state returns a fresh default ProcedureState on unknown conversation."
+        ],
+        "interfaces": "ProcedureState(phase: str, last_gate: GateResult | None); load_state(conversation_id, *, state_dir) -> ProcedureState; save_state(conversation_id, state, *, state_dir) -> None",
+        "edge_cases": [
+          "Save overwrites prior state for the same conversation.",
+          "Conversations are isolated on disk by file path."
+        ],
+        "non_goals": [
+          "No integration with turn runner directly in this task."
+        ],
+        "implementation_notes": "Save and load state from state_dir / 'state' / 'procedures' / f'{conversation_id}.json' or similar. Use json serialization.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/overseer/test_procedure_state.py\n```python\n\"\"\"RED oracle for overseer/procedure_state.py \u2014 durable per-conversation phase.\n\nThe procedure machine's state is READ from disk, never reconstructed: a phase\npointer plus the last recorded GateResult, keyed by conversation id under an\ninjected ``state_dir``, surviving a fresh load (the ``--resume``/restart case).\nConversations are isolated. An unknown conversation loads a fresh default state\nrather than raising.\n\"\"\"\nimport pytest\n\nfrom overseer.procedure_state import ProcedureState, load_state, save_state\nfrom overseer.gates import GateResult\n\n\ndef test_roundtrip_persists_the_phase(tmp_path):\n    save_state('conv1', ProcedureState(phase='ORACLE', last_gate=None), state_dir=tmp_path)\n    st = load_state('conv1', state_dir=tmp_path)\n    assert st.phase == 'ORACLE'\n\n\ndef test_unknown_conversation_loads_a_fresh_default_state(tmp_path):\n    st = load_state('never-seen', state_dir=tmp_path)\n    assert isinstance(st, ProcedureState)  # a default, not a KeyError/None\n\n\ndef test_persists_the_last_gate_result(tmp_path):\n    g = GateResult(ok=False, reason='r', fix_hint='f')\n    save_state('c', ProcedureState(phase='BRIEF', last_gate=g), state_dir=tmp_path)\n    st = load_state('c', state_dir=tmp_path)\n    assert st.last_gate is not None\n    assert st.last_gate.ok is False\n    assert st.last_gate.reason == 'r'\n    assert st.last_gate.fix_hint == 'f'\n\n\ndef test_state_is_durable_across_a_fresh_load(tmp_path):\n    # simulates --resume / a daemon restart: a brand-new load sees the saved phase.\n    save_state('c2', ProcedureState(phase='PLAN', last_gate=None), state_dir=tmp_path)\n    assert load_state('c2', state_dir=tmp_path).phase == 'PLAN'\n\n\ndef test_conversations_are_isolated(tmp_path):\n    save_state('a', ProcedureState(phase='SCOPE', last_gate=None), state_dir=tmp_path)\n    save_state('b', ProcedureState(phase='COMMIT', last_gate=None), state_dir=tmp_path)\n    assert load_state('a', state_dir=tmp_path).phase == 'SCOPE'\n    assert load_state('b', state_dir=tmp_path).phase == 'COMMIT'\n\n\ndef test_save_overwrites_prior_state_for_same_conversation(tmp_path):\n    save_state('c3', ProcedureState(phase='SCOPE', last_gate=None), state_dir=tmp_path)\n    save_state('c3', ProcedureState(phase='ORACLE', last_gate=None), state_dir=tmp_path)\n    assert load_state('c3', state_dir=tmp_path).phase == 'ORACLE'\n\n```\n",
+        "spec_author": null
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_roundtrip_persists_the_phase"
+          },
+          {
+            "name": "test_unknown_conversation_loads_a_fresh_default_state"
+          },
+          {
+            "name": "test_persists_the_last_gate_result"
+          },
+          {
+            "name": "test_state_is_durable_across_a_fresh_load"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_conversations_are_isolated"
+          },
+          {
+            "name": "test_save_overwrites_prior_state_for_same_conversation"
+          }
+        ],
+        "minimum_test_count": 6,
+        "test_data_requirements": "Uses tmp_path filesystem under pytest."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Tests are pre-committed."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "brief_hooks_procedure-substrate.md",
+  "source_brief_sha256": "93507cd54fb7001f20e30d882b4ee7b76b9ebe79e9f73f50e5577566bed827f9"
+}

@@ -1,0 +1,100 @@
+{
+  "tasks": [
+    {
+      "task_id": "extend-procedure-followup-procedures",
+      "title": "Implement overseer/gates.py (operator recipe gate functions)",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "overseer/procedure.py"
+      ],
+      "acceptance_criteria": [
+        "overseer/gates.py exists and is a single-file, whole-file, stdlib-only module.",
+        "GateResult dataclass is exposed with ok: bool, reason: str, fix_hint: str.",
+        "oracle_is_red asserts that the run_seam call returns a non-zero exit code.",
+        "oracles_committed_at_head asserts git_seam returns True for all paths.",
+        "brief_lint checks for required plan shape, one target file, no naked line citations.",
+        "plan_preflight wraps harness.planner.plan_validator.validate_plan and adds custom validation checks.",
+        "suite_green_zero_reg asserts green oracle and zero regressions.",
+        "posture_locked checks full_stop, orchestrator.flag==pause, and auto_promote.allowlist deny-all."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/overseer/test_procedure.py -q",
+      "spec": {
+        "objective": "Extend overseer/procedure.py PROCEDURE_REGISTRY: add a daemon-supervisor procedure and refine oracle-author to be RED-first. Single-file edit; preserve everything else byte-for-byte.",
+        "functional_requirements": [
+          "Define GateResult dataclass with fields ok: bool, reason: str, fix_hint: str.",
+          "Implement oracle_is_red(test_path, *, run_seam) -> GateResult to assert the test fails.",
+          "Implement oracles_committed_at_head(paths, *, git_seam) -> GateResult to check HEAD membership.",
+          "Implement brief_lint(brief_text) -> GateResult to check title, required plan shape, and citations.",
+          "Implement plan_preflight(plan, *, state_dir, validator=validate_plan) -> GateResult to wrap the plan validator and add recipe checks.",
+          "Implement suite_green_zero_reg(report) -> GateResult to assert green oracle and zero regressions.",
+          "Implement posture_locked(*, state_dir) -> GateResult to assert full_stop exists, pause flag, and auto_promote deny-all."
+        ],
+        "interfaces": "GateResult(ok: bool, reason: str, fix_hint: str); oracle_is_red(test_path, *, run_seam) -> GateResult; oracles_committed_at_head(paths, *, git_seam) -> GateResult; brief_lint(brief_text) -> GateResult; plan_preflight(plan, *, state_dir) -> GateResult; suite_green_zero_reg(report) -> GateResult; posture_locked(*, state_dir) -> GateResult",
+        "edge_cases": [
+          "brief_lint handles empty text gracefully.",
+          "brief_lint rejects naked line number citations like file.py:123.",
+          "plan_preflight handles non-'T1' task_id checking and collision checks.",
+          "posture_locked handles missing directories or files under state_dir gracefully."
+        ],
+        "non_goals": [
+          "No edits to existing overseer symbols.",
+          "No integration with external agent execution loops."
+        ],
+        "implementation_notes": "EDIT overseer/procedure.py (emit the COMPLETE file \u2014 it is small \u2014 preserving every existing symbol: Phase, Procedure, Blocked, Complete, advance, and the brief-author/dispatch/push registry entries unchanged). Make TWO changes to PROCEDURE_REGISTRY: (1) ADD key 'daemon-supervisor' = Procedure(mode='daemon-supervisor', phases=[Phase('OBSERVE','daemon_observed','Observe the daemon and queue state.'), Phase('HEALTH','daemon_healthy','Check daemon liveness and locks.'), Phase('RECONCILE','reconciled','Reconcile stuck or blocked tasks.'), Phase('REPORT','reported','Report the supervision outcome.')]). (2) REPLACE the 'oracle-author' entry's phases with EXACTLY [Phase('SCOPE','scope_locked','Pin the contract under test.'), Phase('DRAFT','oracle_drafted','Draft the oracle assertions.'), Phase('RED','oracle_is_red','Run the oracle and confirm it FAILS (red).'), Phase('COMMIT','oracle_committed','Commit the red oracle as the source of truth.')] \u2014 the RED phase's gate MUST be 'oracle_is_red'. Keep the positional Phase(name, gate, next_action) shape identical to existing entries. Do NOT add new top-level symbols or touch any other file.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/overseer/test_procedure.py\n```python\n\"\"\"RED oracle for overseer/procedure.py \u2014 the per-mode phase reducer.\n\nPROCEDURE_REGISTRY maps the four procedure-bearing modes to an ordered list of\nphases; each phase binds a gate NAME (a string resolved against overseer.gates)\nplus a single human-readable next-action string. ``advance(procedure, phase,\ngate_result)`` is the PURE reducer: a failed gate yields ``Blocked(reason,\nfix_hint)``; a passing gate yields the next phase name; a passing gate on the\nLAST phase yields the ``Complete`` singleton. No I/O, no spawn \u2014 pure data + logic.\n\"\"\"\nimport pytest\n\nfrom overseer.procedure import (\n    Phase,\n    Procedure,\n    PROCEDURE_REGISTRY,\n    advance,\n    Blocked,\n    Complete,\n)\nfrom overseer.gates import GateResult\n\n\ndef _passed():\n    return GateResult(ok=True, reason='', fix_hint='')\n\n\ndef _failed():\n    return GateResult(ok=False, reason='gate said no', fix_hint='do the thing')\n\n\n# --- registry shape -----------------------------------------------------------\n\ndef test_registry_has_the_four_procedure_modes():\n    for mode in ('brief-author', 'oracle-author', 'dispatch', 'push'):\n        assert mode in PROCEDURE_REGISTRY\n\n\ndef test_brief_author_phase_order_matches_the_recipe():\n    proc = PROCEDURE_REGISTRY['brief-author']\n    assert [p.name for p in proc.phases] == ['SCOPE', 'ORACLE', 'COMMIT', 'BRIEF', 'PLAN']\n\n\ndef test_dispatch_phase_order_matches_the_recipe():\n    proc = PROCEDURE_REGISTRY['dispatch']\n    assert [p.name for p in proc.phases] == ['PREFLIGHT', 'STAGE', 'BUILD', 'VERIFY', 'RESTORE']\n\n\ndef test_push_phase_order_matches_the_recipe():\n    proc = PROCEDURE_REGISTRY['push']\n    assert [p.name for p in proc.phases] == ['SWEEP', 'ZERO_REG', 'POSTURE', 'PUSH']\n\n\ndef test_every_phase_binds_a_gate_name_and_a_next_action():\n    for proc in PROCEDURE_REGISTRY.values():\n        for ph in proc.phases:\n            assert isinstance(ph.gate, str) and ph.gate\n            assert isinstance(ph.next_action, str) and ph.next_action\n\n\n# --- the reducer --------------------------------------------------------------\n\ndef test_advance_blocks_on_a_failed_gate():\n    proc = PROCEDURE_REGISTRY['brief-author']\n    d = advance(proc, 'SCOPE', _failed())\n    assert isinstance(d, Blocked)\n    assert d.reason == 'gate said no'\n    assert d.fix_hint == 'do the thing'\n\n\ndef test_advance_returns_next_phase_on_pass():\n    proc = PROCEDURE_REGISTRY['brief-author']\n    assert advance(proc, 'SCOPE', _passed()) == 'ORACLE'\n    assert advance(proc, 'ORACLE', _passed()) == 'COMMIT'\n\n\ndef test_advance_completes_after_the_last_phase():\n    proc = PROCEDURE_REGISTRY['brief-author']\n    assert advance(proc, 'PLAN', _passed()) is Complete\n\n\ndef test_advance_on_failed_last_phase_still_blocks_not_completes():\n    proc = PROCEDURE_REGISTRY['brief-author']\n    assert isinstance(advance(proc, 'PLAN', _failed()), Blocked)\n\n\n# --- follow-up: pipeline-overseer (daemon-supervisor) procedure ---------------\n# The daemon-supervisor mode (already in the mode registry) gains a procedure so\n# overseeing the pipeline is itself a hard-blocked, guided sequence; it inherits\n# the sequence-lock + per-turn guidance for free via the enforcement layer.\n\ndef test_registry_includes_daemon_supervisor_pipeline_overseer():\n    assert 'daemon-supervisor' in PROCEDURE_REGISTRY\n\n\ndef test_daemon_supervisor_phase_order():\n    proc = PROCEDURE_REGISTRY['daemon-supervisor']\n    assert [p.name for p in proc.phases] == ['OBSERVE', 'HEALTH', 'RECONCILE', 'REPORT']\n\n\ndef test_daemon_supervisor_advances_and_completes():\n    proc = PROCEDURE_REGISTRY['daemon-supervisor']\n    assert advance(proc, 'OBSERVE', _passed()) == 'HEALTH'\n    assert advance(proc, 'REPORT', _passed()) is Complete\n    assert isinstance(advance(proc, 'HEALTH', _failed()), Blocked)\n\n\n# --- follow-up: red-oracle-author procedure (RED-first) ----------------------\n# oracle-author is refined to an explicitly RED-first sequence whose RED phase\n# binds the oracle_is_red gate \u2014 you cannot leave RED until the oracle fails.\n\ndef test_oracle_author_is_red_first():\n    proc = PROCEDURE_REGISTRY['oracle-author']\n    assert [p.name for p in proc.phases] == ['SCOPE', 'DRAFT', 'RED', 'COMMIT']\n\n\ndef test_oracle_author_red_phase_binds_the_oracle_is_red_gate():\n    proc = PROCEDURE_REGISTRY['oracle-author']\n    red = [p for p in proc.phases if p.name == 'RED'][0]\n    assert 'red' in red.gate.lower()  # the RED phase's gate is oracle_is_red\n\n\ndef test_oracle_author_advances_through_red_to_commit():\n    proc = PROCEDURE_REGISTRY['oracle-author']\n    assert advance(proc, 'DRAFT', _passed()) == 'RED'\n    assert advance(proc, 'RED', _passed()) == 'COMMIT'\n    assert advance(proc, 'COMMIT', _passed()) is Complete\n\n```\n",
+        "spec_author": null
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_gateresult_carries_ok_reason_fixhint"
+          },
+          {
+            "name": "test_oracle_is_red_true_when_test_fails"
+          },
+          {
+            "name": "test_oracle_is_red_false_when_test_passes"
+          },
+          {
+            "name": "test_committed_at_head_true_when_all_committed"
+          },
+          {
+            "name": "test_committed_at_head_false_names_the_uncommitted_path"
+          },
+          {
+            "name": "test_brief_lint_ok_for_well_formed_brief"
+          },
+          {
+            "name": "test_brief_lint_flags_missing_required_plan_shape"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_brief_lint_flags_naked_line_number_citation"
+          },
+          {
+            "name": "test_plan_preflight_rejects_processed_marker_collision"
+          }
+        ],
+        "minimum_test_count": 11,
+        "test_data_requirements": "Uses mock seams and in-memory dict structures for plan validation tests."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Tests are already written in test_gates.py."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ]
+}

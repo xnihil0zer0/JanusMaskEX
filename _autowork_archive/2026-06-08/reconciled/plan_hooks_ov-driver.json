@@ -1,0 +1,122 @@
+{
+  "tasks": [
+    {
+      "task_id": "overseer-driver-impl",
+      "title": "overseer/driver.py \u2014 deterministic injected-seam shell for run_turn / AssistantTurn",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "overseer/driver.py"
+      ],
+      "acceptance_criteria": [
+        "overseer/driver.py is a NEW single-file, whole-file, stdlib-only module (it MAY import sibling overseer modules such as overseer.mode_gate and overseer.model_select).",
+        "Public surface exactly reproduces what the oracle imports: run_turn(conversation, user_text, *, runner, env_builder, jail_builder, stream_parser, **kw) -> AssistantTurn and the AssistantTurn type with .session_id, .text, .tool_uses.",
+        "run_turn builds the claude stream-json argv containing --output-format, stream-json, --include-partial-messages, --model <conversation['model']>, and --tools <joined allowlist> where the allowlist comes from overseer.mode_gate.resolve_tool_allowlist(current_mode); every allowed tool string appears in the joined argv.",
+        "APPEND path adds --resume <conversation['claude_session_id']>; a rewind/branch path adds --fork-session.",
+        "Built argv is wrapped via jail_builder(cmd, **kw); env is built via env_builder(...); user_text is fed via stdin.",
+        "The injected runner(argv, *, env=None, stdin=None, **kw) is the ONLY process path and is called EXACTLY ONCE; it returns a LIST of stream-json NDJSON line strings.",
+        "NDJSON lines are parsed into the AssistantTurn: .session_id captured from the init event's session_id, .text accumulated verbatim from text_delta deltas, .tool_uses collected from tool_use content blocks (each exposing 'name'); events are relayed to the injected stream_parser.",
+        "No real subprocess / model API call / SSE / network anywhere; no file other than overseer/driver.py is touched; no oracle is authored or edited.",
+        "GREEN under: python -m pytest tests/overseer/test_driver.py -q"
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/overseer/test_driver.py -q",
+      "spec": {
+        "objective": "Implement the NEW stdlib-only module overseer/driver.py as a deterministic shell around injected seams (runner / env_builder / jail_builder / stream_parser), satisfying the pre-committed authoritative oracle tests/overseer/test_driver.py without authoring or editing any test and without touching any other file.",
+        "functional_requirements": [
+          "Expose run_turn(conversation, user_text, *, runner, env_builder, jail_builder, stream_parser, **kw) -> AssistantTurn with the EXACT public surface imported by the oracle; conversation is a dict {claude_session_id, current_mode, model, agent_backend, transcript}.",
+          "Define an AssistantTurn type constructible/observable with attributes .session_id, .text (str), and .tool_uses (list).",
+          "Build the claude stream-json argv that contains --output-format, the literal stream-json, --include-partial-messages, --model followed by conversation['model'], and --tools followed by the joined tool allowlist.",
+          "Resolve the tool allowlist by calling overseer.mode_gate.resolve_tool_allowlist(conversation['current_mode']) and join it (space/comma-joined) such that every allowed tool string is present in the joined argv.",
+          "On an APPEND/continuation turn add --resume <conversation['claude_session_id']>; on a rewind/branch turn add --fork-session.",
+          "Wrap the built argv via jail_builder(cmd, **kw) and build the process env via env_builder(...), passing through the relevant injected seams/kwargs.",
+          "Spawn through the injected runner(argv, *, env=None, stdin=None, **kw) EXACTLY ONCE, feeding user_text via stdin; treat runner's returned LIST of NDJSON strings as the stream.",
+          "Parse the NDJSON stream lines: capture .session_id from the init event's session_id, accumulate .text verbatim from text_delta deltas, and collect tool_use content blocks into .tool_uses (each carrying 'name'); relay parsed events to the injected stream_parser.",
+          "Keep everything deterministic and stdlib-only: no real subprocess, no model API call, no SSE, no network \u2014 the injected runner is the only process path; only sibling overseer modules may be imported."
+        ],
+        "interfaces": "overseer/driver.py: run_turn(conversation, user_text, *, runner, env_builder, jail_builder, stream_parser, **kw) -> AssistantTurn; AssistantTurn(session_id, text, tool_uses). Imports overseer.mode_gate (resolve_tool_allowlist) + overseer.model_select.",
+        "edge_cases": [
+          "Missing/empty claude_session_id on a fresh (non-APPEND) turn: do not emit --resume.",
+          "Rewind/branch turn must emit --fork-session and combine correctly with resume semantics per the oracle.",
+          "Empty or multiple text_delta events: accumulate verbatim with no normalization; empty stream yields empty .text.",
+          "Stream containing no init event vs. an init event arriving mid-stream: session_id capture must follow the oracle's expectation.",
+          "Multiple tool_use blocks: preserve order and each block's 'name'; non-tool_use / non-text content blocks are ignored for .text and .tool_uses.",
+          "runner must be invoked exactly once \u2014 no retry, no double-spawn; **kw must thread through to the seams as the oracle expects."
+        ],
+        "non_goals": [
+          "No real agent spawn, subprocess, model API call, SSE, or network \u2014 the injected runner is the only process path.",
+          "Do not author or edit tests; the oracle is a pre-committed precondition.",
+          "Touch no file other than overseer/driver.py.",
+          "No third-party dependencies; stdlib only (sibling overseer modules allowed)."
+        ],
+        "implementation_notes": "IMPL-only against the AUTHORITATIVE oracle tests/overseer/test_driver.py \u2014 reproduce the EXACT public surface it imports. Read the oracle to fix precise argv ordering, the joined-allowlist separator, the resume/fork-session conditions, the init/text_delta/tool_use event shapes, and how stream_parser is invoked. Build argv -> jail_builder(cmd, **kw); env -> env_builder(...); call runner(argv, env=..., stdin=user_text, **kw) exactly once; iterate its returned NDJSON line list, json-decode each line, and fold into an AssistantTurn. Keep the module whole-file and stdlib-only.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/overseer/test_driver.py\n```python\n\"\"\"RED oracle for overseer/driver.py \u2014 the per-turn interactive loop.\n\nThe driver is a DETERMINISTIC shell around injected seams (runner/env_builder/\njail_builder/stream_parser/sink). It NEVER spawns a real process in tests. It\nbuilds the claude argv (--resume to append, --fork-session to branch a rewind,\n--model, --output-format stream-json, --include-partial-messages, --tools <mode\nallowlist>), wraps it via jail_builder, spawns via the injected runner, extracts\nthe new session_id + accumulated text + tool-use events from the stream, and\nrelays deltas to an injected sink. Tool allowlist comes from mode_gate\n(tool-withholding). Rewind reconstructs the prefix VERBATIM and forks (constraint 8).\n\"\"\"\nimport pytest\n\nfrom overseer.driver import run_turn, AssistantTurn\n\n\n# --- injected fakes -------------------------------------------------------\n\nCLAUDE_STREAM = [\n    '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"NEWSID\"}',\n    '{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello \"}}',\n    '{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"world\"}}',\n    '{\"type\":\"content_block_start\",\"content_block\":'\n    '{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Read\",\"input\":{\"file\":\"x\"}}}',\n    '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"NEWSID\"}',\n]\n\n\nclass FakeRunner:\n    \"\"\"Records the spawn and replays canned stream-json NDJSON lines.\"\"\"\n\n    def __init__(self, lines):\n        self.lines = lines\n        self.argv = None\n        self.env = None\n        self.stdin = None\n        self.spawned = 0\n\n    def __call__(self, argv, *, env=None, stdin=None, **kw):\n        self.spawned += 1\n        self.argv = list(argv)\n        self.env = env\n        self.stdin = stdin\n        return list(self.lines)\n\n\ndef _identity_jail(cmd, **kwargs):\n    # record-and-passthrough so the test can inspect the inner claude argv\n    _identity_jail.calls.append((list(cmd), kwargs))\n    return list(cmd)\n\n\n_identity_jail.calls = []\n\n\ndef _fake_env(*a, **k):\n    return {\"FAKE_ENV\": \"1\"}\n\n\nclass FakeParser:\n    def __init__(self):\n        self.events = []\n\n    def handle_event(self, event):\n        self.events.append(event)\n\n\ndef _conversation(**over):\n    base = {\n        \"claude_session_id\": \"SID0\",\n        \"current_mode\": \"observe\",\n        \"model\": \"opus\",\n        \"agent_backend\": \"claude\",\n        \"transcript\": [],\n    }\n    base.update(over)\n    return base\n\n\ndef _run(conversation, text, runner, **kw):\n    _identity_jail.calls = []\n    return run_turn(\n        conversation,\n        text,\n        runner=runner,\n        env_builder=_fake_env,\n        jail_builder=_identity_jail,\n        stream_parser=FakeParser(),\n        **kw,\n    )\n\n\n# --- tests ----------------------------------------------------------------\n\ndef test_returns_assistant_turn_with_session_text_and_tools():\n    runner = FakeRunner(CLAUDE_STREAM)\n    out = _run(_conversation(), \"hi\", runner)\n    assert isinstance(out, AssistantTurn)\n    assert out.session_id == \"NEWSID\"          # captured from the init event\n    assert out.text == \"Hello world\"           # text deltas accumulated verbatim\n    assert any(tu.get(\"name\") == \"Read\" for tu in out.tool_uses)\n\n\ndef test_only_spawns_through_the_injected_runner():\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(), \"hi\", runner)\n    assert runner.spawned == 1  # the ONLY process path is the injected seam\n\n\ndef test_argv_carries_stream_flags_and_model():\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(model=\"sonnet\"), \"hi\", runner)\n    argv = runner.argv\n    assert \"--output-format\" in argv\n    assert \"stream-json\" in argv\n    assert \"--include-partial-messages\" in argv\n    i = argv.index(\"--model\")\n    assert argv[i + 1] == \"sonnet\"\n\n\ndef test_argv_withholds_tools_via_mode_gate_allowlist():\n    from overseer.mode_gate import resolve_tool_allowlist\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(current_mode=\"observe\"), \"hi\", runner)\n    argv = runner.argv\n    assert \"--tools\" in argv\n    # the concrete allowlist handed to the agent is the mode's, not arbitrary\n    allow = resolve_tool_allowlist(\"observe\")\n    joined = \" \".join(argv)\n    assert all(tool in joined for tool in allow)\n\n\ndef test_append_resumes_the_existing_session():\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(claude_session_id=\"SID0\"), \"hi\", runner)  # rewind_to_index=None\n    argv = runner.argv\n    i = argv.index(\"--resume\")\n    assert argv[i + 1] == \"SID0\"\n    assert \"--fork-session\" not in argv\n\n\ndef test_first_turn_has_no_resume():\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(claude_session_id=None), \"hi\", runner)\n    assert \"--resume\" not in runner.argv\n\n\ndef test_rewind_forks_instead_of_resuming():\n    # Constraint 8: a rewind branches into a fresh session (cache-preserving),\n    # never an in-place mid-edit.\n    runner = FakeRunner(CLAUDE_STREAM)\n    conv = _conversation(transcript=[\n        {\"index\": 0, \"role\": \"user\", \"mode\": \"observe\", \"content\": \"a\"},\n        {\"index\": 1, \"role\": \"assistant\", \"mode\": \"observe\", \"content\": \"b\"},\n        {\"index\": 2, \"role\": \"user\", \"mode\": \"observe\", \"content\": \"c\"},\n    ])\n    _run(conv, \"redo from 1\", runner, rewind_to_index=1)\n    assert \"--fork-session\" in runner.argv\n\n\ndef test_jail_and_env_seams_are_used():\n    runner = FakeRunner(CLAUDE_STREAM)\n    _run(_conversation(), \"hi\", runner)\n    assert _identity_jail.calls, \"driver must wrap the command via jail_builder\"\n    assert runner.env == {\"FAKE_ENV\": \"1\"}  # env came from the injected builder\n\n\ndef test_stream_parser_seam_receives_every_event():\n    parser = FakeParser()\n    runner = FakeRunner(CLAUDE_STREAM)\n    _identity_jail.calls = []\n    run_turn(\n        _conversation(), \"hi\",\n        runner=runner, env_builder=_fake_env, jail_builder=_identity_jail,\n        stream_parser=parser,\n    )\n    assert len(parser.events) == len(CLAUDE_STREAM)\n\n\ndef test_sink_receives_streamed_deltas_for_sse_relay():\n    sink_lines = []\n    runner = FakeRunner(CLAUDE_STREAM)\n    _identity_jail.calls = []\n    run_turn(\n        _conversation(), \"hi\",\n        runner=runner, env_builder=_fake_env, jail_builder=_identity_jail,\n        stream_parser=FakeParser(), sink=sink_lines.append,\n    )\n    assert sink_lines, \"driver must write streamed deltas to the injected sink\"\n\n\ndef test_agy_backend_uses_stdin_and_no_model_flag():\n    agy_stream = ['{\"type\":\"init\",\"session_id\":\"AGY1\"}',\n                  '{\"type\":\"assistant\",\"content\":\"hi there\"}']\n    runner = FakeRunner(agy_stream)\n    out = _run(_conversation(agent_backend=\"agy\", model=None), \"drive me\", runner)\n    assert \"--model\" not in runner.argv          # agy self-selects, no model knob\n    assert runner.stdin is not None and \"drive me\" in runner.stdin\n    assert isinstance(out, AssistantTurn)\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "run_turn returns an AssistantTurn with session_id/text/tool_uses attributes (public surface matches oracle)"
+          },
+          {
+            "name": "argv includes --output-format and the literal stream-json"
+          },
+          {
+            "name": "argv includes --include-partial-messages"
+          },
+          {
+            "name": "argv includes --model <conversation['model']>"
+          },
+          {
+            "name": "argv --tools allowlist contains every string from resolve_tool_allowlist(current_mode)"
+          },
+          {
+            "name": "APPEND turn emits --resume <claude_session_id>"
+          },
+          {
+            "name": "rewind/branch turn emits --fork-session"
+          },
+          {
+            "name": "jail_builder wraps argv and env_builder builds env; user_text fed via stdin"
+          },
+          {
+            "name": "runner is called exactly once and is the only process path"
+          },
+          {
+            "name": "init event session_id captured; text_delta deltas accumulated verbatim; tool_use blocks collected with 'name'; events relayed to stream_parser"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "end-to-end run_turn over a fabricated NDJSON line list (init + text_delta + tool_use) produces the expected AssistantTurn"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "text accumulation is the verbatim concatenation of text_delta deltas in stream order"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "module imports cleanly with stdlib only (plus sibling overseer modules) and no network/subprocess side effects at import or run"
+          }
+        ],
+        "minimum_test_count": 14,
+        "test_data_requirements": "Fabricated in-memory stream-json NDJSON line lists (init event with session_id, one or more text_delta events, one or more tool_use content blocks) and fake injected seams (runner returning the list, env_builder, jail_builder, stream_parser) plus a conversation dict {claude_session_id, current_mode, model, agent_backend, transcript}. All provided by the pre-committed oracle; no real processes or network."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "IMPL-only task: the authoritative oracle tests/overseer/test_driver.py is pre-committed and not authored here; the test_tokens figure reflects the existing oracle surface the implementation must satisfy, kept >= 1.5x implementation per schema."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "brief_hooks_ov-driver.md",
+  "source_brief_sha256": "53d12234a01edcd934ed06d73dfc9b9fab474e072471f35e0ad6710f0fe6e550"
+}

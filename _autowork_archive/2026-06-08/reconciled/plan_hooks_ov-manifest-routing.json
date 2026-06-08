@@ -1,0 +1,119 @@
+{
+  "tasks": [
+    {
+      "task_id": "fix-nonpy-manifest-routing",
+      "title": "Route non-Python / multi-file bypass-fuzzer edit leaves to verbatim __JANUSMASK_MANIFEST__ dispatch in prepare_task_prompt",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/orchestrator.py"
+      ],
+      "acceptance_criteria": [
+        "A new module-level helper _requires_verbatim_manifest(files_touched) -> bool exists in harness/orchestrator.py.",
+        "_requires_verbatim_manifest returns False for a non-list/empty input, False for a single .py target, and True for multi-file bundles (len > 1) or any non-.py target.",
+        "prepare_task_prompt computes use_manifest = _requires_verbatim_manifest(files_touched) just after files_touched and mtt are computed.",
+        "The PARTIAL-EDIT branch guard becomes: if (task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES) and not use_manifest:",
+        "The MULTI-FILE branch condition becomes: elif use_manifest: (replacing the old elif isinstance(files_touched, list) and len(files_touched) > 1:).",
+        "A harness_plumbing leaf touching ['tools/webui_static/app.js','tools/webui_static/styles.css'] yields a prompt containing __JANUSMASK_MANIFEST__ and MULTI-FILE DISPATCH and NOT containing PARTIAL-EDIT DISPATCH.",
+        "A harness_self_fix leaf touching ['harness/config.yaml'] yields a prompt containing __JANUSMASK_MANIFEST__ and NOT containing PARTIAL-EDIT DISPATCH.",
+        "REGRESSION: a harness_plumbing leaf touching ['harness/webui_control.py'] yields a prompt containing PARTIAL-EDIT DISPATCH and NOT containing __JANUSMASK_MANIFEST__.",
+        "Both large prompt += '...' dispatch strings (PARTIAL-EDIT and MULTI-FILE blocks) are byte-identical to the staged target; only the routing guards change.",
+        "No change to _validate_submission, _save_final_output, _parse_manifest, git_integration, or any prompt-string content; no new patch kind.",
+        "GREEN under python -m pytest tests/adversarial/test_nonpy_manifest_routing.py -q with zero regressions."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/adversarial/test_nonpy_manifest_routing.py -q",
+      "spec": {
+        "objective": "Surgically fix the dispatch-prompt routing in harness/orchestrator.py so that non-Python (.js/.css/.yaml/...) and multi-file bypass-fuzzer edit leaves are routed to the existing __JANUSMASK_MANIFEST__ whole-file (verbatim) dispatch instead of being forced into the Python-only __JANUSMASK_PATCHES__ symbol-patch dispatch, while single .py edits continue to use the working symbol-patch path. Make the pre-committed, authoritative RED oracle tests/adversarial/test_nonpy_manifest_routing.py pass with zero regressions.",
+        "functional_requirements": [
+          "Add a module-level helper def _requires_verbatim_manifest(files_touched) -> bool to harness/orchestrator.py that returns False when files_touched is not a non-empty list, and otherwise returns True when len(files_touched) > 1 or any target does not end with '.py' (single .py target returns False). Use exactly the body given in the brief implementation notes.",
+          "In prepare_task_prompt, immediately after files_touched and mtt are computed, add use_manifest = _requires_verbatim_manifest(files_touched).",
+          "Change the PARTIAL-EDIT branch guard to: if (task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES) and not use_manifest: so the manifest case wins over the bypass-fuzzer partial-edit case.",
+          "Change the MULTI-FILE branch condition to: elif use_manifest: replacing the prior elif isinstance(files_touched, list) and len(files_touched) > 1: condition.",
+          "Preserve everything else in prepare_task_prompt byte-identical: the base prompt, both giant prompt += '...' dispatch strings (PARTIAL-EDIT and MULTI-FILE blocks, copied verbatim from the staged target), the test_authoring block, the spec_summary tail, and the return prompt."
+        ],
+        "interfaces": "harness/orchestrator.py: add module-level _requires_verbatim_manifest(files_touched) -> bool predicate and route non-.py / multi-file BYPASS_FUZZER_TYPES edit leaves in prepare_task_prompt to the __JANUSMASK_MANIFEST__ verbatim whole-file dispatch instead of the Python-only __JANUSMASK_PATCHES__ symbol-patch dispatch. No signature change to prepare_task_prompt.",
+        "edge_cases": [
+          "files_touched is None or not a list \u21d2 _requires_verbatim_manifest returns False (single-py/no-op preserves the symbol-patch path).",
+          "files_touched is an empty list \u21d2 returns False.",
+          "Single .py target (e.g. ['harness/webui_control.py']) \u21d2 returns False, PARTIAL-EDIT DISPATCH preserved, no __JANUSMASK_MANIFEST__.",
+          "Multi-file bundle of .py files (len > 1) \u21d2 returns True (manifest), since the symbol-patch path applies one file at a time.",
+          "Single non-.py target (e.g. ['harness/config.yaml']) \u21d2 returns True (manifest) even though len == 1.",
+          "Mixed .py + non-.py multi-file bundle \u21d2 returns True."
+        ],
+        "non_goals": [
+          "No change to _validate_submission, _save_final_output, _parse_manifest, or git_integration.",
+          "No change to any prompt-string CONTENT (the two dispatch blocks are copied verbatim).",
+          "Do NOT touch the patches path for single .py edits.",
+          "Do NOT add a new patch kind.",
+          "Do NOT author or edit any test; the oracle is pre-committed and authoritative.",
+          "Do NOT split this into multiple leaves; exactly one leaf editing harness/orchestrator.py."
+        ],
+        "implementation_notes": "Single .py file edit \u21d2 use the working __JANUSMASK_PATCHES__ symbol-patch path with ONE patch entry whose kind is 'symbol' and name is 'prepare_task_prompt'. The new _requires_verbatim_manifest helper rides as an R-anchored EXTRA top-level def node within that SAME symbol patch entry (a 1-part top-level qualname permits extra top-level def nodes, inserted immediately before the primary). Read the CURRENT prepare_task_prompt from the staged read-only target at inbox/targets/harness/orchestrator.py and reproduce it byte-for-byte except the two routing-guard lines. Helper body: if not isinstance(files_touched, list) or not files_touched: return False; return len(files_touched) > 1 or any(not str(f).endswith('.py') for f in files_touched). Net effect: ['app.js','styles.css'] (harness_plumbing) and ['harness/config.yaml'] (harness_self_fix) emit __JANUSMASK_MANIFEST__; ['harness/webui_control.py'] still emits __JANUSMASK_PATCHES__.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/adversarial/test_nonpy_manifest_routing.py\n```python\n\"\"\"RED oracle: route non-Python / multi-file bypass-fuzzer edits to the\nVERBATIM ``__JANUSMASK_MANIFEST__`` whole-file path instead of the Python-only\n``__JANUSMASK_PATCHES__`` symbol-patch path.\n\nRoot cause (HANDOFF_multifile_nonpython_edits.md \u00a71): in\n``harness.orchestrator.prepare_task_prompt`` the ``mtt in BYPASS_FUZZER_TYPES``\nguard is checked FIRST and is true for every safe edit type\n(``harness_plumbing``, ``harness_self_fix`` ...). So a non-Python (``.js`` /\n``.css`` / ``.yaml``) or multi-file edit leaf is forced into the PARTIAL-EDIT\ndispatch (branch A), whose applier ``_apply_symbol_patch`` is pure ``ast.parse``\nand CANNOT apply a non-Python file -> ``ast.parse`` raises -> rollback -> the\nstructural oracle fails. The verbatim whole-file apply already exists\n(``git_integration._apply_file_to_target`` non-``.py`` arm writes verbatim); the\nbug is purely DISPATCH ROUTING.\n\nFix: a module-level predicate ``_requires_verbatim_manifest(files_touched)`` ->\nTrue when the leaf touches > 1 file OR any non-``.py`` target. ``prepare_task_prompt``\nmust route those leaves to the ``__JANUSMASK_MANIFEST__`` branch even when\n``mtt in BYPASS_FUZZER_TYPES``; a single ``.py`` edit STILL uses the patches path.\n\nTests 1-2 FAIL on HEAD (RED -> the routing bug) and pass after the fix. Tests\n3-6 are regression / guardrail invariants that must hold both before and after.\n\"\"\"\nfrom __future__ import annotations\n\nimport json\nimport subprocess\n\nimport pathlib\n\nimport pytest\n\nfrom harness import git_integration\nfrom harness.orchestrator import prepare_task_prompt, _save_final_output\n\n\n# Markers that uniquely identify which dispatch block the prompt emitted.\n_MANIFEST_TOKEN = \"__JANUSMASK_MANIFEST__\"\n_MANIFEST_HEADER = \"MULTI-FILE DISPATCH\"\n_PATCHES_HEADER = \"PARTIAL-EDIT DISPATCH\"\n\n\ndef _git(args, cwd):\n    subprocess.run(\n        [\"git\"] + args, cwd=str(cwd), check=True,\n        stdout=subprocess.PIPE, stderr=subprocess.PIPE,\n    )\n\n\n# ---------------------------------------------------------------------------\n# 1. multi-file non-Python bypass leaf -> MANIFEST dispatch (RED on HEAD)\n# ---------------------------------------------------------------------------\ndef test_prepare_prompt_multifile_nonpy_routes_to_manifest():\n    task = {\n        \"task_id\": \"t-frontend\",\n        \"meta_task_type\": \"harness_plumbing\",  # in BYPASS_FUZZER_TYPES\n        \"files_touched\": [\n            \"tools/webui_static/app.js\",\n            \"tools/webui_static/styles.css\",\n        ],\n    }\n    prompt = prepare_task_prompt(task)\n    assert _MANIFEST_TOKEN in prompt and _MANIFEST_HEADER in prompt, (\n        \"multi-file non-Python bypass leaf must get the __JANUSMASK_MANIFEST__ \"\n        \"(verbatim whole-file) dispatch\"\n    )\n    assert _PATCHES_HEADER not in prompt, (\n        \"multi-file non-Python bypass leaf was forced into the PARTIAL-EDIT \"\n        \"(Python-only symbol-patch) dispatch -- that path cannot apply .js/.css\"\n    )\n\n\n# ---------------------------------------------------------------------------\n# 2. single non-Python bypass leaf -> MANIFEST dispatch (RED on HEAD)\n# ---------------------------------------------------------------------------\ndef test_prepare_prompt_single_nonpy_routes_to_manifest():\n    task = {\n        \"task_id\": \"t-config\",\n        \"meta_task_type\": \"harness_self_fix\",  # in BYPASS_FUZZER_TYPES\n        \"files_touched\": [\"harness/config.yaml\"],\n    }\n    prompt = prepare_task_prompt(task)\n    assert _MANIFEST_TOKEN in prompt, (\n        \"single non-Python bypass leaf (config.yaml) must get the verbatim \"\n        \"__JANUSMASK_MANIFEST__ dispatch, not the symbol-patch dispatch\"\n    )\n    assert _PATCHES_HEADER not in prompt, (\n        \"single non-Python bypass leaf was forced into the PARTIAL-EDIT \"\n        \"(ast.parse) dispatch -- ast.parse on YAML raises -> rollback\"\n    )\n\n\n# ---------------------------------------------------------------------------\n# 3. REGRESSION: single .py bypass leaf STILL uses the patches path\n# ---------------------------------------------------------------------------\ndef test_prepare_prompt_single_py_still_uses_patches():\n    task = {\n        \"task_id\": \"t-webui-control\",\n        \"meta_task_type\": \"harness_plumbing\",\n        \"files_touched\": [\"harness/webui_control.py\"],\n    }\n    prompt = prepare_task_prompt(task)\n    assert _PATCHES_HEADER in prompt, (\n        \"single .py bypass leaf must keep using the working __JANUSMASK_PATCHES__ \"\n        \"symbol-patch dispatch (webui_control proved it works)\"\n    )\n    assert _MANIFEST_TOKEN not in prompt, (\n        \"single .py bypass leaf must NOT be re-routed to the manifest dispatch\"\n    )\n\n\n# ---------------------------------------------------------------------------\n# 4. GUARDRAIL: _save_final_output for a manifest writes .files.json (not .patches)\n# ---------------------------------------------------------------------------\ndef test_save_final_output_manifest_writes_files_sidecar(tmp_path):\n    state_dir = tmp_path / \"state\"\n    (state_dir / \"output\").mkdir(parents=True)\n    task_id = \"t-save-manifest\"\n    code = (\n        \"__JANUSMASK_MANIFEST__ = {\\n\"\n        \"    'a.js': r'''console.log(1);\\n''',\\n\"\n        \"    'b.css': r''':root { color: red; }\\n''',\\n\"\n        \"}\\n\"\n    )\n    _save_final_output(state_dir, task_id, code)\n    files_sidecar = state_dir / \"output\" / f\"{task_id}.files.json\"\n    patches_sidecar = state_dir / \"output\" / f\"{task_id}.patches.json\"\n    assert files_sidecar.exists(), \"manifest submission must emit a .files.json sidecar\"\n    assert not patches_sidecar.exists(), \"manifest submission must NOT emit a .patches.json sidecar\"\n    saved = json.loads(files_sidecar.read_text(encoding=\"utf-8\"))\n    assert saved == {\"a.js\": \"console.log(1);\\n\", \"b.css\": \":root { color: red; }\\n\"}\n\n\n# ---------------------------------------------------------------------------\n# 5. END-TO-END: a manifest commit lands non-Python files VERBATIM (one commit)\n# ---------------------------------------------------------------------------\ndef test_commit_manifest_lands_nonpy_files_verbatim(tmp_path):\n    root = tmp_path / \"repo\"\n    root.mkdir()\n    _git([\"init\", \"-q\"], root)\n    _git([\"config\", \"user.email\", \"nonpy@test\"], root)\n    _git([\"config\", \"user.name\", \"nonpy\"], root)\n    app = root / \"app.js\"\n    styles = root / \"styles.css\"\n    app.write_text(\"// OLD\\n\", encoding=\"utf-8\")\n    styles.write_text(\"/* OLD */\\n\", encoding=\"utf-8\")\n    _git([\"add\", \"-A\"], root)\n    _git([\"commit\", \"-q\", \"-m\", \"init\"], root)\n    head_before = subprocess.run(\n        [\"git\", \"rev-parse\", \"HEAD\"], cwd=str(root),\n        check=True, stdout=subprocess.PIPE,\n    ).stdout.decode().strip()\n\n    state_dir = root / \"state\"\n    out_dir = state_dir / \"output\"\n    out_dir.mkdir(parents=True)\n    task_id = \"t-commit-manifest\"\n    new_app = \"function chatIsOpen() { return false; }\\n// NEW\\n\"\n    new_styles = \":root { --mode-tier-r: #0f0; }\\n\"\n    manifest = {\"app.js\": new_app, \"styles.css\": new_styles}\n    (out_dir / f\"{task_id}.files.json\").write_text(\n        json.dumps(manifest, indent=2), encoding=\"utf-8\"\n    )\n\n    result = git_integration.commit_accepted_output(\n        task_id,\n        str(app),\n        state_dir,\n        worktree_root=root,\n        meta_task_type=\"harness_plumbing\",\n        approval_ok=True,\n        working_dir=None,  # SELF\n    )\n\n    assert result.get(\"committed\") is True, (\n        \"manifest commit failed: \" + repr(result.get(\"error\"))\n    )\n    # files landed byte-equal to the manifest values (verbatim, no AST mangling)\n    assert app.read_text(encoding=\"utf-8\") == new_app\n    assert styles.read_text(encoding=\"utf-8\") == new_styles\n    # exactly one new commit\n    head_after = subprocess.run(\n        [\"git\", \"rev-parse\", \"HEAD\"], cwd=str(root),\n        check=True, stdout=subprocess.PIPE,\n    ).stdout.decode().strip()\n    assert head_after != head_before\n    parent = subprocess.run(\n        [\"git\", \"rev-parse\", \"HEAD~1\"], cwd=str(root),\n        check=True, stdout=subprocess.PIPE,\n    ).stdout.decode().strip()\n    assert parent == head_before, \"manifest commit must add exactly one commit\"\n\n\n# ---------------------------------------------------------------------------\n# 6. NEGATIVE CONTROL: a symbol patch targeting a .js file fails LOUD\n# ---------------------------------------------------------------------------\ndef test_symbol_patch_on_js_is_rejected_nonsilent():\n    js_source = \"function boot() {\\n  return 1;\\n}\\n\"\n    new_block = \"function boot() {\\n  return 2;\\n}\\n\"\n    with pytest.raises((SyntaxError, ValueError, KeyError)):\n        git_integration._apply_symbol_patch(js_source, \"boot\", new_block)\n\n```\n\n# EXACT ROUTING CHANGE (inside prepare_task_prompt, two lines only):\n# 1. Right after files_touched and mtt are computed, add:\n#        use_manifest = _requires_verbatim_manifest(files_touched)\n# 2. Change the PARTIAL-EDIT branch guard FROM:\n#        if task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES:\n#    TO:\n#        if (task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES) and not use_manifest:\n# 3. Change the MULTI-FILE branch condition FROM:\n#        elif isinstance(files_touched, list) and len(files_touched) > 1:\n#    TO:\n#        elif use_manifest:\n# Both giant prompt += dispatch strings stay byte-identical (copy from staged target).\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_requires_verbatim_manifest_single_py_false"
+          },
+          {
+            "name": "test_requires_verbatim_manifest_single_nonpy_true"
+          },
+          {
+            "name": "test_requires_verbatim_manifest_multifile_true"
+          },
+          {
+            "name": "test_requires_verbatim_manifest_non_list_false"
+          },
+          {
+            "name": "test_requires_verbatim_manifest_empty_false"
+          },
+          {
+            "name": "test_prepare_prompt_multifile_js_css_routes_manifest"
+          },
+          {
+            "name": "test_prepare_prompt_single_yaml_routes_manifest"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_save_final_output_writes_files_json_for_manifest"
+          },
+          {
+            "name": "test_manifest_commit_lands_nonpy_verbatim_single_commit"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_any_nonpy_or_multifile_requires_manifest"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_prepare_prompt_single_py_preserves_partial_edit_dispatch"
+          },
+          {
+            "name": "test_symbol_patch_on_js_fails_loud"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Task dicts with meta_task_type in BYPASS_FUZZER_TYPES (harness_plumbing, harness_self_fix) and varying files_touched: ['tools/webui_static/app.js','tools/webui_static/styles.css'], ['harness/config.yaml'], ['harness/webui_control.py']. Assertions on substring presence/absence of __JANUSMASK_MANIFEST__, MULTI-FILE DISPATCH, and PARTIAL-EDIT DISPATCH in the prepare_task_prompt return value. The authoritative oracle is tests/adversarial/test_nonpy_manifest_routing.py (pre-committed); these names mirror its coverage and are NOT authored by this task."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "IMPL-only leaf: no test is authored or edited; the oracle tests/adversarial/test_nonpy_manifest_routing.py is pre-committed and authoritative. test_tokens satisfies the >= 1.5x schema floor only; actual test authoring effort for this leaf is zero."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "brief_hooks_ov-manifest-routing.md",
+  "source_brief_sha256": "7ed0b3721e75fee486778fba894b039cf60dd1c8ddb2a8778bf5098014f45e51"
+}

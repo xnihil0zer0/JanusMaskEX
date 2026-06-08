@@ -1,0 +1,283 @@
+{
+  "tasks": [
+    {
+      "task_id": "edit-mode-gate-can-switch",
+      "title": "EDIT overseer/mode_gate.py::can_switch \u2014 procedure-phase mode-switch lock",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "overseer/mode_gate.py"
+      ],
+      "acceptance_criteria": [
+        "can_switch consults the conversation's active procedure phase via durable state.",
+        "While phase != COMPLETE, can_switch returns False for every target except 'observe' and 'current'.",
+        "'observe' (abort) and 'current' (no-op) are always permitted at non-terminal phases.",
+        "When phase == COMPLETE, the pre-existing lattice rules resume unchanged.",
+        "When no active procedure exists, existing lattice behaviour is unchanged.",
+        "Signature can_switch(current, target, unlocked) is preserved; edit is additive.",
+        "python -m pytest tests/overseer/test_mode_gate_sequence.py -q passes."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/overseer/test_mode_gate_sequence.py tests/overseer/test_mode_gate.py -q",
+      "spec": {
+        "objective": "Additively edit overseer/mode_gate.py::can_switch so that an in-progress procedure withholds all mode switches except the abort ('observe') and no-op ('current'); once the procedure reaches COMPLETE the existing lattice resumes verbatim.",
+        "functional_requirements": [
+          "Read the active procedure phase from durable procedure state (load_state) without altering the can_switch(current, target, unlocked) signature.",
+          "While the active phase is non-terminal (!= COMPLETE), return False for every target except 'observe' and 'current'.",
+          "Return True for target 'observe' (procedure-abort) and for target 'current' (no-op) at any non-terminal phase.",
+          "When phase == COMPLETE, delegate to the existing lattice rules and return their result unchanged.",
+          "When there is no active procedure, return the existing lattice result unchanged (no regression)."
+        ],
+        "interfaces": "overseer.mode_gate.can_switch(current, target, unlocked) -> bool. Consumes substrate ProcedureState, load_state(conversation_id, *, state_dir), and the COMPLETE terminal sentinel. Must not import run_chat_turn or the PreToolUse hook.",
+        "edge_cases": [
+          "target == current at a non-terminal phase (allowed as no-op via 'current').",
+          "'observe' requested while unlocked is False (still allowed as abort).",
+          "COMPLETE terminal sentinel comparison must match the substrate's value.",
+          "Missing/absent procedure state must defer to the lattice without raising."
+        ],
+        "non_goals": [
+          "Do not author substrate (gates.py, procedure.py, procedure_state.py).",
+          "Do not touch run_chat_turn or the PreToolUse hook.",
+          "Do not add procedures/registry entries for out-of-scope modes.",
+          "Do not emit more than this one file."
+        ],
+        "implementation_notes": "CRITICAL SIGNATURE CHANGE: the new signature MUST be `def can_switch(current: str, target: str, unlocked: Collection[str], *, active_phase=None) -> bool:` \u2014 you MUST add the keyword-only `active_phase` parameter (default None); do NOT keep the 3-argument signature or the oracle's `active_phase=` calls raise TypeError. Semantics: when active_phase is None, the string 'COMPLETE', or the overseer.procedure.Complete sentinel, preserve the EXISTING lattice behaviour byte-for-byte; otherwise (a non-terminal phase) return True ONLY when target=='observe' (abort) or target==current (no-op), else False. Import Complete lazily inside the function (from overseer.procedure import Complete) wrapped in try/except to stay import-safe.\n\nDepends on external procedure-substrate for state access; consume it. Keep the lattice code path intact and only gate it behind the non-terminal-phase branch. Single-file emission: overseer/mode_gate.py only. Verified by the oracle authored in oracle-mode-gate-sequence.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/overseer/test_mode_gate.py\n```python\n\"\"\"RED oracle for overseer/mode_gate.py \u2014 mode enforcement (tool withholding).\n\nMirrors harness/mcp_server.build_execute_tool: a mode is the privilege CEILING,\nenforced by WITHHOLDING tools/routes, not by prompt. Encodes the mode-switching\nlattice (free among Tier-R, down anytime, R->W for default-available W, Tier-S\nonly when unlocked) and reverts to observe on ambiguity.\n\"\"\"\nimport pytest\n\nfrom overseer.modes import MODE_REGISTRY, get_mode\nfrom overseer.mode_gate import (\n    ModeViolation,\n    assert_tool_allowed,\n    assert_route_allowed,\n    can_switch,\n    resolve_tool_allowlist,\n)\n\nTIER_R = {\"observe\", \"analyze\", \"audit\"}\n\n\ndef test_mode_violation_is_an_exception():\n    assert issubclass(ModeViolation, Exception)\n\n\ndef test_resolve_tool_allowlist_returns_the_modes_concrete_tools():\n    for name, spec in MODE_REGISTRY.items():\n        assert resolve_tool_allowlist(name) == list(spec.allowed_tools)\n\n\ndef test_assert_tool_allowed_passes_for_an_in_allowlist_tool():\n    # Use each mode's own first declared tool \u2014 must not raise.\n    for name, spec in MODE_REGISTRY.items():\n        if spec.allowed_tools:\n            assert_tool_allowed(name, list(spec.allowed_tools)[0])  # no raise\n\n\ndef test_assert_tool_allowed_denies_an_unknown_tool():\n    with pytest.raises(ModeViolation):\n        assert_tool_allowed(\"observe\", \"DefinitelyNotARealTool\")\n\n\ndef test_read_only_modes_deny_write_and_bash():\n    # The Tier-R security property: no mutation tools, enforced by withholding.\n    for name in TIER_R:\n        with pytest.raises(ModeViolation):\n            assert_tool_allowed(name, \"Write\")\n        with pytest.raises(ModeViolation):\n            assert_tool_allowed(name, \"Bash\")\n\n\ndef test_observe_allows_the_get_state_read_route():\n    # observe is the situation room over the WebUI GET surface.\n    assert_route_allowed(\"observe\", \"GET\", \"/api/state\")  # no raise\n\n\ndef test_read_only_modes_deny_mutating_routes():\n    for name in TIER_R:\n        with pytest.raises(ModeViolation):\n            assert_route_allowed(name, \"POST\", \"/api/chat/send\")\n        with pytest.raises(ModeViolation):\n            assert_route_allowed(name, \"PUT\", \"/api/config/control\")\n\n\ndef test_can_switch_is_free_among_tier_r():\n    assert can_switch(\"observe\", \"analyze\", frozenset()) is True\n    assert can_switch(\"audit\", \"observe\", frozenset()) is True\n\n\ndef test_can_switch_allows_r_to_default_available_w():\n    assert can_switch(\"observe\", \"dispatch\", frozenset()) is True\n    assert can_switch(\"observe\", \"brief-author\", frozenset()) is True\n\n\ndef test_can_switch_allows_moving_down_the_lattice_anytime():\n    # From a higher tier back down to a read mode (revert) is always allowed.\n    assert can_switch(\"dispatch\", \"observe\", frozenset()) is True\n    assert can_switch(\"push\", \"observe\", frozenset({\"push\"})) is True\n\n\ndef test_can_switch_blocks_tier_s_unless_unlocked():\n    assert can_switch(\"observe\", \"push\", frozenset()) is False\n    assert can_switch(\"observe\", \"push\", frozenset({\"push\"})) is True\n    assert can_switch(\"analyze\", \"flag-steward\", frozenset()) is False\n    assert can_switch(\"analyze\", \"flag-steward\", frozenset({\"flag-steward\"})) is True\n\n\ndef test_can_switch_to_unknown_target_is_false():\n    assert can_switch(\"observe\", \"no-such-mode\", frozenset()) is False\n\n\ndef test_can_always_revert_to_observe():\n    for name in MODE_REGISTRY:\n        assert can_switch(name, \"observe\", frozenset()) is True\n\n```\n",
+        "spec_author": null
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_non_terminal_blocks_non_observe_non_current"
+          },
+          {
+            "name": "test_observe_abort_allowed_non_terminal"
+          },
+          {
+            "name": "test_current_noop_allowed_non_terminal"
+          },
+          {
+            "name": "test_complete_resumes_lattice"
+          },
+          {
+            "name": "test_no_procedure_defers_to_lattice"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_saved_phase_drives_can_switch_decision"
+          }
+        ],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_can_switch_signature_unchanged"
+          },
+          {
+            "name": "test_existing_lattice_pass_through_when_complete"
+          }
+        ],
+        "minimum_test_count": 8,
+        "test_data_requirements": "Reuses tests/overseer/test_mode_gate_sequence.py fixtures (tmp state_dir, non-terminal and COMPLETE ProcedureState)."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 160,
+        "note": "Additive edit; verification is the mode_gate sequence oracle."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    },
+    {
+      "task_id": "edit-actions-dispatch",
+      "title": "EDIT overseer/actions.py::dispatch_action \u2014 fail-closed (phase, command) sequence-lock",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "overseer/actions.py"
+      ],
+      "acceptance_criteria": [
+        "A (phase, command) pair not permitted by the current phase raises ModeViolation BEFORE any seam fires.",
+        "The phase check sits BESIDE the existing (mode, command) fail-closed check (additive, not a replacement).",
+        "The current phase's gate must PASS before the phase advances.",
+        "Existing (mode, command) check and all current dispatch behaviour are preserved.",
+        "Signature dispatch_action(mode, command, args, *, seams) is preserved.",
+        "python -m pytest tests/overseer/test_actions.py -q passes."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/overseer/test_actions.py -q",
+      "spec": {
+        "objective": "Additively edit overseer/actions.py::dispatch_action to add a fail-closed (phase, command) check beside the existing (mode, command) check, refusing impermissible commands with ModeViolation before any seam fires, and to advance the phase only after the current phase's gate passes.",
+        "functional_requirements": [
+          "Before invoking any seam, refuse a command not permitted by the CURRENT phase by raising ModeViolation (phase check evaluated prior to seam execution).",
+          "Keep the existing (mode, command) fail-closed ModeViolation check intact and adjacent to the new (phase, command) check.",
+          "Consult the current phase's gate and only advance the phase (via substrate advance) when the GateResult is ok=True; on ok=False leave durable state unchanged.",
+          "Persist the advanced phase to durable state when the Decision yields a next phase / Complete, and surface Blocked reason/fix_hint without advancing.",
+          "Preserve the dispatch_action(mode, command, args, *, seams) signature and all currently passing behaviour for permitted commands."
+        ],
+        "interfaces": "overseer.actions.dispatch_action(mode, command, args, *, seams) and overseer.actions.ModeViolation. Consumes substrate PROCEDURE_REGISTRY, advance(procedure, phase, gate_result) -> Decision, GateResult, ProcedureState, load_state/save_state. Seams remain the injected effect boundary.",
+        "edge_cases": [
+          "Command allowed by mode but disallowed by current phase must be refused (additive tightening).",
+          "Refusal must produce zero seam side effects.",
+          "Gate failure must not partially advance or corrupt durable state.",
+          "Blocked Decision must surface reason/fix_hint and leave phase unchanged."
+        ],
+        "non_goals": [
+          "Do not relax or remove the existing (mode, command) check.",
+          "Do not touch run_chat_turn or the PreToolUse hook.",
+          "Do not author substrate modules.",
+          "Do not emit more than this one file."
+        ],
+        "implementation_notes": "Order matters: evaluate the (phase, command) gate before any seam call so refusal is side-effect-free. Consume the substrate Decision/Blocked/Complete types. Single-file emission: overseer/actions.py only. Verified by the oracle authored in oracle-actions-sequence-lock.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/overseer/test_actions.py\n```python\n\"\"\"RED oracle for overseer/actions.py \u2014 mode-gated action dispatcher.\n\ndispatch_action enforces mode authority FIRST (fail-closed: an out-of-mode\ncommand raises ModeViolation and NO seam fires), then routes the command to the\nEXISTING operator action via an INJECTED seam, so the tested surface has zero\nside effects. Read-only modes resolve only to read seams.\n\"\"\"\nimport pytest\n\nfrom overseer.mode_gate import ModeViolation\nfrom overseer.actions import dispatch_action, ACTION_ROUTES\n\n\nclass RecordingSeams:\n    \"\"\"A seam bundle that records calls instead of performing real actions.\"\"\"\n\n    def __init__(self):\n        self.calls = []\n\n    def __getitem__(self, key):\n        def _seam(args):\n            self.calls.append((key, args))\n            return {\"seam\": key, \"echo\": args}\n        return _seam\n\n    def __contains__(self, key):\n        return True\n\n\ndef test_action_routes_cover_representative_modes():\n    # Each tier has at least one routable command, keyed by mode then command.\n    assert \"observe\" in ACTION_ROUTES\n    assert \"brief-author\" in ACTION_ROUTES\n    assert \"dispatch\" in ACTION_ROUTES\n    assert \"daemon-supervisor\" in ACTION_ROUTES\n    # Every routed mode is a real mode.\n    from overseer.modes import MODE_REGISTRY\n    for mode in ACTION_ROUTES:\n        assert mode in MODE_REGISTRY\n\n\ndef test_a_valid_command_invokes_the_seam_and_returns_a_dict():\n    seams = RecordingSeams()\n    mode = \"brief-author\"\n    command = next(iter(ACTION_ROUTES[mode]))\n    out = dispatch_action(mode, command, {\"x\": 1}, seams=seams)\n    assert isinstance(out, dict)\n    assert len(seams.calls) == 1  # exactly one seam fired\n\n\ndef test_out_of_mode_command_fails_closed_no_seam_fires():\n    seams = RecordingSeams()\n    # observe is read-only: an authoring command must be refused BEFORE any seam.\n    with pytest.raises(ModeViolation):\n        dispatch_action(\"observe\", \"author_brief\", {\"slug\": \"x\"}, seams=seams)\n    assert seams.calls == []\n\n\ndef test_unknown_mode_is_rejected_fail_closed():\n    seams = RecordingSeams()\n    with pytest.raises(ModeViolation):\n        dispatch_action(\"no-such-mode\", \"anything\", {}, seams=seams)\n    assert seams.calls == []\n\n\ndef test_read_only_modes_only_route_to_read_seams():\n    # No observe/analyze/audit command may map to a write/mutating seam.\n    write_seam_keys = {\n        \"brief_author\", \"oracle_author\", \"dispatch\", \"triage\",\n        \"daemon_lifecycle\", \"flag_steward\", \"harness_self_fix\",\n        \"rebuild\", \"push\",\n    }\n    for mode in (\"observe\", \"analyze\", \"audit\"):\n        for command, seam_key in ACTION_ROUTES.get(mode, {}).items():\n            assert seam_key not in write_seam_keys\n\n\ndef test_daemon_supervisor_pause_is_routable():\n    # pause is the fail-safe direction and must always be available in-mode.\n    seams = RecordingSeams()\n    assert \"pause\" in ACTION_ROUTES[\"daemon-supervisor\"]\n    out = dispatch_action(\"daemon-supervisor\", \"pause\", {}, seams=seams)\n    assert isinstance(out, dict)\n    assert seams.calls and seams.calls[0][0] is not None\n\n\n# --- procedure phase sequence-lock (enforcement-integration leaf) -------------\n# Beside the existing (mode, command) authority check, dispatch_action gains a\n# fail-closed (phase, command) check: while a procedure is active, a command not\n# sanctioned by the CURRENT phase is refused BEFORE any seam fires. With phase\n# unset the behaviour above is unchanged.\nfrom overseer.actions import PHASE_COMMAND_POLICY\n\n\ndef test_default_phase_command_policy_is_a_mapping():\n    assert isinstance(PHASE_COMMAND_POLICY, dict)\n\n\ndef test_phase_allows_its_sanctioned_command():\n    seams = RecordingSeams()\n    out = dispatch_action(\"brief-author\", \"author_brief\", {\"slug\": \"x\"},\n                          seams=seams, phase=\"BRIEF\",\n                          phase_policy={\"BRIEF\": {\"author_brief\"}})\n    assert isinstance(out, dict)\n    assert len(seams.calls) == 1\n\n\ndef test_phase_blocks_an_out_of_phase_command_fail_closed():\n    seams = RecordingSeams()\n    # author_oracle is a valid brief-author command, but the BRIEF phase does not\n    # sanction it -> refused before any seam fires (zero side effects).\n    with pytest.raises(ModeViolation):\n        dispatch_action(\"brief-author\", \"author_oracle\", {\"slug\": \"x\"},\n                        seams=seams, phase=\"BRIEF\",\n                        phase_policy={\"BRIEF\": {\"author_brief\"}})\n    assert seams.calls == []\n\n\ndef test_phase_none_preserves_existing_behaviour():\n    seams = RecordingSeams()\n    out = dispatch_action(\"brief-author\", \"author_brief\", {\"slug\": \"x\"}, seams=seams)\n    assert isinstance(out, dict) and len(seams.calls) == 1\n\n\ndef test_mode_authority_is_still_checked_before_phase():\n    seams = RecordingSeams()\n    with pytest.raises(ModeViolation):\n        dispatch_action(\"observe\", \"author_brief\", {}, seams=seams,\n                        phase=\"BRIEF\", phase_policy={\"BRIEF\": {\"author_brief\"}})\n    assert seams.calls == []\n\n```\n",
+        "spec_author": null
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_phase_disallowed_raises_before_seam"
+          },
+          {
+            "name": "test_mode_command_check_preserved"
+          },
+          {
+            "name": "test_gate_fail_no_advance"
+          },
+          {
+            "name": "test_gate_pass_advances"
+          },
+          {
+            "name": "test_permitted_command_dispatches_normally"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_dispatch_persists_advance_on_gate_pass"
+          }
+        ],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_refusal_has_no_seam_side_effects"
+          },
+          {
+            "name": "test_blocked_decision_no_advance"
+          }
+        ],
+        "minimum_test_count": 8,
+        "test_data_requirements": "Reuses tests/overseer/test_actions.py recording seams and ProcedureState/GateResult fixtures."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 160,
+        "note": "Additive edit; verification is the actions sequence-lock oracle."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    },
+    {
+      "task_id": "edit-mode-prompts-render",
+      "title": "EDIT overseer/mode_prompts.py::render_mode_context \u2014 phase/gate/next-action guidance",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "overseer/mode_prompts.py"
+      ],
+      "acceptance_criteria": [
+        "render_mode_context emits the state-derived CURRENT phase.",
+        "It emits the last GateResult pass/fail plus its fix_hint.",
+        "It emits the SINGLE next-action string bound to the current phase in PROCEDURE_REGISTRY.",
+        "All rendered values are read from durable ProcedureState and never inferred.",
+        "Signature render_mode_context(mode, state) and existing output are preserved.",
+        "python -m pytest tests/overseer/test_mode_prompts.py -q passes."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/overseer/test_mode_prompts.py -q",
+      "spec": {
+        "objective": "Additively edit overseer/mode_prompts.py::render_mode_context to surface the current phase, the last gate pass/fail + fix_hint, and the single next action, all read from durable ProcedureState and the registry binding rather than inferred.",
+        "functional_requirements": [
+          "Render the current phase string exactly as stored in ProcedureState.phase.",
+          "Render the last gate pass/fail derived from ProcedureState.last_gate.ok and include last_gate.fix_hint verbatim when present.",
+          "Render the single next-action string bound to the current phase in PROCEDURE_REGISTRY (exactly one action, not a synthesized list).",
+          "When last_gate is None, render without fabricating a pass/fail or fix_hint (no inference).",
+          "Preserve the render_mode_context(mode, state) signature and the existing baseline output for the no-procedure case."
+        ],
+        "interfaces": "overseer.mode_prompts.render_mode_context(mode, state) -> str. Consumes substrate PROCEDURE_REGISTRY, GateResult(ok, reason, fix_hint), ProcedureState(phase, last_gate). No network/model calls.",
+        "edge_cases": [
+          "last_gate is None (omit gate status rather than invent it).",
+          "fix_hint empty vs populated (rendered verbatim).",
+          "Terminal/COMPLETE phase next-action rendering.",
+          "Baseline mode without a procedure (existing output unchanged)."
+        ],
+        "non_goals": [
+          "Do not infer phase/gate/next-action; read them from durable state and the registry.",
+          "Do not touch run_chat_turn or the PreToolUse hook.",
+          "Do not author substrate modules.",
+          "Do not emit more than this one file."
+        ],
+        "implementation_notes": "STATE-DERIVED GUIDANCE (additive; keep signature render_mode_context(mode, state)): after the existing mode+tier lines, when `state` (a Mapping) carries 'procedure_phase' (truthy), APPEND lines that include: the phase string state['procedure_phase']; the next action state.get('procedure_next_action',''); and IF state.get('procedure_last_gate') is a mapping with ok falsy, its 'reason' and 'fix_hint'. When 'procedure_phase' is absent, return EXACTLY the existing output (do not change the base contract \u2014 all existing test_mode_prompts.py assertions must still pass).\n\nPull next-action from the registry binding for the current phase; pull phase and last_gate from the passed ProcedureState. Single-file emission: overseer/mode_prompts.py only. Verified by the oracle authored in oracle-mode-prompts-guidance.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/overseer/test_mode_prompts.py\n```python\n\"\"\"RED oracle for overseer/mode_prompts.py \u2014 per-mode procedure guidance.\n\nMODE_PROMPTS holds the system-prompt/procedure text per mode; render_mode_context\nis the SessionStart additionalContext analog (\"you are in mode=X, tier=Y, you may\ndo A/B/C, you may NOT do D\"). Every mode must be covered.\n\"\"\"\nimport pytest\n\nfrom overseer.modes import MODE_REGISTRY\nfrom overseer.mode_prompts import MODE_PROMPTS, render_mode_context\n\nTIER_S = {\"flag-steward\", \"harness-self-fix\", \"security-review\", \"rebuild-factory\", \"push\"}\n\n\ndef test_every_mode_has_prompt_text():\n    assert set(MODE_PROMPTS) == set(MODE_REGISTRY)\n    for name, text in MODE_PROMPTS.items():\n        assert isinstance(text, str)\n        assert text.strip()  # non-empty\n\n\n@pytest.mark.parametrize(\"name\", sorted(MODE_REGISTRY))\ndef test_render_mode_context_states_the_mode_and_tier(name):\n    state = {\"current_mode\": name, \"unlocked_modes\": []}\n    ctx = render_mode_context(name, state)\n    assert isinstance(ctx, str)\n    assert ctx.strip()\n    assert name in ctx  # names the active mode\n    assert MODE_REGISTRY[name].tier in ctx  # surfaces the tier\n\n\ndef test_render_rejects_unknown_mode():\n    with pytest.raises(KeyError):\n        render_mode_context(\"no-such-mode\", {\"current_mode\": \"no-such-mode\"})\n\n\ndef test_tier_s_context_mentions_unlock_requirement():\n    for name in TIER_S:\n        ctx = render_mode_context(name, {\"current_mode\": name, \"unlocked_modes\": [name]})\n        assert \"unlock\" in ctx.lower()\n\n\ndef test_read_only_context_signals_no_writes():\n    ctx = render_mode_context(\"observe\", {\"current_mode\": \"observe\", \"unlocked_modes\": []})\n    low = ctx.lower()\n    # The read-only constraint must be explicit in the procedure text.\n    assert \"read\" in low\n\n\n# --- state-derived procedure guidance (enforcement-integration leaf) ----------\n# When the conversation state carries procedure phase info, render_mode_context\n# surfaces the CURRENT phase, the single next action, and (when the last gate\n# failed) its reason + fix hint \u2014 all read from durable state, never inferred.\n# With no procedure_* keys present the base behaviour above is unchanged.\n\ndef test_render_includes_active_phase_and_next_action():\n    state = {\"current_mode\": \"brief-author\", \"unlocked_modes\": [],\n             \"procedure_phase\": \"ORACLE\",\n             \"procedure_next_action\": \"Draft the oracle tests for the task.\"}\n    ctx = render_mode_context(\"brief-author\", state)\n    assert \"ORACLE\" in ctx\n    assert \"Draft the oracle tests for the task.\" in ctx\n\n\ndef test_render_surfaces_last_gate_failure_reason_and_fix():\n    state = {\"current_mode\": \"brief-author\", \"unlocked_modes\": [],\n             \"procedure_phase\": \"COMMIT\",\n             \"procedure_next_action\": \"Commit the oracle.\",\n             \"procedure_last_gate\": {\"ok\": False, \"reason\": \"oracle not committed\",\n                                     \"fix_hint\": \"git commit the test file\"}}\n    ctx = render_mode_context(\"brief-author\", state)\n    assert \"oracle not committed\" in ctx\n    assert \"git commit the test file\" in ctx\n\n\ndef test_render_without_procedure_state_is_unchanged():\n    ctx = render_mode_context(\"observe\", {\"current_mode\": \"observe\", \"unlocked_modes\": []})\n    assert \"observe\" in ctx and MODE_REGISTRY[\"observe\"].tier in ctx\n\n```\n",
+        "spec_author": null
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_emits_current_phase"
+          },
+          {
+            "name": "test_emits_last_gate_pass_fail_and_fix_hint"
+          },
+          {
+            "name": "test_emits_single_next_action"
+          },
+          {
+            "name": "test_no_inference_when_last_gate_none"
+          },
+          {
+            "name": "test_baseline_output_preserved"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_render_reflects_state_after_advance"
+          }
+        ],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_render_mode_context_signature_unchanged"
+          },
+          {
+            "name": "test_fix_hint_verbatim"
+          }
+        ],
+        "minimum_test_count": 8,
+        "test_data_requirements": "Reuses tests/overseer/test_mode_prompts.py ProcedureState/GateResult fixtures and the real PROCEDURE_REGISTRY next-action binding."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 160,
+        "note": "Additive rendering edit; verification is the mode_prompts guidance oracle."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "brief_hooks_enforcement-integration.md",
+  "source_brief_sha256": "373db3026dbc5989c59419f3b7844a361dd7143df87bd5fb6966e50c582a6a50"
+}

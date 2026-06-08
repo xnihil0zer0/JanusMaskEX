@@ -1,0 +1,97 @@
+{
+ "tasks": [
+  {
+   "task_id": "overseer-session-store-list-conversations",
+   "title": "Add SessionStore.list_conversations to overseer/session_store.py",
+   "meta_task_type": "data_model",
+   "priority": "high",
+   "dependencies": [],
+   "files_touched": [
+    "overseer/session_store.py"
+   ],
+   "acceptance_criteria": [
+    "A single new method `def list_conversations(self) -> List[Dict[str, Any]]:` is added to the SessionStore class; no existing method is modified.",
+    "Returns one summary dict per stored conversation, iterating self._data in insertion order.",
+    "Each summary has EXACTLY the keys: conversation_id, current_mode, turn_count, preview.",
+    "conversation_id is the dict key; current_mode is record['current_mode']; turn_count is len(record['transcript']).",
+    "preview is the content of the FIRST turn whose role == 'user', or '' when there are no turns / no user turn.",
+    "The method does not mutate the store: no writes, no _save calls.",
+    "Empty store returns [].",
+    "GREEN under `python -m pytest tests/overseer/test_session_store_list.py tests/overseer/test_session_store.py -q`."
+   ],
+   "spec_author": null,
+   "estimated_complexity": "low",
+   "verification_command": "python -m pytest tests/overseer/test_session_store_list.py tests/overseer/test_session_store.py -q",
+   "spec": {
+    "objective": "Add ONE new method, SessionStore.list_conversations, to the existing overseer/session_store.py to back the browsable chat session-history feature, producing one JSON-able summary per stored conversation in insertion order without mutating the store.",
+    "functional_requirements": [
+     "Add `def list_conversations(self) -> List[Dict[str, Any]]:` to the SessionStore class as a single new method, modifying no existing method.",
+     "Iterate self._data in its native insertion order and yield exactly one summary dict per stored conversation; an empty store yields [].",
+     "Each summary dict contains EXACTLY the keys conversation_id (the dict key), current_mode (record['current_mode']), turn_count (len(record['transcript'])), and preview.",
+     "preview is the `content` of the FIRST transcript turn whose role == 'user', or '' when the conversation has no turns or no user turn.",
+     "The method is read-only: it performs no writes and never calls _save, leaving self._data unchanged."
+    ],
+    "interfaces": "overseer/session_store.py: SessionStore.list_conversations(self) -> List[Dict[str, Any]] \u2014 one {conversation_id, current_mode, turn_count, preview} summary per stored conversation, insertion order, non-mutating.",
+    "edge_cases": [
+     "Empty store -> returns [].",
+     "A conversation with an empty transcript -> turn_count 0, preview ''.",
+     "A conversation whose first turn is an assistant turn -> preview is the first USER turn's content (or '' if there is no user turn)."
+    ],
+    "non_goals": [
+     "INTEGRATION is out of scope: this is an IMPL-only task verified by a pre-committed oracle, so NO integration test is authored here (the integration excuse is claimed explicitly).",
+     "Do not touch web_api.py, service.py, the frontend, or any existing method.",
+     "Stdlib only; add no dependencies.",
+     "Author or edit no test file."
+    ],
+    "implementation_notes": "Emit the change as ONE symbol patch named 'SessionStore.list_conversations' with no sibling nodes. Build the result by looping over self._data.items(); for preview scan record.get('transcript', []) for the first turn with turn.get('role') == 'user' and use its 'content', defaulting to ''. Keep List/Dict/Any imports as already present in the module; add none beyond stdlib typing. Do not call _save or otherwise write.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/overseer/test_session_store_list.py\n```python\n\"\"\"RED oracle for SessionStore.list_conversations (overseer/session_store.py).\n\nBacks the browsable chat-session history: a deterministic summary of every\nstored conversation so the WebUI can list past sessions and load one back into\nthe chat panel. Each summary is a plain JSON-able dict carrying the id, current\nmode, turn count, and a short preview (first user turn). Order is the store's\ninsertion order (dict order), and the method must not mutate the store.\n\"\"\"\nimport json\n\nimport pytest\n\nfrom overseer.session_store import SessionStore\n\n\n@pytest.fixture\ndef store(tmp_path):\n    return SessionStore(store_path=tmp_path / \"sessions.json\")\n\n\ndef _seed(store, cid, mode, user_texts):\n    store.create(cid, current_mode=mode, model=\"opus\", agent_backend=\"claude\")\n    for i, t in enumerate(user_texts):\n        store.append_turn(cid, {\"index\": i, \"role\": \"user\", \"content\": t})\n\n\ndef test_empty_store_lists_nothing(store):\n    assert store.list_conversations() == []\n\n\ndef test_lists_one_summary_per_conversation(store):\n    _seed(store, \"c1\", \"observe\", [\"hello\"])\n    _seed(store, \"c2\", \"brief-author\", [\"author a brief\", \"and another\"])\n    out = store.list_conversations()\n    json.dumps(out)  # JSON-able\n    assert len(out) == 2\n    ids = [s[\"conversation_id\"] for s in out]\n    assert ids == [\"c1\", \"c2\"]  # insertion order preserved\n\n\ndef test_summary_carries_mode_turn_count_and_preview(store):\n    _seed(store, \"c1\", \"brief-author\", [\"author a brief please\", \"second\"])\n    s = store.list_conversations()[0]\n    assert s[\"conversation_id\"] == \"c1\"\n    assert s[\"current_mode\"] == \"brief-author\"\n    assert s[\"turn_count\"] == 2\n    # preview is derived from the first user turn's content\n    assert \"author a brief\" in s[\"preview\"]\n\n\ndef test_preview_is_empty_for_a_conversation_with_no_turns(store):\n    store.create(\"c0\", current_mode=\"observe\", model=\"opus\", agent_backend=\"claude\")\n    s = store.list_conversations()[0]\n    assert s[\"turn_count\"] == 0\n    assert s[\"preview\"] == \"\"\n\n\ndef test_list_does_not_mutate_the_store(store):\n    _seed(store, \"c1\", \"observe\", [\"x\"])\n    before = store.get(\"c1\")[\"transcript\"][:]\n    store.list_conversations()\n    assert store.get(\"c1\")[\"transcript\"] == before\n    # a fresh store over the same path still sees exactly the seeded data\n    again = SessionStore(store_path=store._store_path)\n    assert again.get(\"c1\")[\"current_mode\"] == \"observe\"\n\n```\n\n## tests/overseer/test_session_store.py\n```python\n\"\"\"RED oracle for overseer/session_store.py \u2014 deterministic conversation store.\n\nMaps a conversation id -> {claude_session_id, current_mode, unlocked_modes,\nmodel, agent_backend, transcript}. Backed via an EXPLICIT ``store_path`` seam\n(no real on-disk default in the tested surface). Turns are stored duck-typed\n(plain dicts here) so the store builds independently of overseer.transcript.\n\"\"\"\nimport pytest\n\nfrom overseer.session_store import SessionStore\n\n\n@pytest.fixture\ndef store(tmp_path):\n    return SessionStore(store_path=tmp_path / \"overseer_sessions.json\")\n\n\ndef _turn(index, role, mode, content):\n    return {\"index\": index, \"role\": role, \"mode\": mode, \"content\": content}\n\n\ndef test_create_seeds_a_record_with_defaults(store):\n    rec = store.create(\"c1\", current_mode=\"observe\", model=\"opus\", agent_backend=\"claude\")\n    assert rec[\"current_mode\"] == \"observe\"\n    assert rec[\"model\"] == \"opus\"\n    assert rec[\"agent_backend\"] == \"claude\"\n    assert list(rec[\"unlocked_modes\"]) == []\n    assert list(rec[\"transcript\"]) == []\n    assert rec.get(\"claude_session_id\") in (None, \"\")\n\n\ndef test_get_returns_the_created_record(store):\n    store.create(\"c1\", current_mode=\"observe\", model=\"opus\", agent_backend=\"claude\")\n    rec = store.get(\"c1\")\n    assert rec[\"current_mode\"] == \"observe\"\n\n\ndef test_get_unknown_conversation_raises(store):\n    with pytest.raises(KeyError):\n        store.get(\"missing\")\n\n\ndef test_append_turn_preserves_order(store):\n    store.create(\"c1\", current_mode=\"observe\", model=\"opus\", agent_backend=\"claude\")\n    store.append_turn(\"c1\", _turn(0, \"user\", \"observe\", \"hi\"))\n    store.append_turn(\"c1\", _turn(1, \"assistant\", \"observe\", \"hello\"))\n    transcript = store.get(\"c1\")[\"transcript\"]\n    assert [t[\"index\"] for t in transcript] == [0, 1]\n    assert transcript[0][\"content\"] == \"hi\"\n    assert transcript[1][\"role\"] == \"assistant\"\n\n\ndef test_set_mode_and_set_model_and_set_session_id(store):\n    store.create(\"c1\", current_mode=\"observe\", model=\"opus\", agent_backend=\"claude\")\n    store.set_mode(\"c1\", \"analyze\")\n    store.set_model(\"c1\", \"sonnet\")\n    store.set_session_id(\"c1\", \"sess-abc123\")\n    rec = store.get(\"c1\")\n    assert rec[\"current_mode\"] == \"analyze\"\n    assert rec[\"model\"] == \"sonnet\"\n    assert rec[\"claude_session_id\"] == \"sess-abc123\"\n\n\ndef test_unlock_mode_records_a_per_session_unlock_without_duplicates(store):\n    store.create(\"c1\", current_mode=\"observe\", model=\"opus\", agent_backend=\"claude\")\n    store.unlock_mode(\"c1\", \"push\")\n    store.unlock_mode(\"c1\", \"push\")  # idempotent\n    assert list(store.get(\"c1\")[\"unlocked_modes\"]) == [\"push\"]\n\n\ndef test_store_persists_across_instances_on_the_same_path(tmp_path):\n    path = tmp_path / \"sessions.json\"\n    s1 = SessionStore(store_path=path)\n    s1.create(\"c1\", current_mode=\"observe\", model=\"opus\", agent_backend=\"claude\")\n    s1.append_turn(\"c1\", _turn(0, \"user\", \"observe\", \"persisted\"))\n    s1.set_mode(\"c1\", \"audit\")\n\n    # A fresh store over the same path sees the durable state.\n    s2 = SessionStore(store_path=path)\n    rec = s2.get(\"c1\")\n    assert rec[\"current_mode\"] == \"audit\"\n    assert rec[\"transcript\"][0][\"content\"] == \"persisted\"\n\n\ndef test_store_has_no_real_ondisk_default(tmp_path, monkeypatch):\n    # The path is an explicit seam \u2014 constructing with an explicit tmp path must\n    # not touch any shared/global location.\n    path = tmp_path / \"isolated.json\"\n    store = SessionStore(store_path=path)\n    store.create(\"c1\", current_mode=\"observe\", model=\"opus\", agent_backend=\"claude\")\n    assert path.exists()\n\n```\n WHOLE-FILE EMISSION REQUIRED: you are ADDING a brand-new method to an existing class, which the symbol-patch applier CANNOT do (it only REPLACES existing symbols and raises KeyError on a new 2-part qualname like SessionStore.list_conversations). Therefore emit the COMPLETE overseer/session_store.py file as a whole-file submission (NOT a __JANUSMASK_PATCHES__ symbol patch). Output the entire module verbatim with the one new method added and every existing line byte-identical."
+   },
+   "test_spec": {
+    "unit_tests": [
+     {
+      "name": "test_list_returns_one_summary_per_conversation_in_insertion_order"
+     },
+     {
+      "name": "test_summary_has_exactly_the_four_required_keys"
+     },
+     {
+      "name": "test_turn_count_matches_transcript_length"
+     },
+     {
+      "name": "test_preview_is_first_user_turn_content"
+     },
+     {
+      "name": "test_preview_uses_first_user_turn_when_first_turn_is_assistant"
+     }
+    ],
+    "integration_tests": [],
+    "property_tests": [],
+    "regression_tests": [
+     {
+      "name": "test_empty_store_returns_empty_list"
+     },
+     {
+      "name": "test_preview_is_empty_for_a_conversation_with_no_turns"
+     },
+     {
+      "name": "test_list_does_not_mutate_the_store"
+     }
+    ],
+    "minimum_test_count": 8,
+    "test_data_requirements": "A SessionStore populated with records of shape {claude_session_id, current_mode, unlocked_modes, model, agent_backend, transcript}, covering: an empty store; a conversation with an empty transcript; a conversation whose first turn is an assistant turn followed by a user turn; and a normal conversation whose first turn is a user turn. Oracles are pre-committed at tests/overseer/test_session_store_list.py and tests/overseer/test_session_store.py."
+   },
+   "token_budget_ratio": {
+    "implementation_tokens": 100,
+    "test_tokens": 200,
+    "note": "IMPL-only task: oracles are pre-committed, so no test tokens are spent authoring tests; ratio kept >= 1.5x to satisfy the schema."
+   },
+   "attribution_metadata": {
+    "proposed_by": "reconciled",
+    "reconciled": true,
+    "diff_resolution": "reconciled"
+   },
+   "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+  }
+ ],
+ "source_brief_path": "brief_hooks_overseer_session_history_store.md",
+ "source_brief_sha256": "9e40efda3ee7ee3baa4e89474f52f6b64cc2d2ce6a815be1b8f5f49a92652091"
+}
