@@ -1038,6 +1038,19 @@ function _applyChatResult(status, res) {
   }
 }
 
+// newChatSession: start a brand-new chat session. Resets the in-memory state
+// (null the conversation id so the next send boots a fresh conversation
+// server-side, empty the replay buffer) and clears the self-managed
+// #chat-transcript DOM, guarding the getElementById result before touching
+// innerHTML (the container may not be mounted yet). Wired to the #chat-clear
+// control in _wireChatPanel.
+function newChatSession() {
+  overseerChat.cid = null;
+  overseerChat.buffer = [];
+  const cont = document.getElementById("chat-transcript");
+  if (cont) cont.innerHTML = "";
+}
+
 async function sendChat() {
   const input = document.getElementById("chat-input");
   const text = input ? input.value.trim() : "";
@@ -1047,6 +1060,7 @@ async function sendChat() {
   _chatPending(true);
   const body = { text };
   if (overseerChat.cid) body.conversation_id = overseerChat.cid;
+  body.mode = overseerChat.mode;
   const { status, body: res } = await api("/api/chat/send", { method: "POST", body });
   _applyChatResult(status, res);
 }
@@ -1071,6 +1085,7 @@ function _wireChatPanel() {
   if (cont) { cont.innerHTML = ""; for (const t of overseerChat.buffer) cont.appendChild(_chatTurnNode(t)); cont.scrollTop = cont.scrollHeight; }
   document.getElementById("chat-send")?.addEventListener("click", sendChat);
   document.getElementById("chat-resend")?.addEventListener("click", resendChat);
+  document.getElementById("chat-clear")?.addEventListener("click", newChatSession);
   const input = document.getElementById("chat-input");
   input?.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendChat(); }
@@ -1091,6 +1106,7 @@ pages.chat = async () => {
       <div class="row">
         <label>mode <select id="chat-mode" class="chat-mode">${opts}</select></label>
         <button id="chat-resend" class="btn">↻ Resend transcript</button>
+        <button id="chat-clear" class="btn">🗑 Clear</button>
       </div>
       <div class="row">
         <textarea id="chat-input" class="chat-input" placeholder="message…  (Ctrl/⌘+Enter to send)"></textarea>
