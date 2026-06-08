@@ -30,24 +30,52 @@ def _resolve_seam(seams: Any, seam_key: str) -> Any:
     except (TypeError, KeyError):
         return getattr(seams, seam_key)
 
-def dispatch_action(mode: str, command: str, args: Any, *, seams: Any) -> Dict[str, Any]:
-    """Verify mode authority, then route ``command`` to its seam.
+def dispatch_action(
+    mode: str,
+    command: str,
+    args: Any,
+    *,
+    seams: Any,
+    phase: str | None = None,
+    phase_policy: Mapping[str, Any] = globals().setdefault('PHASE_COMMAND_POLICY', {}),
+) -> Dict[str, Any]:
+    """Verify mode authority *and* phase sequence-lock, then route ``command``.
 
-    The authority check is fail-closed and precedes all side effects:
+    Two fail-closed authority checks precede every side effect, evaluated in
+    order before any seam is resolved or invoked:
 
-    * An unknown ``mode`` raises :class:`ModeViolation` before any seam touch.
-    * A ``command`` not permitted under ``mode`` raises :class:`ModeViolation`
-      before any seam touch.
+    * **(mode, command)** -- an unknown ``mode`` or an out-of-mode ``command``
+      raises :class:`ModeViolation` before any seam touch (unchanged behaviour).
+    * **(phase, command)** -- *additively*, when a procedure ``phase`` is active
+      (``phase is not None``), a ``command`` not sanctioned by that phase under
+      ``phase_policy`` raises :class:`ModeViolation` before any seam touch. With
+      ``phase is None`` this check is skipped and prior behaviour is preserved.
 
-    On a valid ``(mode, command)`` pair, the resolved seam is called with
-    ``args`` forwarded verbatim and its dict result is returned unchanged.
-    Exactly one seam fires per valid command; zero seams fire on rejection.
+    ``phase_policy`` maps a phase name to the set/collection of commands that
+    phase sanctions; it defaults to the module-level :data:`PHASE_COMMAND_POLICY`
+    registry. The phase gate is consulted *before* any seam call, so a refusal
+    is guaranteed to be side-effect free.
+
+    On a valid ``(mode, command)`` pair that is also sanctioned by the active
+    phase (or with no active phase), the resolved seam is called with ``args``
+    forwarded verbatim and its dict result is returned unchanged. Exactly one
+    seam fires per permitted command; zero seams fire on any rejection.
     """
     routes: Mapping[str, str] | None = ACTION_ROUTES.get(mode)
     if routes is None:
         raise ModeViolation(f'mode {mode!r} is not authorized to dispatch actions')
     if command not in routes:
         raise ModeViolation(f'command {command!r} is not permitted under mode {mode!r}')
+    # Beside the (mode, command) authority check: a fail-closed (phase, command)
+    # sequence-lock. While a procedure phase is active, only commands sanctioned
+    # by the CURRENT phase may proceed; refusal happens before any seam resolves.
+    if phase is not None:
+        policy: Mapping[str, Any] = phase_policy if phase_policy is not None else PHASE_COMMAND_POLICY
+        sanctioned = policy.get(phase, frozenset())
+        if command not in sanctioned:
+            raise ModeViolation(
+                f'command {command!r} is not sanctioned by phase {phase!r}'
+            )
     seam_key = routes[command]
     seam = _resolve_seam(seams, seam_key)
     return seam(args)
