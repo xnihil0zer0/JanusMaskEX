@@ -99,20 +99,97 @@ def _build_overseer_env(repo_root: Path, work_dir: Path, state_dir: Path) -> Dic
 def make_seams(*, config: Dict[str, Any], repo_root: Path, state_dir: Path,
                work_dir: Path, timeout: int = DEFAULT_TIMEOUT_SEC
                ) -> Tuple[Callable, Callable, Callable, Any]:
-    """Construct the four real seams for ``overseer.driver.run_turn``."""
+    """Construct the four real seams for ``overseer.driver.run_turn``.
+
+    Beyond resolving the vendored ``claude`` binary, this wires the operator's
+    own MCP server set -- the ``mcpServers`` declared in ``$HOME/.claude.json``
+    -- into every overseer spawn: each server contributes an ``mcp__<name>``
+    token appended to the agent's existing ``--tools`` allowlist, and (under an
+    enabled bwrap sandbox) the host paths each stdio server needs are bound into
+    the jail read-only (command/arg/env dirs) except a ``--user-data-dir`` which
+    is bound read-write. MCP is granted regardless of mode. A missing,
+    unreadable, or invalid ``.claude.json`` (or one with no ``mcpServers``)
+    leaves the spawn byte-for-byte unchanged.
+    """
+    import json
+
     from harness import agent_jail
     from harness.agent_streamer import ClaudeStreamParser
 
     claude_bin = _resolve_claude_binary(config, repo_root)
 
+    # --- read the operator's MCP server set (tolerant of every failure) -------
+    HOME = os.environ.get('HOME', '')
+    mcp_servers: Dict[str, Any] = {}
+    try:
+        with open(os.path.join(HOME, '.claude.json'), encoding='utf-8') as _fh:
+            _cfg = json.load(_fh)
+        if isinstance(_cfg, dict) and isinstance(_cfg.get('mcpServers'), dict):
+            mcp_servers = _cfg['mcpServers']
+    except (OSError, ValueError):
+        mcp_servers = {}
+
+    mcp_tokens = ['mcp__' + name for name in mcp_servers]
+
+    mcp_ro: set = set()
+    mcp_rw: set = set()
+    for _spec in mcp_servers.values():
+        if not isinstance(_spec, dict):
+            continue
+        _command = _spec.get('command')
+        if isinstance(_command, str) and os.path.isabs(_command):
+            mcp_ro.add(os.path.dirname(_command))
+        _args = _spec.get('args')
+        if isinstance(_args, (list, tuple)):
+            for _arg in _args:
+                if not isinstance(_arg, str):
+                    continue
+                if _arg.startswith('--user-data-dir='):
+                    _p = _arg[len('--user-data-dir='):]
+                    if os.path.isabs(_p):
+                        mcp_rw.add(_p)
+                    continue
+                if os.path.isabs(_arg):
+                    mcp_ro.add(_arg if os.path.isdir(_arg) else os.path.dirname(_arg))
+        _env = _spec.get('env')
+        if isinstance(_env, dict):
+            for _val in _env.values():
+                if not isinstance(_val, str):
+                    continue
+                for _part in _val.split(os.pathsep):
+                    if os.path.isabs(_part) and os.path.exists(_part):
+                        mcp_ro.add(_part)
+
+    _playwright = os.path.join(HOME, '.cache', 'ms-playwright')
+    if os.path.isdir(_playwright):
+        mcp_ro.add(_playwright)
+
+    # a read-write path is never also a read-only bind.
+    mcp_ro -= mcp_rw
+    mcp_ro_list = sorted(mcp_ro)
+    mcp_rw_list = sorted(mcp_rw)
+
     def jail_builder(argv: Sequence[str], **kw: Any) -> List[str]:
         inner = list(argv)
         if inner and inner[0] == 'claude':
             inner[0] = claude_bin
+        if mcp_tokens and '--tools' in inner:
+            _i = inner.index('--tools')
+            if _i + 1 < len(inner):
+                _existing = inner[_i + 1].split(',') if inner[_i + 1] else []
+                for _tok in mcp_tokens:
+                    if _tok not in _existing:
+                        _existing.append(_tok)
+                inner[_i + 1] = ','.join(_existing)
         if agent_jail.sandbox_enabled(config) and agent_jail.bwrap_available():
+            for _rw in mcp_rw_list:
+                try:
+                    os.makedirs(_rw, exist_ok=True)
+                except OSError:
+                    pass
             return agent_jail.build_jail_argv(
                 inner, repo_root=repo_root, work_dir=work_dir, state_dir=state_dir,
-                bind_credentials=True,
+                bind_credentials=True, extra_ro=mcp_ro_list, extra_rw=mcp_rw_list,
             )
         return inner
 
