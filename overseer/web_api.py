@@ -70,6 +70,25 @@ class OverseerWebApi:
         rec = self._store.get(cid)
         return {'turns': self._transcript(rec)}
 
+    def chat_list(self) -> Dict[str, Any]:
+        """Return ``{"conversations": [...]}`` of browsable session summaries.
+
+        Delegates to the store's ``list_conversations`` so the web UI can browse
+        past sessions; an empty store yields ``{"conversations": []}``.  Pure
+        read path -- no driver/agent/subprocess.
+        """
+        return {'conversations': self._store.list_conversations()}
+
+    def chat_load(self, cid: str) -> Dict[str, Any]:
+        """Return the full conversation for *cid* so it can be reloaded.
+
+        Mirrors :meth:`chat_history` in fetching ``rec = self._store.get(cid)``
+        and projecting via :meth:`_transcript`; an unknown *cid* lets the store's
+        ``KeyError`` propagate uncaught.
+        """
+        rec = self._store.get(cid)
+        return {'conversation_id': cid, 'current_mode': rec['current_mode'], 'turns': self._transcript(rec)}
+
     def chat_resend(self, cid: str, *, rewind_to_index: Optional[int]=None) -> Dict[str, Any]:
         """Replay the transcript (``rewind_to_index is None``) or branch from a turn.
 
