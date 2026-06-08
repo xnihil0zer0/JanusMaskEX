@@ -75,6 +75,48 @@ def test_bridge_noop_on_non_accepted(monkeypatch):
     assert calls == []
 
 
+def test_bridge_reaps_on_no_diff_when_flag_on(monkeypatch):
+    # A no_diff terminal means the brief was already satisfied -> it is DONE and
+    # must be reaped, same as an accepted terminal.
+    calls = []
+    import tools.brief_reaper as br
+    _set_flag(monkeypatch, True)
+    monkeypatch.setattr(br, 'reap_for_task',
+                        lambda repo_root, task_id, **kw: calls.append((task_id, kw)) or [])
+    ow._reap_spent_briefs_safe({'outcome': 'no_diff', 'task_id': 'leaf-nd'})
+    assert len(calls) == 1
+    task_id, kw = calls[0]
+    assert task_id == 'leaf-nd'
+    assert isinstance(kw.get('stamp'), str) and kw['stamp']
+
+
+def test_bridge_noop_on_no_diff_when_flag_off(monkeypatch):
+    calls = []
+    import tools.brief_reaper as br
+    _set_flag(monkeypatch, False)
+    monkeypatch.setattr(br, 'reap_for_task',
+                        lambda *a, **k: calls.append(1) or [])
+    ow._reap_spent_briefs_safe({'outcome': 'no_diff', 'task_id': 'leaf-nd'})
+    assert calls == []
+
+
+def test_print_json_line_fires_reaper_for_no_diff_end_to_end(monkeypatch, capsys):
+    # END-TO-END: drive the REAL _print_json_line emission chokepoint (NOT a hand
+    # call of the bridge) with a no_diff terminal and the flag ON, and assert the
+    # reaper is actually reached. The real _reap_spent_briefs_safe runs (flag
+    # gate + outcome guard + task_id check); only the leaf reap_for_task is
+    # stubbed. Closes the "never proven end-to-end" gap.
+    import tools.brief_reaper as br
+    _set_flag(monkeypatch, True)
+    calls = []
+    monkeypatch.setattr(br, 'reap_for_task',
+                        lambda repo_root, task_id, **kw: calls.append((task_id, kw)) or [])
+    ow._print_json_line({'outcome': 'no_diff', 'task_id': 'leaf-e2e', 'path': 'round1'})
+    out = capsys.readouterr().out
+    assert json.loads(out.strip())['outcome'] == 'no_diff'   # line still emitted
+    assert len(calls) == 1 and calls[0][0] == 'leaf-e2e'      # reaper reached via emission
+
+
 def test_bridge_noop_when_flag_off(monkeypatch):
     calls = []
     import tools.brief_reaper as br
