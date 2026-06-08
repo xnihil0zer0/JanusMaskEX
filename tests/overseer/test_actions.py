@@ -82,3 +82,49 @@ def test_daemon_supervisor_pause_is_routable():
     out = dispatch_action("daemon-supervisor", "pause", {}, seams=seams)
     assert isinstance(out, dict)
     assert seams.calls and seams.calls[0][0] is not None
+
+
+# --- procedure phase sequence-lock (enforcement-integration leaf) -------------
+# Beside the existing (mode, command) authority check, dispatch_action gains a
+# fail-closed (phase, command) check: while a procedure is active, a command not
+# sanctioned by the CURRENT phase is refused BEFORE any seam fires. With phase
+# unset the behaviour above is unchanged.
+from overseer.actions import PHASE_COMMAND_POLICY
+
+
+def test_default_phase_command_policy_is_a_mapping():
+    assert isinstance(PHASE_COMMAND_POLICY, dict)
+
+
+def test_phase_allows_its_sanctioned_command():
+    seams = RecordingSeams()
+    out = dispatch_action("brief-author", "author_brief", {"slug": "x"},
+                          seams=seams, phase="BRIEF",
+                          phase_policy={"BRIEF": {"author_brief"}})
+    assert isinstance(out, dict)
+    assert len(seams.calls) == 1
+
+
+def test_phase_blocks_an_out_of_phase_command_fail_closed():
+    seams = RecordingSeams()
+    # author_oracle is a valid brief-author command, but the BRIEF phase does not
+    # sanction it -> refused before any seam fires (zero side effects).
+    with pytest.raises(ModeViolation):
+        dispatch_action("brief-author", "author_oracle", {"slug": "x"},
+                        seams=seams, phase="BRIEF",
+                        phase_policy={"BRIEF": {"author_brief"}})
+    assert seams.calls == []
+
+
+def test_phase_none_preserves_existing_behaviour():
+    seams = RecordingSeams()
+    out = dispatch_action("brief-author", "author_brief", {"slug": "x"}, seams=seams)
+    assert isinstance(out, dict) and len(seams.calls) == 1
+
+
+def test_mode_authority_is_still_checked_before_phase():
+    seams = RecordingSeams()
+    with pytest.raises(ModeViolation):
+        dispatch_action("observe", "author_brief", {}, seams=seams,
+                        phase="BRIEF", phase_policy={"BRIEF": {"author_brief"}})
+    assert seams.calls == []

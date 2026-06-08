@@ -45,3 +45,34 @@ def test_read_only_context_signals_no_writes():
     low = ctx.lower()
     # The read-only constraint must be explicit in the procedure text.
     assert "read" in low
+
+
+# --- state-derived procedure guidance (enforcement-integration leaf) ----------
+# When the conversation state carries procedure phase info, render_mode_context
+# surfaces the CURRENT phase, the single next action, and (when the last gate
+# failed) its reason + fix hint — all read from durable state, never inferred.
+# With no procedure_* keys present the base behaviour above is unchanged.
+
+def test_render_includes_active_phase_and_next_action():
+    state = {"current_mode": "brief-author", "unlocked_modes": [],
+             "procedure_phase": "ORACLE",
+             "procedure_next_action": "Draft the oracle tests for the task."}
+    ctx = render_mode_context("brief-author", state)
+    assert "ORACLE" in ctx
+    assert "Draft the oracle tests for the task." in ctx
+
+
+def test_render_surfaces_last_gate_failure_reason_and_fix():
+    state = {"current_mode": "brief-author", "unlocked_modes": [],
+             "procedure_phase": "COMMIT",
+             "procedure_next_action": "Commit the oracle.",
+             "procedure_last_gate": {"ok": False, "reason": "oracle not committed",
+                                     "fix_hint": "git commit the test file"}}
+    ctx = render_mode_context("brief-author", state)
+    assert "oracle not committed" in ctx
+    assert "git commit the test file" in ctx
+
+
+def test_render_without_procedure_state_is_unchanged():
+    ctx = render_mode_context("observe", {"current_mode": "observe", "unlocked_modes": []})
+    assert "observe" in ctx and MODE_REGISTRY["observe"].tier in ctx
