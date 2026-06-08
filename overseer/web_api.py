@@ -31,15 +31,35 @@ class OverseerWebApi:
         """Append a user turn, creating the conversation if needed.
 
         When ``body`` carries no ``conversation_id`` a fresh conversation is
-        created (boot mode ``observe``); otherwise the existing one is reused.
+        created and booted in the operator-selected ``body['mode']`` provided it
+        names a self-selectable mode (a default-available Tier-R/W mode);
+        otherwise -- absent / None / empty / unknown / unlock-only Tier-S -- it
+        boots in ``observe`` (``DEFAULT_MODE``).  An existing conversation
+        (``conversation_id`` present) reuses the stored mode and ignores
+        ``body['mode']`` entirely (mode changes flow through ``mode_set``).
         Returns ``{"conversation_id", "job_id"}`` with a non-empty ``job_id``.
         No driver/agent is spawned.
         """
+        def _resolve_boot_mode(requested: Any) -> str:
+            # A mode is self-selectable iff it exists AND does not require an
+            # unlock; unknown names raise KeyError which falls back to observe.
+            if not requested:
+                return self.DEFAULT_MODE
+            from overseer.modes import get_mode, requires_unlock
+            try:
+                get_mode(requested)
+                if requires_unlock(requested):
+                    return self.DEFAULT_MODE
+                return requested
+            except KeyError:
+                return self.DEFAULT_MODE
+
         cid = body.get('conversation_id')
         if not cid:
             self._seq += 1
             cid = 'conv-%d' % self._seq
-            self._store.create(cid, current_mode=self.DEFAULT_MODE, model='opus', agent_backend='claude')
+            boot_mode = _resolve_boot_mode(body.get('mode'))
+            self._store.create(cid, current_mode=boot_mode, model='opus', agent_backend='claude')
         self._store.append_turn(cid, {'role': 'user', 'content': body['text']})
         rec = self._store.get(cid)
         job_id = 'job-%s-%d' % (cid, len(self._transcript(rec)))
