@@ -79,6 +79,7 @@ def _default_pushed_seam(repo_root) -> Callable[[], bool]:
 
 def make_default_gate_runner(repo_root, state_dir, *, run_seam=None, git_seam=None, status_seam=None, pending_seam=None, pushed_seam=None):
     """Build the production gate_runner(mode, phase, rec, state_dir) -> GateResult."""
+    from overseer.gates import wired
     run_seam = run_seam or _default_run_seam(repo_root)
     git_seam = git_seam or _default_git_seam(repo_root)
     status_seam = status_seam or _default_status_seam(repo_root)
@@ -123,6 +124,11 @@ def make_default_gate_runner(repo_root, state_dir, *, run_seam=None, git_seam=No
             if report is None:
                 return _missing('verification report', 'Run the oracle + record the report.')
             return suite_green_zero_reg(report)
+        if label == 'wired':
+            report = arts.get('wire_report')
+            if report is None:
+                return _missing('wire report', 'Run check_wired + record the report (procedure_artifacts.wire_report).')
+            return wired(report)
         if label == 'posture_ok':
             return posture_locked(state_dir=sd)
         if label in ('preflight_clean', 'swept'):
