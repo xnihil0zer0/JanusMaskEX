@@ -100,6 +100,92 @@ def discover_live_roots(repo_root) -> list[str]:
         if main_guard.search(src):
             roots.add(m)
     return sorted(roots)
+@dataclass
+class SweepReport:
+    """Tree-wide partition of source modules into wiredness classes.
+
+    Each field is a sorted list of POSIX module rel-paths. ``roots`` holds the
+    sorted seeded live roots used to compute reachability. A source module
+    appears in exactly one of the four class lists:
+
+      * ``wired`` -- reachable (forward, via the import graph) from a live root.
+      * ``config_wired`` -- not reachable, but referenced by stem in config/**.
+      * ``orphan_cluster`` -- inbound importers exist but none is reachable.
+      * ``orphan`` -- no inbound importers and no config reference.
+    """
+    wired: list[str] = field(default_factory=list)
+    config_wired: list[str] = field(default_factory=list)
+    orphan_cluster: list[str] = field(default_factory=list)
+    orphan: list[str] = field(default_factory=list)
+    roots: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Return the four class lists keyed by class name."""
+        return {'wired': self.wired, 'config_wired': self.config_wired, 'orphan_cluster': self.orphan_cluster, 'orphan': self.orphan}
+
+    def to_markdown(self) -> str:
+        """Render a deterministic markdown report of the sweep classes."""
+        lines = ['# Wire-Up Sweep Report', '', 'Source-set filter: excludes _archive/**, _autowork_archive/**, samples/**, scripts/**, tests/**, venv/**.', '']
+        sections = [('WIRED', self.wired), ('CONFIG_WIRED', self.config_wired), ('ORPHAN_CLUSTER', self.orphan_cluster), ('ORPHAN', self.orphan)]
+        for name, members in sections:
+            members = sorted(members)
+            lines.append(f'## {name} ({len(members)})')
+            for m in members:
+                lines.append(f'- {m}')
+            lines.append('')
+        return '\n'.join(lines)
+
+def sweep_modules(repo_root, *, roots) -> SweepReport:
+    """Partition every source module into exactly one wiredness class.
+
+    Builds the intra-project import graph ONCE via ``module_import_graph`` over
+    the full discovered non-test module list, then BFS-reaches forward from the
+    ``roots`` present in the module set. Classifies each source-set module (the
+    non-test modules minus the excluded directories) in priority order:
+    WIRED, then CONFIG_WIRED, then ORPHAN_CLUSTER, then ORPHAN.
+
+    Pure: stdlib only, plus ``discover`` and ``_grep_config`` filesystem reads.
+    Deterministic: identical inputs yield an identical ``SweepReport``. Writes
+    no files.
+    """
+    root = Path(repo_root)
+    modules, _tests, _seeds = discover_modules(root)
+    modules = list(modules)
+    module_set = set(modules)
+    EXCLUDE = ('_archive/', '_autowork_archive/', 'samples/', 'scripts/', 'tests/', 'venv/')
+    source = [m for m in modules if not any((m.startswith(p) for p in EXCLUDE))]
+    graph = module_import_graph(root, modules)
+    importers: dict[str, set[str]] = defaultdict(set)
+    for m, deps in graph.items():
+        for d in deps:
+            importers[d].add(m)
+    seeded = sorted((r for r in roots if r in module_set))
+    reachable: set[str] = set()
+    queue: deque[str] = deque()
+    for r in seeded:
+        if r not in reachable:
+            reachable.add(r)
+            queue.append(r)
+    while queue:
+        cur = queue.popleft()
+        for d in graph.get(cur, ()):
+            if d not in reachable:
+                reachable.add(d)
+                queue.append(d)
+    wired: list[str] = []
+    config_wired: list[str] = []
+    orphan_cluster: list[str] = []
+    orphan: list[str] = []
+    for m in source:
+        if m in reachable:
+            wired.append(m)
+        elif _grep_config(root, Path(m).stem):
+            config_wired.append(m)
+        elif importers.get(m):
+            orphan_cluster.append(m)
+        else:
+            orphan.append(m)
+    return SweepReport(wired=sorted(wired), config_wired=sorted(config_wired), orphan_cluster=sorted(orphan_cluster), orphan=sorted(orphan), roots=seeded)
 def _grep_config(repo_root: Path, stem: str) -> str:
     """Search ``repo_root/config/**`` for ``stem`` as a whole word.
 
