@@ -1,0 +1,51 @@
+{
+  "tasks": [
+    {
+      "task_id": "wired_gate_fn",
+      "title": "Add the pure wired GateResult function to overseer/gates.py",
+      "meta_task_type": "harness_plumbing",
+      "priority": 1,
+      "dependencies": [],
+      "files_touched": ["overseer/gates.py"],
+      "acceptance_criteria": [
+        "overseer/gates.py defines wired(report) -> GateResult",
+        "wired is added to the module-level __all__ list",
+        "zero/absent live_importers -> ok=False; non-empty -> ok=True",
+        "tests/overseer/test_wired_gate.py passes"
+      ],
+      "spec_author": "operator",
+      "estimated_complexity": "S",
+      "verification_command": "python -m pytest -p no:cacheprovider -q tests/overseer/test_wired_gate.py",
+      "objective": "Add a pure wired(report) -> GateResult gate function to the existing module overseer/gates.py, exported via __all__, that fails closed when a wire report shows no live importers (an orphan) and passes otherwise.",
+      "spec": {
+        "objective": "Add a pure wired(report) -> GateResult gate function to the existing module overseer/gates.py, exported via __all__, that fails closed when a wire report shows no live importers (an orphan) and passes otherwise.",
+        "functional_requirements": [
+          "Define a new module-level function wired(report) that returns a GateResult.",
+          "GateResult is the existing dataclass in this module with fields ok: bool, reason: str, fix_hint: str.",
+          "When report is a mapping whose 'live_importers' value is a non-empty sequence, return GateResult(ok=True, reason='', fix_hint='').",
+          "When report's 'live_importers' is empty OR the 'live_importers' key is absent, return GateResult(ok=False, ...) with a reason naming the orphan and an actionable fix_hint about adding a live importer.",
+          "Add the string 'wired' to the module-level __all__ list so it is exported alongside the existing gate functions."
+        ],
+        "interfaces": "wired(report) -> GateResult, where GateResult(ok: bool, reason: str, fix_hint: str) is the existing dataclass already defined in overseer/gates.py.",
+        "edge_cases": [
+          "report missing the 'live_importers' key entirely must fail closed (ok=False), not raise and not pass.",
+          "report with an empty live_importers list is an orphan -> ok=False."
+        ],
+        "non_goals": [
+          "No integration wiring into gate_runner, procedure.py, or the orchestrator -- this leaf adds the pure gate function only; that is a separate leaf.",
+          "No changes to the existing GateResult dataclass or the other gate functions; preserve all existing behaviour and the existing __all__ entries.",
+          "No process/network/model call; pure function over its report argument."
+        ],
+        "implementation_notes": "EDIT the EXISTING module overseer/gates.py to ADD one new top-level function `wired` and to add 'wired' to the existing module-level __all__ list. CRITICAL PATCH SHAPE (a new top-level symbol emitted as its OWN patch entry FAILS to apply -- you MUST R-ANCHOR it): emit EXACTLY TWO symbol patch entries, each anchored on an EXISTING symbol: (1) anchor = the existing function `posture_locked`: its patch `code` must contain the COMPLETE existing posture_locked function UNCHANGED, followed immediately by the NEW `wired` function as a trailing top-level def (this rides the new symbol in on an existing anchor). (2) anchor = the existing module-level `__all__` assignment: its patch `code` must be the full __all__ list literal reproduced with the new string 'wired' appended (e.g. __all__ = ['GateResult', 'oracle_is_red', 'oracles_committed_at_head', 'brief_lint', 'plan_preflight', 'suite_green_zero_reg', 'posture_locked', 'wired']). Do NOT emit `wired` as its own separate patch entry. Do NOT use any default-argument or import-time side-effect trick to mutate __all__ -- update the __all__ literal directly via entry (2). The module defines a @dataclass GateResult with fields ok: bool, reason: str, fix_hint: str. The wired body: if isinstance(report, Mapping) and report.get('live_importers') is a non-empty sequence -> return GateResult(ok=True, reason='', fix_hint=''); otherwise (empty list OR missing key) -> return GateResult(ok=False, reason='orphan: the module has no live importer', fix_hint='Add an import/call from a live module so the new module is reachable from a live entrypoint.'). Mapping is already imported in this module. Do NOT modify posture_locked's behaviour, the GateResult dataclass, or any other function. Do NOT cite line numbers. The committed oracle below is authoritative -- your code MUST make it pass."
+      },
+      "test_spec": {
+        "unit_tests": ["wired exported in __all__", "zero importers not ok", "some importers ok", "missing key fails closed"],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": ["zero importers not ok", "missing live_importers key fails closed"],
+        "minimum_test_count": 4,
+        "test_data_requirements": "Plain dict reports supplied by the committed oracle."
+      }
+    }
+  ]
+}

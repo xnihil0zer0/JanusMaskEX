@@ -1,0 +1,54 @@
+{
+  "tasks": [
+    {
+      "task_id": "wire_up_accept_gate",
+      "title": "Accept-time wire-up gate in _auto_commit_accepted (flag-gated)",
+      "meta_task_type": "harness_self_fix",
+      "priority": 1,
+      "dependencies": [],
+      "files_touched": ["harness/orchestrator.py"],
+      "acceptance_criteria": [
+        "orchestrator exposes module-level check_wired, WireResult (imported from harness.wire_up) and a _wire_up_gate_enabled helper",
+        "_auto_commit_accepted, when the gate is enabled and the candidate created a new module, calls check_wired and rejects an orphan (rolls back staging, writes an orphan_unwired ledger row, returns False) without merging",
+        "with the gate disabled, check_wired is never consulted (prior behaviour preserved)",
+        "tests/harness/test_wire_up_accept_gate.py passes",
+        "existing orchestrator accept/mutation-gate tests still pass"
+      ],
+      "spec_author": "operator",
+      "estimated_complexity": "M",
+      "verification_command": "python -m pytest -p no:cacheprovider -q tests/harness/test_wire_up_accept_gate.py",
+      "objective": "Insert a flag-gated reachability gate into harness/orchestrator.py at the single accept chokepoint: after the mutation gate and before the staging->parent merge, a new module that no live importer reaches is rejected exactly as a failed mutation gate is, behind the default-OFF autowork.wire_up_gate flag.",
+      "spec": {
+        "objective": "Insert a flag-gated reachability gate into harness/orchestrator.py at the single accept chokepoint: after the mutation gate and before the staging->parent merge, a new module that no live importer reaches is rejected exactly as a failed mutation gate is, behind the default-OFF autowork.wire_up_gate flag.",
+        "functional_requirements": [
+          "Add a module-level import so that check_wired and WireResult from harness.wire_up are accessible as orchestrator-module attributes (orchestrator.check_wired, orchestrator.WireResult).",
+          "Add a module-level helper _wire_up_gate_enabled(state_dir=None) -> bool that returns config['autowork']['wire_up_gate'] (default False) via the existing load_config(); fail-safe to False on any error.",
+          "Add a module-level helper _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, worktree_root, result, working_dir) -> bool that, for each NEWLY-CREATED module in files_touched (a path ending '.py' not under a tests/ directory and not tracked in the parent HEAD before this commit), calls check_wired(working_dir or worktree_root, rel); if any returns a result whose .wired is False, it rolls the staging commit back via _rollback_rejected_commit(staging_path, result.get('sha'), <that rel>, task_id, 'orphan_unwired') + git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root), writes an impl_progress.jsonl row with event='orphan_unwired' and the offending file, calls _mark_blocked(state_dir, task_id, outcome='orphan_unwired'), and returns True (reject). Otherwise returns False (proceed).",
+          "In _auto_commit_accepted, immediately AFTER the mutation-gate block (the block whose failure arm logs 'mutation_gate_error'/'mutation_gate_missing' and returns False) and immediately BEFORE the block that writes the accepted ledger row and merges staging into the parent, insert: if _wire_up_gate_enabled(state_dir) and _run_wire_up_gate(...) -> return False.",
+          "When _wire_up_gate_enabled returns False, _run_wire_up_gate (and therefore check_wired) MUST NOT be called -- the gate is a strict no-op preserving the existing accept path byte-for-byte."
+        ],
+        "interfaces": "Module-level in harness/orchestrator.py: check_wired, WireResult (imported from harness.wire_up); _wire_up_gate_enabled(state_dir=None) -> bool; _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, worktree_root, result, working_dir) -> bool. _auto_commit_accepted(state_dir, task, task_id) -> bool gains only a flag-gated rejection arm between the mutation gate and the merge; its signature and all existing behaviour are unchanged.",
+        "edge_cases": [
+          "Gate disabled (flag off / monkeypatched False): check_wired is never called; accept proceeds exactly as before.",
+          "Gate enabled, check_wired returns wired=False for the new module: reject -- return False, parent HEAD unchanged (no merge), an orphan_unwired ledger row written.",
+          "Gate enabled, check_wired returns wired=True: accept proceeds (returns True)."
+        ],
+        "non_goals": [
+          "No change to harness.wire_up, the overseer gates/procedure, or the plan validator.",
+          "Do NOT flip the autowork.wire_up_gate flag on; it ships default-OFF.",
+          "Preserve every existing accept, mutation-gate, merge, and rollback behaviour and all existing tests; this is an integration edit adding only a flag-gated arm.",
+          "No new agent/process/network call beyond the injected check_wired."
+        ],
+        "implementation_notes": "EDIT the EXISTING file harness/orchestrator.py (staged in inbox/targets -- read its current structure). THE ORACLE PINS THESE SEAMS as orchestrator module-level names: check_wired, WireResult, and _wire_up_gate_enabled (the oracle monkeypatches orchestrator.check_wired and orchestrator._wire_up_gate_enabled and constructs orchestrator.WireResult). So check_wired/WireResult MUST be imported at MODULE level (from harness.wire_up import check_wired, WireResult) -- NOT inside a function -- so the monkeypatch takes effect, and _run_wire_up_gate MUST reference the module-global check_wired (call check_wired(...) bare, resolving to the module attribute). PATCH SHAPE: add the import and the two new helpers as NEW top-level symbols -- because a brand-new top-level symbol emitted as its OWN patch entry can fail to apply, R-ANCHOR each by riding it as a trailing node in an EXISTING nearby symbol's patch (e.g. append the import + _wire_up_gate_enabled + _run_wire_up_gate immediately after the existing _rollback_rejected_commit function, emitting that anchor's full unchanged body followed by the new code). Then emit the _auto_commit_accepted change as its own symbol patch reproducing that function with ONLY the small insertion added. INSERTION POINT inside _auto_commit_accepted: locate the mutation-gate section (it ends with an arm that logs 'mutation_gate_error' and returns False); the next block writes an impl_progress 'accepted'/'auto_commit' ledger row and then calls git_integration.merge_staging_to_parent. Insert BETWEEN them: `if _wire_up_gate_enabled(state_dir):\\n    if _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, worktree_root, result, working_dir):\\n        return False`. Use the variables already in scope at that point (state_dir, task, task_id, files_touched, staging_path, worktree_root, result, working_dir). _rollback_rejected_commit, git_integration.remove_staging_worktree, _mark_blocked, write_jsonl_row, and load_config already exist in this module. Do NOT cite line numbers. The committed oracle below is authoritative -- your code MUST make it pass while keeping existing orchestrator tests green."
+      },
+      "test_spec": {
+        "unit_tests": ["calls check_wired for new module", "orphan blocks merge", "wired allows accept", "disabled is a noop"],
+        "integration_tests": ["end-to-end through real _auto_commit_accepted over a temp git repo (in the committed oracle)"],
+        "property_tests": [],
+        "regression_tests": ["disabled gate is a strict no-op (prior behaviour preserved)", "orphan rejection leaves parent HEAD unchanged"],
+        "minimum_test_count": 4,
+        "test_data_requirements": "A temp git parent + sibling staging worktree built by the committed oracle. integration: this edit preserves all existing accept/mutation/merge behaviour."
+      }
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "tasks": [
+    {
+      "task_id": "wire_up_fsm_phase",
+      "title": "Insert WIRE_UP phase between VERIFY and RESTORE in the dispatch procedure",
+      "meta_task_type": "harness_plumbing",
+      "priority": 1,
+      "dependencies": [],
+      "files_touched": ["overseer/procedure.py"],
+      "acceptance_criteria": [
+        "PROCEDURE_REGISTRY['dispatch'] phases are PREFLIGHT, STAGE, BUILD, VERIFY, WIRE_UP, RESTORE in that order",
+        "the WIRE_UP phase binds the gate name 'wired' and a non-empty next-action string",
+        "advance unchanged: a failing wired gate at WIRE_UP returns Blocked; a passing one advances to RESTORE",
+        "tests/overseer/test_wire_up_phase.py passes"
+      ],
+      "spec_author": "operator",
+      "estimated_complexity": "S",
+      "verification_command": "python -m pytest -p no:cacheprovider -q tests/overseer/test_wire_up_phase.py",
+      "objective": "Insert a new WIRE_UP phase (bound to the 'wired' gate) into the dispatch procedure's ordered phase list, between the existing VERIFY and RESTORE phases, so that DONE (the terminal Complete reached after RESTORE) is unreachable while a build is orphaned. The pure reducer advance is unchanged.",
+      "spec": {
+        "objective": "Insert a new WIRE_UP phase (bound to the 'wired' gate) into the dispatch procedure's ordered phase list, between the existing VERIFY and RESTORE phases, so that DONE (the terminal Complete reached after RESTORE) is unreachable while a build is orphaned. The pure reducer advance is unchanged.",
+        "functional_requirements": [
+          "In PROCEDURE_REGISTRY, the 'dispatch' Procedure's phases list gains a new Phase named 'WIRE_UP' inserted BETWEEN the existing 'VERIFY' and 'RESTORE' phases (final order: PREFLIGHT, STAGE, BUILD, VERIFY, WIRE_UP, RESTORE).",
+          "The WIRE_UP Phase binds the gate name 'wired' and carries a non-empty next-action string instructing the operator to verify the new module is reachable from a live importer.",
+          "The pure reducer advance(procedure, phase, gate_result) is NOT changed: it already returns Blocked on a failing gate and the next phase string on a passing gate, so a failing wired gate at WIRE_UP yields Blocked and a passing one yields 'RESTORE'."
+        ],
+        "interfaces": "PROCEDURE_REGISTRY['dispatch'] phase order becomes PREFLIGHT, STAGE, BUILD, VERIFY, WIRE_UP, RESTORE; the WIRE_UP Phase(name='WIRE_UP', gate='wired', next_action=<non-empty str>). advance(procedure, phase, gate_result) -> Decision is consumed unchanged.",
+        "edge_cases": [
+          "advance(dispatch, 'WIRE_UP', GateResult(ok=False,...)) must return a Blocked decision (DONE unreachable while orphaned).",
+          "advance(dispatch, 'WIRE_UP', GateResult(ok=True,...)) must return the next phase 'RESTORE'."
+        ],
+        "non_goals": [
+          "No changes to the advance reducer, the gate_runner, gates.py, or any other procedure (brief-author/oracle-author/push/daemon-supervisor) -- only the dispatch procedure's phase list changes.",
+          "No new agent/process/network call; this is a pure registry data edit.",
+          "Preserve every existing phase, its gate name, and its next-action string unchanged."
+        ],
+        "implementation_notes": "EDIT the EXISTING module overseer/procedure.py. The module defines Phase(name, gate, next_action) and Procedure(mode, phases), and a module-level dict PROCEDURE_REGISTRY mapping mode names to Procedure objects. The 'dispatch' entry currently has phases (in order): Phase('PREFLIGHT', 'preflight_clean', ...), Phase('STAGE', 'staged', ...), Phase('BUILD', 'built', ...), Phase('VERIFY', 'verified', ...), Phase('RESTORE', 'restored', ...). INSERT a new Phase('WIRE_UP', 'wired', 'Verify the new module is reachable from a live importer (not orphaned).') BETWEEN the VERIFY and RESTORE phases of the dispatch Procedure ONLY. Leave the brief-author, oracle-author, push, and daemon-supervisor procedures, and every other phase, exactly as they are. Do NOT modify the advance function, the Phase/Procedure/Blocked/Complete definitions, or __all__. Emit the change as a patch to the PROCEDURE_REGISTRY assignment (reproduce the full dict value with WIRE_UP inserted in the dispatch phase list). Do NOT cite line numbers. The committed oracle below is authoritative -- your code MUST make it pass."
+      },
+      "test_spec": {
+        "unit_tests": ["WIRE_UP present", "WIRE_UP ordered between VERIFY and RESTORE", "WIRE_UP binds wired gate", "orphan blocks", "wired advances to RESTORE"],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": ["orphan at WIRE_UP returns Blocked", "wired at WIRE_UP advances to RESTORE"],
+        "minimum_test_count": 5,
+        "test_data_requirements": "GateResult instances supplied by the committed oracle."
+      }
+    }
+  ]
+}

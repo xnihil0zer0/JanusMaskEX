@@ -42,7 +42,9 @@ def test_brief_author_phase_order_matches_the_recipe():
 
 def test_dispatch_phase_order_matches_the_recipe():
     proc = PROCEDURE_REGISTRY['dispatch']
-    assert [p.name for p in proc.phases] == ['PREFLIGHT', 'STAGE', 'BUILD', 'VERIFY', 'RESTORE']
+    # WIRE_UP inserted between VERIFY and RESTORE (wire_up_phase epic) so DONE
+    # (the terminal Complete reached after RESTORE) is unreachable while orphaned.
+    assert [p.name for p in proc.phases] == ['PREFLIGHT', 'STAGE', 'BUILD', 'VERIFY', 'WIRE_UP', 'RESTORE']
 
 
 def test_push_phase_order_matches_the_recipe():
