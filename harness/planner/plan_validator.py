@@ -11,6 +11,44 @@ from harness.planner.taxonomies import META_TASK_TYPES
 PRIORITY_CANONICAL = {'critical', 'high', 'medium', 'low'}
 
 
+def _is_wiring_oracle(verification_command: Any) -> bool:
+    """A wiring oracle is recognised when ``verification_command`` names a pytest
+    path whose filename stem ends with ``_wired`` (e.g.
+    ``tests/harness/test_newmod_wired.py``). Scan whitespace-separated tokens for
+    a ``.py`` path and inspect its filename stem."""
+    if not isinstance(verification_command, str):
+        return False
+    for token in verification_command.split():
+        if not token.endswith('.py'):
+            continue
+        stem = token.rsplit('/', 1)[-1].rsplit('\\', 1)[-1][:-len('.py')]
+        if stem.endswith('_wired'):
+            return True
+    return False
+
+_PURE_EDIT_META_TASK_TYPES = {'refactor', 'logging_observability', 'docs_writing'}
+
+def _is_module_creating(task: Any) -> bool:
+    """A leaf is MODULE-CREATING when its ``files_touched`` contains a ``.py``
+    path that is NOT under a ``tests/`` directory AND its ``meta_task_type`` is
+    not a pure-edit type (``refactor``, ``logging_observability``,
+    ``docs_writing`` and any ``test_*`` type are exempt)."""
+    if not isinstance(task, dict):
+        return False
+    meta_task_type = task.get('meta_task_type')
+    if isinstance(meta_task_type, str):
+        if meta_task_type in _PURE_EDIT_META_TASK_TYPES or meta_task_type.startswith('test_'):
+            return False
+    files_touched = task.get('files_touched', [])
+    if not isinstance(files_touched, list):
+        return False
+    for path in files_touched:
+        if not isinstance(path, str) or not path.endswith('.py'):
+            continue
+        if 'tests/' in path.replace('\\', '/'):
+            continue
+        return True
+    return False
 def _valid_mutation_module(v: Any) -> bool:
     """A2: a ``mutation_target`` must be a bare dotted module name (the
     module-under-test), e.g. ``harness.symbol_ledger``. Mirrors the
@@ -120,6 +158,11 @@ def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]
                     violations.append(PlanViolation('invalid_mutation_target', f'{path_prefix}.mutation_target', f'mutation_target must be a bare dotted module name (the module-under-test), got {mut_target!r}'))
             elif not has_mutations:
                 violations.append(PlanViolation('missing_mutation_target', f'{path_prefix}.mutation_target', "test_authoring task must declare a 'mutation_target' (bare dotted module-under-test) or a non-empty 'mutations[]' so the non-vacuity gate can fail-detect"))
+        # Wiring-oracle requirement: a leaf that creates a NEW module must declare a
+        # wiring oracle (a *_wired test named in its verification_command) so the
+        # module is proven reachable from a live importer. Reject pre-spawn otherwise.
+        if _is_module_creating(task) and not _is_wiring_oracle(task.get('verification_command')):
+            violations.append(PlanViolation('missing_wiring_oracle', f'{path_prefix}.verification_command', 'a leaf that creates a new module must declare a wiring oracle (a *_wired test named in its verification_command) so the module is proven reachable from a live importer'))
         priority = task.get('priority')
         if priority is not None:
             if not isinstance(priority, str):
