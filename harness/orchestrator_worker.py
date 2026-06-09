@@ -70,11 +70,53 @@ def _reap_spent_briefs_safe(payload: dict) -> None:
         reap_for_task(repo_root, task_id, stamp=stamp)
     except Exception:
         return
+def _purge_stale_sidecars_safe(payload: dict, state_dir=None) -> list[str]:
+    """Fail-safe terminal-outcome purge of stale emission sidecars.
+
+    Runs AFTER the JSON line has already been written + flushed, exactly like
+    _reap_spent_briefs_safe. commit_accepted_output (git_integration.py:610-699,
+    read-only) dispatches the accept path on SIDECAR EXISTENCE -- a leftover
+    state/output/<tid>.files.json => multi-file path, <tid>.patches.json =>
+    patches path -- so a FAILED attempt's stale sidecar deterministically
+    hijacks every retry of the same task. On a NON-accept terminal payload
+    (outcome not in ('accepted', 'no_diff')) this best-effort unlinks
+    state_dir/output/<task_id>.patches.json and <task_id>.files.json and returns
+    the removed filenames. Accepted/no_diff payloads consume those sidecars on
+    the accept path, so they are left byte-identical and [] is returned. The
+    WHOLE body is wrapped in try/except so it can never raise back into
+    _print_json_line; a garbage payload, a missing output dir, or a non-dir
+    state_dir each return []. When state_dir is None it resolves the
+    repo-standard <repo_root>/state via Path(__file__).resolve().parents[1]."""
+    try:
+        if payload.get('outcome') in ('accepted', 'no_diff'):
+            return []
+        task_id = payload.get('task_id')
+        if not isinstance(task_id, str) or not task_id:
+            return []
+        import pathlib
+        if state_dir is None:
+            state_dir = pathlib.Path(__file__).resolve().parents[1] / 'state'
+        else:
+            state_dir = pathlib.Path(state_dir)
+        if not state_dir.is_dir():
+            return []
+        out_dir = state_dir / 'output'
+        removed: list[str] = []
+        for name in (f'{task_id}.patches.json', f'{task_id}.files.json'):
+            try:
+                (out_dir / name).unlink()
+                removed.append(name)
+            except OSError:
+                pass
+        return removed
+    except Exception:
+        return []
 def _print_json_line(payload: dict[str, Any]) -> None:
     sys.stdout.write(json.dumps(payload) + '\n')
     sys.stdout.flush()
     try:
         _reap_spent_briefs_safe(payload)
+        _purge_stale_sidecars_safe(payload)
     except Exception:
         pass
 
