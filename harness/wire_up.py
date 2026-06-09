@@ -272,7 +272,13 @@ def _resolved_graph(repo_root, modules):
                         deps.add(pkg_init[a.name])
     return graph
 def _grep_config(repo_root: Path, stem: str) -> str:
-    """Search ``repo_root/config/**`` for ``stem`` as a whole word.
+    """Search ``repo_root/config/**`` for ``stem`` used as a MODULE reference.
+
+    A reference counts only when ``stem`` looks like a module path / ``-m``
+    target -- a ``stem.py`` file path, a dotted-path segment (``pkg.stem`` or
+    ``stem.sub``), or a bare ``-m <stem>`` target -- NOT when it is merely a
+    bare identifier or JSON object key (which previously produced false
+    CONFIG_WIRED verdicts that masked real orphans).
 
     Returns the POSIX rel-path of the first config file that references the
     stem (dynamic/config-string wiring), or "" if none does.
@@ -280,7 +286,8 @@ def _grep_config(repo_root: Path, stem: str) -> str:
     config_dir = repo_root / 'config'
     if not config_dir.is_dir():
         return ''
-    pattern = re.compile('\\b' + re.escape(stem) + '\\b')
+    s = re.escape(stem)
+    pattern = re.compile('(?<![\\w.])' + s + '\\.py\\b' + '|(?<=\\.)' + s + '\\b' + '|(?<![\\w.])' + s + '(?=\\.\\w)' + '|-m\\s+' + s + '\\b')
     for path in sorted(config_dir.rglob('*')):
         if not path.is_file():
             continue
