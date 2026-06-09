@@ -27,11 +27,18 @@ drives real _auto_commit_accepted over temp git), tests/overseer/test_wired_gate
 test_wire_up_phase.py, tests/planner/test_missing_wiring_oracle.py. 0 NEW regressions
 (pre-existing baseline: test_brief_loader sha256 + 4 test_orchestrator prepare_task_prompt fails).
 
-OPEN (noted, not built): the FSM `wired` gate is defined (gates.py) and the WIRE_UP phase binds
-it, but overseer/gate_runner.py has no `wired` label dispatch yet, so the overseer FSM does not
-auto-run the gate at runtime (no committed oracle required it). The AUTONOMOUS accept-path gate
-(leaf 2) IS fully live behind the default-OFF flag. Flip autowork.wire_up_gate ON only after the
-dogfood acceptance (done) + owner sign-off.
+LEAF 6 (gate_runner wired dispatch) BUILT `fada2c4` (oracle tests/overseer/test_wired_gate_dispatch.py
+4/4): overseer/gate_runner.py::make_default_gate_runner._run_gate now routes the WIRE_UP phase's
+'wired' label to gates.wired over rec['procedure_artifacts']['wire_report'] (fail-closed on a missing
+report). Proven end-to-end: gate_label_for('dispatch','WIRE_UP')->'wired'->gates.wired; orphan report
+->ok=False, wired report->ok=True. overseer suite 370 passed.
+
+RESIDUAL (the only remaining runtime step, not yet built): nothing POPULATES rec['procedure_artifacts']
+['wire_report'] during a live overseer dispatch turn (turn_runner would compute check_wired for the
+built module and stash it), so at runtime WIRE_UP currently fail-closes ('wire report' missing) until a
+report is recorded. The dispatch EDGE is wired; the report producer is the next small leaf. The
+AUTONOMOUS accept-path gate (leaf 2) is fully live behind the default-OFF flag and needs none of this.
+Flip autowork.wire_up_gate ON only after owner sign-off (dogfood done).
 -->
 
 # Title
