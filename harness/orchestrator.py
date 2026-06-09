@@ -217,6 +217,33 @@ def _assert_claude_hook_config(cmd: list[str]) -> None:
     if not (isinstance(data, dict) and data.get('hooks', {}).get('PreToolUse')):
         raise RuntimeError(f'CONTAIN C5: claude --settings {settings_path} declares no PreToolUse hook; refusing to launch un-gated.')
 
+def _apply_agy_pool_env(agent, env, config=None):
+    """Pool a private $HOME onto an agy agent's spawn env when the worker pool
+    is enabled and this worker was assigned a slot (JANUSMASK_AGY_SLOT). Only
+    agy-command agents are pooled; disabled / non-agy / absent or invalid slot
+    returns env unchanged (never mutated). The overseer never reaches this path."""
+    if config is None:
+        config = load_config()
+    try:
+        cmd = config['agents'][agent]['command']
+    except (KeyError, TypeError):
+        return env
+    if os.path.basename(cmd) != 'agy':
+        return env
+    pool = (config.get('workers') or {}).get('agy_pool') or {}
+    if not pool.get('enabled'):
+        return env
+    try:
+        slot = int(os.environ.get('JANUSMASK_AGY_SLOT'))
+    except (TypeError, ValueError):
+        return env
+    from harness import agy_pool
+    home = os.environ.get('HOME') or os.path.expanduser('~')
+    try:
+        agy_pool.ensure_seeded(str(PROJECT_DIR), slot, home=home, copy=shutil.copy2, exists=os.path.exists, makedirs=lambda d: os.makedirs(d, exist_ok=True))
+    except OSError:
+        pass
+    return agy_pool.worker_env(str(PROJECT_DIR), slot, env)
 def _build_agent_env(agent: str, state_dir: str, round_number: int=1) -> dict[str, str]:
     """Build the environment for an agent process.
 
@@ -283,6 +310,7 @@ def _build_agent_env(agent: str, state_dir: str, round_number: int=1) -> dict[st
     env: dict[str, str] = {**base_env, 'PYTHONHASHSEED': '0', 'CLAUDE_PROJECT_DIR': str(work_dir), 'JANUSMASK_PROJECT_DIR': str(PROJECT_DIR), 'PYTHONPATH': _pythonpath, 'GEMINI_CLI_TRUST_WORKSPACE': 'true', 'JANUSMASK_AGENT': agent, 'JANUSMASK_STATE_DIR': state_dir, 'JANUSMASK_ROUND': str(round_number), 'JANUSMASK_MODE': mode, 'JANUSMASK_TASK_ID': task_id, 'JANUSMASK_WORK_DIR': str(work_dir)}
     if agent == 'gemini':
         env['JANUSMASK_GEMINI_SETTINGS'] = os.environ.get('JANUSMASK_GEMINI_SETTINGS', str(PROJECT_DIR / 'config' / 'gemini_settings.json'))
+    env = _apply_agy_pool_env(agent, env)
     return env
 
 def _boost_antigravity_mcp_config(state_dir: Path) -> None:
