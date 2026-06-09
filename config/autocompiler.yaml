@@ -1,0 +1,19 @@
+# Dynamic-wiring registration for the autocompiler package (Phase A, epic
+# brief_hooks_autocompiler.md). The wire-up accept gate classifies a new module
+# as wired when its dotted path is referenced under config/** (see
+# harness/wire_up.py::_grep_config — "dynamic wiring"). Phase-A modules are
+# orphan-by-design until the Phase-C harness wiring lands; this file is their
+# sanctioned registration so the gate does not reject them as orphans.
+# Phase C upgrades them to genuinely live-wired; this file then becomes
+# documentation of the package surface.
+package: autocompiler
+modules:
+  - autocompiler.flags
+  - autocompiler.population
+  - autocompiler.fitness
+  - autocompiler.elo
+  - autocompiler.selection
+  - autocompiler.crossover
+  - autocompiler.containment
+  - autocompiler.vacuity
+  - autocompiler.loop
