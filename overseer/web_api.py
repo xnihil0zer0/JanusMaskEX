@@ -122,10 +122,20 @@ class OverseerWebApi:
         A Tier-R (or already-unlocked Tier-S) target persists and returns
         ``{"ok": True, "current_mode": mode}``.  A locked Tier-S target returns
         ``{"ok": False, "current_mode": <unchanged>}`` without persisting.
+
+        While a mode's procedure is mid-sequence (``rec['procedure_phase']`` is
+        truthy and not ``'COMPLETE'``) the switch is additionally gated by
+        :func:`overseer.mode_gate.can_switch`, which permits only the
+        always-available abort to ``observe`` or a no-op to the current mode.
         """
         from overseer.modes import requires_unlock
         rec = self._store.get(cid)
         unlocked = self._unlocked(rec)
+        active_phase = rec.get('procedure_phase')
+        if active_phase and active_phase != 'COMPLETE':
+            from overseer.mode_gate import can_switch
+            if not can_switch(rec['current_mode'], mode, unlocked, active_phase=active_phase):
+                return {'ok': False, 'current_mode': rec['current_mode']}
         if requires_unlock(mode) and mode not in unlocked:
             return {'ok': False, 'current_mode': rec['current_mode']}
         self._store.set_mode(cid, mode)
