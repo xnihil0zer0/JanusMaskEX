@@ -34,7 +34,7 @@ class WireResult:
     importers: list[str] = field(default_factory=list)
     reason: str = ''
     fix_hint: str = ''
-LIVE_ROOTS: list[str] = ['harness/orchestrator.py', 'harness/orchestrator_worker.py', 'harness/autowork_daemon.py', 'harness/planner/cli.py', 'harness/hooks/claude_hook.py', 'harness/hooks/gemini_hook.py', 'harness/webui_control.py', 'harness/overseer.py', 'harness/services.py']
+LIVE_ROOTS: list[str] = ['harness/orchestrator.py', 'harness/orchestrator_worker.py', 'harness/autowork_daemon.py', 'harness/planner/cli.py']
 
 def discover_live_roots(repo_root) -> list[str]:
     """Reconcile the live-root seed set from ground truth.
