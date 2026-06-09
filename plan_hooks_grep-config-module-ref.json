@@ -1,0 +1,66 @@
+{
+  "tasks": [
+    {
+      "task_id": "grep_config_module_ref",
+      "title": "_grep_config: count module-reference forms only, not arbitrary config keys",
+      "meta_task_type": "harness_self_fix",
+      "priority": 1,
+      "dependencies": [],
+      "files_touched": [
+        "harness/wire_up.py"
+      ],
+      "acceptance_criteria": [
+        "harness/wire_up._grep_config matches a stem only as a module reference (stem.py, dotted pkg.stem / stem.sub, or -m <module>), never a bare identifier / JSON key",
+        "tests/harness/test_grep_config_module_ref.py passes",
+        "tests/harness/test_sweep_classifier.py, test_wire_up.py, test_wire_tracer_accuracy.py still pass"
+      ],
+      "spec_author": "operator",
+      "estimated_complexity": "S",
+      "verification_command": "python -m pytest -p no:cacheprovider -q tests/harness/test_grep_config_module_ref.py tests/harness/test_sweep_classifier.py tests/harness/test_wire_up.py tests/harness/test_wire_tracer_accuracy.py",
+      "objective": "Tighten harness/wire_up._grep_config so a config reference is counted only when the module stem appears in a MODULE-reference context (a stem.py file path, a dotted-path segment like pkg.stem or stem.sub, or a `-m <module>` target), and NOT when the stem is merely a bare identifier or JSON object key. This removes the false CONFIG_WIRED verdict (e.g. the unrelated \"actions\" JSON key in config/gemini_settings.json) that masked the real orphan overseer/actions.py.",
+      "spec": {
+        "objective": "Tighten harness/wire_up._grep_config so a config reference is counted only when the module stem appears in a MODULE-reference context (a stem.py file path, a dotted-path segment like pkg.stem or stem.sub, or a `-m <module>` target), and NOT when the stem is merely a bare identifier or JSON object key. This removes the false CONFIG_WIRED verdict (e.g. the unrelated \"actions\" JSON key in config/gemini_settings.json) that masked the real orphan overseer/actions.py.",
+        "functional_requirements": [
+          "_grep_config keeps its exact signature `_grep_config(repo_root: Path, stem: str) -> str` and its return contract: the POSIX rel-path of the FIRST config file under repo_root/config/** whose text references the stem as a module, else '' (empty string).",
+          "The match must succeed for: a `stem.py` path token (with any path prefix, e.g. overseer/actions.py); a dotted-path tail (e.g. overseer.actions, i.e. stem immediately preceded by a dot); a dotted-path head (e.g. actions.handlers, i.e. stem immediately followed by a dot and an identifier char); and a bare `-m <stem>` target (e.g. `python3 -m config_only`).",
+          "The match must FAIL for: a bare identifier / JSON object key (e.g. `\"actions\":`); the stem appearing inside a longer identifier (e.g. `actions` inside `transactions.py` -- word boundary preserved); and a bare prose word.",
+          "All other behaviour is byte-for-byte unchanged: the `config_dir.is_dir()` guard returning '', the sorted rglob walk, the per-file read with errors='ignore' and OSError skip, and the relative_to/ValueError return logic.",
+          "Pure: stdlib only (re already imported at module top). No process spawn, model/API/network call, or un-injected subprocess; only filesystem reads."
+        ],
+        "interfaces": "_grep_config(repo_root: Path, stem: str) -> str -- unchanged signature and return contract; only the internal match pattern is tightened. Its callers (sweep_modules at the CONFIG_WIRED branch, check_wired's config_ref branch) are NOT modified.",
+        "edge_cases": [
+          "Bare JSON key `\"actions\": {` with stem 'actions' -> no match (returns '').",
+          "`-m config_only` (bare module, no dots, no .py) with stem 'config_only' -> match (this is the form tests/harness/test_sweep_classifier.py depends on).",
+          "`overseer.actions` (dotted tail) and `actions.handlers` (dotted head) with stem 'actions' -> match.",
+          "`overseer/actions.py` (path) with stem 'actions' -> match.",
+          "`transactions.py` with stem 'actions' -> NO match (the stem is a strict substring; the leading word-boundary lookbehind prevents it).",
+          "No config/ directory -> returns '' without raising; unreadable file -> skipped."
+        ],
+        "non_goals": [
+          "No change to the function signature, the file-walk order, the read/skip logic, or the return-path construction.",
+          "No change to sweep_modules, check_wired, SweepReport, WireResult, LIVE_ROOTS, discover_live_roots, _resolved_graph, or mcp_crosscheck.",
+          "No new module-level import (re is already imported at the top of harness/wire_up.py).",
+          "No process/model/network/subprocess; pure stdlib."
+        ],
+        "implementation_notes": "EDIT the EXISTING module harness/wire_up.py with EXACTLY ONE symbol-patch entry whose anchor is the EXISTING top-level function `_grep_config`. Reproduce `_grep_config` in full, changing ONLY how the match `pattern` is built and updating the docstring; every other line stays byte-for-byte identical.\n\nThe CURRENT function is exactly:\n\n```python\ndef _grep_config(repo_root: Path, stem: str) -> str:\n    \"\"\"Search ``repo_root/config/**`` for ``stem`` as a whole word.\n\n    Returns the POSIX rel-path of the first config file that references the\n    stem (dynamic/config-string wiring), or \"\" if none does.\n    \"\"\"\n    config_dir = repo_root / 'config'\n    if not config_dir.is_dir():\n        return ''\n    pattern = re.compile('\\\\b' + re.escape(stem) + '\\\\b')\n    for path in sorted(config_dir.rglob('*')):\n        if not path.is_file():\n            continue\n        try:\n            text = path.read_text(encoding='utf-8', errors='ignore')\n        except OSError:\n            continue\n        if pattern.search(text):\n            try:\n                return path.relative_to(repo_root).as_posix()\n            except ValueError:\n                return path.as_posix()\n    return ''\n```\n\nReplace it with EXACTLY this (the ONLY differences are the docstring and the two lines that build `pattern`):\n\n```python\ndef _grep_config(repo_root: Path, stem: str) -> str:\n    \"\"\"Search ``repo_root/config/**`` for ``stem`` used as a MODULE reference.\n\n    A reference counts only when ``stem`` looks like a module path / ``-m``\n    target -- a ``stem.py`` file path, a dotted-path segment (``pkg.stem`` or\n    ``stem.sub``), or a bare ``-m <stem>`` target -- NOT when it is merely a\n    bare identifier or JSON object key (which previously produced false\n    CONFIG_WIRED verdicts that masked real orphans).\n\n    Returns the POSIX rel-path of the first config file that references the\n    stem (dynamic/config-string wiring), or \"\" if none does.\n    \"\"\"\n    config_dir = repo_root / 'config'\n    if not config_dir.is_dir():\n        return ''\n    s = re.escape(stem)\n    pattern = re.compile('(?<![\\\\w.])' + s + '\\\\.py\\\\b' + '|(?<=\\\\.)' + s + '\\\\b' + '|(?<![\\\\w.])' + s + '(?=\\\\.\\\\w)' + '|-m\\\\s+' + s + '\\\\b')\n    for path in sorted(config_dir.rglob('*')):\n        if not path.is_file():\n            continue\n        try:\n            text = path.read_text(encoding='utf-8', errors='ignore')\n        except OSError:\n            continue\n        if pattern.search(text):\n            try:\n                return path.relative_to(repo_root).as_posix()\n            except ValueError:\n                return path.as_posix()\n    return ''\n```\n\nThe compiled pattern has four alternatives: (1) `(?<![\\w.])stem\\.py\\b` -- a stem.py path token not preceded by a word char or dot; (2) `(?<=\\.)stem\\b` -- stem as a dotted-path tail (preceded by a dot); (3) `(?<![\\w.])stem(?=\\.\\w)` -- stem as a dotted-path head (followed by .identifier); (4) `-m\\s+stem\\b` -- a bare `-m <module>` target. `stem` is the re.escape'd value `s`. Do NOT cite repo line numbers. Do NOT touch any other symbol. The committed oracle tests/harness/test_grep_config_module_ref.py is authoritative -- your code MUST make it pass and MUST keep tests/harness/test_sweep_classifier.py, test_wire_up.py, and test_wire_tracer_accuracy.py passing."
+      },
+      "test_spec": {
+        "unit_tests": [
+          "bare JSON key is not a module reference (no match)",
+          "stem.py path / dotted tail / dotted head / bare -m target all match",
+          "substring inside a longer identifier does not match",
+          "live config 'actions' key yields no match"
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          "tests/harness/test_sweep_classifier.py still passes (config_only via -m stays CONFIG_WIRED)",
+          "tests/harness/test_wire_up.py still passes",
+          "tests/harness/test_wire_tracer_accuracy.py still passes"
+        ],
+        "minimum_test_count": 8,
+        "test_data_requirements": "Hermetic tmp config trees supplied by the committed oracle plus a read of the real config/ tree."
+      }
+    }
+  ]
+}
