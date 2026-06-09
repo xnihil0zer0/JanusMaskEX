@@ -36,6 +36,70 @@ class WireResult:
     fix_hint: str = ''
 LIVE_ROOTS: list[str] = ['harness/orchestrator.py', 'harness/orchestrator_worker.py', 'harness/autowork_daemon.py', 'harness/planner/cli.py', 'harness/hooks/claude_hook.py', 'harness/hooks/gemini_hook.py', 'harness/webui_control.py', 'harness/overseer.py', 'harness/services.py']
 
+def discover_live_roots(repo_root) -> list[str]:
+    """Reconcile the live-root seed set from ground truth.
+
+    Returns a sorted, de-duplicated list of POSIX module rel-paths that is the
+    UNION of:
+
+      (a) the shipped ``LIVE_ROOTS`` entries that exist as files under
+          ``repo_root``;
+      (b) entrypoints registered by name in ``config/**`` -- both ``-m
+          <dotted.module>`` tokens and literal ``*.py`` path references --
+          restricted to candidates that exist in the discovered module set;
+      (c) discovered non-test modules whose source carries a real
+          ``if __name__ == '__main__':`` guard at statement position.
+
+    Pure: stdlib only, plus ``discover_modules`` for the authoritative
+    non-test module rel-path set. Only filesystem reads under ``repo_root``;
+    never raises on a missing/unreadable file.
+    """
+    from harness.rebuild.discover import discover_modules
+    root = Path(repo_root)
+    modules, _tests, _seeds = discover_modules(root)
+    module_set = set(modules)
+    roots: set[str] = set()
+    for r in LIVE_ROOTS:
+        try:
+            if (root / r).is_file():
+                roots.add(r)
+        except OSError:
+            continue
+    config_dir = root / 'config'
+    if config_dir.is_dir():
+        m_pattern = re.compile('-m\\s+([\\w.]+)')
+        py_pattern = re.compile('([\\w./${}-]+\\.py)')
+        for path in sorted(config_dir.rglob('*')):
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding='utf-8', errors='ignore')
+            except OSError:
+                continue
+            for dotted in m_pattern.findall(text):
+                rel = dotted.replace('.', '/') + '.py'
+                if rel in module_set:
+                    roots.add(rel)
+            for token in py_pattern.findall(text):
+                candidate = token
+                best = None
+                for seg in ('harness/', 'overseer/'):
+                    idx = token.find(seg)
+                    if idx != -1 and (best is None or idx < best):
+                        best = idx
+                if best is not None:
+                    candidate = token[best:]
+                if candidate in module_set:
+                    roots.add(candidate)
+    main_guard = re.compile('(?m)^[ \\t]*if[ \\t]+__name__[ \\t]*==[ \\t]*([\'\\"])__main__\\1')
+    for m in modules:
+        try:
+            src = (root / m).read_text(encoding='utf-8', errors='ignore')
+        except OSError:
+            continue
+        if main_guard.search(src):
+            roots.add(m)
+    return sorted(roots)
 def _grep_config(repo_root: Path, stem: str) -> str:
     """Search ``repo_root/config/**`` for ``stem`` as a whole word.
 
