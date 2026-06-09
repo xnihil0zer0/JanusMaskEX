@@ -162,7 +162,27 @@ def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]
         # wiring oracle (a *_wired test named in its verification_command) so the
         # module is proven reachable from a live importer. Reject pre-spawn otherwise.
         if _is_module_creating(task) and not _is_wiring_oracle(task.get('verification_command')):
-            violations.append(PlanViolation('missing_wiring_oracle', f'{path_prefix}.verification_command', 'a leaf that creates a new module must declare a wiring oracle (a *_wired test named in its verification_command) so the module is proven reachable from a live importer'))
+            # Paired-auto-oracle exemption: a module-creating leaf whose vcmd is a
+            # smoke check is EXEMPT when the SAME plan carries a test_authoring
+            # oracle whose mutation_target (dotted) resolves to one of this leaf's
+            # non-test .py files. The auto-authored, mutation-gated oracle is the
+            # module's wiring/contract proof (impl-first ordering makes a *_wired
+            # vcmd structurally impossible here).
+            _created = {
+                p.replace('\\', '/')
+                for p in (task.get('files_touched') or [])
+                if isinstance(p, str) and p.endswith('.py') and 'tests/' not in p.replace('\\', '/')
+            }
+            _has_paired_oracle = any(
+                isinstance(o, dict)
+                and o.get('meta_task_type') == 'test_authoring'
+                and isinstance(o.get('mutation_target'), str)
+                and o.get('mutation_target')
+                and (o['mutation_target'].replace('.', '/') + '.py') in _created
+                for o in tasks
+            )
+            if not _has_paired_oracle:
+                violations.append(PlanViolation('missing_wiring_oracle', f'{path_prefix}.verification_command', 'a leaf that creates a new module must declare a wiring oracle (a *_wired test named in its verification_command) so the module is proven reachable from a live importer'))
         priority = task.get('priority')
         if priority is not None:
             if not isinstance(priority, str):
