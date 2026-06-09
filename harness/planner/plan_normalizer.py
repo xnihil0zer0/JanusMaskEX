@@ -535,6 +535,27 @@ def _correct_meta_task_type_by_target(plan: Dict[str, Any]) -> Dict[str, Any]:
         elif exts <= _CONFIG_EXTS:
             task['meta_task_type'] = 'harness_self_fix'
     return plan
+def _strip_unresolvable_dependencies(tasks: list) -> None:
+    """Drop each task ``dependency`` that is not the ``task_id`` of another
+    in-plan task.
+
+    Epic child briefs can carry frontmatter ``dependencies:`` naming sibling
+    brief SLUGS; when such a child is planned in isolation those slug strings
+    land in the generated task's ``dependencies`` and never match a real
+    in-plan ``task_id``, permanently wedging the task at the autowork daemon
+    dispatch gate.  This in-place pass keeps only entries that are ``str`` and
+    members of the in-plan ``task_id`` set, preserving original order.  It
+    tolerates missing/None/non-list ``dependencies`` and non-str entries, is
+    idempotent, and a strict byte-identical no-op for already-clean plans.
+    """
+    in_plan_ids = {task['task_id'] for task in tasks if isinstance(task, dict) and isinstance(task.get('task_id'), str)}
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        deps = task.get('dependencies')
+        if not isinstance(deps, list):
+            continue
+        task['dependencies'] = [dep for dep in deps if isinstance(dep, str) and dep in in_plan_ids]
 def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[str, Any]:
     """Auto-correct a leaf plan: dedupe oracles + enforce module-first order.
 
@@ -557,6 +578,7 @@ def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[
     tasks = _dedupe_oracles(tasks)
     normalized['tasks'] = tasks
     _enforce_module_first(tasks)
+    _strip_unresolvable_dependencies(tasks)
     normalized = _correct_meta_task_type_by_target(normalized)
     normalized = _sanitize_impl_verification_commands(normalized, repo_root)
     normalized = _force_smoke_gated_leaf_impl(normalized, repo_root)
