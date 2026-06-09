@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, List, Mapping, Sequence
-__all__ = ['GateResult', 'oracle_is_red', 'oracles_committed_at_head', 'brief_lint', 'plan_preflight', 'suite_green_zero_reg', 'posture_locked']
+__all__ = ['GateResult', 'oracle_is_red', 'oracles_committed_at_head', 'brief_lint', 'plan_preflight', 'suite_green_zero_reg', 'posture_locked', 'wired']
 try:
     from harness.planner.plan_validator import validate_plan as _validate_plan
 except Exception:
@@ -123,6 +123,19 @@ def suite_green_zero_reg(report: Mapping[str, Any]) -> GateResult:
         return GateResult(ok=False, reason=f'{new_regressions} new regression(s) introduced', fix_hint='Fix the regressions so the existing suite stays green.')
     return GateResult(ok=True, reason='', fix_hint='')
 
+def wired(report: Mapping[str, Any]) -> GateResult:
+    """Assert a wire report shows at least one live importer.
+
+    Fails closed (``ok=False``) when ``report`` is not a mapping, when its
+    ``'live_importers'`` value is empty, or when the key is absent entirely --
+    an unmeasured or orphaned module must never pass. Passes when
+    ``'live_importers'`` is a non-empty sequence.
+    """
+    if isinstance(report, Mapping):
+        live_importers = report.get('live_importers')
+        if isinstance(live_importers, Sequence) and (not isinstance(live_importers, (str, bytes))) and (len(live_importers) > 0):
+            return GateResult(ok=True, reason='', fix_hint='')
+    return GateResult(ok=False, reason='orphan: the module has no live importer', fix_hint='Add an import/call from a live module so the new module is reachable from a live entrypoint.')
 def posture_locked(*, state_dir: Any) -> GateResult:
     """Assert the operational posture is fully locked down.
 
