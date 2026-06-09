@@ -231,6 +231,7 @@ def run_chat_turn(store: Any, cid: str, user_text: str, *, config: Dict[str, Any
                   timeout: int = DEFAULT_TIMEOUT_SEC,
                   seams: Optional[Tuple[Callable, Callable, Callable, Any]] = None,
                   gate_runner: Optional[Callable] = None,
+                  tmux_seams: Optional[Dict[str, Any]] = None,
                   ) -> Dict[str, Any]:
     """Run one assistant turn for *cid* and persist it.
 
@@ -302,6 +303,13 @@ def run_chat_turn(store: Any, cid: str, user_text: str, *, config: Dict[str, Any
     transcript = rec.get('transcript') or []
     user_index = max(len(transcript) - 1, 0)
     _append_transcript(transcript_path, user_index, 'user', mode, user_text)
+
+    if rec.get('agent_backend') == 'claude-tmux':
+        from overseer.tmux_chat import run_tmux_chat_turn
+        return run_tmux_chat_turn(store, cid, user_text, rec, config=config,
+                                  repo_root=repo_root, state_dir=state_dir,
+                                  transcript_path=transcript_path, mode=mode,
+                                  tmux_seams=tmux_seams)
 
     if seams is None:
         work_dir = _overseer_work_dir(repo_root, cid)
