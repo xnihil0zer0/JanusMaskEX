@@ -1046,6 +1046,49 @@ def _write_pidfile(state_dir: pathlib.Path, task_id: str, pid: int) -> None:
     except OSError:
         pass
 
+def _agy_pool_busy_slots(state_dir):
+    """Slots currently in use = the .slot sidecars whose .pid is still live."""
+    rd = _running_dir(state_dir)
+    busy = set()
+    try:
+        slots = list(rd.glob('*.slot'))
+    except OSError:
+        return busy
+    for sf in slots:
+        if not (rd / (sf.stem + '.pid')).exists():
+            continue
+        try:
+            busy.add(int(sf.read_text(encoding='utf-8').strip()))
+        except (OSError, ValueError):
+            pass
+    return busy
+
+def _agy_pool_assign(state_dir, task_id):
+    """Reserve the lowest free agy-pool slot for task_id, or None when the pool
+    is disabled or full. Records a <task_id>.slot sidecar next to the pidfile."""
+    from harness.orchestrator import load_config
+    from harness import agy_pool
+    try:
+        config = load_config()
+    except Exception:
+        return None
+    pool = (config.get('workers') or {}).get('agy_pool') or {}
+    if not pool.get('enabled'):
+        return None
+    try:
+        size = int(pool.get('size') or agy_pool.POOL_SIZE)
+    except (TypeError, ValueError):
+        size = agy_pool.POOL_SIZE
+    slot = agy_pool.allocate_slot(_agy_pool_busy_slots(state_dir), size)
+    if slot is None:
+        return None
+    rd = _running_dir(state_dir)
+    try:
+        rd.mkdir(parents=True, exist_ok=True)
+        (rd / f'{task_id}.slot').write_text(str(slot), encoding='utf-8')
+    except OSError:
+        return None
+    return slot
 def _spawn_worker(state_dir: pathlib.Path, task_id: str) -> int | None:
     # CONTAIN C7 (trusted-worker boundary): this spawns the TRUSTED harness worker
     # (`python -m harness.orchestrator_worker`), NOT an agent CLI -- so it needs no
@@ -1069,6 +1112,12 @@ def _spawn_worker(state_dir: pathlib.Path, task_id: str) -> int | None:
             _worker_env.pop('JANUSMASK_WORKING_DIR', None)
     except (OSError, ValueError, TypeError):
         _worker_env.pop('JANUSMASK_WORKING_DIR', None)
+    # Pillar B: reserve a distinct agy-pool slot for this worker (when the pool is
+    # enabled) so orchestrator._apply_agy_pool_env can pool its $HOME. A None slot
+    # (pool disabled/full) leaves the env unchanged.
+    _slot = _agy_pool_assign(state_dir, task_id)
+    if _slot is not None:
+        _worker_env['JANUSMASK_AGY_SLOT'] = str(_slot)
     try:
         proc = subprocess.Popen(cmd, start_new_session=True, env=_worker_env)
         return proc.pid
