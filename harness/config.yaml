@@ -117,7 +117,7 @@ synthesis:
 test_author:
   review_pass: true
 overseer:
-  enabled: false
+  enabled: true
   default_mode: observe
   default_backend: claude
   models:

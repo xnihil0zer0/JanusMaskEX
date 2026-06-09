@@ -7,12 +7,14 @@ fail-safe defaults the brief requires.
 from harness.orchestrator import load_config
 
 
-def test_overseer_block_exists_and_is_default_off():
+def test_overseer_block_exists_and_is_enabled():
     cfg = load_config()
     assert "overseer" in cfg, "config.yaml has no overseer: block"
     ov = cfg["overseer"]
-    # Ships OFF — no enabled-by-default autonomy.
-    assert ov["enabled"] is False
+    # Operator decision (2026-06-08): the overseer ships ENABLED (committed ON).
+    # Autonomy is still gated by default_mode == "observe" (read-only boot), so
+    # enabling the block does not by itself grant write/dispatch capability.
+    assert ov["enabled"] is True
 
 
 def test_overseer_defaults_are_fail_safe():
