@@ -55,6 +55,7 @@ autowork:
   planner_timeout_sec: 1800
   poll_interval_sec: 5
   selfheal_auto_promote: false
+  wire_up_gate: true
 batch_execution:
   batch_size_per_worker: 2000
   enabled: true
