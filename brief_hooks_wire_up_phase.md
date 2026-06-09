@@ -3,11 +3,35 @@ epic: true
 ---
 
 <!--
-# STATUS: DRAFT (authored 2026-06-09) — DECOMPOSITION ONLY, NOT yet dispatched.
-This epic turns the "IMPLEMENTATION ≠ WIRED" defect into a checked WIRE-UP PHASE.
-Its own record is plan_wire_up_phase_epic.json. The owner gate stays paused; nothing is
-built or dispatched by this epic. Per-leaf RED oracles are hand-authored + committed BEFORE
-any leaf is dispatched. READ the "THE TRAP" section before authoring any wiring leaf.
+# STATUS: ✅ BUILT (2026-06-09) — all 5 leaves pipeline-built + merged to master, 0 new regressions.
+Operator authorized build this session. Its record is plan_wire_up_phase_epic.json.
+Driven via manual pipeline (planner-bypass: hand plan -> normalize_plan oracle-inject ->
+stage_task -> orchestrator_worker), one leaf per task, gate otherwise paused.
+
+BUILT leaves + SHAs (module commits by the worker; oracles committed RED-first at f7b9d16):
+  - harness/wire_up.py (check_wired/WireResult/LIVE_ROOTS)        6ac2850  [leaf wire-up-primitive]
+  - overseer/gates.py::wired                                      1e27cbe  [leaf wired-gate-fn]
+  - overseer/procedure.py WIRE_UP phase (VERIFY->WIRE_UP->RESTORE) ad73ed7 [leaf wire-up-fsm-phase]
+  - harness/planner/plan_validator.py missing_wiring_oracle       615c2b2  [leaf wiring-oracle-plan-validation]
+  - harness/orchestrator.py _auto_commit_accepted gate (default-OFF
+    autowork.wire_up_gate; import+_wire_up_gate_enabled+_run_wire_up_gate) 7964681 [leaf wire-up-accept-gate]
+  - regression fix (dispatch phase-order test) + provenance       d801127
+
+TRAP AVOIDED (proven): leaf 2 added `from harness.wire_up import check_wired` to
+orchestrator.py, so the DOGFOOD passes — check_wired('harness/wire_up.py') -> wired=True via
+harness/orchestrator.py; excluding that importer -> wired=False (no self-laundering). The 3
+protected harness/** writes used meta_task_type=harness_self_fix + operator decision files.
+
+ORACLES GREEN (22/22): tests/harness/test_wire_up.py + test_wire_up_accept_gate.py (edge-asserting,
+drives real _auto_commit_accepted over temp git), tests/overseer/test_wired_gate.py +
+test_wire_up_phase.py, tests/planner/test_missing_wiring_oracle.py. 0 NEW regressions
+(pre-existing baseline: test_brief_loader sha256 + 4 test_orchestrator prepare_task_prompt fails).
+
+OPEN (noted, not built): the FSM `wired` gate is defined (gates.py) and the WIRE_UP phase binds
+it, but overseer/gate_runner.py has no `wired` label dispatch yet, so the overseer FSM does not
+auto-run the gate at runtime (no committed oracle required it). The AUTONOMOUS accept-path gate
+(leaf 2) IS fully live behind the default-OFF flag. Flip autowork.wire_up_gate ON only after the
+dogfood acceptance (done) + owner sign-off.
 -->
 
 # Title
