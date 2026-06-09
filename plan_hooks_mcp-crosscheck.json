@@ -1,0 +1,65 @@
+{
+  "tasks": [
+    {
+      "task_id": "mcp_crosscheck",
+      "title": "Advisory MCP cross-check over a SweepReport (injected seam)",
+      "meta_task_type": "harness_self_fix",
+      "priority": 1,
+      "dependencies": [],
+      "files_touched": ["harness/wire_up.py"],
+      "acceptance_criteria": [
+        "harness/wire_up.py exposes mcp_crosscheck(report, mcp_query) -> list[str]",
+        "it queries only ORPHAN/ORPHAN_CLUSTER candidates via the injected callable, raises disagreement notes, never mutates the report",
+        "tests/harness/test_mcp_crosscheck_advisory.py passes and the prior wire_up oracles still pass"
+      ],
+      "spec_author": "operator",
+      "estimated_complexity": "S",
+      "verification_command": "python -m pytest -p no:cacheprovider -q tests/harness/test_mcp_crosscheck_advisory.py tests/harness/test_sweep_classifier.py tests/harness/test_live_root_reconciliation.py tests/harness/test_wire_up.py",
+      "objective": "Add a pure, stdlib-only advisory cross-checker mcp_crosscheck(report, mcp_query) -> list[str] to the EXISTING module harness/wire_up.py that, for each static ORPHAN/ORPHAN_CLUSTER candidate in a SweepReport, consults an INJECTED MCP query callable and raises a human-triage disagreement note when the MCP reports inbound usages -- advisory only, never flipping a verdict, never gating, never calling a live service.",
+      "spec": {
+        "objective": "Add a pure, stdlib-only advisory cross-checker mcp_crosscheck(report, mcp_query) -> list[str] to the EXISTING module harness/wire_up.py that, for each static ORPHAN/ORPHAN_CLUSTER candidate in a SweepReport, consults an INJECTED MCP query callable and raises a human-triage disagreement note when the MCP reports inbound usages -- advisory only, never flipping a verdict, never gating, never calling a live service.",
+        "functional_requirements": [
+          "Add ONE new top-level function mcp_crosscheck(report, mcp_query) -> list[str].",
+          "report is a SweepReport. mcp_query is an injected callable taking a module rel-path str and returning an int count of inbound usages the MCP graph knows about (CALLS/IMPORTS/USAGE edges).",
+          "Iterate the candidate modules = list(report.orphan) + list(report.orphan_cluster), in that order (both are already sorted). Do NOT query report.wired or report.config_wired modules.",
+          "For each candidate m: call mcp_query(m); if it raises, skip that candidate (best-effort, never propagate). If the returned count is truthy (> 0), append a disagreement note string that contains the module rel-path and the count, e.g. f\"{m}: static says orphan, MCP shows {count} inbound usages -> likely dynamic wiring, do not auto-remove\".",
+          "Return the list of disagreement notes in deterministic order. Do NOT mutate report (its four class lists are unchanged). Do NOT write any file. Do NOT import or call any live MCP/network client -- the only external touch is the injected mcp_query callable.",
+          "Pure: stdlib only; no process spawn, model/API/network call, or un-injected subprocess."
+        ],
+        "interfaces": "mcp_crosscheck(report: SweepReport, mcp_query: Callable[[str], int]) -> list[str]  # advisory: for each ORPHAN/ORPHAN_CLUSTER candidate, query the injected mcp_query and emit a disagreement note when it reports inbound usages; never mutates the report, never gates. Lives in harness/wire_up.py beside the unchanged check_wired / discover_live_roots / sweep_modules / SweepReport seams.",
+        "edge_cases": [
+          "mcp_query raising for a candidate must be swallowed (that candidate yields no note), never propagated.",
+          "A candidate whose mcp_query returns 0 (or a falsy value) yields no note.",
+          "report.wired and report.config_wired modules are never passed to mcp_query.",
+          "The function is deterministic: same report + same mcp_query behaviour -> identical note list.",
+          "report is never mutated -- report.to_dict() before and after the call is identical."
+        ],
+        "non_goals": [
+          "No change to check_wired, discover_live_roots, sweep_modules, SweepReport, LIVE_ROOTS, WireResult, or _grep_config -- this leaf ADDS mcp_crosscheck only.",
+          "No live MCP/network/process/model call -- the MCP is reached ONLY through the injected mcp_query callable.",
+          "Never flip a verdict or gate a build -- the cross-check is advisory enrichment only.",
+          "No file writes; the runner/regression-guard handle persistence."
+        ],
+        "implementation_notes": "EDIT the EXISTING module harness/wire_up.py to ADD exactly ONE new top-level function mcp_crosscheck. CRITICAL PATCH SHAPE (a new top-level symbol emitted as its OWN patch entry FAILS to apply -- you MUST R-ANCHOR it): emit EXACTLY ONE symbol patch entry whose anchor is the EXISTING function `_grep_config`. The patch `code` must be the COMPLETE existing `_grep_config` function reproduced UNCHANGED, followed immediately by the NEW `mcp_crosscheck` function as a trailing top-level def. Do NOT emit mcp_crosscheck as its own separate patch entry. Do NOT modify _grep_config, sweep_modules, SweepReport, discover_live_roots, check_wired, LIVE_ROOTS, or WireResult. Add NO new imports (everything needed is stdlib already present or unnecessary). The exact current source of the anchor `_grep_config` (reproduce it verbatim, then append mcp_crosscheck after it) is:\n\n```python\ndef _grep_config(repo_root: Path, stem: str) -> str:\n    \"\"\"Search ``repo_root/config/**`` for ``stem`` as a whole word.\n\n    Returns the POSIX rel-path of the first config file that references the\n    stem (dynamic/config-string wiring), or \"\" if none does.\n    \"\"\"\n    config_dir = repo_root / 'config'\n    if not config_dir.is_dir():\n        return ''\n    pattern = re.compile('\\\\b' + re.escape(stem) + '\\\\b')\n    for path in sorted(config_dir.rglob('*')):\n        if not path.is_file():\n            continue\n        try:\n            text = path.read_text(encoding='utf-8', errors='ignore')\n        except OSError:\n            continue\n        if pattern.search(text):\n            try:\n                return path.relative_to(repo_root).as_posix()\n            except ValueError:\n                return path.as_posix()\n    return ''\n```\n\nALGORITHM for mcp_crosscheck(report, mcp_query): notes = []; for m in list(report.orphan) + list(report.orphan_cluster): try: count = mcp_query(m); except Exception: continue; if count: notes.append(f\"{m}: static says orphan, MCP shows {count} inbound usages -> likely dynamic wiring, do not auto-remove\"); return notes. Do NOT cite line numbers. The committed oracle reproduced below is authoritative -- your code MUST make it pass (and must keep tests/harness/test_sweep_classifier.py, test_live_root_reconciliation.py, and test_wire_up.py passing)."
+      },
+      "test_spec": {
+        "unit_tests": [
+          "disagreement note raised for an MCP-inbound orphan, with the count surfaced",
+          "no note for a candidate the MCP agrees is unused",
+          "WIRED modules are never queried",
+          "verdict (report class lists) never flipped",
+          "notes are deterministic"
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          "tests/harness/test_sweep_classifier.py still passes",
+          "tests/harness/test_live_root_reconciliation.py still passes",
+          "tests/harness/test_wire_up.py still passes"
+        ],
+        "minimum_test_count": 4,
+        "test_data_requirements": "A SweepReport constructed directly + a stub mcp_query callable supplied by the committed oracle (no live MCP)."
+      }
+    }
+  ]
+}

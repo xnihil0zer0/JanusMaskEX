@@ -1,0 +1,69 @@
+{
+  "tasks": [
+    {
+      "task_id": "sweep_classifier",
+      "title": "Tree-wide sweep classifier: sweep_modules -> SweepReport",
+      "meta_task_type": "harness_self_fix",
+      "priority": 1,
+      "dependencies": [],
+      "files_touched": ["harness/wire_up.py"],
+      "acceptance_criteria": [
+        "harness/wire_up.py exposes a dataclass SweepReport and a function sweep_modules(repo_root, *, roots) -> SweepReport",
+        "sweep_modules builds the import graph once and partitions source modules into WIRED / CONFIG_WIRED / ORPHAN_CLUSTER / ORPHAN",
+        "tests/harness/test_sweep_classifier.py passes and tests/harness/test_live_root_reconciliation.py + tests/harness/test_wire_up.py still pass"
+      ],
+      "spec_author": "operator",
+      "estimated_complexity": "M",
+      "verification_command": "python -m pytest -p no:cacheprovider -q tests/harness/test_sweep_classifier.py tests/harness/test_live_root_reconciliation.py tests/harness/test_wire_up.py",
+      "objective": "Add a pure, stdlib-only sweep classifier to the EXISTING module harness/wire_up.py: a dataclass SweepReport and a function sweep_modules(repo_root, *, roots) that builds the intra-project import graph ONCE and partitions every source module into exactly one of WIRED / CONFIG_WIRED / ORPHAN_CLUSTER / ORPHAN.",
+      "spec": {
+        "objective": "Add a pure, stdlib-only sweep classifier to the EXISTING module harness/wire_up.py: a dataclass SweepReport and a function sweep_modules(repo_root, *, roots) that builds the intra-project import graph ONCE and partitions every source module into exactly one of WIRED / CONFIG_WIRED / ORPHAN_CLUSTER / ORPHAN.",
+        "functional_requirements": [
+          "Add a @dataclass SweepReport with fields: wired: list[str], config_wired: list[str], orphan_cluster: list[str], orphan: list[str], roots: list[str]. Add a method to_dict(self) -> dict returning the four class lists keyed 'wired','config_wired','orphan_cluster','orphan'. Add a method to_markdown(self) -> str rendering a deterministic markdown report whose section headers contain the class names (WIRED, CONFIG_WIRED, ORPHAN_CLUSTER, ORPHAN) and which lists each class's sorted members.",
+          "Add a function sweep_modules(repo_root, *, roots) -> SweepReport.",
+          "Build the import graph ONCE via harness.rebuild.discover.module_import_graph(Path(repo_root), modules) where modules,_,_ = discover_modules(Path(repo_root)). Do NOT call check_wired per module (that rebuilds the graph each time -- O(n^2)).",
+          "Source set = the discovered non-test modules MINUS any whose POSIX rel-path starts with one of: '_archive/', '_autowork_archive/', 'samples/', 'scripts/', 'tests/', 'venv/'. Only source-set modules are classified; the FULL non-test module list is still used to build the graph and the importer map.",
+          "Compute the reachable set by BFS forward from the `roots` that exist in the module set, following graph edges. Compute importers[d] = {m : d in graph[m]} over the full graph.",
+          "Classify each source module m in priority order: (1) if m is in the reachable set -> WIRED; (2) else if _grep_config(Path(repo_root), Path(m).stem) is truthy (config-string wiring) -> CONFIG_WIRED; (3) else if importers.get(m) is non-empty (inbound importers exist but none reachable) -> ORPHAN_CLUSTER; (4) else -> ORPHAN.",
+          "Each SweepReport class list is sorted; roots holds the sorted seeded roots. sweep_modules is deterministic (same inputs -> identical SweepReport).",
+          "Pure: stdlib only (dataclasses, collections deque/defaultdict, pathlib). No process spawn, model/API/network call, or un-injected subprocess; only filesystem reads via discover + _grep_config. Do NOT write any file (the markdown is returned by to_markdown(), not written here)."
+        ],
+        "interfaces": "@dataclass SweepReport(wired: list[str], config_wired: list[str], orphan_cluster: list[str], orphan: list[str], roots: list[str]) with to_dict() -> dict and to_markdown() -> str. sweep_modules(repo_root, *, roots) -> SweepReport. Lives in harness/wire_up.py beside the unchanged LIVE_ROOTS / WireResult / check_wired / _grep_config / discover_live_roots seams. Consumes harness.rebuild.discover.discover_modules and module_import_graph unchanged.",
+        "edge_cases": [
+          "A module imported ONLY by a test file is ORPHAN: the graph is built over the non-test module list, so test importers never appear and never launder it.",
+          "A module reachable from a root is WIRED even if some of its other importers are excluded archive/sample modules.",
+          "A module with inbound importers that are themselves unreachable is ORPHAN_CLUSTER, NOT plain ORPHAN.",
+          "Excluded-directory modules (_archive/**, samples/**, scripts/**, tests/**, venv/**) appear in NO class list even if they import or are imported by source modules.",
+          "config_wired is only consulted when the module is not reachable, so a reachable module referenced in config is still WIRED, not CONFIG_WIRED."
+        ],
+        "non_goals": [
+          "No change to LIVE_ROOTS, WireResult, check_wired, _grep_config, or discover_live_roots -- this leaf ADDS SweepReport + sweep_modules only.",
+          "No file writes, no MCP/network/process/model calls -- pure stdlib over discover + filesystem reads.",
+          "No reimplementation of module_import_graph or discover_modules.",
+          "No MCP cross-check and no regression-guard test -- those are separate downstream leaves."
+        ],
+        "implementation_notes": "EDIT the EXISTING module harness/wire_up.py to ADD two new top-level symbols: the @dataclass SweepReport and the function sweep_modules. CRITICAL PATCH SHAPE (new top-level symbols emitted as their OWN patch entries FAIL to apply -- you MUST R-ANCHOR them): emit EXACTLY ONE symbol patch entry whose anchor is the EXISTING function `_grep_config`. The patch `code` must be the COMPLETE existing `_grep_config` function reproduced UNCHANGED, followed immediately by the NEW `SweepReport` dataclass and then the NEW `sweep_modules` function, all as trailing top-level definitions. Do NOT emit SweepReport or sweep_modules as their own separate patch entries. Do NOT modify _grep_config, discover_live_roots, check_wired, LIVE_ROOTS, or WireResult. The module ALREADY imports at top-level: `from collections import defaultdict, deque`, `from dataclasses import dataclass, field`, `from pathlib import Path`, and `from harness.rebuild.discover import discover_modules, module_import_graph` -- reuse them; add NO new imports. The exact current source of the anchor `_grep_config` (reproduce it verbatim, then append SweepReport and sweep_modules after it) is:\n\n```python\ndef _grep_config(repo_root: Path, stem: str) -> str:\n    \"\"\"Search ``repo_root/config/**`` for ``stem`` as a whole word.\n\n    Returns the POSIX rel-path of the first config file that references the\n    stem (dynamic/config-string wiring), or \"\" if none does.\n    \"\"\"\n    config_dir = repo_root / 'config'\n    if not config_dir.is_dir():\n        return ''\n    pattern = re.compile('\\\\b' + re.escape(stem) + '\\\\b')\n    for path in sorted(config_dir.rglob('*')):\n        if not path.is_file():\n            continue\n        try:\n            text = path.read_text(encoding='utf-8', errors='ignore')\n        except OSError:\n            continue\n        if pattern.search(text):\n            try:\n                return path.relative_to(repo_root).as_posix()\n            except ValueError:\n                return path.as_posix()\n    return ''\n```\n\nALGORITHM: define SweepReport as a @dataclass with fields wired, config_wired, orphan_cluster, orphan, roots (all list[str]); to_dict returns {'wired': self.wired, 'config_wired': self.config_wired, 'orphan_cluster': self.orphan_cluster, 'orphan': self.orphan}; to_markdown returns a deterministic string like '# Wire-Up Sweep Report\\n\\nSource-set filter: excludes _archive/**, _autowork_archive/**, samples/**, scripts/**, tests/**, venv/**.\\n' followed by one '## <CLASS> (<count>)\\n' section per class (WIRED, CONFIG_WIRED, ORPHAN_CLUSTER, ORPHAN) listing '- <module>\\n' for each sorted member. sweep_modules(repo_root, *, roots): root = Path(repo_root); modules, _tests, _seeds = discover_modules(root); module_set = set(modules); EXCLUDE = ('_archive/', '_autowork_archive/', 'samples/', 'scripts/', 'tests/', 'venv/'); source = [m for m in modules if not any(m.startswith(p) for p in EXCLUDE)]; graph = module_import_graph(root, modules); importers = defaultdict(set); for m, deps in graph.items(): for d in deps: importers[d].add(m); seeded = sorted(r for r in roots if r in module_set); reachable = set(); q = deque(seeded); reachable.update(seeded); while q: cur = q.popleft(); for d in graph.get(cur, ()): if d not in reachable: reachable.add(d); q.append(d). Then wired=[]; config_wired=[]; orphan_cluster=[]; orphan=[]; for m in source: if m in reachable: wired.append(m); elif _grep_config(root, Path(m).stem): config_wired.append(m); elif importers.get(m): orphan_cluster.append(m); else: orphan.append(m). Return SweepReport(sorted(wired), sorted(config_wired), sorted(orphan_cluster), sorted(orphan), seeded). Do NOT cite line numbers. The committed oracle reproduced below is authoritative -- your code MUST make it pass (and must keep tests/harness/test_live_root_reconciliation.py and tests/harness/test_wire_up.py passing)."
+      },
+      "test_spec": {
+        "unit_tests": [
+          "WIRED class holds reachable modules and roots",
+          "ORPHAN class holds zero-importer modules",
+          "ORPHAN_CLUSTER holds modules with unreachable inbound importers",
+          "CONFIG_WIRED holds config-referenced modules",
+          "test-only importer does not launder an orphan",
+          "excluded directories are not classified",
+          "class lists sorted and classification deterministic",
+          "to_markdown returns a deterministic string"
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          "tests/harness/test_live_root_reconciliation.py still passes",
+          "tests/harness/test_wire_up.py still passes"
+        ],
+        "minimum_test_count": 9,
+        "test_data_requirements": "A hermetic tmp source tree (root + wired + orphan + cluster pair + config-referenced + test-imported module + excluded dirs) supplied by the committed oracle."
+      }
+    }
+  ]
+}
