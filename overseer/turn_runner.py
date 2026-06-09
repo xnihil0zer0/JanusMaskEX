@@ -300,6 +300,30 @@ def run_chat_turn(store: Any, cid: str, user_text: str, *, config: Dict[str, Any
         proc = _registry[mode]
         st = _procedure_state.load_state(cid, state_dir=state_dir)
         phase = st.phase or (proc.phases[0].name if proc.phases else '')
+        # --- wire_report producer (dispatch WIRE_UP) -------------------------
+        # Before the 'wired' gate runs this turn, compute the reachability
+        # report for the just-built module so the gate runs the REAL
+        # check_wired at runtime instead of fail-closing on a missing report.
+        # The built module's rel-path is read from the agent-recorded artifact
+        # 'wire_module_rel'; the runtime computes reachability itself (the agent
+        # cannot fake it). Fail-safe: any error leaves the gate to fail closed.
+        if mode == 'dispatch' and phase == 'WIRE_UP':
+            _arts = rec.get('procedure_artifacts') or {}
+            _rel = _arts.get('wire_module_rel')
+            if _arts.get('wire_report') is None and _rel:
+                try:
+                    from harness.wire_up import check_wired as _check_wired
+                    _wr = _check_wired(repo_root, _rel)
+                    _arts = dict(_arts)
+                    _arts['wire_report'] = {
+                        'live_importers': list(_wr.importers),
+                        'wired': bool(_wr.wired),
+                        'reason': _wr.reason,
+                        'module_rel': _rel,
+                    }
+                    rec['procedure_artifacts'] = _arts
+                except Exception:
+                    pass
         if gate_runner is not None:
             gr = gate_runner(mode, phase, rec, state_dir)
             dec = _procedure.advance(proc, phase, gr)
