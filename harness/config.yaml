@@ -127,3 +127,12 @@ overseer:
     - haiku
   store_path: state/overseer/sessions.json
   unlock_policy: {}
+workers:
+  # Project-local pool of isolated agy worker HOMEs (harness/agy_pool.py).
+  # Ships OFF: when disabled, daemon-spawned agy workers share the operator's
+  # ~/.gemini exactly as before. Enable to give each concurrent worker a private
+  # HOME so parallel agy registries cannot corrupt each other. size MUST be >=
+  # autowork.parallel_cap (currently 5) so no concurrent worker is left unpooled.
+  agy_pool:
+    enabled: false
+    size: 8
