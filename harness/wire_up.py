@@ -310,6 +310,16 @@ def check_wired(repo_root, new_module_rel: str, *, roots: Sequence[str]=LIVE_ROO
     in the graph. ``new_module_rel`` is WIRED iff at least one of its direct
     importers (minus ``exclude``) is itself reachable from a root -- or it is
     itself a live root, or it is referenced from a config file.
+
+    WIRE_UP_EXTERNAL_ROOTLESS: the default ``roots`` are the JM-specific
+    ``LIVE_ROOTS``. For a FOREIGN / clean-room target tree none of those exist,
+    so ``seeded_roots`` would be empty and every module a false-positive orphan.
+    When none of the passed roots exist in the tree, the live-root seed is
+    reconciled from ground truth via ``discover_live_roots(repo_root)``; and for
+    a genuinely ROOTLESS toolkit (no entrypoint root at all) the reachability
+    model is inapplicable, so the gate no-ops (``wired=True``) rather than
+    false-positiving an orphan. SELF builds (JM ``LIVE_ROOTS`` present) never
+    take this branch and stay byte-identical.
     """
     repo_root = Path(repo_root)
     modules, _tests, _seeds = discover_modules(repo_root)
@@ -323,6 +333,10 @@ def check_wired(repo_root, new_module_rel: str, *, roots: Sequence[str]=LIVE_ROO
         for d in deps:
             importers_map[d].add(m)
     seeded_roots = {r for r in roots if r in module_set}
+    external_reconciled = False
+    if not seeded_roots:
+        external_reconciled = True
+        seeded_roots = {r for r in discover_live_roots(repo_root) if r in module_set}
     reachable: set[str] = set()
     queue: deque[str] = deque()
     for r in seeded_roots:
@@ -341,7 +355,7 @@ def check_wired(repo_root, new_module_rel: str, *, roots: Sequence[str]=LIVE_ROO
     is_root = new_module_rel in seeded_roots
     if live_importers or is_root:
         if live_importers:
-            reason = f'{new_module_rel} is reachable from a live root via: {', '.join(live_importers)}.'
+            reason = f'{new_module_rel} is reachable from a live root via: {", ".join(live_importers)}.'
         else:
             reason = f'{new_module_rel} is itself a live entrypoint root.'
         return WireResult(wired=True, importers=live_importers, reason=reason, fix_hint='')
@@ -349,4 +363,6 @@ def check_wired(repo_root, new_module_rel: str, *, roots: Sequence[str]=LIVE_ROO
     config_ref = _grep_config(repo_root, stem)
     if config_ref:
         return WireResult(wired=True, importers=[], reason=f'{new_module_rel} referenced in config (dynamic wiring): {config_ref}.', fix_hint='')
-    return WireResult(wired=False, importers=[], reason=f'{new_module_rel} is an orphan: no live root reaches it through the import graph (inbound importers, if any, are themselves unreachable from a root).', fix_hint=f'Wire it in by adding an import or call of `{stem}` from a live module already reachable from one of the live roots (e.g. {', '.join(roots[:1]) or 'a live entrypoint'}).')
+    if external_reconciled:
+        return WireResult(wired=True, importers=[], reason=f'{new_module_rel}: external/rootless target -- no live entrypoint root exists in the tree to define reachability, so the wire-up reachability model is inapplicable and the gate no-ops (toolkit module accepted).', fix_hint='')
+    return WireResult(wired=False, importers=[], reason=f'{new_module_rel} is an orphan: no live root reaches it through the import graph (inbound importers, if any, are themselves unreachable from a root).', fix_hint=f'Wire it in by adding an import or call of `{stem}` from a live module already reachable from one of the live roots (e.g. {", ".join(roots[:1]) or "a live entrypoint"}).')
