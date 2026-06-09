@@ -154,7 +154,7 @@ def sweep_modules(repo_root, *, roots) -> SweepReport:
     module_set = set(modules)
     EXCLUDE = ('_archive/', '_autowork_archive/', 'samples/', 'scripts/', 'tests/', 'venv/')
     source = [m for m in modules if not any((m.startswith(p) for p in EXCLUDE))]
-    graph = module_import_graph(root, modules)
+    graph = _resolved_graph(root, modules)
     importers: dict[str, set[str]] = defaultdict(set)
     for m, deps in graph.items():
         for d in deps:
@@ -217,6 +217,60 @@ def mcp_crosscheck(report: SweepReport, mcp_query) -> list[str]:
         if count:
             notes.append(f'{m}: static says orphan, MCP shows {count} inbound usages -> likely dynamic wiring, do not auto-remove')
     return notes
+def _resolved_graph(repo_root, modules):
+    """Augmented intra-project import graph that resolves wiring forms the base
+    discover graph misses: ``from PACKAGE import SUBMODULE``, dotted ``import
+    a.b.c``, and imports performed by a package ``__init__`` seed. Returns a
+    {node -> set(intra-project modules/seeds it imports)} dict over the non-test
+    modules PLUS the seed (__init__/conftest) nodes, so reachability can flow
+    through package __init__ files. No new wiring is invented -- only edges that
+    already exist in the source are made visible."""
+    import ast as _ast
+    root = Path(repo_root)
+    modules = list(modules)
+    _m, _t, seeds = discover_modules(root)
+    seeds = list(seeds)
+    base = module_import_graph(root, modules)
+    nodes = modules + seeds
+    mod_by_dotted = {m[:-3].replace('/', '.'): m for m in modules}
+    pkg_init = {}
+    for s in seeds:
+        if s.endswith('__init__.py'):
+            pkg_init[s[:-len('/__init__.py')].replace('/', '.')] = s
+    graph = {n: set(base.get(n, ())) for n in nodes}
+    for f in nodes:
+        try:
+            tree = _ast.parse((root / f).read_text(encoding='utf-8', errors='ignore'))
+        except (OSError, SyntaxError):
+            continue
+        pkg = f.rsplit('/', 1)[0].replace('/', '.') if '/' in f else ''
+        deps = graph[f]
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.ImportFrom):
+                if node.level == 0 and node.module:
+                    base_m = node.module
+                else:
+                    parts = pkg.split('.') if pkg else []
+                    if node.level > 1:
+                        parts = parts[:-(node.level - 1)]
+                    base_m = '.'.join([p for p in parts if p] + ([node.module] if node.module else []))
+                for a in node.names:
+                    c = base_m + '.' + a.name if base_m else a.name
+                    if c in mod_by_dotted:
+                        deps.add(mod_by_dotted[c])
+                    if c in pkg_init:
+                        deps.add(pkg_init[c])
+                if base_m in mod_by_dotted:
+                    deps.add(mod_by_dotted[base_m])
+                if base_m in pkg_init:
+                    deps.add(pkg_init[base_m])
+            elif isinstance(node, _ast.Import):
+                for a in node.names:
+                    if a.name in mod_by_dotted:
+                        deps.add(mod_by_dotted[a.name])
+                    if a.name in pkg_init:
+                        deps.add(pkg_init[a.name])
+    return graph
 def _grep_config(repo_root: Path, stem: str) -> str:
     """Search ``repo_root/config/**`` for ``stem`` as a whole word.
 
@@ -256,7 +310,7 @@ def check_wired(repo_root, new_module_rel: str, *, roots: Sequence[str]=LIVE_ROO
     module_set = set(modules)
     if new_module_rel not in module_set:
         return WireResult(wired=False, importers=[], reason=f'{new_module_rel} is not in the discovered module set; it is not a non-test project module known to discover.', fix_hint=f'Ensure {new_module_rel} exists as a real (non-test, non-seed) module under the source root so discover picks it up.')
-    graph = module_import_graph(repo_root, modules)
+    graph = _resolved_graph(repo_root, modules)
     importers_map: dict[str, set[str]] = defaultdict(set)
     for m, deps in graph.items():
         for d in deps:
