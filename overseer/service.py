@@ -51,6 +51,8 @@ class OverseerService:
         self._store = SessionStore(self.store_path)
         self._api = OverseerWebApi(self._store)
         self._run_turn_fn = run_turn_fn or turn_runner.run_chat_turn
+        from overseer.gate_runner import make_default_gate_runner
+        self._gate_runner = make_default_gate_runner(self.repo_root, self.state_dir)
 
     # -- gating -----------------------------------------------------------
     def _disabled(self) -> JsonResult:
@@ -70,6 +72,7 @@ class OverseerService:
         result = self._run_turn_fn(
             self._store, cid, str(text), config=self.config,
             repo_root=self.repo_root, state_dir=self.state_dir, logs_dir=self.logs_dir,
+            gate_runner=self._gate_runner,
         )
         status = 200 if result.get('ok', True) else 502
         return (status, {**recorded, **result})
@@ -95,6 +98,7 @@ class OverseerService:
             self._store, cid, str(last_user), config=self.config,
             repo_root=self.repo_root, state_dir=self.state_dir, logs_dir=self.logs_dir,
             rewind_to_index=rewind,
+            gate_runner=self._gate_runner,
         )
         status = 200 if result.get('ok', True) else 502
         return (status, {**meta, **result})
