@@ -1,0 +1,59 @@
+{
+  "tasks": [
+    {
+      "task_id": "live_roots_cleanup",
+      "title": "LIVE_ROOTS: drop 5 non-existent seed entries, keep the 4 real entrypoints",
+      "meta_task_type": "harness_self_fix",
+      "priority": 1,
+      "dependencies": [],
+      "files_touched": [
+        "harness/wire_up.py"
+      ],
+      "acceptance_criteria": [
+        "harness/wire_up.LIVE_ROOTS lists exactly the 4 existing entrypoints (orchestrator, orchestrator_worker, autowork_daemon, planner/cli)",
+        "tests/harness/test_live_roots_exist.py passes",
+        "tests/harness/test_live_root_reconciliation.py, test_wire_up.py, test_wire_tracer_accuracy.py, test_no_source_orphans.py still pass"
+      ],
+      "spec_author": "operator",
+      "estimated_complexity": "S",
+      "verification_command": "python -m pytest -p no:cacheprovider -q tests/harness/test_live_roots_exist.py tests/harness/test_live_root_reconciliation.py tests/harness/test_wire_up.py tests/harness/test_wire_tracer_accuracy.py tests/harness/test_no_source_orphans.py",
+      "objective": "Remove the 5 stale, non-existent entries from the module-level LIVE_ROOTS seed constant in harness/wire_up.py (harness/hooks/claude_hook.py, harness/hooks/gemini_hook.py, harness/webui_control.py, harness/overseer.py, harness/services.py -- none of which exist), keeping only the 4 real entrypoints. discover_live_roots already filters non-existent entries at runtime, so this is a cosmetic correctness cleanup of the seed.",
+      "spec": {
+        "objective": "Remove the 5 stale, non-existent entries from the module-level LIVE_ROOTS seed constant in harness/wire_up.py, keeping only the 4 real entrypoints (harness/orchestrator.py, harness/orchestrator_worker.py, harness/autowork_daemon.py, harness/planner/cli.py).",
+        "functional_requirements": [
+          "The module-level constant LIVE_ROOTS is reassigned to exactly ['harness/orchestrator.py', 'harness/orchestrator_worker.py', 'harness/autowork_daemon.py', 'harness/planner/cli.py'] -- the 4 entries that exist as files.",
+          "The 5 non-existent entries are dropped: harness/hooks/claude_hook.py, harness/hooks/gemini_hook.py, harness/webui_control.py, harness/overseer.py, harness/services.py.",
+          "Its type annotation stays `LIVE_ROOTS: list[str]`.",
+          "No other symbol in harness/wire_up.py is touched."
+        ],
+        "interfaces": "LIVE_ROOTS: list[str] -- a module-level constant consumed by discover_live_roots (its seed (a) branch) and as the default `roots=` for check_wired. The cleanup only shrinks the seed to existing files; both consumers already tolerate any subset.",
+        "edge_cases": [
+          "discover_live_roots already filters non-existent LIVE_ROOTS entries, so runtime behaviour is unchanged; the discovered root set (90 on this repo) is identical before and after.",
+          "check_wired's default roots= shrinks to the 4 real entrypoints, all of which exist, so its reachability seed is unaffected."
+        ],
+        "non_goals": [
+          "No change to discover_live_roots, check_wired, sweep_modules, _resolved_graph, _grep_config, WireResult, SweepReport, or mcp_crosscheck.",
+          "No new import.",
+          "No process/model/network/subprocess."
+        ],
+        "implementation_notes": "EDIT the EXISTING module harness/wire_up.py with EXACTLY ONE symbol-patch entry whose target is the EXISTING module-level constant assignment `LIVE_ROOTS` (a single-target ast.Assign to a Name -- the patcher keys it by name and replaces the assignment). Do not add or modify any other symbol.\n\nThe CURRENT assignment is exactly:\n\n```python\nLIVE_ROOTS: list[str] = ['harness/orchestrator.py', 'harness/orchestrator_worker.py', 'harness/autowork_daemon.py', 'harness/planner/cli.py', 'harness/hooks/claude_hook.py', 'harness/hooks/gemini_hook.py', 'harness/webui_control.py', 'harness/overseer.py', 'harness/services.py']\n```\n\nReplace it with EXACTLY:\n\n```python\nLIVE_ROOTS: list[str] = ['harness/orchestrator.py', 'harness/orchestrator_worker.py', 'harness/autowork_daemon.py', 'harness/planner/cli.py']\n```\n\nThis drops the 5 trailing entries that name files which do not exist in the repo, keeping the 4 that do. Do NOT cite repo line numbers. The committed oracle tests/harness/test_live_roots_exist.py is authoritative -- your code MUST make it pass while keeping tests/harness/test_live_root_reconciliation.py, test_wire_up.py, test_wire_tracer_accuracy.py, and test_no_source_orphans.py passing."
+      },
+      "test_spec": {
+        "unit_tests": [
+          "every LIVE_ROOTS entry exists as a file",
+          "the 4 real entrypoints remain seeded"
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          "tests/harness/test_live_root_reconciliation.py still passes",
+          "tests/harness/test_wire_up.py still passes",
+          "tests/harness/test_wire_tracer_accuracy.py still passes",
+          "tests/harness/test_no_source_orphans.py still passes"
+        ],
+        "minimum_test_count": 2,
+        "test_data_requirements": "Reads the real repo tree; the committed oracle supplies all assertions."
+      }
+    }
+  ]
+}
