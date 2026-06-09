@@ -132,11 +132,9 @@ Source-set filter: excludes _archive/**, _autowork_archive/**, samples/**, scrip
 - tools/webui_server.py
 - webui/app.py
 
-## CONFIG_WIRED (1)
-- overseer/actions.py
+## CONFIG_WIRED (0)
 
 ## ORPHAN_CLUSTER (0)
 
-## ORPHAN (2)
+## ORPHAN (1)
 - harness/config_loader.py
-- harness/planner/oracle_attach.py

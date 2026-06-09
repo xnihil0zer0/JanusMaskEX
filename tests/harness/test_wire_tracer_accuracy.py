@@ -45,12 +45,11 @@ NOW_WIRED = [
     "overseer/mode_gate.py",
 ]
 
-# Genuinely-unwired residual: imported only by tests (config_loader, oracle_attach)
-# or a dead duplicate (tools/brief_status) — MUST stay ORPHAN after the fix.
+# Genuinely-unwired residual: imported only by tests (config_loader) — MUST stay
+# ORPHAN after the fix. (oracle_attach and tools/brief_status were RETIRED via
+# git rm in the Wave-2 follow-up, so only config_loader remains.)
 STILL_ORPHAN = [
     "harness/config_loader.py",
-    "harness/planner/oracle_attach.py",
-    "tools/brief_status.py",
 ]
 
 

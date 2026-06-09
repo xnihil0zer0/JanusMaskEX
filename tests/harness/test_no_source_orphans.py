@@ -34,17 +34,17 @@ KNOWN_ORPHAN_ALLOWLIST: dict[str, str] = {
     # Wave-2 reconciliation (2026-06-09): leaf A (import-tracer accuracy fix,
     # commit 154fa38) made 33 of the original 36 baseline entries classify WIRED
     # -- they were never broken; the tracer simply could not see their
-    # `from PACKAGE import SUBMODULE` / package-`__init__` import edges. Those 33
-    # keys are removed below. The 3 that remain are GENUINELY not on the live
-    # import path: each is implemented AND has a dedicated test, but no live
-    # (non-test) module imports it. Whether each should be WIRED to a live
-    # consumer or RETIRED is an owner design decision (each looks like a
-    # superseded alternative to a live module), so they are reclassified here
-    # with evidence-backed justifications rather than guessed-at wiring or an
-    # unsafe deletion of tested code. All three are the SAME situation:
-    # implemented + self-tested + zero live importer (their tests cover only
-    # their own functions, so the coverage would vanish cleanly with the module);
-    # each is a retire-vs-keep judgment call, not a wiring task.
+    # `from PACKAGE import SUBMODULE` / package-`__init__` import edges. That left
+    # 3 genuinely-unwired residuals (each implemented + self-tested + zero live
+    # importer). Wave-2 follow-up (2026-06-09, WIRE_UP_HANDOFF.md §7) resolved the
+    # retire-vs-keep call on all three:
+    #   * harness/planner/oracle_attach.py -> RETIRED (git rm; it could not be
+    #     wired -- attach_oracle only strips EXISTING module source, which the
+    #     rebuild loop already does inline; redundant for the brief-planner).
+    #   * overseer/actions.py -> RETIRED (git rm; no live importer. It had been
+    #     MASKED as a false CONFIG_WIRED by a _grep_config bug, since fixed at
+    #     commit 9eebee1 so it correctly surfaced as ORPHAN before removal).
+    #   * harness/config_loader.py -> KEPT (judgment call) -- the one entry below.
     "harness/config_loader.py":
         "Tested-but-unwired (reviewed 2026-06-09): a coherent config-schema/validation module "
         "(HOOKS_ALLOWED_VERBS / HooksConfig / get_hooks_config / get_batch_execution_config / "
@@ -53,19 +53,6 @@ KNOWN_ORPHAN_ALLOWLIST: dict[str, str] = {
         "own loader). The hooks tests that import it exercise its OWN functions (self-coverage). "
         "VERDICT KEEP as a judgment call: worth retaining as the canonical config schema / future "
         "consolidation target. By the strict wired definition it is as deletable as the others.",
-    "harness/planner/oracle_attach.py":
-        "Tested-but-unwired (reviewed 2026-06-09): attach_oracle generates an oracle by stripping "
-        "an EXISTING target module's source (test_author.author_oracle:71), so it only applies to "
-        "the rebuild flow over existing modules -- and harness/rebuild/loop.py already does that "
-        "inline via test_author (loop.py:364). It cannot wire into the main brief-planner (which "
-        "builds not-yet-existent modules, no source to strip). Redundant; retire candidate.",
-    "overseer/actions.py":
-        "Tested-but-unwired (added 2026-06-09 by adversarial review): no live importer "
-        "(only tests/overseer/test_actions.py). NOTE: sweep_modules currently MIS-classifies this "
-        "as CONFIG_WIRED, not ORPHAN, because _grep_config whole-word-matches the unrelated "
-        "\"actions\" JSON key in config/gemini_settings.json -- a false CONFIG_WIRED that MASKS the "
-        "orphan (see WIRE_UP_HANDOFF.md open items: fix _grep_config to not match arbitrary config "
-        "keys). Listed here so the true residual set is complete. Retire-vs-keep, same as above.",
 }
 
 
