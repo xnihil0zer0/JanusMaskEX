@@ -28,42 +28,47 @@ class OverseerWebApi:
         self._seq = 0
 
     def chat_send(self, body: Dict[str, Any]) -> Dict[str, Any]:
-        """Append a user turn, creating the conversation if needed.
+            """Append a user turn, creating the conversation if needed.
 
-        When ``body`` carries no ``conversation_id`` a fresh conversation is
-        created and booted in the operator-selected ``body['mode']`` provided it
-        names a self-selectable mode (a default-available Tier-R/W mode);
-        otherwise -- absent / None / empty / unknown / unlock-only Tier-S -- it
-        boots in ``observe`` (``DEFAULT_MODE``).  An existing conversation
-        (``conversation_id`` present) reuses the stored mode and ignores
-        ``body['mode']`` entirely (mode changes flow through ``mode_set``).
-        Returns ``{"conversation_id", "job_id"}`` with a non-empty ``job_id``.
-        No driver/agent is spawned.
-        """
-        def _resolve_boot_mode(requested: Any) -> str:
-            # A mode is self-selectable iff it exists AND does not require an
-            # unlock; unknown names raise KeyError which falls back to observe.
-            if not requested:
-                return self.DEFAULT_MODE
-            from overseer.modes import get_mode, requires_unlock
-            try:
-                get_mode(requested)
-                if requires_unlock(requested):
+            When ``body`` carries no ``conversation_id`` a fresh conversation is
+            created and booted in the operator-selected ``body['mode']`` provided it
+            names a self-selectable mode (a default-available Tier-R/W mode);
+            otherwise -- absent / None / empty / unknown / unlock-only Tier-S -- it
+            boots in ``observe`` (``DEFAULT_MODE``).  The agent backend is resolved
+            from ``body['backend']`` against the allow-set ``{'claude',
+            'claude-tmux'}`` (any other / absent / None value falls back to
+            ``'claude'``) so the requested backend is byte-for-byte the literal
+            ``turn_runner.run_chat_turn`` dispatches on.  An existing conversation
+            (``conversation_id`` present) reuses the stored mode/backend and ignores
+            ``body['mode']`` / ``body['backend']`` entirely (mode changes flow
+            through ``mode_set``).  Returns ``{"conversation_id", "job_id"}`` with a
+            non-empty ``job_id``.  No driver/agent is spawned.
+            """
+            def _resolve_boot_mode(requested: Any) -> str:
+                # A mode is self-selectable iff it exists AND does not require an
+                # unlock; unknown names raise KeyError which falls back to observe.
+                if not requested:
                     return self.DEFAULT_MODE
-                return requested
-            except KeyError:
-                return self.DEFAULT_MODE
+                from overseer.modes import get_mode, requires_unlock
+                try:
+                    get_mode(requested)
+                    if requires_unlock(requested):
+                        return self.DEFAULT_MODE
+                    return requested
+                except KeyError:
+                    return self.DEFAULT_MODE
 
-        cid = body.get('conversation_id')
-        if not cid:
-            self._seq += 1
-            cid = 'conv-%d' % self._seq
-            boot_mode = _resolve_boot_mode(body.get('mode'))
-            self._store.create(cid, current_mode=boot_mode, model='opus', agent_backend='claude')
-        self._store.append_turn(cid, {'role': 'user', 'content': body['text']})
-        rec = self._store.get(cid)
-        job_id = 'job-%s-%d' % (cid, len(self._transcript(rec)))
-        return {'conversation_id': cid, 'job_id': job_id}
+            cid = body.get('conversation_id')
+            if not cid:
+                self._seq += 1
+                cid = 'conv-%d' % self._seq
+                boot_mode = _resolve_boot_mode(body.get('mode'))
+                agent_backend = body.get('backend') if body.get('backend') in {'claude', 'claude-tmux'} else 'claude'
+                self._store.create(cid, current_mode=boot_mode, model='opus', agent_backend=agent_backend)
+            self._store.append_turn(cid, {'role': 'user', 'content': body['text']})
+            rec = self._store.get(cid)
+            job_id = 'job-%s-%d' % (cid, len(self._transcript(rec)))
+            return {'conversation_id': cid, 'job_id': job_id}
 
     def chat_history(self, cid: str) -> Dict[str, Any]:
         """Return ``{"turns": [...]}`` for *cid* (KeyError if unknown)."""
