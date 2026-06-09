@@ -31,53 +31,32 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # justified. Wave-2 shrinks this set; nothing may be added without a recorded
 # human decision.
 KNOWN_ORPHAN_ALLOWLIST: dict[str, str] = {
-    # --- overseer subsystem: config/service-wired (reached via the web service
-    #     + the P6 PreToolUse hook), not statically import-reachable from a live
-    #     root. Wave-2: add a real importer from a live-reachable module, or
-    #     reclassify the subsystem entrypoints as roots. ---
-    "overseer/driver.py": "overseer subsystem; config/service-wired, pending Wave-2 wiring",
-    "overseer/gate_runner.py": "overseer subsystem; config/service-wired, pending Wave-2 wiring",
-    "overseer/mode_gate.py": "overseer subsystem; config/service-wired, pending Wave-2 wiring",
-    "overseer/mode_prompts.py": "overseer subsystem; config/service-wired, pending Wave-2 wiring",
-    "overseer/model_select.py": "overseer subsystem; config/service-wired, pending Wave-2 wiring",
-    "overseer/modes.py": "overseer subsystem; config/service-wired, pending Wave-2 wiring",
-    "overseer/procedure_artifacts.py": "overseer subsystem; config/service-wired, pending Wave-2 wiring",
-    "overseer/procedure_state.py": "overseer subsystem; config/service-wired, pending Wave-2 wiring",
-    "overseer/service.py": "overseer subsystem; config/service-wired, pending Wave-2 wiring",
-    "overseer/session_store.py": "overseer subsystem; config/service-wired, pending Wave-2 wiring",
-    "overseer/tmux_chat.py": "overseer tmux backend; config/service-wired, pending Wave-2 wiring",
-    "overseer/tmux_driver.py": "overseer tmux backend; config/service-wired, pending Wave-2 wiring",
-    "overseer/tmux_seams.py": "overseer tmux backend; config/service-wired, pending Wave-2 wiring",
-    "overseer/tmux_session.py": "overseer tmux backend; config/service-wired, pending Wave-2 wiring",
-    "overseer/tmux_transcript.py": "overseer tmux backend; config/service-wired, pending Wave-2 wiring",
-    "overseer/transcript.py": "overseer subsystem; config/service-wired, pending Wave-2 wiring",
-    "overseer/turn_runner.py": "overseer FSM turn runner; reached via web service, pending Wave-2 wiring",
-    "overseer/web_api.py": "overseer web API; reached via the web service, pending Wave-2 wiring",
-    # --- hook RPC handlers: dispatched dynamically by the hook router/inbox, not
-    #     a static import edge. Wave-2: add the dispatch edge or reclassify. ---
-    "harness/hooks/rpc/clarification.py": "hook RPC handler dispatched dynamically, pending Wave-2 wiring",
-    "harness/hooks/rpc/error_report.py": "hook RPC handler dispatched dynamically, pending Wave-2 wiring",
-    "harness/hooks/rpc/submit_code.py": "hook RPC handler dispatched dynamically, pending Wave-2 wiring",
-    "harness/hooks/rpc/submit_plan_draft.py": "hook RPC handler dispatched dynamically, pending Wave-2 wiring",
-    "harness/hooks/rpc/submit_reconciliation.py": "hook RPC handler dispatched dynamically, pending Wave-2 wiring",
-    # --- rebuild engine: invoked via the rebuild loop/CLI. Wave-2: wire or reclassify. ---
-    "harness/rebuild/decompose.py": "rebuild-engine module via the rebuild loop/CLI, pending Wave-2 wiring",
-    "harness/rebuild/harvest.py": "rebuild-engine module via the rebuild loop/CLI, pending Wave-2 wiring",
-    "harness/rebuild/strip.py": "rebuild-engine module via the rebuild loop/CLI, pending Wave-2 wiring",
-    "harness/rebuild/venv.py": "rebuild-engine module via the rebuild loop/CLI, pending Wave-2 wiring",
-    # --- narrow-fuzz plugins: registered dynamically. Wave-2: wire or reclassify. ---
-    "harness/narrow_fuzz/_registry.py": "narrow-fuzz plugin registry, dynamically loaded, pending Wave-2 wiring",
-    "harness/narrow_fuzz/validation.py": "narrow-fuzz validation plugin, dynamically loaded, pending Wave-2 wiring",
-    # --- other harness modules pending triage. ---
-    "harness/agy_pool.py": "agy worker pool (default-OFF subsystem), pending Wave-2 wire-or-remove",
-    "harness/config_loader.py": "config loader, pending Wave-2 wire-or-reclassify",
-    "harness/control_gate.py": "operator control gate, pending Wave-2 wire-or-reclassify",
-    "harness/planner/oracle_attach.py": "planner oracle-attach helper, pending Wave-2 wire-or-remove",
-    # --- operator CLI tools: not part of the live import path. Wave-2:
-    #     reclassify (exclude tools/ from the source set) or wire. ---
-    "tools/brief_status.py": "operator CLI tool, not on the live import path, pending Wave-2 reclassify",
-    "tools/webui_auth.py": "operator CLI tool, not on the live import path, pending Wave-2 reclassify",
-    "tools/webui_control.py": "operator CLI tool, not on the live import path, pending Wave-2 reclassify",
+    # Wave-2 reconciliation (2026-06-09): leaf A (import-tracer accuracy fix,
+    # commit 154fa38) made 33 of the original 36 baseline entries classify WIRED
+    # -- they were never broken; the tracer simply could not see their
+    # `from PACKAGE import SUBMODULE` / package-`__init__` import edges. Those 33
+    # keys are removed below. The 3 that remain are GENUINELY not on the live
+    # import path: each is implemented AND has a dedicated test, but no live
+    # (non-test) module imports it. Whether each should be WIRED to a live
+    # consumer or RETIRED is an owner design decision (each looks like a
+    # superseded alternative to a live module), so they are reclassified here
+    # with final, evidence-backed justifications rather than guessed-at wiring or
+    # an unsafe deletion of tested code.
+    "harness/config_loader.py":
+        "tested-but-unwired: HooksConfig / get_batch_execution_config / ConfigError API "
+        "exercised by tests/hooks/unit/test_hooks_config*.py etc., but imported by no live "
+        "module (only an injected `config_loader` DI param in hooks_equivalence). Owner "
+        "decision: wire as the live hooks-config loader, or retire if superseded.",
+    "harness/planner/oracle_attach.py":
+        "tested-but-unwired: attach_oracle / task_needs_oracle API exercised by "
+        "tests/adversarial/test_oracle_attach.py, but no live caller (the live planner injects "
+        "oracle sources via plan_normalizer._inject_oracle_sources). Owner decision: wire into "
+        "the planner, or retire as superseded.",
+    "tools/brief_status.py":
+        "tested-but-unwired: classify_briefs / status_of API exercised by "
+        "tests/tools/test_brief_status.py, but no live importer and no __main__ (the live brief "
+        "classifier is harness/brief_status.py). Owner decision: wire as a tool entrypoint, or "
+        "retire as a superseded duplicate.",
 }
 
 

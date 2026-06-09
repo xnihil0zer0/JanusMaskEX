@@ -2,16 +2,18 @@
 
 Source-set filter: excludes _archive/**, _autowork_archive/**, samples/**, scripts/**, tests/**, venv/**.
 
-## WIRED (92)
+## WIRED (128)
 - harness/_journal.py
 - harness/agent_jail.py
 - harness/agent_streamer.py
+- harness/agy_pool.py
 - harness/ast_enforcer.py
 - harness/ast_retry.py
 - harness/autowork_daemon.py
 - harness/autowork_parallelism.py
 - harness/brief_status.py
 - harness/commit_message_formatter.py
+- harness/control_gate.py
 - harness/cross_examiner.py
 - harness/dbus_proxy.py
 - harness/depth_validator.py
@@ -40,9 +42,16 @@ Source-set filter: excludes _archive/**, _autowork_archive/**, samples/**, scrip
 - harness/hooks/gemini/session_start.py
 - harness/hooks/gemini/stop.py
 - harness/hooks/gemini/user_prompt_submit.py
+- harness/hooks/rpc/clarification.py
+- harness/hooks/rpc/error_report.py
+- harness/hooks/rpc/submit_code.py
+- harness/hooks/rpc/submit_plan_draft.py
+- harness/hooks/rpc/submit_reconciliation.py
 - harness/hooks_equivalence.py
 - harness/interceptors.py
 - harness/mcp_server.py
+- harness/narrow_fuzz/_registry.py
+- harness/narrow_fuzz/validation.py
 - harness/orchestrator.py
 - harness/orchestrator_worker.py
 - harness/pathology_score.py
@@ -61,12 +70,17 @@ Source-set filter: excludes _archive/**, _autowork_archive/**, samples/**, scrip
 - harness/planner/reconciliation.py
 - harness/planner/staging.py
 - harness/planner/taxonomies.py
+- harness/rebuild/decompose.py
 - harness/rebuild/deps.py
 - harness/rebuild/discover.py
+- harness/rebuild/harvest.py
 - harness/rebuild/job.py
 - harness/rebuild/loop.py
 - harness/rebuild/oracle.py
+- harness/rebuild/strip.py
 - harness/rebuild/target.py
+- harness/rebuild/task.py
+- harness/rebuild/venv.py
 - harness/safe_subpath.py
 - harness/sandbox.py
 - harness/sandbox_smoke.py
@@ -83,7 +97,27 @@ Source-set filter: excludes _archive/**, _autowork_archive/**, samples/**, scrip
 - harness/track_record.py
 - harness/track_record_events.py
 - harness/wire_up.py
+- overseer/driver.py
+- overseer/gate_runner.py
+- overseer/gates.py
+- overseer/mode_gate.py
+- overseer/mode_prompts.py
+- overseer/model_select.py
+- overseer/modes.py
+- overseer/procedure.py
+- overseer/procedure_artifacts.py
 - overseer/procedure_hook.py
+- overseer/procedure_state.py
+- overseer/service.py
+- overseer/session_store.py
+- overseer/tmux_chat.py
+- overseer/tmux_driver.py
+- overseer/tmux_seams.py
+- overseer/tmux_session.py
+- overseer/tmux_transcript.py
+- overseer/transcript.py
+- overseer/turn_runner.py
+- overseer/web_api.py
 - services/bounty_gate.py
 - services/code_audit/grounding.py
 - services/dynamic_scheduler.py
@@ -93,51 +127,17 @@ Source-set filter: excludes _archive/**, _autowork_archive/**, samples/**, scrip
 - services/qualify_target.py
 - services/spawn_preflight.py
 - tools/brief_reaper.py
+- tools/webui_auth.py
+- tools/webui_control.py
 - tools/webui_server.py
 - webui/app.py
 
-## CONFIG_WIRED (4)
-- harness/rebuild/task.py
+## CONFIG_WIRED (1)
 - overseer/actions.py
-- overseer/gates.py
-- overseer/procedure.py
 
-## ORPHAN_CLUSTER (15)
-- harness/narrow_fuzz/validation.py
-- harness/rebuild/harvest.py
-- harness/rebuild/strip.py
-- overseer/driver.py
-- overseer/gate_runner.py
-- overseer/mode_gate.py
-- overseer/mode_prompts.py
-- overseer/model_select.py
-- overseer/modes.py
-- overseer/service.py
-- overseer/session_store.py
-- overseer/tmux_chat.py
-- overseer/tmux_driver.py
-- overseer/transcript.py
-- overseer/web_api.py
+## ORPHAN_CLUSTER (0)
 
-## ORPHAN (21)
-- harness/agy_pool.py
+## ORPHAN (3)
 - harness/config_loader.py
-- harness/control_gate.py
-- harness/hooks/rpc/clarification.py
-- harness/hooks/rpc/error_report.py
-- harness/hooks/rpc/submit_code.py
-- harness/hooks/rpc/submit_plan_draft.py
-- harness/hooks/rpc/submit_reconciliation.py
-- harness/narrow_fuzz/_registry.py
 - harness/planner/oracle_attach.py
-- harness/rebuild/decompose.py
-- harness/rebuild/venv.py
-- overseer/procedure_artifacts.py
-- overseer/procedure_state.py
-- overseer/tmux_seams.py
-- overseer/tmux_session.py
-- overseer/tmux_transcript.py
-- overseer/turn_runner.py
 - tools/brief_status.py
-- tools/webui_auth.py
-- tools/webui_control.py
