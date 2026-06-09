@@ -1,0 +1,71 @@
+"""Project-local pool of isolated agy worker HOMEs.
+
+JanusMask runs up to ``POOL_SIZE`` *worker* agy processes concurrently. Each
+worker gets a private ``$HOME`` under ``<repo>/.agents/agy-pool`` so that the
+Antigravity registry of one worker never corrupts another. A slot's home is
+seeded with ONLY the small auth/config set (the ``~/.gemini`` credential files
+plus the gcloud Application Default Credentials) -- NEVER the multi-GB
+``~/.gemini`` cache.
+
+All filesystem effects flow through injected ``copy``/``exists``/``makedirs``
+seams, so this module performs no real I/O, no agy spawn, and no network calls.
+Stdlib only.
+"""
+from __future__ import annotations
+import os
+from pathlib import Path
+from typing import Callable, List, Tuple
+POOL_SIZE = 4
+_SEED_RELS: Tuple[str, ...] = ('.gemini/oauth_creds.json', '.gemini/google_accounts.json', '.gemini/settings.json', '.gemini/trustedFolders.json', '.gemini/state.json', '.gemini/projects.json', '.config/gcloud/application_default_credentials.json')
+
+def pool_root(repo_root: str) -> Path:
+    """Project-local root holding every worker's private home."""
+    return Path(repo_root) / '.agents' / 'agy-pool'
+
+def worker_home(repo_root: str, slot: int) -> Path:
+    """A distinct private ``$HOME`` for ``slot`` under the pool root."""
+    return pool_root(repo_root) / f'w{slot}'
+
+def agy_seed_plan(home: str) -> List[Tuple[str, str]]:
+    """Return the ``(abs_src, rel_dst)`` pairs for the auth/config seed set.
+
+    ``abs_src`` is resolved against the operator's real ``home``; ``rel_dst`` is
+    home-relative so copies land inside a slot's private home without leaking
+    the operator's path. The multi-GB cache is never included.
+    """
+    return [(os.path.join(home, rel), rel) for rel in _SEED_RELS]
+
+def ensure_seeded(repo_root: str, slot: int, *, home: str, copy: Callable[[str, str], object], exists: Callable[[str], bool], makedirs: Callable[[str], object]) -> List[str]:
+    """Idempotently seed ``slot``'s private home from the operator ``home``.
+
+    For each planned ``(src, rel)`` pair, copy only when ``src`` exists and the
+    destination is absent -- creating the destination's parent directory first.
+    Returns the list of ``rel`` names actually copied. Re-running with all
+    destinations present copies nothing.
+    """
+    wh = str(worker_home(repo_root, slot))
+    copied: List[str] = []
+    for src, rel in agy_seed_plan(home):
+        dst = os.path.join(wh, rel)
+        if exists(src) and (not exists(dst)):
+            makedirs(os.path.dirname(dst))
+            copy(src, dst)
+            copied.append(rel)
+    return copied
+
+def allocate_slot(busy, size: int=POOL_SIZE):
+    """Return the lowest free slot in ``range(size)``, or ``None`` when full."""
+    for i in range(size):
+        if i not in busy:
+            return i
+    return None
+
+def worker_env(repo_root: str, slot: int, base_env: dict) -> dict:
+    """Return a new env dict: ``base_env`` + private HOME + GCA flag.
+
+    ``base_env`` is never mutated.
+    """
+    env = dict(base_env)
+    env['HOME'] = str(worker_home(repo_root, slot))
+    env['GOOGLE_GENAI_USE_GCA'] = '1'
+    return env
