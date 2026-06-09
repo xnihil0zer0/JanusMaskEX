@@ -2044,14 +2044,18 @@ def _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, wor
     For each NEWLY-CREATED module in ``files_touched`` -- a path ending ``.py``
     not under a ``tests/`` directory and not tracked in the parent HEAD before
     this commit -- consult the module-global ``check_wired`` against
-    ``working_dir or worktree_root``. If any returns a result whose ``.wired``
-    is False the staging commit is rolled back, the staging worktree removed, an
-    ``orphan_unwired`` ledger row written, the task routed to blocked/, and True
-    (reject) is returned. Otherwise returns False (proceed). Only ever invoked
-    when ``_wire_up_gate_enabled`` is True, so the gate is a strict no-op when
-    the flag is OFF.
+    ``staging_path``. The gate runs AFTER the staged commit and BEFORE the
+    staging->parent merge, so the just-committed module lives in the staging
+    worktree, NOT yet in ``working_dir``/``worktree_root``; checking the parent
+    tree would always miss the file and mis-report every new module as an
+    orphan. If any returns a result whose ``.wired`` is False the staging commit
+    is rolled back, the staging worktree removed, an ``orphan_unwired`` ledger
+    row written, the task routed to blocked/, and True (reject) is returned.
+    Otherwise returns False (proceed). Only ever invoked when
+    ``_wire_up_gate_enabled`` is True, so the gate is a strict no-op when the
+    flag is OFF.
     """
-    repo_root = working_dir or worktree_root
+    repo_root = staging_path
 
     def _tracked_in_parent(rel: str) -> bool:
         try:
