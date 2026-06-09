@@ -1,0 +1,71 @@
+{
+  "tasks": [
+    {
+      "task_id": "wire_report_producer",
+      "title": "Populate procedure_artifacts.wire_report on the live dispatch WIRE_UP turn (runtime producer)",
+      "meta_task_type": "harness_plumbing",
+      "priority": 1,
+      "dependencies": [],
+      "files_touched": ["overseer/turn_runner.py"],
+      "acceptance_criteria": [
+        "On a dispatch-mode run_chat_turn parked at WIRE_UP, when procedure_artifacts records the built module's rel-path under 'wire_module_rel' and no 'wire_report' is present yet, the runtime calls harness.wire_up.check_wired(repo_root, rel) and writes rec['procedure_artifacts']['wire_report'] = {'live_importers': list(result.importers), ...} BEFORE the gate runs that turn",
+        "The producer runs only for mode == 'dispatch' and phase == 'WIRE_UP'; all other modes/phases are byte-for-byte unchanged",
+        "A wired module (non-empty importers) advances the FSM WIRE_UP -> RESTORE that same turn; an orphan (empty importers) holds WIRE_UP (Blocked)",
+        "When neither 'wire_report' nor 'wire_module_rel' is recorded, check_wired is NOT called and the gate fails closed (existing behaviour preserved)",
+        "check_wired is imported LOCALLY inside run_chat_turn (no new module-level import); no new top-level function is added",
+        "tests/overseer/test_wire_report_producer.py passes",
+        "all existing tests/overseer/test_turn_runner.py tests still pass"
+      ],
+      "spec_author": "operator",
+      "estimated_complexity": "S",
+      "verification_command": "python -m pytest -p no:cacheprovider -q tests/overseer/test_wire_report_producer.py",
+      "objective": "Close the WIRE_UP gate's missing-producer gap: have run_chat_turn compute the reachability report at runtime (via check_wired) and populate procedure_artifacts.wire_report so the live dispatch FSM RUNS the orphan gate instead of fail-closing on a missing report.",
+      "spec": {
+        "objective": "Close the WIRE_UP gate's missing-producer gap: have run_chat_turn compute the reachability report at runtime (via harness.wire_up.check_wired) and populate rec['procedure_artifacts']['wire_report'] so the live dispatch FSM RUNS the orphan gate instead of fail-closing on a missing report.",
+        "functional_requirements": [
+          "Inside the existing run_chat_turn procedure block (the `if _procedure is not None and _procedure_state is not None and mode in _registry:` branch), AFTER the line that computes `phase = st.phase or (proc.phases[0].name if proc.phases else '')` and BEFORE the line `if gate_runner is not None:`, insert a wire_report producer step.",
+          "The producer fires ONLY when `mode == 'dispatch' and phase == 'WIRE_UP'`.",
+          "It reads `_arts = rec.get('procedure_artifacts') or {}` and `_rel = _arts.get('wire_module_rel')`. It acts only when `_arts.get('wire_report') is None and _rel` (both truthy): otherwise it does nothing (an already-recorded wire_report is respected; an absent rel leaves the gate to fail closed).",
+          "When it acts, it does a LOCAL import `from harness.wire_up import check_wired` (NOT a module-level import) and computes `_wr = check_wired(repo_root, _rel)`, then writes a fresh dict back: `_arts = dict(_arts); _arts['wire_report'] = {'live_importers': list(_wr.importers), 'wired': bool(_wr.wired), 'reason': _wr.reason, 'module_rel': _rel}; rec['procedure_artifacts'] = _arts`.",
+          "The whole producer is wrapped so any failure is non-fatal: a try/except around the import+compute+write that swallows Exception (mirroring the existing import-safe try/except idiom already used elsewhere in this function), so a bad rel never breaks the turn.",
+          "Because the producer runs before `gate_runner(mode, phase, rec, state_dir)`, the SAME-turn gate reads the freshly populated rec['procedure_artifacts']['wire_report'] and advances (wired) or holds (orphan) accordingly. No other line of run_chat_turn changes."
+        ],
+        "interfaces": "run_chat_turn(store, cid, user_text, *, config, repo_root, state_dir, logs_dir, rewind_to_index=None, timeout=DEFAULT_TIMEOUT_SEC, seams=None, gate_runner=None, tmux_seams=None) -> dict. Unchanged signature/return. New internal behaviour: for dispatch/WIRE_UP it produces rec['procedure_artifacts']['wire_report'] from harness.wire_up.check_wired(repo_root, rel) -> WireResult(wired: bool, importers: list[str], reason: str, fix_hint: str), remapping WireResult.importers -> report key 'live_importers' (the key overseer.gates.wired reads).",
+        "edge_cases": [
+          "mode=='dispatch', phase=='WIRE_UP', wire_module_rel present, wire_report absent -> check_wired called; wire_report populated with live_importers=list(importers); same-turn gate advances (importers non-empty) or holds (empty).",
+          "wire_report already present -> producer does NOT overwrite it and does NOT call check_wired.",
+          "wire_module_rel absent -> producer is a no-op; check_wired NOT called; gate fails closed via the existing _missing path (phase held).",
+          "Any mode other than 'dispatch', or any phase other than 'WIRE_UP' -> producer is a no-op (existing behaviour preserved exactly).",
+          "check_wired raises -> swallowed by try/except; turn proceeds; gate fails closed (no wire_report written)."
+        ],
+        "non_goals": [
+          "Do NOT change harness.wire_up.check_wired, overseer.gates.wired, overseer.gate_runner, the procedure registry, or the orchestrator accept path.",
+          "Do NOT add a new top-level function or a new module-level import -- the check_wired import MUST be local to run_chat_turn (inside the producer block).",
+          "Do NOT instruct the agent to record wire_module_rel here (the agent-side marker emission is a SEPARATE follow-on leaf); this leaf only CONSUMES an already-recorded wire_module_rel.",
+          "No new agent/process/network call. Preserve every existing run_chat_turn behaviour and every test in tests/overseer/test_turn_runner.py.",
+          "This is an integration edit to a single EXISTING symbol (run_chat_turn) in an existing module."
+        ],
+        "implementation_notes": "EDIT the EXISTING file overseer/turn_runner.py (it is staged in inbox/targets -- read its current structure). ONE symbol changes: the top-level function run_chat_turn. Emit a single symbol patch that reproduces run_chat_turn IN FULL with exactly the producer block inserted (do not truncate the function body; reproduce every existing line). Insertion point: the procedure block begins with `if _procedure is not None and _procedure_state is not None and mode in _registry:` followed by `proc = _registry[mode]`, `st = _procedure_state.load_state(cid, state_dir=state_dir)`, `phase = st.phase or (proc.phases[0].name if proc.phases else '')`, then `if gate_runner is not None:`. Insert the producer AFTER the `phase = ...` line and BEFORE the `if gate_runner is not None:` line, indented to match (it is inside the `if ... mode in _registry:` block). Insert exactly:\n\n        # --- wire_report producer (dispatch WIRE_UP) -------------------------\n        # Before the 'wired' gate runs this turn, compute the reachability\n        # report for the just-built module so the gate runs the REAL\n        # check_wired at runtime instead of fail-closing on a missing report.\n        # The built module's rel-path is read from the agent-recorded artifact\n        # 'wire_module_rel'; the runtime computes reachability itself (the agent\n        # cannot fake it). Fail-safe: any error leaves the gate to fail closed.\n        if mode == 'dispatch' and phase == 'WIRE_UP':\n            _arts = rec.get('procedure_artifacts') or {}\n            _rel = _arts.get('wire_module_rel')\n            if _arts.get('wire_report') is None and _rel:\n                try:\n                    from harness.wire_up import check_wired as _check_wired\n                    _wr = _check_wired(repo_root, _rel)\n                    _arts = dict(_arts)\n                    _arts['wire_report'] = {\n                        'live_importers': list(_wr.importers),\n                        'wired': bool(_wr.wired),\n                        'reason': _wr.reason,\n                        'module_rel': _rel,\n                    }\n                    rec['procedure_artifacts'] = _arts\n                except Exception:\n                    pass\n\nDo NOT add any module-level import of check_wired -- the local `from harness.wire_up import check_wired as _check_wired` inside the try is REQUIRED (a new module-level import would be a new top-level symbol and fail auto-commit). Do NOT cite line numbers. Keep the rest of run_chat_turn byte-for-byte identical. The committed oracle tests/overseer/test_wire_report_producer.py is authoritative -- your code MUST make it pass while keeping tests/overseer/test_turn_runner.py green.",
+        "verification_command": "python -m pytest -p no:cacheprovider -q tests/overseer/test_wire_report_producer.py"
+      },
+      "test_spec": {
+        "unit_tests": [
+          "producer invokes check_wired with the recorded rel on the live dispatch WIRE_UP turn",
+          "wired module populates wire_report.live_importers and advances WIRE_UP -> RESTORE",
+          "orphan module populates empty wire_report and holds WIRE_UP (Blocked)",
+          "no recorded module -> check_wired not invoked, gate fails closed"
+        ],
+        "integration_tests": [
+          "drives real run_chat_turn + real make_default_gate_runner end-to-end with canned-stream seams (committed oracle)"
+        ],
+        "property_tests": [],
+        "regression_tests": [
+          "no wire_module_rel and no wire_report -> fail closed, phase held (existing behaviour)",
+          "non-dispatch / non-WIRE_UP turns unchanged (existing test_turn_runner.py suite stays green)"
+        ],
+        "minimum_test_count": 4,
+        "test_data_requirements": "SessionStore conversation in current_mode='dispatch' with ProcedureState(phase='WIRE_UP') and procedure_artifacts seeded with wire_module_rel; harness.wire_up.check_wired spied to return a controlled WireResult. Supplied by the committed oracle."
+      }
+    }
+  ]
+}

@@ -33,11 +33,33 @@ LEAF 6 (gate_runner wired dispatch) BUILT `fada2c4` (oracle tests/overseer/test_
 report). Proven end-to-end: gate_label_for('dispatch','WIRE_UP')->'wired'->gates.wired; orphan report
 ->ok=False, wired report->ok=True. overseer suite 370 passed.
 
-RESIDUAL (the only remaining runtime step, not yet built): nothing POPULATES rec['procedure_artifacts']
-['wire_report'] during a live overseer dispatch turn (turn_runner would compute check_wired for the
-built module and stash it), so at runtime WIRE_UP currently fail-closes ('wire report' missing) until a
-report is recorded. The dispatch EDGE is wired; the report producer is the next small leaf. The
-AUTONOMOUS accept-path gate (leaf 2) is fully live behind the default-OFF flag and needs none of this.
+LEAF 7 (wire_report PRODUCER) BUILT `62849ad` (oracle tests/overseer/test_wire_report_producer.py
+4/4, edge-asserting): overseer/turn_runner.py::run_chat_turn now POPULATES rec['procedure_artifacts']
+['wire_report'] on the live dispatch path. When mode=='dispatch' and phase=='WIRE_UP', BEFORE the gate
+runs that turn, it reads the built module's rel-path from the agent-recorded artifact 'wire_module_rel',
+calls harness.wire_up.check_wired(repo_root, rel) ITSELF (objective — the agent supplies WHICH file but
+cannot fake reachability), and writes {'live_importers': list(importers), 'wired', 'reason', 'module_rel'}
+so the SAME-turn 'wired' gate consumes it (local import → no new top-level symbol; fail-safe try/except).
+ADVERSARIAL §2.B CONFIRMED LIVE (not vestigial): POST /api/chat/send → post_chat_send →
+OverseerService.chat_send passes a REAL make_default_gate_runner → run_chat_turn FSM (gated behind the
+normal default-OFF overseer.enabled flag). END-TO-END PROVEN with REAL check_wired (no mock): wired
+module (harness/_journal.py, 7 real importers) → gate.ok=True → FSM advances WIRE_UP→RESTORE; orphan →
+live_importers=[] → gate.ok=False → FSM holds WIRE_UP ("orphan: the module has no live importer").
+overseer suite 374 passed. The handoff's "turn_runner computes it" recommendation was CORRECTED: the
+existing artifact channel is agent-emitted markers (procedure_artifacts.apply_to_record), not runtime
+compute — but for the gate's OWN input, runtime compute is the trust-correct choice (agent self-report
+would re-introduce the laundering defect).
+
+RESIDUALS (follow-on, not blocking): (a) the dispatch AGENT must emit `__PROCEDURE_ARTIFACT__
+{"wire_module_rel": "<rel>"}` during BUILD/VERIFY so the producer knows which module was built — a small
+mode_prompts.py leaf (§2.C: files_touched is captured nowhere in overseer state today). (b) SEMANTIC
+SEAM: check_wired returns wired=True with importers=[] for root-identity / config-reference wiring;
+the producer maps importers→live_importers, so such modules would BLOCK the gate (gates.wired requires a
+non-empty importer). Harmless for the dispatch use case (a freshly-built leaf is wired via a real import
+edge → non-empty importers), but if config/root wiring must pass, gate on wr.wired instead. (c) NOTE: no
+overseer/** module is import-edge-reachable from LIVE_ROOTS today (the subsystem is config-referenced),
+so a real overseer leaf would need a genuine importer from a live-reachable module to pass.
+The AUTONOMOUS accept-path gate (leaf 2) is fully live behind the default-OFF flag and needs none of this.
 Flip autowork.wire_up_gate ON only after owner sign-off (dogfood done).
 -->
 
