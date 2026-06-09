@@ -186,6 +186,37 @@ def sweep_modules(repo_root, *, roots) -> SweepReport:
         else:
             orphan.append(m)
     return SweepReport(wired=sorted(wired), config_wired=sorted(config_wired), orphan_cluster=sorted(orphan_cluster), orphan=sorted(orphan), roots=seeded)
+def mcp_crosscheck(report: SweepReport, mcp_query) -> list[str]:
+    """Advisory MCP cross-check over a SweepReport's orphan candidates.
+
+    For each static ORPHAN / ORPHAN_CLUSTER candidate, consult the INJECTED
+    ``mcp_query`` callable -- a function taking a module rel-path str and
+    returning an int count of inbound usages the MCP graph knows about
+    (CALLS/IMPORTS/USAGE edges). When the MCP reports inbound usages for a
+    candidate the static sweep flagged as unused, raise a human-triage
+    disagreement note.
+
+    This is ADVISORY ONLY: it never flips a verdict, never gates a build, and
+    never mutates ``report`` (its four class lists are untouched). Only the
+    orphan/orphan_cluster candidates are queried -- WIRED and CONFIG_WIRED
+    modules are never passed to ``mcp_query``. If ``mcp_query`` raises for a
+    candidate, that candidate is skipped (best-effort; the error never
+    propagates) and yields no note.
+
+    Pure: stdlib only; no process spawn, model/API/network call, or
+    un-injected subprocess. The only external touch is ``mcp_query``. Writes
+    no files. Deterministic: the same report and ``mcp_query`` behaviour yield
+    an identical note list.
+    """
+    notes: list[str] = []
+    for m in list(report.orphan) + list(report.orphan_cluster):
+        try:
+            count = mcp_query(m)
+        except Exception:
+            continue
+        if count:
+            notes.append(f'{m}: static says orphan, MCP shows {count} inbound usages -> likely dynamic wiring, do not auto-remove')
+    return notes
 def _grep_config(repo_root: Path, stem: str) -> str:
     """Search ``repo_root/config/**`` for ``stem`` as a whole word.
 
