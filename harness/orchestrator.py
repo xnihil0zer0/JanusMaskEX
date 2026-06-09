@@ -2017,6 +2017,67 @@ def _resolve_verification_command(state_dir: Path, task: dict[str, Any], task_id
         current_parent = parent_task.get('parent_task')
     return None
 
+from harness.wire_up import check_wired, WireResult
+
+def _wire_up_gate_enabled(state_dir=None) -> bool:
+    """WIRE_UP_GATE: return ``config['autowork']['wire_up_gate']`` (default False).
+
+    Reads the flag via the existing ``load_config()``. Ships default-OFF and
+    fail-safe: ANY error (config missing / not a mapping / key absent) yields
+    False so the existing accept path is preserved byte-for-byte when the flag
+    is not set.
+    """
+    try:
+        cfg = load_config()
+        if not isinstance(cfg, dict):
+            return False
+        autowork = cfg.get('autowork')
+        if not isinstance(autowork, dict):
+            return False
+        return bool(autowork.get('wire_up_gate', False))
+    except Exception:
+        return False
+
+def _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, worktree_root, result, working_dir) -> bool:
+    """WIRE_UP_GATE: reject an orphan new module at the accept chokepoint.
+
+    For each NEWLY-CREATED module in ``files_touched`` -- a path ending ``.py``
+    not under a ``tests/`` directory and not tracked in the parent HEAD before
+    this commit -- consult the module-global ``check_wired`` against
+    ``working_dir or worktree_root``. If any returns a result whose ``.wired``
+    is False the staging commit is rolled back, the staging worktree removed, an
+    ``orphan_unwired`` ledger row written, the task routed to blocked/, and True
+    (reject) is returned. Otherwise returns False (proceed). Only ever invoked
+    when ``_wire_up_gate_enabled`` is True, so the gate is a strict no-op when
+    the flag is OFF.
+    """
+    repo_root = working_dir or worktree_root
+
+    def _tracked_in_parent(rel: str) -> bool:
+        try:
+            probe = subprocess.run(['git', 'cat-file', '-e', f'HEAD:{rel}'], cwd=str(worktree_root), capture_output=True, text=True, timeout=30)
+            return probe.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return True
+    for rel in files_touched or []:
+        if not isinstance(rel, str) or not rel.endswith('.py'):
+            continue
+        if 'tests' in Path(rel).parts:
+            continue
+        if _tracked_in_parent(rel):
+            continue
+        wire_result = check_wired(repo_root, rel)
+        if wire_result is not None and (not getattr(wire_result, 'wired', True)):
+            logger.warning('orphan_unwired: task=%s new module %s is not reachable by any live importer -- staging rolled back fail-closed', task_id, rel)
+            _rollback_rejected_commit(staging_path, result.get('sha'), rel, task_id, 'orphan_unwired')
+            git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
+            try:
+                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'orphan_unwired', 'commit_sha': result.get('sha'), 'files': files_touched, 'file': rel, 'reason': getattr(wire_result, 'reason', '') or 'new module unreachable by any live importer'})
+            except OSError as _exc:
+                logger.warning('orphan_unwired: ledger append failed for %s: %s', task_id, _exc)
+            _mark_blocked(state_dir, task_id, outcome='orphan_unwired')
+            return True
+    return False
 def _rollback_rejected_commit(worktree_root: Path, sha: str | None, target_rel: str, task_id: str, kind: str) -> None:
     """Undo a rejected auto-commit without destroying a peer worker's commit.
 
@@ -3259,6 +3320,19 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                         write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'mutation_gate_error', 'commit_sha': result.get('sha'), 'files': files_touched, 'reason': str(_gate_exc)})
                     except OSError as _exc:
                         logger.warning('mutation_gate_error: ledger append failed for %s: %s', task_id, _exc)
+                    return False
+
+            # WIRE_UP_GATE (wire_up_accept_gate): flag-gated reachability gate at
+            # the single accept chokepoint -- AFTER the mutation gate and BEFORE
+            # the staging->parent merge. When the default-OFF
+            # autowork.wire_up_gate flag is enabled, a NEWLY-CREATED module that
+            # no live importer reaches is rejected exactly like a failed mutation
+            # gate (staging rolled back, orphan_unwired ledger row, return False --
+            # no merge). When the flag is OFF _run_wire_up_gate (and therefore
+            # check_wired) is NEVER consulted, so the existing accept path is
+            # preserved byte-for-byte.
+            if _wire_up_gate_enabled(state_dir):
+                if _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, worktree_root, result, working_dir):
                     return False
 
             try:
