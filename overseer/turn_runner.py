@@ -110,13 +110,35 @@ def make_seams(*, config: Dict[str, Any], repo_root: Path, state_dir: Path,
     is bound read-write. MCP is granted regardless of mode. A missing,
     unreadable, or invalid ``.claude.json`` (or one with no ``mcpServers``)
     leaves the spawn byte-for-byte unchanged.
+
+    It also REGISTERS the overseer's PreToolUse hard-block hook into the spawn:
+    ``procedure_hook.SETTINGS_FRAGMENT`` is written to
+    ``work_dir/.claude/settings.json`` (Claude Code auto-discovers project hooks
+    from ``$CLAUDE_PROJECT_DIR/.claude/settings.json``, and ``_build_overseer_env``
+    sets ``CLAUDE_PROJECT_DIR = work_dir`` + ``runner`` spawns with
+    ``cwd=work_dir``), so the hook fires with NO argv / jail change. So the hook
+    subprocess can SEE the active phase, ``env_builder`` additionally exports the
+    live ``conversation['procedure_phase']`` as ``JANUSMASK_PROCEDURE_PHASE``;
+    when the conversation carries no phase (observe / non-procedure modes) no
+    such env var is set and the spawn behaves exactly as before.
     """
     import json
 
     from harness import agent_jail
     from harness.agent_streamer import ClaudeStreamParser
+    from overseer import procedure_hook
 
     claude_bin = _resolve_claude_binary(config, repo_root)
+
+    # --- register the PreToolUse hard-block hook into the spawn (fail-safe) ----
+    # work_dir is CLAUDE_PROJECT_DIR + the spawn cwd, so a project settings.json
+    # here is auto-discovered by Claude Code with no argv / jail-bind change.
+    try:
+        settings_path = work_dir / '.claude' / 'settings.json'
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(procedure_hook.SETTINGS_FRAGMENT))
+    except OSError:
+        pass
 
     # --- read the operator's MCP server set (tolerant of every failure) -------
     HOME = os.environ.get('HOME', '')
@@ -194,7 +216,11 @@ def make_seams(*, config: Dict[str, Any], repo_root: Path, state_dir: Path,
         return inner
 
     def env_builder(conversation: Dict[str, Any], **kw: Any) -> Dict[str, str]:
-        return _build_overseer_env(repo_root, work_dir, state_dir)
+        env = _build_overseer_env(repo_root, work_dir, state_dir)
+        phase = (conversation or {}).get('procedure_phase')
+        if phase:
+            env['JANUSMASK_PROCEDURE_PHASE'] = str(phase)
+        return env
 
     def runner(cmd: Sequence[str], *, env: Dict[str, str], stdin: str, **kw: Any) -> List[str]:
         work_dir.mkdir(parents=True, exist_ok=True)
