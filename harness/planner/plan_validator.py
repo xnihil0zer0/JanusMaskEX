@@ -30,9 +30,16 @@ _PURE_EDIT_META_TASK_TYPES = {'refactor', 'logging_observability', 'docs_writing
 
 def _is_module_creating(task: Any) -> bool:
     """A leaf is MODULE-CREATING when its ``files_touched`` contains a ``.py``
-    path that is NOT under a ``tests/`` directory AND its ``meta_task_type`` is
-    not a pure-edit type (``refactor``, ``logging_observability``,
-    ``docs_writing`` and any ``test_*`` type are exempt)."""
+    path that is NOT under a ``tests/`` directory, is NOT already present on
+    disk, AND its ``meta_task_type`` is not a pure-edit type (``refactor``,
+    ``logging_observability``, ``docs_writing`` and any ``test_*`` type are
+    exempt).
+
+    Existence-aware: a non-test ``.py`` that already exists on disk (resolved
+    against the repo root) is an EDIT and creates nothing, so it does not make
+    the task module-creating. Only an absent path (including external /
+    out-of-repo working_dir builds) makes the task module-creating (fail-safe:
+    unknown/absent => creating)."""
     if not isinstance(task, dict):
         return False
     meta_task_type = task.get('meta_task_type')
@@ -42,12 +49,16 @@ def _is_module_creating(task: Any) -> bool:
     files_touched = task.get('files_touched', [])
     if not isinstance(files_touched, list):
         return False
+    repo_root = Path(__file__).resolve().parents[2]
     for path in files_touched:
         if not isinstance(path, str) or not path.endswith('.py'):
             continue
         if 'tests/' in path.replace('\\', '/'):
             continue
-        return True
+        p = Path(path)
+        resolved = p if p.is_absolute() else (repo_root / p)
+        if not resolved.exists():
+            return True
     return False
 def _valid_mutation_module(v: Any) -> bool:
     """A2: a ``mutation_target`` must be a bare dotted module name (the
