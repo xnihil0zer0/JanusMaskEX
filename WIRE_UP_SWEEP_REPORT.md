@@ -137,7 +137,6 @@ Source-set filter: excludes _archive/**, _autowork_archive/**, samples/**, scrip
 
 ## ORPHAN_CLUSTER (0)
 
-## ORPHAN (3)
+## ORPHAN (2)
 - harness/config_loader.py
 - harness/planner/oracle_attach.py
-- tools/brief_status.py

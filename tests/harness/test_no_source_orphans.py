@@ -40,23 +40,32 @@ KNOWN_ORPHAN_ALLOWLIST: dict[str, str] = {
     # (non-test) module imports it. Whether each should be WIRED to a live
     # consumer or RETIRED is an owner design decision (each looks like a
     # superseded alternative to a live module), so they are reclassified here
-    # with final, evidence-backed justifications rather than guessed-at wiring or
-    # an unsafe deletion of tested code.
+    # with evidence-backed justifications rather than guessed-at wiring or an
+    # unsafe deletion of tested code. All three are the SAME situation:
+    # implemented + self-tested + zero live importer (their tests cover only
+    # their own functions, so the coverage would vanish cleanly with the module);
+    # each is a retire-vs-keep judgment call, not a wiring task.
     "harness/config_loader.py":
-        "tested-but-unwired: HooksConfig / get_batch_execution_config / ConfigError API "
-        "exercised by tests/hooks/unit/test_hooks_config*.py etc., but imported by no live "
-        "module (only an injected `config_loader` DI param in hooks_equivalence). Owner "
-        "decision: wire as the live hooks-config loader, or retire if superseded.",
+        "Tested-but-unwired (reviewed 2026-06-09): a coherent config-schema/validation module "
+        "(HOOKS_ALLOWED_VERBS / HooksConfig / get_hooks_config / get_batch_execution_config / "
+        "ConfigError). No live (non-test) module imports it -- the runtime reads config inline "
+        "(config.get('batch_execution') in diff_fuzzer.py/sandbox.py; hooks_equivalence.py has its "
+        "own loader). The hooks tests that import it exercise its OWN functions (self-coverage). "
+        "VERDICT KEEP as a judgment call: worth retaining as the canonical config schema / future "
+        "consolidation target. By the strict wired definition it is as deletable as the others.",
     "harness/planner/oracle_attach.py":
-        "tested-but-unwired: attach_oracle / task_needs_oracle API exercised by "
-        "tests/adversarial/test_oracle_attach.py, but no live caller (the live planner injects "
-        "oracle sources via plan_normalizer._inject_oracle_sources). Owner decision: wire into "
-        "the planner, or retire as superseded.",
-    "tools/brief_status.py":
-        "tested-but-unwired: classify_briefs / status_of API exercised by "
-        "tests/tools/test_brief_status.py, but no live importer and no __main__ (the live brief "
-        "classifier is harness/brief_status.py). Owner decision: wire as a tool entrypoint, or "
-        "retire as a superseded duplicate.",
+        "Tested-but-unwired (reviewed 2026-06-09): attach_oracle generates an oracle by stripping "
+        "an EXISTING target module's source (test_author.author_oracle:71), so it only applies to "
+        "the rebuild flow over existing modules -- and harness/rebuild/loop.py already does that "
+        "inline via test_author (loop.py:364). It cannot wire into the main brief-planner (which "
+        "builds not-yet-existent modules, no source to strip). Redundant; retire candidate.",
+    "overseer/actions.py":
+        "Tested-but-unwired (added 2026-06-09 by adversarial review): no live importer "
+        "(only tests/overseer/test_actions.py). NOTE: sweep_modules currently MIS-classifies this "
+        "as CONFIG_WIRED, not ORPHAN, because _grep_config whole-word-matches the unrelated "
+        "\"actions\" JSON key in config/gemini_settings.json -- a false CONFIG_WIRED that MASKS the "
+        "orphan (see WIRE_UP_HANDOFF.md open items: fix _grep_config to not match arbitrary config "
+        "keys). Listed here so the true residual set is complete. Retire-vs-keep, same as above.",
 }
 
 
