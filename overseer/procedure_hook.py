@@ -155,13 +155,19 @@ def decide(event):
     the call is blocked, carrying a structured ``reason`` and ``fix_hint``
     (the ``GateResult`` shape).  An allowed call serialises with neither
     ``deny`` nor ``block``.
+
+    The active phase is resolved from the event first
+    (``phase``/``state``/``procedure_state``); real Claude Code PreToolUse
+    events carry none of these, so it falls back to the
+    ``JANUSMASK_PROCEDURE_PHASE`` environment variable exported into the spawn
+    by ``turn_runner.make_seams``.  An explicit event phase always wins; with
+    neither present the hook stays inert (fail-open).
     """
+    import os
     event = event if isinstance(event, dict) else {}
     tool_name = event.get('tool_name') or event.get('tool') or ''
     tool_input = event.get('tool_input') or event.get('tool_args') or event.get('input') or {}
-    phase = event.get('phase')
-    if phase is None:
-        phase = event.get('state') or event.get('procedure_state')
+    phase = event.get('phase') or event.get('state') or event.get('procedure_state') or os.environ.get('JANUSMASK_PROCEDURE_PHASE')
     allow, reason, fix_hint = _verdict(tool_name, tool_input, phase)
     if allow:
         return {'decision': 'allow', 'reason': reason, 'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'allow', 'permissionDecisionReason': reason}}
