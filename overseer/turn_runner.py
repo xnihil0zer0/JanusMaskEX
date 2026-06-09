@@ -332,6 +332,14 @@ def run_chat_turn(store: Any, cid: str, user_text: str, *, config: Dict[str, Any
 
     if turn.session_id is not None:
         store.set_session_id(cid, turn.session_id)
+    # Capture procedure artifacts/attestations the agent declared this turn,
+    # merging them into the live rec so the subsequent append_turn save persists
+    # them (import-safe + exception-safe; a parse error never breaks the turn).
+    try:
+        from overseer import procedure_artifacts as _pa
+        _pa.apply_to_record(rec, turn.text)
+    except Exception:
+        pass
     store.append_turn(cid, {'role': 'assistant', 'content': turn.text})
     asst_index = len(store.get(cid).get('transcript') or []) - 1
     _append_transcript(transcript_path, max(asst_index, 0), 'assistant', mode, turn.text)
