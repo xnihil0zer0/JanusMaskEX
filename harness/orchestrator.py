@@ -238,7 +238,9 @@ def _apply_agy_pool_env(agent, env, config=None):
     except (TypeError, ValueError):
         return env
     from harness import agy_pool
-    home = os.environ.get('HOME') or os.path.expanduser('~')
+    # AGENT-ISOLATION §8: the external agy CLI hardcodes ~/.gemini, so pool-slot
+    # seeding must read the real $HOME to copy auth/state from it.
+    home = os.environ.get('HOME') or os.path.expanduser('~')  # home-free: allow
     try:
         agy_pool.ensure_seeded(str(PROJECT_DIR), slot, home=home, copy=shutil.copy2, exists=os.path.exists, makedirs=lambda d: os.makedirs(d, exist_ok=True))
     except OSError:
