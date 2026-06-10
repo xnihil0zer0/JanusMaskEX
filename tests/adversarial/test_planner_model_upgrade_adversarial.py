@@ -53,15 +53,21 @@ def _claude_args() -> list[str]:
 
 
 def test_yaml_source_has_opus_not_haiku_or_sonnet():
+    """The model pin under test lives in the `agents:` subtree (synthesis/
+    planning claude args). The overseer chat panel's model DROPDOWN
+    (`overseer.models.claude`) legitimately lists haiku/sonnet — it selects
+    an interactive chat model, not the synthesis/planning model — so the
+    forbidden-name scan covers the agents subtree, not the whole file."""
+    import yaml
+
     text = _CFG.read_text(encoding="utf-8")
     assert "opus" in text, "harness/config.yaml should declare --model opus"
+    agents_blob = json.dumps(yaml.safe_load(text).get("agents", {}))
     for forbidden in ("haiku", "sonnet"):
-        for line in text.splitlines():
-            stripped = line.split("#", 1)[0]
-            assert forbidden not in stripped, (
-                f"harness/config.yaml still references {forbidden} outside a "
-                f"comment: {line!r}"
-            )
+        assert forbidden not in agents_blob, (
+            f"harness/config.yaml agents subtree still references {forbidden}: "
+            f"{agents_blob!r}"
+        )
 
 
 def test_load_config_returns_opus_model_arg():

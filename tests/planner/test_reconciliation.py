@@ -178,7 +178,10 @@ def test_reconciliation_with_mock_agents_and_mock_tiebreaker(state_dir, mock_tie
     assert len(res.merged_tasks) == 1
 
 
-@settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+# deadline=None: the first example pays a one-time import/fixture cost (>400ms
+# observed under full-sweep load) while later examples run in ~40ms; the
+# wall-clock deadline is a flake source, not part of the contract.
+@settings(suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=None)
 @given(st.lists(st.sampled_from([DiffKind.convergent, DiffKind.claude_only, DiffKind.gemini_only, DiffKind.divergent]), min_size=0, max_size=5))
 def test_convergent_items_always_preserved(tmp_path_factory, monkeypatch, kinds):
     tmp_path = tmp_path_factory.mktemp("state")

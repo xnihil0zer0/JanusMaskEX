@@ -1162,10 +1162,13 @@ class TestMainEntryPoint:
 # ── BYPASS_WHOLE_FILE Tests ───────────────────────────────────────────────────
 
 def test_prepare_task_prompt_bypass_type_emits_patches_block():
+    # MANIFEST ROUTING (8758270): multi-file bundles always go verbatim-manifest;
+    # NEW-FILE GUARD (§4a, 2026-06-10): patches are only offered for targets that
+    # already exist on disk. So the patches dispatch needs a single real .py file.
     task = {
         "task_id": "test_bypass",
         "meta_task_type": "sandbox_infra",
-        "files_touched": ["a.py", "b.py"],
+        "files_touched": ["harness/wire_up.py"],
     }
     prompt = prepare_task_prompt(task)
     assert "__JANUSMASK_PATCHES__" in prompt
@@ -1173,11 +1176,14 @@ def test_prepare_task_prompt_bypass_type_emits_patches_block():
 
 
 def test_prepare_task_prompt_partial_edit_still_emits_patches_block():
+    # MANIFEST ROUTING (8758270): multi-file bundles always go verbatim-manifest;
+    # NEW-FILE GUARD (§4a, 2026-06-10): patches are only offered for targets that
+    # already exist on disk. So the patches dispatch needs a single real .py file.
     task = {
         "task_id": "test_pe",
         "partial_edit": True,
         "meta_task_type": "cli_tooling",
-        "files_touched": ["a.py", "b.py"],
+        "files_touched": ["harness/wire_up.py"],
     }
     prompt = prepare_task_prompt(task)
     assert "__JANUSMASK_PATCHES__" in prompt
@@ -1209,10 +1215,13 @@ def test_prepare_task_prompt_non_bypass_multifile_still_emits_manifest():
 
 
 def test_prepare_task_prompt_meta_task_type_from_constraints_resolved():
+    # MANIFEST ROUTING (8758270): multi-file bundles always go verbatim-manifest;
+    # NEW-FILE GUARD (§4a, 2026-06-10): patches are only offered for targets that
+    # already exist on disk. So the patches dispatch needs a single real .py file.
     task = {
         "task_id": "test_constraints_bypass",
         "constraints": {"meta_task_type": "sandbox_infra"},
-        "files_touched": ["a.py", "b.py"],
+        "files_touched": ["harness/wire_up.py"],
     }
     prompt = prepare_task_prompt(task)
     assert "__JANUSMASK_PATCHES__" in prompt
@@ -1298,16 +1307,19 @@ def test_non_bypass_task_prompt_to_validation_roundtrip_uses_manifest():
 
 def test_any_meta_task_type_in_bypass_set_triggers_patches_in_both_functions():
     from harness.planner.taxonomies import BYPASS_FUZZER_TYPES
+    # MANIFEST ROUTING (8758270): multi-file bundles always go verbatim-manifest;
+    # NEW-FILE GUARD (§4a, 2026-06-10): patches are only offered for targets that
+    # already exist on disk. So the patches dispatch needs a single real .py file.
     for mtt in BYPASS_FUZZER_TYPES:
         task = {
             "task_id": f"test_prop_{mtt}",
             "meta_task_type": mtt,
-            "files_touched": ["a.py", "b.py"],
+            "files_touched": ["harness/wire_up.py"],
         }
         prompt = prepare_task_prompt(task)
         assert "__JANUSMASK_PATCHES__" in prompt
-        
-        code = "__JANUSMASK_PATCHES__ = [{'file': 'a.py', 'kind': 'symbol', 'name': 'f', 'code': 'def f():\\n    pass\\n'}]"
+
+        code = "__JANUSMASK_PATCHES__ = [{'file': 'harness/wire_up.py', 'kind': 'symbol', 'name': 'f', 'code': 'def f():\\n    pass\\n'}]"
         valid, violations = _validate_submission(code, "claude", task)
         assert valid
 
