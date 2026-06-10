@@ -73,6 +73,7 @@ def build_jail_argv(
     extra_rw: Iterable[str | Path] = (),
     dbus_proxy_socket: str | None = None,
     bind_credentials: bool = True,
+    js_node_bin_dir: str | Path | None = None,
 ) -> list[str]:
     """Wrap ``cmd`` in a ``bwrap`` argv that makes ``repo_root`` read-only.
 
@@ -181,6 +182,18 @@ def build_jail_argv(
     _home_subs = (".nvm", ".gemini", ".claude") if bind_credentials else (".nvm",)
     for _sub in _home_subs:
         _hp = os.path.join(home, _sub)
+        # AC-JS-JAIL-MOUNT (Phase D, 2026-06-10, owner hand-edit): on the JS
+        # execute path the caller pins the exact node version's bin dir -- bind
+        # ONLY that subtree ro instead of the whole version-manager
+        # installation. FAIL-CLOSED: a pin that does not resolve to a real
+        # directory STRICTLY under <home>/.nvm binds nothing nvm-related (no
+        # node rather than the whole tree). js_node_bin_dir=None (every
+        # existing caller) keeps the whole-tree ro-bind byte-identical.
+        if _sub == ".nvm" and js_node_bin_dir is not None:
+            _pin = os.path.realpath(str(js_node_bin_dir))
+            if _pin.startswith(os.path.realpath(_hp) + os.sep) and os.path.isdir(_pin):
+                argv += ["--ro-bind", _pin, _pin]
+            continue
         if os.path.exists(_hp):
             _mode = "--ro-bind" if _sub in _ro_home_subs else "--bind"
             argv += [_mode, _hp, _hp]
