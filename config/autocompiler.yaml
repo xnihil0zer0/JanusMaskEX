@@ -17,3 +17,12 @@ modules:
   - autocompiler.containment
   - autocompiler.vacuity
   - autocompiler.loop
+  # Phase B (determinism + JS beachhead) — registered ahead of dispatch, same
+  # orphan-by-design mitigation as Phase A until the Phase-C wiring lands.
+  - autocompiler.determinism
+  - autocompiler.decode
+  - autocompiler.js
+  - autocompiler.js.node_version
+  - autocompiler.js.js_codec
+  - autocompiler.js.js_fork_policy
+  - autocompiler.js.js_sandbox
