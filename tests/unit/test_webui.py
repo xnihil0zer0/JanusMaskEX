@@ -1,7 +1,33 @@
 import json
+import shutil
 import pytest
 from pathlib import Path
-from webui.app import app, DB_PATH, STATE_FILE, BOUNTY_FILE, PROGRESS_FILE, ALLOWLIST_FILE, CONFIG_FILE
+import webui.app as webui_app
+from webui.app import app
+
+_REAL_CONFIG = Path(__file__).resolve().parents[2] / "harness" / "config.yaml"
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_paths(tmp_path, monkeypatch):
+    """Redirect every webui.app path global into tmp_path.
+
+    HERMETICITY (root-caused 2026-06-10): these endpoint tests used to hit
+    the REAL repo state — /action/update_config rewrote the live
+    harness/config.yaml via yaml.safe_dump (alphabetized keys, ALL comments
+    stripped, test-only keys injected) on every full-suite run, and
+    /action/allowlist/add UNLINKED the real deny-all auto_promote.allowlist
+    (the daemon's safety boundary) mid-sweep. All handlers resolve these
+    module globals at call time, so monkeypatching webui_app is sufficient.
+    """
+    cfg = tmp_path / "config.yaml"
+    shutil.copy2(_REAL_CONFIG, cfg)
+    monkeypatch.setattr(webui_app, "CONFIG_FILE", cfg)
+    monkeypatch.setattr(webui_app, "ALLOWLIST_FILE", tmp_path / "auto_promote.allowlist")
+    monkeypatch.setattr(webui_app, "DB_PATH", tmp_path / "worker_registry.db")
+    monkeypatch.setattr(webui_app, "STATE_FILE", tmp_path / "STATE.json")
+    monkeypatch.setattr(webui_app, "PROGRESS_FILE", tmp_path / "impl_progress.jsonl")
+    monkeypatch.setattr(webui_app, "BOUNTY_FILE", tmp_path / "huntr_repo_bounties.json")
 
 
 @pytest.fixture
@@ -100,19 +126,19 @@ def test_action_update_config(client):
     assert res.status_code == 200
     assert b"Settings updated successfully" in res.data
 
-    # Verify key configurations updated in config.yaml
-    assert CONFIG_FILE.exists()
+    # Verify key configurations updated in the (tmp-redirected) config.yaml
+    assert webui_app.CONFIG_FILE.exists()
     import yaml
-    cfg = yaml.safe_load(CONFIG_FILE.read_text(encoding="utf-8"))
+    cfg = yaml.safe_load(webui_app.CONFIG_FILE.read_text(encoding="utf-8"))
     assert cfg["autowork"]["parallel_cap"] == 5
     assert cfg["autowork"]["min_ram_mb"] == 1024
     assert cfg["autowork"]["cooldown_tier_1"] == 100.0
 
 
 def test_action_allowlist(client):
-    # Clear allowlist for testing
-    if ALLOWLIST_FILE.exists():
-        ALLOWLIST_FILE.unlink()
+    # Clear the (tmp-redirected) allowlist for testing
+    if webui_app.ALLOWLIST_FILE.exists():
+        webui_app.ALLOWLIST_FILE.unlink()
 
     # Add a slug
     res_add = client.post("/action/allowlist/add", data={"new_slug": "test_audit_slug"})
