@@ -1515,8 +1515,13 @@ def prepare_task_prompt(task: dict[str, Any]) -> str:
     files_touched = task.get('files_touched') or []
     mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
     use_manifest = _requires_verbatim_manifest(files_touched)
+    _pe_candidates = files_touched if isinstance(files_touched, list) else [files_touched]
+    _targets_exist = bool(_pe_candidates) and all(
+        isinstance(p, str) and (Path(PROJECT_DIR) / p).exists() for p in _pe_candidates)
     # BYPASS_WHOLE_FILE (2026-05-28): fall back to partial_edit patches for fuzzer-bypassed tasks
-    if (task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES) and not use_manifest:
+    # NEW-FILE GUARD (2026-06-09): never offer patches when any target does not yet exist --
+    # patches cannot create files; fall through to the whole-file prompt.
+    if (task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES) and not use_manifest and _targets_exist:
         pe_files = files_touched if isinstance(files_touched, list) else [files_touched]
         pe_repr = ', '.join((repr(p) for p in pe_files)) if pe_files else '<see current_task.json>'
         prompt += '\nPARTIAL-EDIT DISPATCH (__JANUSMASK_PATCHES__) for ' + pe_repr + f":\n\nThis task edits one or more LARGE existing files IN PLACE. DO NOT\nreproduce the whole file. Read each target's CURRENT on-disk content\n(read-only) from {{WORK_DIR}}/inbox/targets/<rel> -- do not look for the\nfiles by repo-relative path. Emit a single top-level Python list assigned\nto ``__JANUSMASK_PATCHES__`` whose elements each replace exactly ONE\nnamed block. Two entry kinds:\n\n  # replace a top-level def/async def/class (or dotted Outer.method):\n  {{'file': '<rel/path>', 'kind': 'symbol', 'name': '<qualified.Name>',\n   'code': r{tsq}<full replacement def/class source>{tsq}}}\n\n  # replace only the lines between a pair of sentinel comments:\n  {{'file': '<rel/path>', 'kind': 'region', 'marker': '<SENTINEL>',\n   'code': r{tsq}<replacement region body>{tsq}}}\n\nThe exact shape:\n\n    __JANUSMASK_PATCHES__ = [\n        {{'file': '...', 'kind': 'symbol', 'name': '...', 'code': r{tsq}...{tsq}}},\n    ]\n\nRules:\n- Use raw triple-quoted strings (r{tsq}...{tsq}) for ``code`` so newlines,\n  quotes, and backslash escape sequences survive verbatim.\n- For kind 'symbol', ``code`` MUST be exactly ONE def/async def/class\n  whose name matches the leaf of ``name``; every byte outside that block\n  is preserved by the harness.\n- For kind 'region', the file must already contain the sentinel pair\n  ``# JANUSMASK_REGION:<SENTINEL>`` ... ``# JANUSMASK_ENDREGION:<SENTINEL>``;\n  only the lines strictly between them are replaced (sentinels kept).\n- The submission file MUST contain ONLY this ``__JANUSMASK_PATCHES__``\n  assignment at top level (no other statements, imports, or decorators).\n- Replace ONLY the named symbols/regions you must change. Never emit a\n  whole-file manifest for a partial edit.\n"
@@ -2404,6 +2409,41 @@ def _auto_approve_content_safe(state_dir, task_id) -> bool:
 # are the hermetic security invariants the RO gate exists to protect (trust-root
 # integrity + the deny-list-no-widen invariant); both pass in a bare snapshot.
 _RO_GATE_TESTS = ('tests/adversarial/test_sec_inv2_trustroot.py', 'tests/adversarial/test_p10b_denylist_widen.py')
+_GIT_COMMIT_LOCK_DEADLINE_SEC = 60.0
+
+def _acquire_git_commit_lock_bounded(lock_fd, deadline_sec: float | None=None) -> bool:
+    """Bounded LOCK_NB acquisition of the shared AW3 ``git_commit.lock`` (§4b, 2026-06-10).
+
+    A *dead* prior holder's flock is auto-released by the kernel, but a LIVE
+    hung holder (e.g. a wedged push) used to block the worker-side blocking
+    ``LOCK_EX`` forever. Mirror the daemon's bounded posture
+    (``autowork_daemon._acquire_commit_lock_or_reclaim``): retry
+    ``LOCK_NB | LOCK_EX`` until *deadline_sec* elapses, then return False so
+    the caller fails the commit attempt cleanly (``auto_commit_failed`` retry
+    machinery) instead of hanging. On acquire the holder PID is stamped into
+    the lock file (best-effort, observability only) and True is returned; the
+    caller remains responsible for ``LOCK_UN``.
+    """
+    import fcntl
+    if deadline_sec is None:
+        deadline_sec = _GIT_COMMIT_LOCK_DEADLINE_SEC
+    deadline = time.monotonic() + max(0.0, float(deadline_sec))
+    while True:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_NB | fcntl.LOCK_EX)
+        except OSError:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+            continue
+        try:
+            lock_fd.truncate(0)
+            lock_fd.write(str(os.getpid()))
+            lock_fd.flush()
+        except OSError:
+            pass
+        return True
+
 def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -> bool:
     """Copy accepted output to its target and create a scoped git commit.
 
@@ -2926,8 +2966,17 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
         lock_dir.mkdir(parents=True, exist_ok=True)
         lock_path = lock_dir / 'git_commit.lock'
         with open(lock_path, 'a') as lock_fd:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            # §4b BOUNDED LOCK (2026-06-10): a LIVE hung holder must not wedge this
+            # worker forever -- bounded LOCK_NB retry, then fail the attempt cleanly.
+            _lock_acquired = _acquire_git_commit_lock_bounded(lock_fd)
             try:
+                if not _lock_acquired:
+                    logger.warning('git_commit_lock_timeout: failing commit attempt for %s -- git_commit.lock still held by a live process after %.0fs; routing to auto_commit_failed instead of blocking', task_id, _GIT_COMMIT_LOCK_DEADLINE_SEC)
+                    try:
+                        write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'git_commit_lock_timeout', 'commit_sha': None, 'files': files_touched, 'reason': 'git_commit.lock held by a live process past the acquisition deadline'})
+                    except OSError as _exc:
+                        logger.warning('git_commit_lock_timeout: ledger append failed for %s: %s', task_id, _exc)
+                    result = {'committed': False, 'error': 'git_commit_lock_timeout: git_commit.lock held by a live process past the acquisition deadline'}
                 # INV5 (TOCTOU_PIN): still holding LOCK_EX and IMMEDIATELY before
                 # the commit, re-read the staged artifact sha + parent HEAD and
                 # compare against the values pinned after the content gate. Only
@@ -2940,7 +2989,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                 # not-committed handler below scrubs staging and returns False (the
                 # ceiling counter is NOT incremented).
                 _inv5_abort = False
-                if _granted_via_auto_approve:
+                if _lock_acquired and _granted_via_auto_approve:
                     _now_artifact_sha = _inv5_artifact_sha()
                     _now_parent_head = _inv5_parent_head()
                     if _now_artifact_sha != _pinned_artifact_sha or _now_parent_head != _pinned_parent_head:
@@ -2953,7 +3002,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                         except OSError as _exc:
                             logger.warning('auto_approve_toctou_pin_mismatch: ledger append failed for %s: %s', task_id, _exc)
                         result = {'committed': False, 'error': 'auto_approve_toctou_pin_mismatch: staged artifact bytes or parent HEAD changed between pin and commit'}
-                if not _inv5_abort:
+                if _lock_acquired and not _inv5_abort:
                     result = git_integration.commit_accepted_output(task_id, target_abs, state_dir, worktree_root=staging_path, allowed_files=set(files_touched), meta_task_type=_mtt, approval_ok=_approval_ok, working_dir=working_dir, widened_auto_approve=_granted_via_auto_approve)
                     # P10-B CEILING INCREMENT (REV29 §3c): still holding LOCK_EX, when
                     # the commit landed AND the grant came from the auto-approve consult
@@ -2973,7 +3022,8 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                             _n = 0
                         _count_path.write_text(json.dumps({'count': _n + 1}), encoding='utf-8')
             finally:
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                if _lock_acquired:
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
 
         # 5. Run verification inside staging
         if result.get('committed'):

@@ -102,7 +102,9 @@ def test_sec_inv5_toctou_pin_artifact_tamper(test_env, monkeypatch) -> None:
     # Monkeypatch fcntl.flock to perform artifact tamper on locking
     orig_flock = fcntl.flock
     def mock_flock(fd, operation):
-        if operation == fcntl.LOCK_EX:
+        # §4b (2026-06-10): acquisition is now bounded LOCK_NB|LOCK_EX, so match
+        # any EX acquisition (and not LOCK_UN) rather than the bare blocking form.
+        if operation & fcntl.LOCK_EX:
             artifact_file.write_text("def f():\n    return 999\n")
         return orig_flock(fd, operation)
     monkeypatch.setattr(fcntl, "flock", mock_flock)
@@ -154,7 +156,9 @@ def test_sec_inv5_toctou_pin_head_shift(test_env, monkeypatch) -> None:
     # Monkeypatch fcntl.flock to shift HEAD on locking
     orig_flock = fcntl.flock
     def mock_flock(fd, operation):
-        if operation == fcntl.LOCK_EX:
+        # §4b (2026-06-10): acquisition is now bounded LOCK_NB|LOCK_EX, so match
+        # any EX acquisition (and not LOCK_UN) rather than the bare blocking form.
+        if operation & fcntl.LOCK_EX:
             # Shift HEAD in the parent repository by making a commit
             (repo / "harness" / "test_author.py").write_text("def f():\n    return 42\n")
             _git(["add", "-A"], repo)

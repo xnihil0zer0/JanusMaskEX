@@ -97,7 +97,7 @@ def test_prepare_prompt_single_py_still_uses_patches():
     task = {
         "task_id": "t-webui-control",
         "meta_task_type": "harness_plumbing",
-        "files_touched": ["harness/webui_control.py"],
+        "files_touched": ["tools/webui_control.py"],
     }
     prompt = prepare_task_prompt(task)
     assert _PATCHES_HEADER in prompt, (

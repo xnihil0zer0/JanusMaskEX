@@ -423,7 +423,7 @@ make test-full      # serial authoritative gate — zero flake, slower
 
 Layout: `tests/harness/`, `tests/planner/`, `tests/overseer/`, `tests/autocompiler/`, `tests/integration/`, `tests/e2e/`, `tests/adversarial/`, plus top-level module tests (~650 modules total). `make test-fast` is a **screen**, not a gate — reconfirm anything it flags with `make test-full` before trusting it.
 
-> **Known pre-existing failure:** `tests/planner/test_brief_loader.py::test_sha256_line_ending_invariant` is a Hypothesis property test that finds a lone-`\r` input where the brief loader normalizes `\r\n`→`\n` but not bare `\r`, so the content hash differs. It is latent (unrelated to the pipeline's correctness) and a candidate for a `harness_self_fix` follow-up.
+> The lone-`\r` brief-loader hash divergence formerly noted here was fixed via the pipeline on 2026-06-09 (`fix-brief-loader-cr-normalization`, `720b69c`); `tests/planner/test_brief_loader.py` is green.
 
 ---
 

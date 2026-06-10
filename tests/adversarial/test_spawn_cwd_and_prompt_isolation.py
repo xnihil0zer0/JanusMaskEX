@@ -84,7 +84,9 @@ def test_T6_multifile_prompt_targets_block():
     assert '{STATE_DIR}/tasks' not in p
 
 def test_T6_partial_edit_prompt_targets_block():
-    p = orch.prepare_task_prompt({'task_id': 'T6P', 'specification': 'demo', 'partial_edit': True, 'files_touched': ['pkg/big.py']})
+    # NEW-FILE GUARD (§4a, 2026-06-10): patches are only offered for targets
+    # that already exist on disk, so the fixture must name a real file.
+    p = orch.prepare_task_prompt({'task_id': 'T6P', 'specification': 'demo', 'partial_edit': True, 'files_touched': ['harness/paths.py']})
     assert 'PARTIAL-EDIT DISPATCH' in p
     assert '{WORK_DIR}/inbox/targets/<rel>' in p
     assert '__JANUSMASK_PATCHES__' in p

@@ -1185,10 +1185,12 @@ def test_prepare_task_prompt_partial_edit_still_emits_patches_block():
 
 
 def test_prepare_task_prompt_bypass_single_file_emits_patches_not_manifest():
+    # NEW-FILE GUARD (§4a, 2026-06-10): the patches dispatch is only offered for
+    # targets that already exist on disk, so the fixture must name a real file.
     task = {
         "task_id": "test_bypass_single",
         "meta_task_type": "sandbox_infra",
-        "files_touched": ["a.py"],
+        "files_touched": ["harness/paths.py"],
     }
     prompt = prepare_task_prompt(task)
     assert "__JANUSMASK_PATCHES__" in prompt
@@ -1265,15 +1267,17 @@ def test_validate_submission_bypass_no_patches_falls_through():
 
 
 def test_bypass_task_prompt_to_validation_roundtrip_uses_patches():
+    # NEW-FILE GUARD (§4a, 2026-06-10): the patches dispatch is only offered for
+    # targets that already exist on disk, so the fixture must name a real file.
     task = {
         "task_id": "test_bypass_roundtrip",
         "meta_task_type": "sandbox_infra",
-        "files_touched": ["a.py"],
+        "files_touched": ["harness/paths.py"],
     }
     prompt = prepare_task_prompt(task)
     assert "__JANUSMASK_PATCHES__" in prompt
-    
-    code = "__JANUSMASK_PATCHES__ = [{'file': 'a.py', 'kind': 'symbol', 'name': 'f', 'code': 'def f():\\n    pass\\n'}]"
+
+    code = "__JANUSMASK_PATCHES__ = [{'file': 'harness/paths.py', 'kind': 'symbol', 'name': 'f', 'code': 'def f():\\n    pass\\n'}]"
     valid, violations = _validate_submission(code, "claude", task)
     assert valid
 
