@@ -5,8 +5,19 @@ import os
 from pathlib import Path
 import pytest
 import yaml
+from hypothesis import settings as _hypothesis_settings
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# Suite-wide Hypothesis profile: no per-example wall-clock deadline.
+# Hypothesis's default 200ms deadline measures wall-clock per example, which
+# flakes under full-suite load (the first example pays import/fixture warm-up:
+# e.g. test_never_mutates_input_plan hit 456ms once, 0.92ms on replay ->
+# DeadlineExceeded -> FlakyFailure). The suite's real performance guards are
+# explicit elapsed-time asserts, not Hypothesis deadlines. Tests that set an
+# explicit ``deadline=...`` in their own @settings keep their value.
+_hypothesis_settings.register_profile("janusmask_no_deadline", deadline=None)
+_hypothesis_settings.load_profile("janusmask_no_deadline")
 
 @pytest.fixture(autouse=True)
 def _reset_janusmask_task_id_env():
