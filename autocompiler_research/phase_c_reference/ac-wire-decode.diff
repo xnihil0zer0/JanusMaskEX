@@ -1,0 +1,48 @@
+diff --git a/harness/orchestrator_worker.py b/harness/orchestrator_worker.py
+index 7fe575d..126377e 100644
+--- a/harness/orchestrator_worker.py
++++ b/harness/orchestrator_worker.py
+@@ -111,12 +111,43 @@ def _purge_stale_sidecars_safe(payload: dict, state_dir=None) -> list[str]:
+         return removed
+     except Exception:
+         return []
++
++def _decode_check_safe(payload, state_dir=None) -> None:
++    """AC-WIRE-DECODE (Phase C, default-OFF observability): after the JSON line
++    is out, run the post-decode schema validator over the task's raw emission
++    and append ONE decode_check telemetry row. Never raises back into
++    _print_json_line; gating is unaffected."""
++    try:
++        from autocompiler.flags import ac_enabled
++        if not ac_enabled('decode'):
++            return
++        if not isinstance(payload, dict):
++            return
++        task_id = payload.get('task_id')
++        if not isinstance(task_id, str) or not task_id:
++            return
++        import pathlib
++        base = pathlib.Path(state_dir) if state_dir is not None else pathlib.Path(__file__).resolve().parents[1] / 'state'
++        emission = base / 'output' / f'{task_id}.py'
++        if not emission.is_file():
++            return
++        from autocompiler.decode import decode_submission
++        out = decode_submission(emission.read_text(encoding='utf-8', errors='replace'))
++        from harness._journal import write_jsonl_row
++        write_jsonl_row(base / 'impl_progress.jsonl', {
++            'ts': time.time(), 'event': 'decode_check', 'task_id': task_id,
++            'ok': bool(out.get('ok')), 'repaired': bool(out.get('repaired')),
++            'dropped_edits': int(out.get('dropped_edits') or 0)})
++    except Exception:
++        return
++
+ def _print_json_line(payload: dict[str, Any]) -> None:
+     sys.stdout.write(json.dumps(payload) + '\n')
+     sys.stdout.flush()
+     try:
+         _reap_spent_briefs_safe(payload)
+         _purge_stale_sidecars_safe(payload)
++        _decode_check_safe(payload)
+     except Exception:
+         pass
+ 

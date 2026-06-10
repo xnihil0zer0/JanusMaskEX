@@ -1,8 +1,8 @@
 diff --git a/harness/diff_fuzzer.py b/harness/diff_fuzzer.py
-index 2f23099..a9d062e 100644
+index 2f23099..c9c89a4 100644
 --- a/harness/diff_fuzzer.py
 +++ b/harness/diff_fuzzer.py
-@@ -795,8 +795,81 @@ def _get_primary_function(code: str) -> str | None:
+@@ -795,8 +795,123 @@ def _get_primary_function(code: str) -> str | None:
          pass
      return None
  
@@ -30,6 +30,48 @@ index 2f23099..a9d062e 100644
 +            os.unlink(out_path)
 +        except OSError:
 +            pass
++
++
++def _record_population_safe(code_a, code_b, task, result, state_dir=None) -> None:
++    """AC-WIRE-EVOLUTION (Phase C, default-OFF): record a NON-equivalent fuzz
++    round into the persistent population (cross-attempt MEMORY) and run one
++    pure loop.step transition over neutral seams. NEVER overrides the verifier
++    -- always returns None; the caller's accept/reject flow is untouched."""
++    try:
++        from autocompiler.flags import ac_enabled
++        if not ac_enabled('population'):
++            return None
++        if getattr(result, 'equivalent', True) or getattr(result, 'error', None):
++            return None
++        task_id = task.get('task_id') if isinstance(task, dict) else None
++        if not isinstance(task_id, str) or not task_id:
++            return None
++        import pathlib
++        from autocompiler.population import Candidate, PopulationDB
++        from autocompiler.fitness import compute_fitness
++        import autocompiler.loop as _ac_loop
++        base = pathlib.Path(state_dir) if state_dir is not None else pathlib.Path(__file__).resolve().parents[1] / 'state'
++        db_dir = base / 'autocompiler' / task_id
++        db = PopulationDB.load(db_dir)
++        try:
++            fitness = compute_fitness(result, [], False, None)
++        except Exception:
++            fitness = None
++        if not isinstance(fitness, dict) or not fitness:
++            fitness = {'source': 'fuzz', 'equivalent': False}
++        for cid, code in (('agent_a', code_a), ('agent_b', code_b)):
++            if cid not in db:
++                db.add(Candidate(id=cid, code=str(code or ''), fitness=dict(fitness)))
++        seams = {
++            'operate': lambda parent: Candidate(id=f'{parent.id}_child{parent.n_selected}', code=parent.code, fitness=dict(parent.fitness), parent_ids=[parent.id]),
++            'run': lambda child: result,
++            'rate': lambda child, parent: 0.5,
++        }
++        _ac_loop.step(db, seams)
++        db.save()
++    except Exception:
++        return None
++    return None
 +
 +def _maybe_js_fuzz(code_a: str, code_b: str, task, config, session_id: str):
 +    """AC-WIRE-JS-DISPATCH (Phase C, default-OFF): route a language=js task
@@ -84,3 +126,13 @@ index 2f23099..a9d062e 100644
      constraints = task.get('constraints', {}) if isinstance(task, dict) else {}
      if not isinstance(constraints, dict):
          constraints = {}
+@@ -837,4 +952,6 @@ def fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[
+     # their spec; main-pipeline tasks never do, so the global pipeline is unchanged.
+     if isinstance(task, dict) and task.get('fuzz_str_ascii'):
+         config = {**config, 'rebuild': {**config.get('rebuild', {}), 'fuzz_str_ascii': True}}
+-    return differential_fuzz(code_a, code_b, func_name, config, session_id)
+\ No newline at end of file
++    result = differential_fuzz(code_a, code_b, func_name, config, session_id)
++    _record_population_safe(code_a, code_b, task, result)
++    return result
+\ No newline at end of file
