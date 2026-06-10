@@ -36,6 +36,18 @@ class WireResult:
     fix_hint: str = ''
 LIVE_ROOTS: list[str] = ['harness/orchestrator.py', 'harness/orchestrator_worker.py', 'harness/autowork_daemon.py', 'harness/planner/cli.py']
 
+def _strip_config_comments(text: str) -> str:
+    """Strip YAML/TOML ``#`` comments before module-reference scanning.
+
+    A ``#`` at line start or preceded by whitespace begins a comment (the
+    YAML/TOML comment forms); everything from it to end-of-line is dropped.
+    A comment that merely *mentions* a module path is documentation, not a
+    registration -- scanning raw text promoted ``harness/wire_up.py`` to a
+    live root off a doc comment in ``config/autocompiler.yaml``. A ``#``
+    embedded in a token (e.g. a URL fragment) is NOT whitespace-preceded
+    and survives.
+    """
+    return re.sub('(?m)(^|\\s)#.*$', lambda m: m.group(1), text)
 def discover_live_roots(repo_root) -> list[str]:
     """Reconcile the live-root seed set from ground truth.
 
@@ -73,7 +85,7 @@ def discover_live_roots(repo_root) -> list[str]:
             if not path.is_file():
                 continue
             try:
-                text = path.read_text(encoding='utf-8', errors='ignore')
+                text = _strip_config_comments(path.read_text(encoding='utf-8', errors='ignore'))
             except OSError:
                 continue
             for dotted in m_pattern.findall(text):
@@ -292,7 +304,7 @@ def _grep_config(repo_root: Path, stem: str) -> str:
         if not path.is_file():
             continue
         try:
-            text = path.read_text(encoding='utf-8', errors='ignore')
+            text = _strip_config_comments(path.read_text(encoding='utf-8', errors='ignore'))
         except OSError:
             continue
         if pattern.search(text):
