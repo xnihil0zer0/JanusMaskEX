@@ -439,7 +439,7 @@ def test_effective_paths_on_100k_row_ledger_is_fast():
     out = IPW._effective_scope_exception_paths(rows)
     elapsed_ms = (time.perf_counter() - t0) * 1000
     assert out == [], "100k-row revoke must still cancel"
-    assert elapsed_ms < 100, f"slow scan: {elapsed_ms:.2f}ms"
+    assert elapsed_ms < 1000, f"slow scan: {elapsed_ms:.2f}ms"  # O(n) guard on 100k rows; O(n^2) regression is minutes — loose for load
 
 
 def test_read_revokes_on_100k_row_ledger_is_fast():
@@ -449,7 +449,7 @@ def test_read_revokes_on_100k_row_ledger_is_fast():
     out = IPW._read_scope_revokes(rows)
     elapsed_ms = (time.perf_counter() - t0) * 1000
     assert len(out) == 1
-    assert elapsed_ms < 100, f"slow scan: {elapsed_ms:.2f}ms"
+    assert elapsed_ms < 1000, f"slow scan: {elapsed_ms:.2f}ms"  # O(n) guard on 100k rows; O(n^2) regression is minutes — loose for load
 
 
 # =====================================================================

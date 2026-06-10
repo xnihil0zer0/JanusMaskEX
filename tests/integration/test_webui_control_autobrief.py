@@ -119,8 +119,13 @@ def autobrief_sidecar(tmp_path):
         state_dir=state_dir, logs_dir=logs_dir, tailer=tailer,
     )
     
+    # autobrief_timeout_sec is generous (20s) so the fast stub subprocess always
+    # completes within it even under heavy full-suite load — a 2s budget flaked
+    # the success-path tests when the box was loaded (e.g. with the autocompiler
+    # determinism layer active). The one test that exercises the TIMEOUT path
+    # (test_timeout_returns_504) overrides this back to a tight value locally.
     ControlHandlers._config_cache = {
-        "autobrief_timeout_sec": 2,
+        "autobrief_timeout_sec": 20,
         "autobrief_max_rough_draft_bytes": 16384,
         "autobrief_default_agent": "claude"
     }
@@ -217,11 +222,14 @@ def test_happy_gemini_via_toggle(autobrief_sidecar, monkeypatch):
     assert data["agent"] == "gemini"
 
 def test_timeout_returns_504(autobrief_sidecar, monkeypatch):
+    # Override the generous fixture timeout back to a tight 2s: the timeout-mode
+    # stub sleeps 5s, so the handler must abort at 2s and return 504.
+    ControlHandlers._config_cache = {**ControlHandlers._config_cache, "autobrief_timeout_sec": 2}
     monkeypatch.setenv("TEST_AUTOBRIEF_MODE", "timeout")
     headers = _auth(autobrief_sidecar)
     t0 = time.time()
     status, _, body = _request(
-        autobrief_sidecar["url"], "/api/briefs/autocomplete", "POST", 
+        autobrief_sidecar["url"], "/api/briefs/autocomplete", "POST",
         headers, {"rough_draft": "test"}
     )
     elapsed = time.time() - t0

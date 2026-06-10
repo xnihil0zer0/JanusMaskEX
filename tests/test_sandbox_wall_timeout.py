@@ -38,7 +38,11 @@ def test_watchdog_fires_on_expire_for_live_child():
     wd.thread.join()
     assert len(called) == 1
     assert called[0] == proc.pid
-    assert elapsed < 1.0
+    # The kill-proof is the returncode assert below (natural exit => rc 0).
+    # This bound only asserts the watchdog killed BEFORE the 2.0s natural
+    # sleep would end; nominal kill path is ~0.25s, so 1.8 tolerates heavy
+    # full-suite load while still discriminating from natural exit.
+    assert elapsed < 1.8
     assert proc.returncode in (-signal.SIGTERM, -signal.SIGKILL, 9, 15)
 
 def test_watchdog_cancel_before_expire():
@@ -97,7 +101,12 @@ def test_sandbox_execute_with_sleeping_code():
     elapsed = time.time() - start
     
     assert result.timed_out is True
-    assert elapsed < 3.0
+    # Discriminates timeout enforcement (bounded) from waiting out the 30s
+    # sleep. This execute goes through sandbox_child_env, so the autocompiler
+    # determinism layer's per-child startup cost lands here: measured 2.51s in
+    # ISOLATION with determinism ON — the old 3.0 bound was a guaranteed flake
+    # under load. 10.0 is >> nominal and << the 30s regression.
+    assert elapsed < 10.0
     
     # check for zombies
     try:

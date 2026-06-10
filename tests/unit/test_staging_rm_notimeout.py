@@ -138,7 +138,10 @@ def test_remove_does_not_propagate_unbounded(tmp_path, monkeypatch):
     # Must NOT raise and must complete quickly (no unbounded hang/propagation).
     git_integration.remove_staging_worktree(str(some_path), parent_root=str(some_dir))
     duration = time.perf_counter() - start_time
-    assert duration < 1.0, f"Call took too long: {duration}s"
+    # Guards against an UNBOUNDED hang (subprocess timeout/propagation bug ⇒
+    # tens of seconds or never), not a microbenchmark — loose enough to tolerate
+    # git/IO jitter under heavy full-suite load.
+    assert duration < 10.0, f"Call took too long: {duration}s"
 
 
 def test_remove_happy_path_control(tmp_path, monkeypatch):
