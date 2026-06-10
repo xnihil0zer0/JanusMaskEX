@@ -37,10 +37,16 @@ agents:
     - -p
     - --dangerously-skip-permissions
     command: ${PROJECT_ROOT}/.agents/agy/agy
+autocompiler:
+  decode: false
+  determinism: false
+  enabled: false
+  js: false
+  population: false
 autowork:
   archive_spent_briefs: false
-  auto_approve_ro_gate: false
-  auto_approve_sensitive_harness: false
+  auto_approve_ro_gate: true
+  auto_approve_sensitive_harness: true
   brief_max_age_seconds: 604800
   brief_max_size_bytes: 50000
   conservative_missing_files: true
@@ -97,6 +103,17 @@ hooks:
   mode: shadow
   shadow_dir: state/hooks/shadow/
   shadow_min_clean_runs: 3
+overseer:
+  default_backend: claude
+  default_mode: observe
+  enabled: true
+  models:
+    claude:
+    - opus
+    - sonnet
+    - haiku
+  store_path: state/overseer/sessions.json
+  unlock_policy: {}
 sandbox:
   cpu_time_limit_seconds: 10
   filesystem_root: /tmp/janusmask_sandbox
@@ -117,33 +134,7 @@ synthesis:
   verification_timeout_seconds: 1200
 test_author:
   review_pass: true
-overseer:
-  enabled: true
-  default_mode: observe
-  default_backend: claude
-  models:
-    claude:
-    - opus
-    - sonnet
-    - haiku
-  store_path: state/overseer/sessions.json
-  unlock_policy: {}
 workers:
-  # Project-local pool of isolated agy worker HOMEs (harness/agy_pool.py).
-  # Ships OFF: when disabled, daemon-spawned agy workers share the operator's
-  # ~/.gemini exactly as before. Enable to give each concurrent worker a private
-  # HOME so parallel agy registries cannot corrupt each other. size MUST be >=
-  # autowork.parallel_cap (currently 5) so no concurrent worker is left unpooled.
   agy_pool:
     enabled: false
     size: 8
-
-# Autocompiler (Phase C, epic brief_hooks_autocompiler.md) -- master gate plus
-# capability sub-keys, ALL default-OFF. ac_enabled (autocompiler/flags.py) is
-# fail-closed: nothing activates until BOTH enabled and the sub-key flip true.
-autocompiler:
-  enabled: false
-  population: false      # evolutionary near-miss memory (orchestrator_worker hook)
-  determinism: false     # sitecustomize determinism layer (sandbox_child_env hook)
-  decode: false          # post-decode schema validation telemetry (worker accept hook)
-  js: false              # JS differential dispatch (diff_fuzzer fuzz_from_task hook)
