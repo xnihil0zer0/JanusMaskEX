@@ -1096,22 +1096,7 @@ def _spawn_worker(state_dir: pathlib.Path, task_id: str) -> int | None:
     # orchestrator.spawn_agent (jailed). Asserted by test_TC1_1; if a future change
     # ever routes an agent CLI through here it MUST go through _contain_selfheal.
     cmd = [sys.executable, '-m', 'harness.orchestrator_worker', '--state-dir', str(state_dir), '--task-id', task_id]
-    # EXTERNAL_WORKING_DIR_PROPAGATION (NGv2 gap #3): the worker's jail retarget
-    # (orchestrator.py:391) reads JANUSMASK_WORKING_DIR from the env, but the worker
-    # never sets it (only serial run_pipeline does). Propagate the staged task's
-    # trusted working_dir so an EXTERNAL target's synthesis jail retargets onto the
-    # external tree. Fail-safe: any read/parse error or a self build leaves the var
-    # unset (popped), so it is never inherited from the parent.
-    _worker_env = os.environ.copy()
-    try:
-        _task_obj = json.loads((state_dir / 'tasks' / f'{task_id}.json').read_text(encoding='utf-8'))
-        _wd = _task_obj.get('working_dir') if isinstance(_task_obj, dict) else None
-        if isinstance(_wd, str) and _wd:
-            _worker_env['JANUSMASK_WORKING_DIR'] = _wd
-        else:
-            _worker_env.pop('JANUSMASK_WORKING_DIR', None)
-    except (OSError, ValueError, TypeError):
-        _worker_env.pop('JANUSMASK_WORKING_DIR', None)
+    _worker_env = _build_worker_env(state_dir, task_id)
     # Pillar B: reserve a distinct agy-pool slot for this worker (when the pool is
     # enabled) so orchestrator._apply_agy_pool_env can pool its $HOME. A None slot
     # (pool disabled/full) leaves the env unchanged.
@@ -1126,6 +1111,18 @@ def _spawn_worker(state_dir: pathlib.Path, task_id: str) -> int | None:
         return None
 MAX_REBUILD_ATTEMPTS = 5
 
+def _build_worker_env(state_dir: pathlib.Path, task_id: str) -> dict:
+    _worker_env = os.environ.copy()
+    try:
+        _task_obj = json.loads((state_dir / 'tasks' / f'{task_id}.json').read_text(encoding='utf-8'))
+        _wd = _task_obj.get('working_dir') if isinstance(_task_obj, dict) else None
+        if isinstance(_wd, str) and _wd:
+            _worker_env['JANUSMASK_WORKING_DIR'] = _wd
+        else:
+            _worker_env.pop('JANUSMASK_WORKING_DIR', None)
+    except (OSError, ValueError, TypeError):
+        _worker_env.pop('JANUSMASK_WORKING_DIR', None)
+    return _worker_env
 def _rebuild_pid_name(slug: str) -> str:
     """Pidfile stem for a rebuild loop subprocess (distinct from task pidfiles)."""
     return f'rebuild__{slug}'
@@ -1864,9 +1861,10 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
                 # via orchestrator.spawn_agent. A future agent-CLI reroute MUST go
                 # through _contain_selfheal.
                 cmd = [sys.executable, '-m', 'harness.orchestrator_worker', '--state-dir', str(state_dir), '--task-id', tid]
+                _worker_env = _build_worker_env(state_dir, tid)
                 pid = None
                 try:
-                    proc = subprocess.Popen(cmd, start_new_session=True)
+                    proc = subprocess.Popen(cmd, start_new_session=True, env=_worker_env)
                     pid = proc.pid
                     _write_pidfile(state_dir, tid, pid)
                     suspend_parallel_workers(state_dir, exclude_pid=pid)
