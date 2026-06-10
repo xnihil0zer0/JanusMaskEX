@@ -120,6 +120,43 @@ def check_missing_fields(task: Dict[str, Any], path_prefix: str) -> List[PlanVio
             violations.append(PlanViolation('missing_field', f'{path_prefix}.attribution_metadata.{field}', f'Missing required field attribution_metadata.{field}'))
     return violations
 
+def _sensitive_glob_violations(task: dict, path_prefix: str) -> List[PlanViolation]:
+    """Reject a non-``harness_self_fix`` task that lists a path under
+    ``_SENSITIVE_APPLY_GLOBS`` (``harness/**``, ``config/**``, ``scripts/**``,
+    ``services/**``) in ``files_touched``.
+
+    Such a task can NEVER commit that path: ``_enforce_apply_scope`` refuses the
+    sensitive-glob write at accept, dead-ending the leaf with
+    ``auto_commit_failed`` retries to exhaustion. So the plan is rejected at
+    planning time with a clear, path-naming ``sensitive_files_touched``
+    violation instead.
+
+    ``harness_self_fix`` tasks are legitimately allowed to touch sensitive globs
+    (they commit via the decision file) and are exempt — the helper returns
+    ``[]`` regardless of ``files_touched`` contents. Missing / ``None`` /
+    non-list ``files_touched`` and non-``str`` entries are tolerated and skipped;
+    the helper never raises.
+    """
+    import fnmatch
+    if not isinstance(task, dict):
+        return []
+    if task.get('meta_task_type') == 'harness_self_fix':
+        return []
+    files_touched = task.get('files_touched')
+    if not isinstance(files_touched, list):
+        return []
+    try:
+        from harness.git_integration import _SENSITIVE_APPLY_GLOBS as _GLOBS
+    except Exception:
+        _GLOBS = ('harness/**', 'config/**', 'scripts/**', 'services/**')
+    violations: List[PlanViolation] = []
+    for entry in files_touched:
+        if not isinstance(entry, str):
+            continue
+        norm = entry.replace('\\', '/')
+        if any((fnmatch.fnmatch(norm, glob) for glob in _GLOBS)):
+            violations.append(PlanViolation('sensitive_files_touched', f'{path_prefix}.files_touched', f'files_touched lists sensitive path {entry!r}: a non-harness_self_fix task can never commit a path under _SENSITIVE_APPLY_GLOBS ({', '.join(_GLOBS)}) — _enforce_apply_scope refuses the write at accept, so the plan is rejected at planning time'))
+    return violations
 def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]:
     if isinstance(plan, (str, Path)):
         try:
@@ -151,6 +188,7 @@ def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]
             if not isinstance(graph[task_id], list):
                 graph[task_id] = []
         violations.extend(check_missing_fields(task, path_prefix))
+        violations.extend(_sensitive_glob_violations(task, path_prefix))
         meta_task_type = task.get('meta_task_type')
         if not isinstance(meta_task_type, str) or not meta_task_type:
             violations.append(PlanViolation('missing_meta_task_type', f'{path_prefix}.meta_task_type', 'meta_task_type must be a non-empty string from the canonical taxonomy'))
