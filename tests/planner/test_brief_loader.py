@@ -170,7 +170,7 @@ def test_sha256_line_ending_invariant(text):
     # Create valid brief content with given text as body
     # We replace any occurrences of our section headers to avoid breaking parsing
     safe_text = text.replace("# Scope", "Scope").replace("# Non-Goals", "Non").replace("# Inputs", "In").replace("# Deliverables", "Out")
-    
+
     base_content = f"""---
 title: Title
 ---
@@ -183,21 +183,30 @@ x
 # Deliverables
 x
 """
-    lf_content = base_content.replace("\r\n", "\n")
+    # Canonicalize to \n-only FIRST so the variants below are the same logical
+    # content under different line endings. (Splitting a string that still
+    # contains a bare \r and joining with \r\n would change the logical line
+    # structure — e.g. '0\r\n' vs '0\r\r\n' — making the property unsatisfiable.)
+    lf_content = base_content.replace("\r\n", "\n").replace("\r", "\n")
     crlf_content = "\r\n".join(lf_content.split("\n"))
+    cr_content = "\r".join(lf_content.split("\n"))
 
     with tempfile.TemporaryDirectory() as td:
         lf_file = Path(td) / "lf.md"
         crlf_file = Path(td) / "crlf.md"
-        
+        cr_file = Path(td) / "cr.md"
+
         lf_file.write_bytes(lf_content.encode('utf-8'))
         crlf_file.write_bytes(crlf_content.encode('utf-8'))
+        cr_file.write_bytes(cr_content.encode('utf-8'))
 
         # It's possible the random text creates invalid sections or something, so catch validation errors and skip if so.
         try:
             brief_lf = load_brief(lf_file)
             brief_crlf = load_brief(crlf_file)
+            brief_cr = load_brief(cr_file)
             assert brief_lf.sha256 == brief_crlf.sha256
+            assert brief_lf.sha256 == brief_cr.sha256
         except BriefValidationError:
             pass
 
