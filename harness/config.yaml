@@ -44,12 +44,8 @@ autowork:
   brief_max_age_seconds: 604800
   brief_max_size_bytes: 50000
   conservative_missing_files: true
-  cooldown_tier_1: 100.0
-  cooldown_tier_2: 1000.0
-  cooldown_tier_3: 10000.0
   enabled: true
   heartbeat_sec: 1800
-  min_ram_mb: 1024
   parallel_cap: 5
   planner_min_wall_sec: 10.0
   planner_timeout_sec: 1800
