@@ -1518,8 +1518,10 @@ def prepare_task_prompt(task: dict[str, Any]) -> str:
     mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
     use_manifest = _requires_verbatim_manifest(files_touched)
     _pe_candidates = files_touched if isinstance(files_touched, list) else [files_touched]
+    from harness.paths import effective_target_root
+    _target_root = effective_target_root(task.get('working_dir'))
     _targets_exist = bool(_pe_candidates) and all(
-        isinstance(p, str) and (Path(PROJECT_DIR) / p).exists() for p in _pe_candidates)
+        isinstance(p, str) and (_target_root / p).exists() for p in _pe_candidates)
     # BYPASS_WHOLE_FILE (2026-05-28): fall back to partial_edit patches for fuzzer-bypassed tasks
     # NEW-FILE GUARD (2026-06-09): never offer patches when any target does not yet exist --
     # patches cannot create files; fall through to the whole-file prompt.
