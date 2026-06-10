@@ -795,8 +795,112 @@ def _get_primary_function(code: str) -> str | None:
         pass
     return None
 
+def _js_spawn_seam(spec: dict) -> str:
+    """Default spawn seam for the JS dispatch: run the fork_spec argv with FD 3
+    captured to a file (results channel; stdout belongs to candidate noise).
+    Phase D routes this through the bwrap agent jail."""
+    import subprocess
+    import tempfile
+    import os
+    argv = list(spec.get('argv') or [])
+    timeout_ms = int(spec.get('timeout_ms') or 5000)
+    n_slack = 30.0
+    with tempfile.NamedTemporaryFile(mode='r', suffix='.fd3.json', delete=False) as fh:
+        out_path = fh.name
+    try:
+        subprocess.run(['bash', '-c', 'exec 3>"$1"; shift; exec "$@"', '_', out_path] + argv, capture_output=True, text=True, timeout=max(60.0, timeout_ms / 1000.0 * 20 + n_slack))
+        with open(out_path, 'r', encoding='utf-8') as rh:
+            return rh.read()
+    finally:
+        try:
+            os.unlink(out_path)
+        except OSError:
+            pass
+
+def _record_population_safe(code_a, code_b, task, result, state_dir=None) -> None:
+    """AC-WIRE-EVOLUTION (Phase C, default-OFF): record a NON-equivalent fuzz
+    round into the persistent population (cross-attempt MEMORY) and run one
+    pure loop.step transition over neutral seams. NEVER overrides the verifier
+    -- always returns None; the caller's accept/reject flow is untouched."""
+    try:
+        from autocompiler.flags import ac_enabled
+        if not ac_enabled('population'):
+            return None
+        if getattr(result, 'equivalent', True) or getattr(result, 'error', None):
+            return None
+        task_id = task.get('task_id') if isinstance(task, dict) else None
+        if not isinstance(task_id, str) or not task_id:
+            return None
+        import pathlib
+        from autocompiler.population import Candidate, PopulationDB
+        from autocompiler.fitness import compute_fitness
+        import autocompiler.loop as _ac_loop
+        base = pathlib.Path(state_dir) if state_dir is not None else pathlib.Path(__file__).resolve().parents[1] / 'state'
+        db_dir = base / 'autocompiler' / task_id
+        db = PopulationDB.load(db_dir)
+        try:
+            fitness = compute_fitness(result, [], False, None)
+        except Exception:
+            fitness = None
+        if not isinstance(fitness, dict) or not fitness:
+            fitness = {'source': 'fuzz', 'equivalent': False}
+        for cid, code in (('agent_a', code_a), ('agent_b', code_b)):
+            if cid not in db:
+                db.add(Candidate(id=cid, code=str(code or ''), fitness=dict(fitness)))
+        seams = {'operate': lambda parent: Candidate(id=f'{parent.id}_child{parent.n_selected}', code=parent.code, fitness=dict(parent.fitness), parent_ids=[parent.id]), 'run': lambda child: result, 'rate': lambda child, parent: 0.5}
+        _ac_loop.step(db, seams)
+        db.save()
+    except Exception:
+        return None
+    return None
+
+def _maybe_js_fuzz(code_a: str, code_b: str, task, config, session_id: str):
+    """AC-WIRE-JS-DISPATCH (Phase C, default-OFF): route a language=js task
+    through the JS differential runner. None => caller proceeds on the
+    unchanged Python path."""
+    try:
+        from autocompiler.flags import ac_enabled
+        if not ac_enabled('js'):
+            return None
+    except Exception:
+        return None
+    import os
+    if not isinstance(task, dict) or task.get('language') != 'js':
+        return None
+    constraints = task.get('constraints') if isinstance(task.get('constraints'), dict) else {}
+    inputs = constraints.get('js_inputs')
+    if not isinstance(inputs, list) or not inputs:
+        return FuzzResult(equivalent=False, error='js task carries no usable constraints.js_inputs vectors')
+    import shutil as _shutil
+    node_bin = os.environ.get('JANUSMASK_NODE_BIN') or _shutil.which('node')
+    if not node_bin:
+        return FuzzResult(equivalent=False, error='node binary unavailable for js differential fuzz')
+    try:
+        import pathlib
+        from autocompiler.js.js_codec import values_equal
+        from autocompiler.js.js_sandbox import execute_js_batch
+        import tempfile
+        runner = str(pathlib.Path(__file__).resolve().parents[1] / 'autocompiler' / 'js' / 'js_runner.js')
+        timeout_ms = int((config.get('fuzzing', {}) if isinstance(config, dict) else {}).get('js_timeout_ms', 5000))
+        with tempfile.TemporaryDirectory(prefix='jm_jsfuzz_') as td:
+            res_a = execute_js_batch(code_a, inputs, spawn_seam=_js_spawn_seam, node_bin=node_bin, runner_path=runner, state_dir=os.path.join(td, 'a'), timeout_ms=timeout_ms)
+            res_b = execute_js_batch(code_b, inputs, spawn_seam=_js_spawn_seam, node_bin=node_bin, runner_path=runner, state_dir=os.path.join(td, 'b'), timeout_ms=timeout_ms)
+        failures = []
+        matching = 0
+        for vec, ra, rb in zip(inputs, res_a, res_b):
+            same = bool(ra.success) == bool(rb.success) and bool(ra.timed_out) == bool(rb.timed_out) and (not ra.success or values_equal(ra.return_value, rb.return_value))
+            if same:
+                matching += 1
+            else:
+                failures.append(FuzzFailure(input_args=list(vec) if isinstance(vec, (list, tuple)) else [vec], input_kwargs={}, result_a=ra, result_b=rb, reason='js differential divergence (value/success/timeout mismatch)'))
+        return FuzzResult(equivalent=not failures, total_inputs=len(inputs), matching_inputs=matching, failures=failures)
+    except Exception as exc:
+        return FuzzResult(equivalent=False, error=f'js differential fuzz failed: {exc}')
 def fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[str, Any], session_id: str='default') -> FuzzResult:
     """Differential fuzz using task constraints to determine the function name."""
+    _js = _maybe_js_fuzz(code_a, code_b, task, config, session_id)
+    if _js is not None:
+        return _js
     constraints = task.get('constraints', {}) if isinstance(task, dict) else {}
     if not isinstance(constraints, dict):
         constraints = {}
@@ -837,4 +941,6 @@ def fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[
     # their spec; main-pipeline tasks never do, so the global pipeline is unchanged.
     if isinstance(task, dict) and task.get('fuzz_str_ascii'):
         config = {**config, 'rebuild': {**config.get('rebuild', {}), 'fuzz_str_ascii': True}}
-    return differential_fuzz(code_a, code_b, func_name, config, session_id)
+    result = differential_fuzz(code_a, code_b, func_name, config, session_id)
+    _record_population_safe(code_a, code_b, task, result)
+    return result
