@@ -4,20 +4,23 @@ Contract: a PURE-STRING determinism layer for the fuzz sandbox (Phase B,
 ``addendum_sandbox_determinism.md``). The module exposes:
 
 - ``_SITECUSTOMIZE_CONTENT`` — a module-level ``str`` of valid Python source
-  implementing the deterministic ``sitecustomize.py`` (virtual clock for the
-  ``time`` module, seeded ``random``, deterministic ``os.urandom`` and
-  ``uuid.uuid4``, fast-forward ``time.sleep``). It is data, not behavior: the
-  module itself never patches anything, never spawns, never imports
-  ``subprocess``/``socket``.
+  implementing the deterministic ``sitecustomize.py``: virtualized VALUE-level
+  entropy only (wall-clock ``time.time``/``time_ns``, ``datetime``, seeded
+  ``random``, deterministic ``os.urandom`` and ``uuid.uuid4``). RUNNER-SAFETY
+  (2026-06-10): ``time.monotonic``/``monotonic_ns``/``perf_counter``/
+  ``perf_counter_ns``/``sleep`` are deliberately LEFT REAL — the sandbox
+  runner's per-input deadline loops are built on them, and virtualizing them
+  spuriously times out the runner hosting the candidate (proven against the
+  real fuzz path). It is data, not behavior: the module itself never patches
+  anything, never spawns, never imports ``subprocess``/``socket``.
 - ``write_sitecustomize(dest_dir) -> str`` — writes ``sitecustomize.py`` with
   exactly that content into ``dest_dir`` (created if missing) and returns the
   written file's path as ``str``.
 
 The behavioral half of the contract is proven from the TEST side by spawning
 two real interpreter runs with the written file on ``PYTHONPATH`` (Python
-auto-imports ``sitecustomize`` at startup): entropy/clock probes must be
-byte-identical across runs, and ``time.sleep`` must fast-forward instead of
-actually sleeping.
+auto-imports ``sitecustomize`` at startup): entropy probes must be
+byte-identical across runs, while sleep/monotonic stay real.
 """
 import inspect
 import os
@@ -34,7 +37,6 @@ _PROBE = (
     "import time, random, os, uuid\n"
     "print(time.time())\n"
     "print(time.time())\n"
-    "print(time.monotonic())\n"
     "print(random.random())\n"
     "print(os.urandom(8).hex())\n"
     "print(uuid.uuid4())\n"
@@ -57,9 +59,19 @@ def test_content_is_valid_python_source():
 
 
 def test_content_covers_required_entropy_sources():
-    for needle in ('time.time', 'time.monotonic', 'time.sleep',
-                   'random.seed', 'os.urandom', 'uuid'):
+    for needle in ('time.time', 'random.seed', 'os.urandom', 'uuid'):
         assert needle in _SITECUSTOMIZE_CONTENT, f'missing patch target: {needle}'
+
+
+def test_runner_timing_primitives_not_patched():
+    # RUNNER-SAFETY (2026-06-10): the sandbox runner's per-input deadline loops
+    # are built on time.monotonic/perf_counter/sleep -- virtualizing them
+    # spuriously times out the runner hosting the candidate (proven against the
+    # real fuzz path). The layer must NEVER assign over them.
+    for forbidden in ('.monotonic =', '.monotonic_ns =', '.perf_counter =',
+                      '.perf_counter_ns =', '.sleep ='):
+        assert forbidden not in _SITECUSTOMIZE_CONTENT, \
+            f'determinism layer must not patch the runner timing primitive {forbidden!r}'
 
 
 def test_writer_round_trips_content(tmp_path):
@@ -99,14 +111,16 @@ def test_clock_advances_monotonically_within_a_run(tmp_path):
     assert float(lines[1]) > float(lines[0])
 
 
-def test_sleep_fast_forwards_instead_of_sleeping(tmp_path):
-    # Edge case: time.sleep(3) must return ~immediately (virtual fast-forward).
+def test_sleep_and_monotonic_stay_real(tmp_path):
+    # Edge case: under the layer, monotonic still measures REAL elapsed time
+    # and sleep really sleeps -- the runner's timeout machinery stays sound.
     site = tmp_path / 'site'
     write_sitecustomize(site)
-    t0 = _wall.monotonic()
-    out = _run_probe(site, 'import time\ntime.sleep(3)\nprint(time.time())\n')
-    assert _wall.monotonic() - t0 < 2.5
-    assert float(out.strip()) > 0
+    out = _run_probe(site, ('import time\n'
+                            't0 = time.monotonic()\n'
+                            'time.sleep(0.3)\n'
+                            'print(time.monotonic() - t0 >= 0.15)\n'))
+    assert out.strip() == 'True'
 
 
 def test_module_is_pure_no_spawn_no_patch():

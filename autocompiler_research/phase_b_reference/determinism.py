@@ -37,19 +37,14 @@ def _mock_time():
 def _mock_time_ns():
     return int(_virtual_now() * 1e9)
 
-def _mock_sleep(seconds):
-    try:
-        _state['now'] += max(0.0, float(seconds))
-    except (TypeError, ValueError):
-        pass
-
+# RUNNER-SAFETY (2026-06-10): time.monotonic / monotonic_ns / perf_counter /
+# perf_counter_ns / sleep are deliberately LEFT REAL -- the sandbox runner's
+# own per-input deadline loops are built on them, and virtualizing them
+# spuriously times out the runner that hosts the candidate. Only VALUE-level
+# entropy the candidate observes (wall-clock time.time/time_ns, datetime,
+# random, urandom, uuid) is virtualized.
 _time.time = _mock_time
 _time.time_ns = _mock_time_ns
-_time.monotonic = _mock_time
-_time.monotonic_ns = _mock_time_ns
-_time.perf_counter = _mock_time
-_time.perf_counter_ns = _mock_time_ns
-_time.sleep = _mock_sleep
 
 _SANDBOX_SEED = int(_os.environ.get('PYTHONHASHSEED') or '42')
 _random.seed(_SANDBOX_SEED)

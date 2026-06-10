@@ -1,0 +1,18 @@
+diff --git a/harness/config.yaml b/harness/config.yaml
+index 0023fd4..9cca757 100644
+--- a/harness/config.yaml
++++ b/harness/config.yaml
+@@ -137,3 +137,13 @@ workers:
+   agy_pool:
+     enabled: false
+     size: 8
++
++# Autocompiler (Phase C, epic brief_hooks_autocompiler.md) -- master gate plus
++# capability sub-keys, ALL default-OFF. ac_enabled (autocompiler/flags.py) is
++# fail-closed: nothing activates until BOTH enabled and the sub-key flip true.
++autocompiler:
++  enabled: false
++  population: false      # evolutionary near-miss memory (orchestrator_worker hook)
++  determinism: false     # sitecustomize determinism layer (sandbox_child_env hook)
++  decode: false          # post-decode schema validation telemetry (worker accept hook)
++  js: false              # JS differential dispatch (diff_fuzzer fuzz_from_task hook)

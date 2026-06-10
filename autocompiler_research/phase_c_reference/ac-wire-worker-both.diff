@@ -1,0 +1,91 @@
+diff --git a/harness/orchestrator_worker.py b/harness/orchestrator_worker.py
+index 7fe575d..0f4507a 100644
+--- a/harness/orchestrator_worker.py
++++ b/harness/orchestrator_worker.py
+@@ -111,12 +111,78 @@ def _purge_stale_sidecars_safe(payload: dict, state_dir=None) -> list[str]:
+         return removed
+     except Exception:
+         return []
++
++def _decode_check_safe(payload, state_dir=None) -> None:
++    """AC-WIRE-DECODE (Phase C, default-OFF observability): after the JSON line
++    is out, run the post-decode schema validator over the task's raw emission
++    and append ONE decode_check telemetry row. Never raises back into
++    _print_json_line; gating is unaffected."""
++    try:
++        from autocompiler.flags import ac_enabled
++        if not ac_enabled('decode'):
++            return
++        if not isinstance(payload, dict):
++            return
++        task_id = payload.get('task_id')
++        if not isinstance(task_id, str) or not task_id:
++            return
++        import pathlib
++        base = pathlib.Path(state_dir) if state_dir is not None else pathlib.Path(__file__).resolve().parents[1] / 'state'
++        emission = base / 'output' / f'{task_id}.py'
++        if not emission.is_file():
++            return
++        from autocompiler.decode import decode_submission
++        out = decode_submission(emission.read_text(encoding='utf-8', errors='replace'))
++        from harness._journal import write_jsonl_row
++        write_jsonl_row(base / 'impl_progress.jsonl', {
++            'ts': time.time(), 'event': 'decode_check', 'task_id': task_id,
++            'ok': bool(out.get('ok')), 'repaired': bool(out.get('repaired')),
++            'dropped_edits': int(out.get('dropped_edits') or 0)})
++    except Exception:
++        return
++
++def _maybe_run_evolution(state_dir, task_id, fuzz_result, agent_a_code, agent_b_code) -> None:
++    """AC-WIRE-EVOLUTION (Phase C, default-OFF): record the near-miss into the
++    persistent population (cross-attempt MEMORY) and run one pure loop.step
++    transition over neutral seams. NEVER overrides the verifier -- always
++    returns None; the single-shot accept/reject path is unaffected."""
++    try:
++        from autocompiler.flags import ac_enabled
++        if not ac_enabled('population'):
++            return None
++        import pathlib
++        from autocompiler.population import Candidate, PopulationDB
++        from autocompiler.fitness import compute_fitness
++        import autocompiler.loop as _ac_loop
++        db_dir = pathlib.Path(state_dir) / 'autocompiler' / str(task_id)
++        db = PopulationDB.load(db_dir)
++        try:
++            fitness = compute_fitness(fuzz_result, [], False, None)
++        except Exception:
++            fitness = {'source': 'fuzz', 'equivalent': bool(getattr(fuzz_result, 'equivalent', False))}
++        if not isinstance(fitness, dict) or not fitness:
++            fitness = {'source': 'fuzz', 'equivalent': bool(getattr(fuzz_result, 'equivalent', False))}
++        for cid, code in (('agent_a', agent_a_code), ('agent_b', agent_b_code)):
++            if cid not in db:
++                db.add(Candidate(id=cid, code=str(code or ''), fitness=dict(fitness)))
++        seams = {
++            'operate': lambda parent: Candidate(id=f'{parent.id}_child{parent.n_selected}', code=parent.code, fitness=dict(parent.fitness), parent_ids=[parent.id]),
++            'run': lambda child: fuzz_result,
++            'rate': lambda child, parent: 0.5,
++        }
++        _ac_loop.step(db, seams)
++        db.save()
++    except Exception:
++        return None
++    return None
++
+ def _print_json_line(payload: dict[str, Any]) -> None:
+     sys.stdout.write(json.dumps(payload) + '\n')
+     sys.stdout.flush()
+     try:
+         _reap_spent_briefs_safe(payload)
+         _purge_stale_sidecars_safe(payload)
++        _decode_check_safe(payload)
+     except Exception:
+         pass
+ 
+@@ -663,6 +729,7 @@ def main() -> int:
+                     _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'auto_commit_failed_r1'})
+                     exit_code = 1
+                 return exit_code
++            _maybe_run_evolution(state_dir, task_id, fuzz_result, agent_a_code, agent_b_code)
+             xexam_cfg = config.get('cross_examination', {}) if isinstance(config, dict) else {}
+             try:
+                 max_rounds = int(xexam_cfg.get('max_rounds', 1))

@@ -1,0 +1,44 @@
+diff --git a/harness/sandbox.py b/harness/sandbox.py
+index 07db9dd..3ed77f9 100644
+--- a/harness/sandbox.py
++++ b/harness/sandbox.py
+@@ -112,6 +112,30 @@ class SandboxConfig:
+ 
+ 
+ 
++
++_DETERMINISM_SITE_DIRNAME = 'janusmask_det_site'
++
++def _maybe_determinism_env(env: dict) -> dict:
++    """AC-WIRE-DETERMINISM (Phase C, default-OFF): when ``autocompiler.determinism``
++    is enabled, write the pure-string deterministic sitecustomize layer into a
++    dedicated dir and PREPEND it to the child PYTHONPATH so candidate runs are
++    byte-identical on entropy/clock probes. Flag resolved at CALL time via the
++    in-body import (the _reap_spent_briefs_safe bridge precedent); the whole
++    body is fail-safe -- any error returns the env unchanged."""
++    try:
++        from autocompiler.flags import ac_enabled
++        if not ac_enabled('determinism'):
++            return env
++        import tempfile
++        from autocompiler.determinism import write_sitecustomize
++        site_dir = os.path.join(tempfile.gettempdir(), _DETERMINISM_SITE_DIRNAME)
++        write_sitecustomize(site_dir)
++        existing = env.get('PYTHONPATH')
++        env['PYTHONPATH'] = site_dir + os.pathsep + existing if existing else site_dir
++    except Exception:
++        return env
++    return env
++
+ def sandbox_child_env(extra: dict | None = None) -> dict:
+     """Return a fresh environment mapping with thread guards applied."""
+     env = os.environ.copy()
+@@ -133,7 +157,7 @@ def sandbox_child_env(extra: dict | None = None) -> dict:
+                 env['PYTHONPATH'] = str(_wd) + os.pathsep + _existing if _existing else str(_wd)
+     except Exception:
+         pass
+-    return env
++    return _maybe_determinism_env(env)
+ 
+ 
+ # ---------------------------------------------------------------------------
