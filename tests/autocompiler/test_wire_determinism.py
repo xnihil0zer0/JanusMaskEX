@@ -44,8 +44,11 @@ def test_helper_is_wired_into_sandbox_child_env():
     assert hasattr(sandbox_mod, '_maybe_determinism_env')
 
 
-def test_flag_off_env_unchanged():
-    # Live default config: determinism is OFF — no injection.
+def test_flag_off_env_unchanged(monkeypatch):
+    # With determinism OFF there is no injection. The live config is now
+    # default-ON, so force the flag OFF here to pin the OFF-path contract.
+    import autocompiler.flags as flags_mod
+    monkeypatch.setattr(flags_mod, 'ac_enabled', lambda key, *a, **k: False)
     env = sandbox_child_env({'PYTHONPATH': '/pre/existing'})
     assert _SITE_BASENAME not in (env.get('PYTHONPATH') or '')
     assert '/pre/existing' in env['PYTHONPATH']

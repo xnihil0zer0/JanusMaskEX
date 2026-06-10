@@ -4,7 +4,7 @@
 
 The design principle throughout: **correctness is enforced by *withholding and checking*, never by prompting.** Agents are jailed, blinded to each other, and gated by pure deterministic verifiers. The LLMs only *propose*; the harness *decides*.
 
-> **Status (2026-06-10):** Core pipeline, autowork daemon, hierarchical (epic) planning, and the dual-sandbox safety model are live and in daily use. The `autocompiler/` package (population-based evolutionary compilation) is **fully built through Phase D** — all four phases (evolution core, determinism + JS beachhead, default-OFF harness wiring, pinned-node jail mount) landed via this pipeline; every flag in the `autocompiler:` config subtree ships `false`, so the layer is inert until deliberately enabled. The **full serial test suite is green** (7694 pass / 0 fail as of 2026-06-10 — the former "known pre-existing baseline" was root-caused and eliminated). The unattended-autonomy posture is **ON**: `auto_approve_sensitive_harness` + `auto_approve_ro_gate` are `true`, so gated `harness_self_fix` commits auto-approve behind the E/F/G/H safety stack. A **harness-distillation / metadata-ablation research layer** (measure which metadata earns its keep; distill heuristics lost under ablation into permanent deterministic gates) is designed and prototyped under `autocompiler_research/` — see [the self-evolving metadata-ablation layer](#the-self-evolving-metadata-ablation-layer-harness-distillation). ~650 test modules.
+> **Status (2026-06-10):** Core pipeline, autowork daemon, hierarchical (epic) planning, and the dual-sandbox safety model are live and in daily use. The `autocompiler/` package (population-based evolutionary compilation) is **fully built through Phase D and now ON by default** — all four capability flags (`population`, `determinism`, `decode`, `js`) ship `true` in the runtime gate `config/autocompiler.yaml`, so the fuzz-seam population memory, the sandbox determinism layer, the decode telemetry, and JS differential dispatch are all **live**; `ac_enabled()` stays fail-closed on any parse error. The **full serial test suite is green** (as of 2026-06-10 — the former "known pre-existing baseline" was root-caused and eliminated). The unattended-autonomy posture is **ON**: `auto_approve_sensitive_harness` + `auto_approve_ro_gate` are `true`, so gated `harness_self_fix` commits auto-approve behind the E/F/G/H safety stack. A **harness-distillation / metadata-ablation research layer** (measure which metadata earns its keep; distill heuristics lost under ablation into permanent deterministic gates) is designed and prototyped under `autocompiler_research/` — see [the self-evolving metadata-ablation layer](#the-self-evolving-metadata-ablation-layer-harness-distillation). ~650 test modules.
 
 ---
 
@@ -290,13 +290,15 @@ synthesis:
   active_agents: [claude, gemini]
   max_ast_retries: 3
 
-autocompiler:                 # ALL default-OFF; ac_enabled() is fail-closed
-  enabled: false              # master gate — nothing activates until this AND a sub-key are true
-  population: false           # evolutionary near-miss memory at the fuzz seam
-  determinism: false          # sitecustomize value-entropy virtualization in the fuzz sandbox
-  decode: false               # post-decode schema-validation telemetry at the worker accept chokepoint
-  js: false                   # JS differential dispatch in diff_fuzzer
+autocompiler:                 # MIRROR of the runtime gate (see note below); default-ON
+  enabled: true               # master gate — a hook fires only when this AND its sub-key are true
+  population: true            # evolutionary near-miss memory at the fuzz seam
+  determinism: true           # value-entropy virtualization in the fuzz sandbox child env
+  decode: true                # post-decode schema-validation telemetry at the worker accept chokepoint
+  js: true                    # JS differential dispatch in diff_fuzzer (only fires for language: js tasks)
 ```
+
+> **The autocompiler flags above are documented in `harness/config.yaml`, but the file `ac_enabled()` actually reads at runtime is `config/autocompiler.yaml`.** Edit that file to enable/disable a capability; keep the `harness/config.yaml` mirror in sync for the docs/oracle. `ac_enabled()` is fail-closed (a parse error or missing key ⇒ that hook stays off).
 
 Flip the four security-gated autonomy flags only via the owner script — it is a targeted, comment-preserving line edit with a `--check` preflight:
 
@@ -453,11 +455,13 @@ Layout: `tests/harness/`, `tests/planner/`, `tests/overseer/`, `tests/autocompil
 
 `autocompiler/` is an in-progress reframing of the factory from *single-shot-or-die* into a **memory-bearing evolutionary compiler**: instead of discarding a clean near-miss when one of ≤20 fuzz inputs diverges, candidates accumulate in a rated **population**, near-misses are *scored* (not thrown away), and selection + crossover steer the generation budget toward the promising lineage — while every existing correctness gate stays load-bearing. (Inspired by the AlphaProof "Nexus" design: population DB + Elo + P-UCB selection + AST crossover, translated onto JanusMaskJR's real seams.)
 
-**Status: ALL FOUR PHASES BUILT (2026-06-10), default-OFF end to end.** Phase A (the nine pure modules below), Phase B (determinism layer, post-decode validator, and the JS beachhead under `autocompiler/js/`), Phase C (the harness wiring — `autocompiler:` config subtree, `sandbox_child_env` determinism mount, `_print_json_line` decode telemetry, and the `fuzz_from_task` JS-dispatch + population-memory hooks, each a fail-safe `ac_enabled()`-gated bridge), and Phase D (the owner-hand-edited pinned-node jail mount in `build_jail_argv`) are all landed with pre-committed RED oracles in `tests/autocompiler/`. Every key in the `autocompiler:` subtree ships `false` and `ac_enabled()` is fail-closed, so the live pipeline is byte-identical until a flag is deliberately flipped.
+**Status: ALL FOUR PHASES BUILT and ON by default (2026-06-10).** Phase A (the nine pure modules below), Phase B (determinism layer, post-decode validator, and the JS beachhead under `autocompiler/js/`), Phase C (the harness wiring — `sandbox_child_env` determinism mount, `_print_json_line` decode telemetry, and the `fuzz_from_task` JS-dispatch + population-memory hooks, each a fail-safe `ac_enabled()`-gated bridge), and Phase D (the owner-hand-edited pinned-node jail mount in `build_jail_argv`) are all landed with pre-committed oracles in `tests/autocompiler/`. The four capability flags now ship `true` in the runtime gate (`config/autocompiler.yaml`); `ac_enabled()` remains fail-closed, so a parse error or a removed key disables a hook rather than crashing the pipeline.
+
+> **Where the gate actually lives.** `ac_enabled()` reads **`config/autocompiler.yaml`** (resolved as `<cwd>/config/autocompiler.yaml`), *not* `harness/config.yaml`. The `autocompiler:` subtree in `harness/config.yaml` mirrors it for the documented config surface and the `test_config_tree` oracle, but flipping that file alone does **not** change runtime behavior — edit `config/autocompiler.yaml` to enable/disable a capability, and keep the two in sync. (This split was a latent inconsistency from the Phase-C build; the runtime gate is the source of truth.)
 
 ### Using it
 
-Each capability is an independent, fail-safe hook gated on `ac_enabled('<key>')` — which requires **both** `autocompiler.enabled: true` **and** the sub-key `true` in `harness/config.yaml` (any error, missing key, or non-bool reads as `false`):
+Each capability is an independent, fail-safe hook gated on `ac_enabled('<key>')` — which requires **both** `autocompiler.enabled: true` **and** the sub-key `true` in the runtime gate `config/autocompiler.yaml` (any error, missing key, or non-bool reads as `false`). All four ship `true`; set a key `false` there to turn a single capability off, or `enabled: false` to disable the whole layer:
 
 | Flag | What turns on | Where it hooks |
 |------|---------------|----------------|
@@ -466,13 +470,18 @@ Each capability is an independent, fail-safe hook gated on `ac_enabled('<key>')`
 | `decode` | Post-decode schema validation telemetry on agent submissions (reasoning-field-first schema, truncated-JSON repair, incomplete-edit drops) — observability first, never raises into the accept path. | `orchestrator_worker._print_json_line` accept chokepoint. |
 | `js` | JS differential dispatch: a task with `language: "js"` routes both candidates through `execute_js_batch` (per-batch `child_process.fork`, FD-3 results channel, sentinel codec for `undefined`/`NaN`/`Infinity`/`null`) instead of the Python sandbox. Requires a pinned nvm node (`autocompiler/js/node_version.py` resolves it; the Phase-D jail mount binds **only** `~/.nvm/versions/node/<v>/bin`, read-only, fail-closed on pin escapes). | `diff_fuzzer.fuzz_from_task` language dispatch. |
 
-A typical first enablement is memory-only — observe what the population layer would have kept before letting anything act on it:
+The shipped runtime gate (`config/autocompiler.yaml`) is all-on:
 
 ```yaml
 autocompiler:
   enabled: true
-  population: true     # record near-misses; nothing selects/crossbreeds yet
+  population: true     # near-miss memory at the fuzz seam
+  determinism: true    # value-entropy virtualization in the sandbox child env
+  decode: true         # post-decode schema-validation telemetry
+  js: true             # JS differential dispatch (only fires for language: js tasks)
 ```
+
+To run memory-only (observe what the population layer keeps without the other hooks), set `determinism`/`decode`/`js` to `false` and leave `population: true`.
 
 **What is deliberately NOT live yet:** the full generation loop. `loop.py` (one select→operate→run→rate transition), `selection.py` (P-UCB), `crossover.py` (AST recombination via the `_ast_merge` seam), and `elo.py` are built and oracle-tested as pure modules over injected seams, and the fuzz seam now *feeds* the population — but the worker does not yet drive selection/crossover in production, and no real pairwise **rater** model is connected to the Elo seam. Those are the remaining wiring leaves (`ac-wire-evolution`, `ac-wire-rater` in the epic plan); until they land, the population layer is a memory, not an optimizer. The acceptance invariant when they do land is already fixed: a population winner is committed **only** through the unchanged `_auto_commit_accepted` gate (staging worktree + RO-parent), never around it. The full target architecture (task-scoped population DB, matchmaker queue, flash-tier rater pool, Plackett-Luce Elo) is specified in `nexus_integration_system_blueprint.md`.
 

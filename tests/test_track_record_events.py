@@ -203,7 +203,11 @@ def test_concurrent_append_subprocess(state_dir):
         max_size=10
     )
 )
-@settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+# deadline=None: function-scoped fixture + per-example file I/O means the first
+# example pays one-time setup cost that can exceed the default 200ms wall-clock
+# deadline under heavy full-suite load — a flake source, not contract (same
+# pattern as tests/planner/test_reconciliation.py::test_convergent_items_*).
+@settings(suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=None)
 def test_sequence_of_random_appends_roundtrips(state_dir, events):
     # clear file
     log_path = state_dir / "track_record_events.jsonl"

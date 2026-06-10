@@ -6,6 +6,19 @@
 # sanctioned registration so the gate does not reject them as orphans.
 # Phase C upgrades them to genuinely live-wired; this file then becomes
 # documentation of the package surface.
+#
+# RUNTIME FLAG GATE (default-ON, owner-enabled 2026-06-10): this is the file
+# that autocompiler/flags.py::ac_enabled actually reads (<cwd>/config/autocompiler.yaml).
+# The master gate plus the four capability sub-keys are all true, so the
+# population/determinism/decode/js hooks are LIVE. ac_enabled stays fail-closed
+# on any parse error or missing key. To disable a capability set its key false;
+# to disable the whole layer set autocompiler.enabled false.
+autocompiler:
+  enabled: true
+  population: true       # evolutionary near-miss memory at the fuzz seam
+  determinism: true      # value-entropy virtualization in the fuzz sandbox child env
+  decode: true           # post-decode schema-validation telemetry at the worker accept chokepoint
+  js: true               # JS differential dispatch (only fires for language: js tasks)
 package: autocompiler
 modules:
   - autocompiler.flags

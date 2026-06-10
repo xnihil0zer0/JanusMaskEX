@@ -48,8 +48,11 @@ def test_dispatch_is_wired_into_fuzz_from_task():
 
 
 def test_flag_off_never_takes_js_path(monkeypatch):
-    # Live default config: js flag OFF — the seam must not be touched even for
-    # a language=js task; the Python path runs as today.
+    # With the js flag OFF the seam must not be touched even for a language=js
+    # task; the Python path runs as today. The live config is now default-ON, so
+    # force the flag OFF here to pin the OFF-path contract deterministically.
+    import autocompiler.flags as flags_mod
+    monkeypatch.setattr(flags_mod, 'ac_enabled', lambda key, *a, **k: False)
     import autocompiler.js.js_sandbox as js_sandbox_mod
     calls = []
     monkeypatch.setattr(js_sandbox_mod, 'execute_js_batch',

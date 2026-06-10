@@ -135,11 +135,14 @@ workers:
     size: 8
 
 # Autocompiler (Phase C, epic brief_hooks_autocompiler.md) -- master gate plus
-# capability sub-keys, ALL default-OFF. ac_enabled (autocompiler/flags.py) is
-# fail-closed: nothing activates until BOTH enabled and the sub-key flip true.
+# capability sub-keys, default-ON (owner-enabled 2026-06-10). ac_enabled
+# (autocompiler/flags.py) is fail-closed; it activates a hook only when BOTH the
+# master gate and the sub-key are true. NOTE: ac_enabled reads the RUNTIME gate at
+# config/autocompiler.yaml, not this file -- this subtree mirrors it for the
+# documented config surface and the test_config_tree oracle; keep the two in sync.
 autocompiler:
-  enabled: false
-  population: false      # evolutionary near-miss memory (orchestrator_worker hook)
-  determinism: false     # sitecustomize determinism layer (sandbox_child_env hook)
-  decode: false          # post-decode schema validation telemetry (worker accept hook)
-  js: false              # JS differential dispatch (diff_fuzzer fuzz_from_task hook)
+  enabled: true
+  population: true       # evolutionary near-miss memory (orchestrator_worker hook)
+  determinism: true      # sitecustomize determinism layer (sandbox_child_env hook)
+  decode: true           # post-decode schema validation telemetry (worker accept hook)
+  js: true               # JS differential dispatch (diff_fuzzer fuzz_from_task hook)
