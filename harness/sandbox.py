@@ -112,6 +112,22 @@ class SandboxConfig:
 
 
 
+_DETERMINISM_SITE_DIRNAME = 'janusmask_det_site'
+
+def _maybe_determinism_env(env: dict) -> dict:
+    try:
+        from autocompiler.flags import ac_enabled
+        if not ac_enabled('determinism'):
+            return env
+        import tempfile
+        from autocompiler.determinism import write_sitecustomize
+        site_dir = os.path.join(tempfile.gettempdir(), _DETERMINISM_SITE_DIRNAME)
+        write_sitecustomize(site_dir)
+        existing = env.get('PYTHONPATH')
+        env['PYTHONPATH'] = site_dir + os.pathsep + existing if existing else site_dir
+    except Exception:
+        return env
+    return env
 def sandbox_child_env(extra: dict | None = None) -> dict:
     """Return a fresh environment mapping with thread guards applied."""
     env = os.environ.copy()
@@ -133,7 +149,7 @@ def sandbox_child_env(extra: dict | None = None) -> dict:
                 env['PYTHONPATH'] = str(_wd) + os.pathsep + _existing if _existing else str(_wd)
     except Exception:
         pass
-    return env
+    return _maybe_determinism_env(env)
 
 
 # ---------------------------------------------------------------------------
