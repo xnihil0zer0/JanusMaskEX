@@ -4,7 +4,7 @@
 
 The design principle throughout: **correctness is enforced by *withholding and checking*, never by prompting.** Agents are jailed, blinded to each other, and gated by pure deterministic verifiers. The LLMs only *propose*; the harness *decides*.
 
-> **Status (2026-06):** Core pipeline, autowork daemon, hierarchical (epic) planning, and the dual-sandbox safety model are live and in daily use. The `autocompiler/` package (population-based evolutionary compilation) is **Phase A** — pure, hermetic, default-OFF, not yet wired into the worker. ~650 test modules.
+> **Status (2026-06):** Core pipeline, autowork daemon, hierarchical (epic) planning, and the dual-sandbox safety model are live and in daily use. The `autocompiler/` package (population-based evolutionary compilation) is **fully built through Phase D** — all four phases (evolution core, determinism + JS beachhead, default-OFF harness wiring, pinned-node jail mount) landed via this pipeline; every flag in the `autocompiler:` config subtree ships `false`, so the layer is inert until deliberately enabled. ~650 test modules.
 
 ---
 
@@ -431,7 +431,9 @@ Layout: `tests/harness/`, `tests/planner/`, `tests/overseer/`, `tests/autocompil
 
 `autocompiler/` is an in-progress reframing of the factory from *single-shot-or-die* into a **memory-bearing evolutionary compiler**: instead of discarding a clean near-miss when one of ≤20 fuzz inputs diverges, candidates accumulate in a rated **population**, near-misses are *scored* (not thrown away), and selection + crossover steer the generation budget toward the promising lineage — while every existing correctness gate stays load-bearing. (Inspired by the AlphaProof "Nexus" design: population DB + Elo + P-UCB selection + AST crossover, translated onto JanusMaskJR's real seams.)
 
-**Status: Phase A — pure, hermetic, default-OFF, not yet wired into the worker.** The nine modules are stdlib-only, drive all I/O through injected seams, and are exercised by pre-committed RED oracles in `tests/autocompiler/` (contract + `*_wired`). They are registered for dynamic wiring in `config/autocompiler.yaml` and are inert until the (owner-gated) Phase-C wiring lands — `ac_enabled()` is fail-closed `False` because the `autocompiler:` config subtree does not exist yet.
+**Status: ALL FOUR PHASES BUILT (2026-06-10), default-OFF end to end.** Phase A (the nine pure modules below), Phase B (determinism layer, post-decode validator, and the JS beachhead under `autocompiler/js/`), Phase C (the harness wiring — `autocompiler:` config subtree, `sandbox_child_env` determinism mount, `_print_json_line` decode telemetry, and the `fuzz_from_task` JS-dispatch + population-memory hooks, each a fail-safe `ac_enabled()`-gated bridge), and Phase D (the owner-hand-edited pinned-node jail mount in `build_jail_argv`) are all landed with pre-committed RED oracles in `tests/autocompiler/`. Every key in the `autocompiler:` subtree ships `false` and `ac_enabled()` is fail-closed, so the live pipeline is byte-identical until a flag is deliberately flipped.
+
+> **Runner-safety invariant (learned 2026-06-10):** the determinism layer virtualizes only *value-level* entropy (`time.time`/`time_ns`, `datetime`, `random`, `os.urandom`, `uuid`). It must never patch `time.monotonic`/`perf_counter`/`sleep` — those are the fuzz-sandbox runner's own deadline primitives, and virtualizing them spuriously times out one side of a differential run.
 
 | Module | Role |
 |--------|------|
