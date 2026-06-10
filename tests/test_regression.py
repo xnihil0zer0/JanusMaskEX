@@ -24,12 +24,25 @@ class TestASTRetryLogic:
     """R-01: AST retry logic not implemented (TODO at orchestrator.py)."""
 
     from unittest.mock import patch, MagicMock
+    @patch("harness.orchestrator.fuzz_from_task")
     @patch("harness.orchestrator.run_both_agents")
     @patch("harness.orchestrator._validate_submission")
-    def test_r01_ast_retry_implemented(self, mock_validate, mock_run_both, tmp_path):
+    def test_r01_ast_retry_implemented(self, mock_validate, mock_run_both, mock_fuzz, tmp_path):
         """R-01: Check that the AST retry logic is implemented in orchestrator.py,
-        actually testing the retry logic and context feedback."""
+        actually testing the retry logic and context feedback.
+
+        fuzz_from_task is stubbed to a fixed equivalent result: this test's
+        subject is the AST retry loop, but with the real fuzzer in play the
+        post-retry round ran REAL sandbox children on a 10ms/input budget —
+        under heavy suite load the two (identical) candidates could time out
+        differentially, go DIVERGENT, and enter cross-examination, which
+        issues a third run_both_agents call and flakes the exact-count
+        assert below. Stubbing the downstream phase keeps the retry-loop
+        coverage and makes the flow deterministic under load.
+        """
         from harness.orchestrator import run_pipeline, init_state
+        from harness.diff_fuzzer import FuzzResult
+        mock_fuzz.return_value = FuzzResult(equivalent=True, total_inputs=1, matching_inputs=1)
         
         state_dir = tmp_path / "state"
         for sub in ("tasks", "tasks/processed", "sessions"):

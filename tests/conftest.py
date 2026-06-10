@@ -19,6 +19,36 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _hypothesis_settings.register_profile("janusmask_no_deadline", deadline=None)
 _hypothesis_settings.load_profile("janusmask_no_deadline")
 
+@pytest.fixture(scope='session', autouse=True)
+def _hermetic_population_state(tmp_path_factory):
+    """Redirect the autocompiler population hook's DEFAULT state base into a
+    session tmp dir so tests never write the LIVE ``state/autocompiler/``.
+
+    ``harness.diff_fuzzer._record_population_safe`` defaults its DB base to
+    ``<repo>/state`` when ``state_dir`` is None (correct for the production
+    worker, which runs at the repo root). With ``population: true`` now the
+    shipped default, any test that drives a real non-equivalent fuzz round
+    (e.g. via ``fuzz_from_task``) was leaking durable, cross-sweep-growing
+    population DBs into live ``state/autocompiler/<task_id>/`` — the same
+    live-state-pollution class as the hermeticized webui tests (8d5a88d).
+    Only the ``state_dir=None`` default is redirected: oracle tests that
+    inject an explicit ``state_dir`` are untouched, and the hook stays fully
+    exercised (it writes to the hermetic base instead).
+    """
+    import harness.diff_fuzzer as _df
+    _orig = _df._record_population_safe
+    _base = tmp_path_factory.mktemp('ac_population_hermetic')
+
+    def _wrapped(code_a, code_b, task, result, state_dir=None):
+        return _orig(code_a, code_b, task, result,
+                     state_dir=_base if state_dir is None else state_dir)
+
+    _df._record_population_safe = _wrapped
+    try:
+        yield
+    finally:
+        _df._record_population_safe = _orig
+
 @pytest.fixture(autouse=True)
 def _reset_janusmask_task_id_env():
     """Reset all JANUSMASK_* env vars around every test (function-scoped, autouse).
