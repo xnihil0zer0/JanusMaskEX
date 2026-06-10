@@ -187,7 +187,7 @@ def load_brief(path: Path | str, max_bytes: int = 256 * 1024) -> PlanningBrief:
     except UnicodeDecodeError:
         raise BriefValidationError("File is not valid UTF-8")
 
-    normalized_text = raw_text.replace('\r\n', '\n')
+    normalized_text = raw_text.replace('\r\n', '\n').replace('\r', '\n')
     sha256 = hashlib.sha256(normalized_text.encode('utf-8')).hexdigest()
 
     fm, body_text = _parse_frontmatter(normalized_text)
