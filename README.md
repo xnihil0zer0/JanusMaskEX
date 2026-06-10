@@ -4,7 +4,7 @@
 
 The design principle throughout: **correctness is enforced by *withholding and checking*, never by prompting.** Agents are jailed, blinded to each other, and gated by pure deterministic verifiers. The LLMs only *propose*; the harness *decides*.
 
-> **Status (2026-06):** Core pipeline, autowork daemon, hierarchical (epic) planning, and the dual-sandbox safety model are live and in daily use. The `autocompiler/` package (population-based evolutionary compilation) is **fully built through Phase D** — all four phases (evolution core, determinism + JS beachhead, default-OFF harness wiring, pinned-node jail mount) landed via this pipeline; every flag in the `autocompiler:` config subtree ships `false`, so the layer is inert until deliberately enabled. ~650 test modules.
+> **Status (2026-06-10):** Core pipeline, autowork daemon, hierarchical (epic) planning, and the dual-sandbox safety model are live and in daily use. The `autocompiler/` package (population-based evolutionary compilation) is **fully built through Phase D** — all four phases (evolution core, determinism + JS beachhead, default-OFF harness wiring, pinned-node jail mount) landed via this pipeline; every flag in the `autocompiler:` config subtree ships `false`, so the layer is inert until deliberately enabled. The **full serial test suite is green** (7694 pass / 0 fail as of 2026-06-10 — the former "known pre-existing baseline" was root-caused and eliminated). The unattended-autonomy posture is **ON**: `auto_approve_sensitive_harness` + `auto_approve_ro_gate` are `true`, so gated `harness_self_fix` commits auto-approve behind the E/F/G/H safety stack. A **harness-distillation / metadata-ablation research layer** (measure which metadata earns its keep; distill heuristics lost under ablation into permanent deterministic gates) is designed and prototyped under `autocompiler_research/` — see [the self-evolving metadata-ablation layer](#the-self-evolving-metadata-ablation-layer-harness-distillation). ~650 test modules.
 
 ---
 
@@ -25,6 +25,7 @@ The design principle throughout: **correctness is enforced by *withholding and c
 - [State directory layout](#state-directory-layout)
 - [Testing](#testing)
 - [The autocompiler subproject](#the-autocompiler-subproject)
+- [The self-evolving metadata-ablation layer (harness distillation)](#the-self-evolving-metadata-ablation-layer-harness-distillation)
 - [Glossary](#glossary)
 - [Troubleshooting & known gotchas](#troubleshooting--known-gotchas)
 
@@ -224,8 +225,8 @@ A brief with `epic: true` (and `hierarchical_planning.enabled: true`, currently 
 | Tier | Paths | What's required to commit |
 |------|-------|---------------------------|
 | **Free** | anything *not* under the sensitive globs | RO-parent gate only — auto-commits. A new top-level package (e.g. `autocompiler/`, `overseer/`) is free. |
-| **Sensitive** | `harness/**`, `config/**`, `scripts/**`, `services/**` (`_SENSITIVE_APPLY_GLOBS`) | `meta_task_type: harness_self_fix` **and** an operator decision file `state/control/decisions/<task_id>.json`. |
-| **Irreducible** | `agent_jail.py`, `dbus_proxy.py`, `paths.py`, `git_integration.py`, `orchestrator.py`, `interceptors.py`, `selfheal.py`, `autowork_daemon.py`, `services/**` (`_NEVER_AUTO_APPROVE`) | **Owner hand-edit only.** No gate overrides this. |
+| **Sensitive** | `harness/**`, `config/**`, `scripts/**`, `services/**` (`_SENSITIVE_APPLY_GLOBS`) | `meta_task_type: harness_self_fix`, **plus approval**: with `autowork.auto_approve_sensitive_harness: true` (current posture) the approval is automatic behind the unattended-safety stack — content/capability gate, TOCTOU artifact pin, and the RO-checkout rollback protector (`auto_approve_ro_gate`); with the flag `false`, an operator decision file `state/control/decisions/<task_id>.json` is required instead. |
+| **Irreducible** | `agent_jail.py`, `dbus_proxy.py`, `paths.py`, `git_integration.py`, `orchestrator.py`, `interceptors.py`, `selfheal.py`, `autowork_daemon.py`, `services/**` (`_NEVER_AUTO_APPROVE`) | **Owner hand-edit only.** No gate or flag overrides this floor. |
 
 The cardinal rule: **never hand-edit production outside the pipeline.** Free and sensitive code is built by the pipeline; only oracles/tests are hand-authored; the irreducible set is cleared with the owner first.
 
@@ -277,6 +278,8 @@ autowork:
   wire_up_gate: true          # enforce reachability on new modules at accept
   selfheal_auto_promote: false
   archive_spent_briefs: false # archive a brief's paperwork once its task is accepted
+  auto_approve_sensitive_harness: true  # gated self-fix commits auto-approve (E/F/G/H stack)
+  auto_approve_ro_gate: true            # RO-checkout rollback protector on that path
 
 hierarchical_planning:
   enabled: true               # epic decomposition on
@@ -286,6 +289,21 @@ hierarchical_planning:
 synthesis:
   active_agents: [claude, gemini]
   max_ast_retries: 3
+
+autocompiler:                 # ALL default-OFF; ac_enabled() is fail-closed
+  enabled: false              # master gate — nothing activates until this AND a sub-key are true
+  population: false           # evolutionary near-miss memory at the fuzz seam
+  determinism: false          # sitecustomize value-entropy virtualization in the fuzz sandbox
+  decode: false               # post-decode schema-validation telemetry at the worker accept chokepoint
+  js: false                   # JS differential dispatch in diff_fuzzer
+```
+
+Flip the four security-gated autonomy flags only via the owner script — it is a targeted, comment-preserving line edit with a `--check` preflight:
+
+```bash
+scripts/flip_autowork_flags.sh --status     # current values
+scripts/flip_autowork_flags.sh --check      # verify the E/F/G/H safety stack is present first
+scripts/flip_autowork_flags.sh enable|disable <key>
 ```
 
 (Agent commands, sandbox limits, fuzzing budgets, hook mode, and the overseer live in the same file; see comments inline.)
@@ -329,7 +347,7 @@ kill -TERM "$(cat state/control/autowork.pid)"      # supervised shutdown (≤30
 
 ### Building into a sensitive path (`harness_self_fix`)
 
-A task that edits `harness/**`/`config/**`/`scripts/**`/`services/**` needs a decision file. The `task_id` is only known after the brief is planned, so:
+A task that edits `harness/**`/`config/**`/`scripts/**`/`services/**` must declare `meta_task_type: harness_self_fix`. Under the current posture (`auto_approve_sensitive_harness: true`) the commit auto-approves behind the content/capability gate, TOCTOU pin, and RO-checkout protector — just allowlist the slug and let the daemon run it. With the flag `false`, an operator decision file is required; the `task_id` is only known after the brief is planned, so:
 
 1. Allowlist the fix brief's slug; let the daemon plan it.
 2. Read the staged `task_id` from `plan_hooks_<slug>.json`.
@@ -338,6 +356,8 @@ A task that edits `harness/**`/`config/**`/`scripts/**`/`services/**` needs a de
    {"decision": "approve", "task_id": "<task_id>", "reason": "...", "operator": "you"}
    ```
 4. The worker commits on the next dispatch.
+
+(A decision file is also accepted, harmlessly, when the flag is on. The `_NEVER_AUTO_APPROVE` irreducible list is a floor that no flag overrides.)
 
 ### Manual drive (no daemon)
 
@@ -423,7 +443,9 @@ make test-full      # serial authoritative gate — zero flake, slower
 
 Layout: `tests/harness/`, `tests/planner/`, `tests/overseer/`, `tests/autocompiler/`, `tests/integration/`, `tests/e2e/`, `tests/adversarial/`, plus top-level module tests (~650 modules total). `make test-fast` is a **screen**, not a gate — reconfirm anything it flags with `make test-full` before trusting it.
 
-> The lone-`\r` brief-loader hash divergence formerly noted here was fixed via the pipeline on 2026-06-09 (`fix-brief-loader-cr-normalization`, `720b69c`); `tests/planner/test_brief_loader.py` is green.
+> **The serial suite is fully green** (7694 pass / 12 skip / 5 xfail as of 2026-06-10). The long-standing "known pre-existing baseline" of ~10 failures was root-caused and eliminated; there is no tolerated-failure list anymore — a red `make test-full` means a real regression.
+
+> **Hermeticity rule (learned the hard way):** endpoint/integration tests must never touch live repo state. `tests/unit/test_webui.py` used to POST against the real Flask app globals, silently **rewriting the live `harness/config.yaml`** (comments stripped, keys re-sorted, fixture values injected) and **deleting the real deny-all allowlist** on every full sweep. Any test exercising a handler that writes through a module-level path global must monkeypatch that global into `tmp_path` (see the autouse `_hermetic_paths` fixture there for the pattern).
 
 ---
 
@@ -432,6 +454,27 @@ Layout: `tests/harness/`, `tests/planner/`, `tests/overseer/`, `tests/autocompil
 `autocompiler/` is an in-progress reframing of the factory from *single-shot-or-die* into a **memory-bearing evolutionary compiler**: instead of discarding a clean near-miss when one of ≤20 fuzz inputs diverges, candidates accumulate in a rated **population**, near-misses are *scored* (not thrown away), and selection + crossover steer the generation budget toward the promising lineage — while every existing correctness gate stays load-bearing. (Inspired by the AlphaProof "Nexus" design: population DB + Elo + P-UCB selection + AST crossover, translated onto JanusMaskJR's real seams.)
 
 **Status: ALL FOUR PHASES BUILT (2026-06-10), default-OFF end to end.** Phase A (the nine pure modules below), Phase B (determinism layer, post-decode validator, and the JS beachhead under `autocompiler/js/`), Phase C (the harness wiring — `autocompiler:` config subtree, `sandbox_child_env` determinism mount, `_print_json_line` decode telemetry, and the `fuzz_from_task` JS-dispatch + population-memory hooks, each a fail-safe `ac_enabled()`-gated bridge), and Phase D (the owner-hand-edited pinned-node jail mount in `build_jail_argv`) are all landed with pre-committed RED oracles in `tests/autocompiler/`. Every key in the `autocompiler:` subtree ships `false` and `ac_enabled()` is fail-closed, so the live pipeline is byte-identical until a flag is deliberately flipped.
+
+### Using it
+
+Each capability is an independent, fail-safe hook gated on `ac_enabled('<key>')` — which requires **both** `autocompiler.enabled: true` **and** the sub-key `true` in `harness/config.yaml` (any error, missing key, or non-bool reads as `false`):
+
+| Flag | What turns on | Where it hooks |
+|------|---------------|----------------|
+| `population` | Near-miss **memory**: every differential-fuzz outcome (including clean near-misses that today's gate rejects) is recorded as a rated `Candidate` in a durable `PopulationDB` under `state/`, instead of being discarded. | `diff_fuzzer._record_population_safe`, called at the end of every fuzz run. |
+| `determinism` | Value-level entropy virtualization (`time.time`/`time_ns`, `datetime`, `random`, `os.urandom`, `uuid`) injected via a sitecustomize mount into the fuzz-sandbox child env, reducing differential-run flakiness. **Never** patches `time.monotonic`/`perf_counter`/`sleep` (see the runner-safety invariant below). | `sandbox.sandbox_child_env` → `_maybe_determinism_env`. |
+| `decode` | Post-decode schema validation telemetry on agent submissions (reasoning-field-first schema, truncated-JSON repair, incomplete-edit drops) — observability first, never raises into the accept path. | `orchestrator_worker._print_json_line` accept chokepoint. |
+| `js` | JS differential dispatch: a task with `language: "js"` routes both candidates through `execute_js_batch` (per-batch `child_process.fork`, FD-3 results channel, sentinel codec for `undefined`/`NaN`/`Infinity`/`null`) instead of the Python sandbox. Requires a pinned nvm node (`autocompiler/js/node_version.py` resolves it; the Phase-D jail mount binds **only** `~/.nvm/versions/node/<v>/bin`, read-only, fail-closed on pin escapes). | `diff_fuzzer.fuzz_from_task` language dispatch. |
+
+A typical first enablement is memory-only — observe what the population layer would have kept before letting anything act on it:
+
+```yaml
+autocompiler:
+  enabled: true
+  population: true     # record near-misses; nothing selects/crossbreeds yet
+```
+
+**What is deliberately NOT live yet:** the full generation loop. `loop.py` (one select→operate→run→rate transition), `selection.py` (P-UCB), `crossover.py` (AST recombination via the `_ast_merge` seam), and `elo.py` are built and oracle-tested as pure modules over injected seams, and the fuzz seam now *feeds* the population — but the worker does not yet drive selection/crossover in production, and no real pairwise **rater** model is connected to the Elo seam. Those are the remaining wiring leaves (`ac-wire-evolution`, `ac-wire-rater` in the epic plan); until they land, the population layer is a memory, not an optimizer. The acceptance invariant when they do land is already fixed: a population winner is committed **only** through the unchanged `_auto_commit_accepted` gate (staging worktree + RO-parent), never around it. The full target architecture (task-scoped population DB, matchmaker queue, flash-tier rater pool, Plackett-Luce Elo) is specified in `nexus_integration_system_blueprint.md`.
 
 > **Runner-safety invariant (learned 2026-06-10):** the determinism layer virtualizes only *value-level* entropy (`time.time`/`time_ns`, `datetime`, `random`, `os.urandom`, `uuid`). It must never patch `time.monotonic`/`perf_counter`/`sleep` — those are the fuzz-sandbox runner's own deadline primitives, and virtualizing them spuriously times out one side of a differential run.
 
@@ -448,6 +491,30 @@ Layout: `tests/harness/`, `tests/planner/`, `tests/overseer/`, `tests/autocompil
 | `loop.py` | `step(db, seams)` — one select→operate→run→fitness→insert→rate transition; never spawns a process or model. |
 
 Design notes and the full epic brief live under `autocompiler_research/`.
+
+---
+
+## The self-evolving metadata-ablation layer (harness distillation)
+
+JanusMaskJR steers its agents almost entirely through **metadata** — brief prose, plan-task specs, type/signature constraints, edge-case lists, retry diagnostics injected into corrected specs. That metadata is expensive (tokens, latency) and its value is unmeasured: nobody knows which fields actually *cause* correct synthesis and which are dead weight. The ablation layer exists to answer that empirically, and then to make the harness **grow its own verifiers** from what it learns.
+
+The loop, end to end:
+
+1. **Ablate** — re-run reference tasks with one class of metadata deliberately removed. Four configurations are defined (`codebase_metadata_analysis.md` §4): *baseline* (untouched), *brief-prose ablation* (empty `spec.objective`/`functional_requirements`/`acceptance_criteria`), *constraint/signature ablation* (strip `function_signature` and type constraints so the fuzzer falls back to generic strategies), and *retry/feedback ablation* (suppress diagnostic stack traces and fuzz logs in self-heal retries). The runner design stages each variant as a normal `state/tasks/<id>.json` and drives a single orchestrator iteration per trial, reading accept/reject from `impl_progress.jsonl`; the hand-authored reference tasks under `epic4_handauthored_reference/` are the trial corpus.
+2. **Diff** — compare the rich-metadata run's accepted code against the ablated run's submission. The prototype distiller `autocompiler_research/distill_harness_rules.py` does this at the AST level: it detects *lost heuristics* — e.g. a function that was real logic under rich metadata collapsing to a vacuous stub (`ConstantReturn`, `NotImplementedError`) under ablation — and emits a structured record of exactly what behavior the missing metadata was carrying.
+3. **Distill** — convert each lost heuristic into a **permanent deterministic gate**, so the rule survives even when the prose that taught it is gone (`codebase_metadata_analysis.md` §5): banned-construct expansions and signature assertions compile into `ast_enforcer` rules; divergence-triggering inputs pre-seed the Hypothesis strategies in `diff_fuzzer`; divergence *reasons* (e.g. `length_mismatch`) become structural assertions in the fuzz comparison. `autocompiler_research/synthesized_calculate_hash_digest_checker.py` is a worked example of a checker synthesized this way.
+4. **Re-ablate** — with the distilled gate in place, the ablated configuration should now pass too: the heuristic has moved from *prompt* to *harness*. Each iteration makes the system cheaper to run (less metadata needed) and harder to fool (more behavior enforced by verifiers instead of prose). This is the same design principle as the rest of the repo — *correctness by withholding and checking, never by prompting* — applied to the harness's own evolution.
+
+**Status: designed and prototyped, not yet wired.** The analysis, the four-configuration experiment design, the distillation methodology (including the literature survey and the AlphaProof-Nexus analysis it draws on), and the AST-diff distiller prototype are complete; the ablation runner is not yet a `harness/` module and no synthesized checker has been landed into `ast_enforcer` through the pipeline. When it is built, each piece follows the normal write-tiers: the runner and distiller are free-tier research tooling, while landing a synthesized rule into `ast_enforcer.py`/`diff_fuzzer.py` is a sensitive-path `harness_self_fix` like any other.
+
+| Artifact | Role |
+|----------|------|
+| `codebase_metadata_analysis.md` | Full map of every metadata→behavior mechanism in the harness; the 4-configuration ablation runner design (§4); the distillation pathways into `ast_enforcer`/`diff_fuzzer` (§5). |
+| `academic_harness_distillation_research.md` | Literature review (behavior distillation, prompt compression, checker synthesis) + the harness-distillation methodology and its AlphaProof-Nexus grounding. |
+| `autocompiler_research/distill_harness_rules.py` | Prototype distiller: AST-diffs rich vs ablated submissions, flags vacuous-stub collapses and lost heuristics, scaffolds checker synthesis. |
+| `autocompiler_research/synthesized_calculate_hash_digest_checker.py` | Example output: a static checker synthesized from one distilled failure. |
+| `nexus_integration_system_blueprint.md` | The population/Elo/matchmaker architecture the ablation layer's evolutionary framing plugs into. |
+| `epic4_handauthored_reference/` | The reference task corpus the ablation trials run against. |
 
 ---
 
@@ -473,7 +540,7 @@ Design notes and the full epic brief live under `autocompiler_research/`.
 - **A retry keeps failing identically.** A stale emission sidecar in `state/output/` can mis-route the accept path; the worker now purges them on non-accept outcomes. If you re-stage manually, also clear `<task_id>.{patches,files}.json`.
 - **New module rejected as an orphan** by the wire-up gate. Either import it from a live root, or register its dotted path under `config/**` (the gate's sanctioned dynamic-wiring classification) until real wiring lands.
 - **`auto_commit_failed` on a new file.** The patches path cannot *create* files — emit a new module **whole-file**, and keep a task to **one file**. Don't list non-target files (e.g. a config you only register) in `files_touched`.
-- **Stale `git_commit.lock`.** A daemon that died mid-commit can leave `state/control/autowork/git_commit.lock`; remove it before restarting.
+- **Stale `git_commit.lock`.** A daemon that died mid-commit can leave `state/control/autowork/git_commit.lock`. Since the §4b hand-edit (2026-06-10) the worker-side acquisition is a bounded, PID-stamped `LOCK_NB` retry, so a dead holder fails the attempt cleanly instead of wedging the worker — but removing a stale lock by hand before restarting is still safe and still the fastest fix.
 
 ---
 
