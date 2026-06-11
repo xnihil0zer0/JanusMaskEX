@@ -152,6 +152,16 @@ def _finalize_epic_children(merged, epic_wd, child_epics):
         if not slug:
             continue
         canonical = str(slug).strip().replace('_', '-')
+        # SANITIZE (CWE-22/CWE-20): the canonical slug flows into a filesystem
+        # path (brief_hooks_<slug>.md) at _run_epic_pipeline; strip directory
+        # components and restrict to a safe charset so an untrusted reconciled
+        # slug cannot inject a path separator or '..' that escapes repo_root.
+        import os
+        import re
+        canonical = os.path.basename(canonical)
+        canonical = re.sub(r'[^A-Za-z0-9_-]', '', canonical).strip('.')
+        if not canonical:
+            continue
         if canonical in seen:
             continue
         child_tokens = frozenset(canonical.split('-')) - _STOPWORDS
