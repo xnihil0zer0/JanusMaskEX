@@ -148,15 +148,26 @@ def test_auto_commit_merge_hooks_sized_diff(merge_harness):
 
     Success criteria (per sub-plan-01 §Proposed 5):
       * The resulting file parses as Python.
-      * ``len(result) <= 1.1 * len(original)``.
+      * ``len(result) <= 1.1 * max(len(original), len(OUTPUT_MODULE))``.
       * The helper reports success (a new commit was produced).
+
+    MAIN-GUARD STALE-ASSERTION RECONCILIATION (2026-06-11): the original
+    bound was ``1.1 * len(original)``, which was implicitly tuned to the
+    _ast_merge defect that silently DROPPED the submission's trailing
+    ``if __name__ == "__main__":`` block (this test's own docstring says
+    the hooks-sized diff INCLUDES that block -- it was always meant to
+    merge). The fix gated by tests/test_ast_merge_main_guard_wired.py
+    makes the guard a mergeable keyed unit, so the merged file legitimately
+    grows by the guard's size. Bounding against max(original, OUTPUT_MODULE)
+    keeps the anti-balloon intent and passes both pre- and post-fix.
     """
     state_dir, task, task_id, target_path, original = merge_harness
     committed = _auto_commit_accepted(state_dir, task, task_id)
     assert committed is True, '_auto_commit_accepted returned False -- the merge/commit step failed. Inspect harness logs for the concrete git error.'
     result = target_path.read_text(encoding='utf-8')
     ast.parse(result)
-    assert len(result) <= 1.1 * len(original), f'merged file grew beyond 10% of original: len(result)={len(result)} len(original)={len(original)} ratio={len(result) / max(1, len(original)):.3f}'
+    bound = 1.1 * max(len(original), len(OUTPUT_MODULE))
+    assert len(result) <= bound, f'merged file grew beyond the anti-balloon bound: len(result)={len(result)} len(original)={len(original)} len(OUTPUT_MODULE)={len(OUTPUT_MODULE)} bound={bound:.1f}'
     merged_tree = ast.parse(result)
     func_names = {node.name for node in merged_tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
     assert {'greet', 'farewell'}.issubset(func_names), f'merge dropped a pre-existing function: func_names={func_names}'
@@ -304,7 +315,9 @@ def test_original_py_test_cases_still_pass(merge_harness):
     assert _auto_commit_accepted(state_dir, task, task_id) is True
     result = target_path.read_text(encoding='utf-8')
     ast.parse(result)
-    assert len(result) <= 1.1 * len(original)
+    # MAIN-GUARD STALE-ASSERTION RECONCILIATION (2026-06-11): bound against
+    # max(original, OUTPUT_MODULE) -- see test_auto_commit_merge_hooks_sized_diff.
+    assert len(result) <= 1.1 * max(len(original), len(OUTPUT_MODULE))
 
 def _exercise_non_py(merge_harness, suffix: str, payload: str, relpath: str) -> None:
     """Shared end-to-end exercise body for the four non-py target cases.
