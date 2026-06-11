@@ -609,10 +609,11 @@ def build_unit_task(
         # on sys.path itself and is immune to the output repo's cwd shadowing its
         # own harness package. It reads recon/orig as file text, so it never
         # imports the replicant package.
+        import shlex
         oracle_cmd = (
-            f'python {parent_root}/harness/rebuild/oracle.py '
-            f'--target {module_rel} --original {oracle_original_path} '
-            f'--unit {unit.name} --config {config_abs}'
+            f'python {shlex.quote(f"{parent_root}/harness/rebuild/oracle.py")} '
+            f'--target {shlex.quote(module_rel)} --original {shlex.quote(oracle_original_path)} '
+            f'--unit {shlex.quote(unit.name)} --config {shlex.quote(config_abs)}'
             + (' --str-ascii' if fuzz_str_ascii else '')
         )
         # When no scoped test gate exists, the merged==original oracle is the sole
