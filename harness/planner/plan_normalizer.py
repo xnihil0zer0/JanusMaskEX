@@ -535,6 +535,76 @@ def _correct_meta_task_type_by_target(plan: Dict[str, Any]) -> Dict[str, Any]:
         elif exts <= _CONFIG_EXTS:
             task['meta_task_type'] = 'harness_self_fix'
     return plan
+_ORACLE_TESTS_SEGMENT = '/tests/'
+
+def _canonicalize_oracle_paths(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[str, Any]:
+    """Deterministically repair a REVERSED external oracle verification path.
+
+    A blindly-drafted external leaf sometimes emits a ``verification_command``
+    whose test path is reversed -- ``pytest ngv2/tests/test_x_wired.py`` -- when
+    the real on-disk oracle lives at ``tests/ngv2/test_x_wired.py``.  This pure
+    pass rewrites every whitespace-split ``.py`` token in each task's
+    ``verification_command`` that does NOT resolve as-is under ``repo_root`` but
+    whose ``<pkg>/tests/<rest>`` <-> ``tests/<pkg>/<rest>`` swap DOES resolve to
+    an existing file under ``repo_root``.
+
+    The pass is pure (it deep-copies ``plan`` and never mutates the input) and
+    idempotent.  It is a strict no-op when ``repo_root is None`` (no filesystem
+    to resolve against), when ``plan`` is not a dict, when ``tasks`` is not a
+    list, and when ``Path(repo_root)`` raises.  A token that resolves neither
+    as-is nor swapped is left byte-identical (a missing oracle is never guessed
+    into existence); the swap only fires on a 3+-segment shape, so a SELF/JM
+    ``tests/test_bar.py`` command is never touched.
+    """
+    if repo_root is None or not isinstance(plan, dict):
+        return plan
+    from pathlib import Path
+    try:
+        root = Path(repo_root)
+    except (TypeError, ValueError, OSError):
+        return plan
+    normalized = copy.deepcopy(plan)
+    tasks = normalized.get('tasks')
+    if not isinstance(tasks, list):
+        return normalized
+
+    def _resolves(rel: str) -> bool:
+        try:
+            return (root / rel).is_file()
+        except (TypeError, ValueError, OSError):
+            return False
+
+    def _swap(tok: str) -> List[str]:
+        parts = tok.split('/')
+        if len(parts) < 3:
+            return []
+        candidates: List[str] = []
+        if parts[1] == 'tests':
+            candidates.append('/'.join(['tests', parts[0]] + parts[2:]))
+        if parts[0] == 'tests':
+            candidates.append('/'.join([parts[1], 'tests'] + parts[2:]))
+        return candidates
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        vcmd = task.get('verification_command')
+        if not isinstance(vcmd, str) or not vcmd:
+            continue
+        tokens = vcmd.split()
+        changed = False
+        for i, tok in enumerate(tokens):
+            if tok.startswith('-') or not tok.endswith('.py'):
+                continue
+            if _resolves(tok):
+                continue
+            for cand in _swap(tok):
+                if cand != tok and _resolves(cand):
+                    tokens[i] = cand
+                    changed = True
+                    break
+        if changed:
+            task['verification_command'] = ' '.join(tokens)
+    return normalized
 def _strip_unresolvable_dependencies(tasks: list) -> None:
     """Drop each task ``dependency`` that is not the ``task_id`` of another
     in-plan task.
@@ -580,6 +650,7 @@ def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[
     _enforce_module_first(tasks)
     _strip_unresolvable_dependencies(tasks)
     normalized = _correct_meta_task_type_by_target(normalized)
+    normalized = _canonicalize_oracle_paths(normalized, repo_root)
     normalized = _sanitize_impl_verification_commands(normalized, repo_root)
     normalized = _force_smoke_gated_leaf_impl(normalized, repo_root)
     normalized = _inject_credential_naming_constraint(normalized, repo_root)
