@@ -512,7 +512,13 @@ def build_unit_task(
     # multi-module gen_testless batch does not cross-cascade.
     _module_tfs = _module_test_files(descriptor, module_rel)
     _gate_tfs = _module_tfs if _module_tfs else descriptor.test_files
-    whole_file_args = ' '.join(_gate_tfs)
+    # CWE-78: _gate_tfs are TARGET-REPO-relative test-file paths spliced into
+    # test_cmd (and sel_args), which becomes the verification_command run under
+    # shell=True. shlex.quote each path so a malicious path (``t.py; touch X #``)
+    # stays ONE pytest argument token and cannot inject a shell command. (_k_expr
+    # is already single-quoted; the oracle_cmd paths were quoted in f3a7320.)
+    import shlex
+    whole_file_args = ' '.join(shlex.quote(_tf) for _tf in _gate_tfs)
     # P0a (C9.16): compute oracle-usability BEFORE the test gate so the ``-k``
     # exit-5 fallback can choose oracle-only (ground truth) vs whole-file. The
     # full oracle_skip rationale is documented just below, before its vcmd use.
