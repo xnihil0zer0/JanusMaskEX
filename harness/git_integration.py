@@ -217,6 +217,8 @@ def _ast_merge(output_code: str, target_code: str) -> str:
     """
 
     def _node_key(node):
+        if isinstance(node, ast.If) and _is_main_guard(node):
+            return ('__main_guard__',)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             return ('name', node.name)
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
