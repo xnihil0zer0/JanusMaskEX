@@ -35,6 +35,10 @@ def transitive_deps(task_id: str, all_tasks: list[dict]) -> set[str]:
 def can_run_parallel(task_a: dict, task_b: dict, all_tasks: list[dict] | None=None, *, conservative_missing_files: bool=True) -> bool:
     if task_a.get('task_id') == task_b.get('task_id'):
         return False
+    proj_a = _get_project_dir(task_a)
+    proj_b = _get_project_dir(task_b)
+    if proj_a == proj_b and proj_a in _ISOLATED_EXTERNAL_DIRS:
+        return False
     a_files = task_a.get('files_touched')
     b_files = task_b.get('files_touched')
     if conservative_missing_files:
@@ -58,3 +62,18 @@ def _normalize_path(p: str) -> tuple[str, bool]:
     stripped = p.rstrip('/') if is_dir else p
     canonical = str(pathlib.Path(stripped).resolve())
     return (canonical + '/', True) if is_dir else (canonical, False)
+_ISOLATED_EXTERNAL_DIRS = frozenset({'/home/xnihil0zer0/NobleGreedv2'})
+
+def _get_project_dir(task: dict) -> str:
+    wd = task.get('working_dir')
+    repo_root = pathlib.Path(__file__).resolve().parent.parent
+    if not wd:
+        return str(repo_root.resolve())
+    try:
+        resolved = pathlib.Path(wd).resolve()
+        repo_root_resolved = repo_root.resolve()
+        if resolved == repo_root_resolved or repo_root_resolved in resolved.parents or resolved in repo_root_resolved.parents:
+            return str(repo_root_resolved)
+        return str(resolved)
+    except Exception:
+        return str(repo_root.resolve())
