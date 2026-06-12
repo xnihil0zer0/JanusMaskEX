@@ -1634,12 +1634,84 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
             pass
     return summary
 
+def _brief_dep_gate_ok(task: dict, status_records: list[dict], repo_root: pathlib.Path) -> bool:
+    """Brief-level dependency gate (companion to the task-level gate).
+
+    A child brief may declare ``dependencies: [sibling-slug]`` in its markdown
+    frontmatter -- a SLUG, not an in-plan task_id, so it is stripped at plan
+    normalization and the task-level gate in ``collect_dispatchable_tasks``
+    cannot see it. This holds a candidate task until every depended-on SIBLING
+    BRIEF is fully accepted, so a task that imports a sibling module is not
+    dispatched (-> smoke_failed -> blocked -> wasted attempt) before the sibling
+    lands.
+
+    DEADLOCK-SAFE: the gate only HOLDS on a dep slug that EXISTS in
+    ``status_records`` AND still has un-accepted, non-terminal work. A dep slug
+    that is absent / never-planned, or whose record is terminally blocked, falls
+    back to DISPATCH so the queue can never wedge forever. Any error degrades to
+    DISPATCH (True). Returns True when the task has no resolvable owning brief or
+    that brief declares no frontmatter deps (byte-identical to the prior path).
+    """
+    if not isinstance(task, dict):
+        return True
+    tid = task.get('task_id')
+    if not isinstance(tid, str) or not tid:
+        return True
+    try:
+        by_slug: dict[str, dict] = {}
+        owner_slug: str | None = None
+        for rec in status_records or []:
+            if not isinstance(rec, dict):
+                continue
+            slug = rec.get('slug')
+            if not isinstance(slug, str) or not slug:
+                continue
+            by_slug[slug] = rec
+            if owner_slug is None and tid in (rec.get('task_ids') or []):
+                owner_slug = slug
+        if owner_slug is None:
+            return True
+        owner = by_slug[owner_slug]
+        brief_name = owner.get('brief_filename') or f'brief_hooks_{owner_slug}.md'
+        brief_path = pathlib.Path(repo_root) / brief_name
+        dep_slugs: list[str] = []
+        try:
+            from harness.planner.brief_loader import _parse_frontmatter, _coerce_optional_brief_fields
+            fm, _body = _parse_frontmatter(brief_path.read_text(encoding='utf-8'))
+            coerced = _coerce_optional_brief_fields(fm)
+            dep_slugs = [d for d in (coerced.get('dependencies') or ()) if isinstance(d, str) and d]
+        except Exception:
+            return True
+        for dep in dep_slugs:
+            if dep == owner_slug:
+                continue
+            rec = by_slug.get(dep)
+            if rec is None:
+                # absent / never-planned -> no-deadlock fallback: dispatch.
+                continue
+            state = rec.get('state')
+            if state in ('blocked', 'zombie'):
+                # terminally / un-progressable -> no-deadlock fallback: dispatch.
+                continue
+            remaining = rec.get('remaining')
+            task_ids = rec.get('task_ids') or []
+            # Fully accepted iff there is at least one task and none remain.
+            if task_ids and not remaining:
+                continue
+            # The dep brief exists and still has un-accepted, non-terminal work.
+            return False
+        return True
+    except Exception:
+        return True
+
+
 def _decide(repo_root: pathlib.Path, state_dir: pathlib.Path, running_task_ids: set[str], cap: int) -> tuple[list[dict], bool, int]:
     try:
         status_records = compute_brief_status(repo_root, state_dir)
     except Exception:
         status_records = []
     candidates = collect_dispatchable_tasks(status_records, running_task_ids, state_dir)
+    candidates = [c for c in candidates if _brief_dep_gate_ok(c, status_records, repo_root)]
     ordered = prioritize(candidates)
     free = max(0, cap - len(running_task_ids))
     paused = _pause_flag_path(state_dir).exists() or _full_stop_path(state_dir).exists()
