@@ -28,7 +28,8 @@ def _is_wiring_oracle(verification_command: Any) -> bool:
 
 _PURE_EDIT_META_TASK_TYPES = {'refactor', 'logging_observability', 'docs_writing'}
 
-def _is_module_creating(task: Any) -> bool:
+from harness.paths import effective_target_root
+def _is_module_creating(task: Any, working_dir=None) -> bool:
     """A leaf is MODULE-CREATING when its ``files_touched`` contains a ``.py``
     path that is NOT under a ``tests/`` directory, is NOT already present on
     disk, AND its ``meta_task_type`` is not a pure-edit type (``refactor``,
@@ -49,7 +50,7 @@ def _is_module_creating(task: Any) -> bool:
     files_touched = task.get('files_touched', [])
     if not isinstance(files_touched, list):
         return False
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = effective_target_root(working_dir)
     for path in files_touched:
         if not isinstance(path, str) or not path.endswith('.py'):
             continue
@@ -169,6 +170,7 @@ def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]
     if plan.get('plan_kind') == 'epic':
         return validate_epic_plan(plan)
     tasks = plan.get('tasks', [])
+    wd = plan.get('working_dir')
     if not isinstance(tasks, list):
         return [PlanViolation('invalid_structure', 'plan.tasks', 'tasks must be a list')]
     violations = []
@@ -194,6 +196,13 @@ def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]
             violations.append(PlanViolation('missing_meta_task_type', f'{path_prefix}.meta_task_type', 'meta_task_type must be a non-empty string from the canonical taxonomy'))
         elif meta_task_type not in META_TASK_TYPES:
             violations.append(PlanViolation('unknown_meta_task_type', f'{path_prefix}.meta_task_type', f'Unknown meta_task_type: {meta_task_type}'))
+        # A verification_command that re-roots the shell with a leading or embedded
+        # ``cd `` overrides the worker's staging-worktree cwd, so the post-run diff
+        # is taken against the wrong tree and the leaf silently dead-ends with
+        # auto_commit_failed. Reject it at plan time instead.
+        vcmd = task.get('verification_command')
+        if isinstance(vcmd, str) and (re.match(r'\s*cd\s', vcmd) or re.search(r'(?:^|&&|;|\|)\s*cd\s', vcmd)):
+            violations.append(PlanViolation('cd_prefixed_verification_command', f'{path_prefix}.verification_command', f'verification_command must not begin with or embed a `cd ` re-root: it overrides the worker staging-worktree cwd and silently produces auto_commit_failed, got {vcmd!r}'))
         # A2: a test_authoring task is forced through the auto-commit non-vacuity
         # gate, which fail-closed-rejects it unless it declares a mutation_target
         # (bare dotted module-under-test) or a non-empty mutations[]. Catch the
@@ -210,7 +219,7 @@ def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]
         # Wiring-oracle requirement: a leaf that creates a NEW module must declare a
         # wiring oracle (a *_wired test named in its verification_command) so the
         # module is proven reachable from a live importer. Reject pre-spawn otherwise.
-        if _is_module_creating(task) and not _is_wiring_oracle(task.get('verification_command')):
+        if _is_module_creating(task, working_dir=wd) and not _is_wiring_oracle(task.get('verification_command')):
             # Paired-auto-oracle exemption: a module-creating leaf whose vcmd is a
             # smoke check is EXEMPT when the SAME plan carries a test_authoring
             # oracle whose mutation_target (dotted) resolves to one of this leaf's
