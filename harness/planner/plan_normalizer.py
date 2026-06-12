@@ -626,6 +626,107 @@ def _strip_unresolvable_dependencies(tasks: list) -> None:
         if not isinstance(deps, list):
             continue
         task['dependencies'] = [dep for dep in deps if isinstance(dep, str) and dep in in_plan_ids]
+def _drop_redundant_precommitted_oracles(tasks: List[Dict[str, Any]], repo_root: Optional[Any]) -> List[Dict[str, Any]]:
+    """Drop a SINGLETON test_authoring oracle already covered on disk.
+
+    A *singleton* oracle is a ``test_authoring`` task whose non-empty
+    ``mutation_target`` appears on exactly one ``test_authoring`` task, so
+    multi-oracle groups already collapsed by :func:`_dedupe_oracles` (its
+    ``len(group) <= 1`` guard) are never touched here.
+
+    An oracle is dropped ONLY on a confident on-disk match: its
+    ``mutation_target`` module file (``_module_path(target)``) must EXIST
+    under ``repo_root`` AND a committed covering oracle must exist -- a
+    ``tests/**/test_<leaf>.py`` (leaf = ``target.rsplit('.', 1)[-1]``,
+    following the glob/leaf-stem convention of
+    :func:`_sanitize_impl_verification_commands`) OR any ``tests/**/*.py``
+    that imports the dotted module (``from <target> import`` /
+    ``import <target>``) -- where the matching file is NOT one of the
+    oracle's own ``files_touched``.  When in doubt the oracle is KEPT.
+
+    Dependents of a dropped oracle are rewired with the same drop-map
+    pattern as :func:`_dedupe_oracles`: the dropped id is removed from
+    every other task's ``dependencies`` (never pointing at a non-existent
+    task), de-duplicated, with no self-edge or dangling reference
+    introduced.  The pass is idempotent, a strict no-op (NO filesystem
+    access) when ``repo_root`` is ``None``, and KEEPs on any
+    ``TypeError``/``ValueError``/``OSError``.
+    """
+    if repo_root is None:
+        return tasks
+    from pathlib import Path
+    try:
+        root = Path(repo_root)
+        groups: Dict[str, List[Dict[str, Any]]] = {}
+        for t in tasks:
+            if not isinstance(t, dict) or not _is_test_authoring(t):
+                continue
+            target = _mutation_target(t)
+            if not target:
+                continue
+            groups.setdefault(target, []).append(t)
+        drop_ids: Set[str] = set()
+        for target, group in groups.items():
+            if len(group) != 1:
+                continue
+            oracle = group[0]
+            module_path = _module_path(target)
+            if not Path(root, module_path).is_file():
+                continue
+            own_files = {f for f in _files_touched(oracle) if isinstance(f, str) and f}
+            leaf = target.rsplit('.', 1)[-1]
+            covered = False
+            for match in root.glob('tests/**/test_' + leaf + '.py'):
+                try:
+                    rel = match.relative_to(root).as_posix()
+                except ValueError:
+                    rel = match.as_posix()
+                if rel in own_files:
+                    continue
+                if match.is_file():
+                    covered = True
+                    break
+            if not covered:
+                from_needle = 'from ' + target + ' import'
+                import_needle = 'import ' + target
+                for match in root.glob('tests/**/*.py'):
+                    try:
+                        rel = match.relative_to(root).as_posix()
+                    except ValueError:
+                        rel = match.as_posix()
+                    if rel in own_files:
+                        continue
+                    try:
+                        text = match.read_text(encoding='utf-8')
+                    except OSError:
+                        continue
+                    if from_needle in text or import_needle in text:
+                        covered = True
+                        break
+            if covered:
+                drop_ids.add(_task_id(oracle))
+        if not drop_ids:
+            return tasks
+        survivors = [t for t in tasks if not (isinstance(t, dict) and _task_id(t) in drop_ids)]
+        for t in survivors:
+            if not isinstance(t, dict):
+                continue
+            deps = t.get('dependencies')
+            if not isinstance(deps, list):
+                continue
+            if not any((d in drop_ids for d in deps)):
+                continue
+            own_id = _task_id(t)
+            rewritten: List[str] = []
+            for d in deps:
+                if d in drop_ids or d == own_id:
+                    continue
+                if d not in rewritten:
+                    rewritten.append(d)
+            t['dependencies'] = rewritten
+        return survivors
+    except (TypeError, ValueError, OSError):
+        return tasks
 def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[str, Any]:
     """Auto-correct a leaf plan: dedupe oracles + enforce module-first order.
 
@@ -646,6 +747,7 @@ def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[
     if not isinstance(tasks, list):
         return normalized
     tasks = _dedupe_oracles(tasks)
+    tasks = _drop_redundant_precommitted_oracles(tasks, repo_root)
     normalized['tasks'] = tasks
     _enforce_module_first(tasks)
     _strip_unresolvable_dependencies(tasks)
