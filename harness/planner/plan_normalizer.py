@@ -733,6 +733,106 @@ def _drop_redundant_precommitted_oracles(tasks: List[Dict[str, Any]], repo_root:
         return survivors
     except (TypeError, ValueError, OSError):
         return tasks
+def _drop_committed_module_impls(plan: Dict[str, Any], repo_root: Optional[Any]) -> Dict[str, Any]:
+    """Drop an impl that RE-BUILDS a module already committed at HEAD.
+
+    The planner decomposes each brief in isolation and only dedups
+    ``test_authoring`` oracles -- never impl ``files_touched`` -- so it can
+    emit an impl task targeting a module a DIFFERENT brief already committed,
+    silently clobbering it.  This conservative repo_root-aware pass detects a
+    *re-build clobber*: an impl whose ``files_touched`` names a path that
+    EXISTS at HEAD in the resolved target root AND that is re-created by a
+    paired ``test_authoring`` oracle in the SAME plan (an oracle whose
+    ``_module_path(_mutation_target(oracle))`` equals one of those
+    HEAD-existing paths).  When matched, BOTH the impl and that paired oracle
+    are dropped and the telemetry marker ``duplicate_module_skipped`` is
+    surfaced on the plan-level ``normalizer_telemetry`` field.
+
+    HEAD membership is probed with ``git cat-file -e HEAD:<rel>`` run with
+    ``cwd=str(repo_root)`` (rc == 0 means present) -- working-tree presence
+    alone never triggers the drop.  A genuinely-new module (not at HEAD) and a
+    same-brief fix-forward EDIT (module at HEAD but with NO paired re-creating
+    oracle) are both KEPT, with no marker.
+
+    Dependents of a dropped clobber-impl are rewired with the same drop-map
+    pattern as :func:`_dedupe_oracles`: the dropped ids are removed from every
+    other task's ``dependencies`` (de-duplicated, never a self-edge or a
+    dangling reference).  The pass is conservative and idempotent: it is a
+    strict no-op (NO git/filesystem access) when ``repo_root`` is ``None`` and
+    KEEPs on any
+    ``TypeError``/``ValueError``/``OSError``/``subprocess.SubprocessError``.
+    """
+    if repo_root is None or not isinstance(plan, dict):
+        return plan
+    import subprocess
+    try:
+        tasks = plan.get('tasks')
+        if not isinstance(tasks, list):
+            return plan
+        root = str(repo_root)
+
+        def _in_head(rel: str) -> bool:
+            try:
+                proc = subprocess.run(['git', 'cat-file', '-e', 'HEAD:' + rel], cwd=root, capture_output=True, text=True, timeout=30)
+            except (OSError, subprocess.SubprocessError):
+                return False
+            return proc.returncode == 0
+        oracle_modules: Dict[str, List[Dict[str, Any]]] = {}
+        for t in tasks:
+            if not isinstance(t, dict) or not _is_test_authoring(t):
+                continue
+            target = _mutation_target(t)
+            if not target:
+                continue
+            oracle_modules.setdefault(_module_path(target), []).append(t)
+        drop_ids: Set[str] = set()
+        markers: List[str] = []
+        for t in tasks:
+            if not isinstance(t, dict) or _is_test_authoring(t):
+                continue
+            head_paths = [f for f in _files_touched(t) if isinstance(f, str) and f and _in_head(f)]
+            if not head_paths:
+                continue
+            paired_oracles: List[Dict[str, Any]] = []
+            matched_path: Optional[str] = None
+            for rel in head_paths:
+                if rel in oracle_modules:
+                    paired_oracles = oracle_modules[rel]
+                    matched_path = rel
+                    break
+            if not paired_oracles:
+                continue
+            drop_ids.add(_task_id(t))
+            for o in paired_oracles:
+                drop_ids.add(_task_id(o))
+            markers.append('duplicate_module_skipped:' + matched_path)
+        if not drop_ids:
+            return plan
+        telemetry = plan.setdefault('normalizer_telemetry', [])
+        if isinstance(telemetry, list):
+            for m in markers:
+                telemetry.append(m)
+        survivors = [t for t in tasks if not (isinstance(t, dict) and _task_id(t) in drop_ids)]
+        for t in survivors:
+            if not isinstance(t, dict):
+                continue
+            deps = t.get('dependencies')
+            if not isinstance(deps, list):
+                continue
+            if not any((d in drop_ids for d in deps)):
+                continue
+            own_id = _task_id(t)
+            rewritten: List[str] = []
+            for d in deps:
+                if d in drop_ids or d == own_id:
+                    continue
+                if d not in rewritten:
+                    rewritten.append(d)
+            t['dependencies'] = rewritten
+        plan['tasks'] = survivors
+        return plan
+    except (TypeError, ValueError, OSError, subprocess.SubprocessError):
+        return plan
 def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[str, Any]:
     """Auto-correct a leaf plan: dedupe oracles + enforce module-first order.
 
@@ -755,6 +855,7 @@ def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[
     tasks = _dedupe_oracles(tasks)
     tasks = _drop_redundant_precommitted_oracles(tasks, repo_root)
     normalized['tasks'] = tasks
+    normalized = _drop_committed_module_impls(normalized, repo_root)
     _enforce_module_first(tasks)
     _strip_unresolvable_dependencies(tasks)
     normalized = _correct_meta_task_type_by_target(normalized)
