@@ -137,3 +137,7 @@ from harness import webui_config_schema
 
 def typed_config_schema():
     return webui_config_schema.CONFIG_FIELDS
+from harness import model_backends
+
+def backend_choices():
+    return list(model_backends.BACKEND_REGISTRY)
