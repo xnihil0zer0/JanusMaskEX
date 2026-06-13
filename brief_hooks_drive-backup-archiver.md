@@ -1,0 +1,35 @@
+---
+complexity_score: 4
+interfaces: "tools/drive_backup/archiver.py: DEFAULT_EXCLUDES (frozenset); ArchiveResult dataclass{archive_path, diff_path, base_sha, manifest}; build_archive(repo_root, sha, *, runner, now, out_dir, exclude=DEFAULT_EXCLUDES, base_sha=None) -> ArchiveResult. tools/drive_backup/ledger.py: BackupLedger(path); last_backed_up_sha() -> str|None; record(sha, archive_name, uploaded: bool) -> None; entries() -> list[dict]."
+---
+
+# Title
+
+Drive-backup archiver + ledger: build a timestamped whole-tree `tar.zst` snapshot plus a `git diff` against the last-backed-up commit, named by repo + commit sha + UTC timestamp, with caches excluded and a manifest of what was dropped.
+
+# Scope
+
+Build TWO NEW single-file, whole-file, stdlib-only modules under `tools/drive_backup/`, each IMPL-only against its pre-committed RED oracle.
+
+(1) `tools/drive_backup/ledger.py` — `BackupLedger(path)` where `path` is an EXPLICIT seam (no implicit default in tested surface) to a newline-delimited JSON ledger of prior backups. `last_backed_up_sha()` returns the sha of the most recent recorded entry or `None` if empty/missing. `record(sha, archive_name, uploaded)` appends `{ts?, sha, archive_name, uploaded}` atomically (write-temp-then-rename). `entries()` returns the parsed rows in order. Corrupt/partial trailing lines are skipped, not fatal.
+
+(2) `tools/drive_backup/archiver.py` — `build_archive(repo_root, sha, *, runner, now, out_dir, exclude=DEFAULT_EXCLUDES, base_sha=None)`:
+- Computes the artifact stem `<repo_basename>_<sha[:7]>_<now-as-compact-UTC-iso>` (e.g. `JanusMaskJR_a1b2c3d_20260612T231500Z`).
+- Builds the WHOLE-working-tree archive at `out_dir/<stem>.tar.zst` by invoking, through the injected `runner` seam, a `tar` create piped to `zstd` (the actual argv is constructed and returned in the manifest; tests assert argv shape and seam usage, NOT real execution). `exclude` (DEFAULT_EXCLUDES) is materialized as `--exclude` args; `.git` is INCLUDED by default (whole-dir honored) unless explicitly listed.
+- Builds `out_dir/<stem>.diff` by invoking `git -C repo_root diff <base_sha>..<sha>` through the runner; if `base_sha` is None (first-ever backup), the diff is the empty-base form `git diff <sha>` (full vs empty tree) — recorded as such in the manifest.
+- Returns `ArchiveResult(archive_path, diff_path, base_sha, manifest)` where `manifest` is a JSON-able dict capturing `{repo, sha, base_sha, stem, excludes, archive_argv, diff_argv, created_at}`.
+- `DEFAULT_EXCLUDES` is a frozenset: `node_modules`, `.venv`, `venv`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `*.pyc`, `state/output`, `_autowork_archive`.
+
+The injected `runner(argv, **kw) -> CompletedProcess-like` is the ONLY way subprocesses are touched; `now()` is the injected clock (returns a tz-aware UTC datetime).
+
+# Non-Goals
+
+No real `tar`, `zstd`, or `git` execution in any tested path — `runner` and `now` are injected seams; tests assert argv construction, naming, exclude materialization, manifest contents, and ledger round-trip only. No upload logic (that is drive-backup-uploader). No reading of git hook stdin (that is drive-backup-hook-runner). No implicit ledger path default in the tested surface (explicit seam). No edits to any existing file (both modules are NEW). No edits to any `_NEVER_AUTO_APPROVE` file. No third-party imports (stdlib only). Does NOT author its own oracles — `tests/drive_backup/test_archiver.py` and `tests/drive_backup/test_ledger.py` are hand-authored RED preconditions and are authoritative if a pinned name differs.
+
+# Inputs
+
+The JanusMaskJR repo (self-build). Git diff semantics for `base_sha..sha` and the empty-base full-diff form. The `tar | zstd` pipeline shape (`tar --use-compress-program=zstd` or explicit pipe — the impl picks one and records the chosen argv in the manifest). Per-leaf contract: the committed `tests/drive_backup/test_archiver.py` and `tests/drive_backup/test_ledger.py` oracles.
+
+# Deliverables
+
+Two GREEN NEW modules verified by `python -m pytest tests/drive_backup/test_archiver.py tests/drive_backup/test_ledger.py -q`. Frozen surfaces: `archiver.DEFAULT_EXCLUDES` (frozenset), `archiver.ArchiveResult` (fields `archive_path, diff_path, base_sha, manifest`), `archiver.build_archive(repo_root, sha, *, runner, now, out_dir, exclude=DEFAULT_EXCLUDES, base_sha=None) -> ArchiveResult`; `ledger.BackupLedger(path)` with `last_backed_up_sha() -> str|None`, `record(sha, archive_name, uploaded) -> None`, `entries() -> list[dict]`. Artifact naming is `<repo_basename>_<sha7>_<compactUTC>` with `.tar.zst` and `.diff` siblings.
