@@ -20,6 +20,27 @@ EDIT `tools/webui_server.py` (whole-file; NOT on `_NEVER_AUTO_APPROVE`), ADD ONE
 
 EDIT `tools/webui_static/app.js` (whole-file): add a picker (a simple modal/inline panel + JS) that GETs `/api/fs/list`, renders entries, lets the user click into subdirectories (re-GET with the new `path`) and up to the `parent`, and on "Select" writes the chosen path into the config form field that opened it (the Browse button from `webui-typed-widgets` opens this picker). Native OS dialogs are impossible from browser JS, so this backend-driven picker is the substitute. Use the existing `api()` wrapper and `escape()`.
 
+# Required plan shape
+
+EXACTLY ONE task — do NOT split. The committed oracle (`tests/webui/test_fs_browse.py`) spins the LIVE sidecar in a thread and asserts across all three files together, so no per-file subtask independently satisfies it; a multi-task split is INVALID. Single `working_dir` (null). Emit this task verbatim in shape:
+
+1. `task_id: "fs-browse-impl"`
+   - `meta_task_type: "refactor"` (pure-edit of EXISTING files; all three targets already exist on disk; NOT `harness_self_fix` — every target is non-sensitive `tools/**`).
+   - `spec_author: null` (REQUIRED field — emit exactly `null`, never omit it).
+   - `priority: "high"`, `estimated_complexity: "medium"`.
+   - `dependencies: []` — the dependency surface (`webui-config-schema`) is ALREADY BUILT + committed; it is a sibling leaf, NOT a task in this plan.
+   - `files_touched: ["tools/webui_control.py", "tools/webui_server.py", "tools/webui_static/app.js"]` — three files incl. a non-`.py` target, so the orchestrator auto-routes this leaf to the verbatim whole-file `__JANUSMASK_MANIFEST__` apply: emit each file's COMPLETE new source. ADDITIVE — reproduce EVERY existing symbol/method body verbatim and add the new ones alongside; in `tools/webui_control.py` the new `def get_fs_list(self, query)` method body MUST be placed physically INSIDE the `class ControlHandlers` block (same indentation as existing methods), and in `tools/webui_server.py` the new `/api/fs/list` branch MUST be inside `_dispatch_get`. Verify your `webui_control.py` manifest value actually contains `def get_fs_list` before submitting.
+   - `verification_command: "python -m pytest tests/webui/test_fs_browse.py -q"`.
+   - `spec.non_goals` MUST include a line containing the literal word **integration** (excuses the per-task integration-test gate; the cross-leaf flow is covered by the separate `webui-typed-config-e2e` leaf and this leaf's oracle drives the live sidecar directly).
+
+TEST-SPEC BALANCE (planner gates, all severity=error — satisfy ALL):
+- `spec.functional_requirements`: a TIGHT list of EXACTLY 6: (1) `GET /api/fs/list` (no path) → 200 listing the sandbox root as `{root, path, parent, entries:[{name, is_dir}]}` dirs-first; (2) `?path=../..` and `?path=/etc` (traversal / absolute outside root) → 4xx; (3) a symlink whose target escapes the root is NOT followed → 4xx; (4) a non-existent path → 4xx; (5) a non-directory (file) path → 4xx; (6) `/static/app.js` GETs `/api/fs/list` (the picker wiring).
+- `test_spec.unit_tests`: at least 6 entries (`len(unit_tests) >= len(functional_requirements)`) — ONE mapping each requirement above.
+- `test_spec.edge_cases`: ≥2 entries, EACH mirrored in `regression_tests` OR `property_tests`: (a) empty/default `path` lists the root (not an error); (b) a path resolving exactly to the root boundary is allowed while one byte outside is refused.
+- `test_spec.integration_tests`: MAY be empty ONLY because the gate is excused via the **integration** line in `spec.non_goals`.
+- `test_spec.minimum_test_count`: >= 9 (>= `1.5 * len(functional_requirements)`).
+- `token_budget_ratio.test_tokens` MUST be >= `1.5 * token_budget_ratio.implementation_tokens`.
+
 # Non-Goals
 
 No traversal outside `self.repo_root` under any input (the guard is the deliverable). No write/delete/exec filesystem operations — list-only, read-only. No rewriting of existing `ControlHandlers` method bodies or the `_dispatch_get` chain wholesale — add new method/route alongside (never-patch-class-methods; whole-file AST merge). No re-implementation of the typed-widget rendering (that is `webui-typed-widgets`; this leaf only supplies the endpoint + picker the Browse button calls). No Flask, no `webui/app.py`, no `webui/templates/` — that is the dead tree. No edits to any `_NEVER_AUTO_APPROVE` file (`harness/orchestrator.py`, `harness/autowork_daemon.py`, `harness/git_integration.py`, `harness/paths.py`, `harness/interceptors.py`, `harness/selfheal.py`, `harness/agent_jail.py`, `harness/dbus_proxy.py`, `services/**`). WebUI stays loopback-only; token + CSRF posture unchanged. integration: endpoint behaviour is exercised on the live sidecar by this leaf's oracle; the cross-leaf flow is `webui-typed-config-e2e`.
