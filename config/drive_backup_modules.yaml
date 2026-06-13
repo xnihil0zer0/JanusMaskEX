@@ -1,0 +1,29 @@
+# Dynamic-wiring registration for the Drive-backup-on-push subsystem (epic
+# brief_hooks_drive-backup-on-push.md). The wire-up accept gate classifies a new
+# module as CONFIG_WIRED when its module reference appears under config/** (see
+# harness/wire_up.py::_grep_config / check_wired — "dynamic wiring").
+#
+# These five tools/drive_backup/*.py modules are orphan-by-design: the subsystem
+# is driven by a git pre-push hook that execs `python -m tools.drive_backup.hook_runner`
+# at runtime (installed into each repo's .git/hooks/pre-push by install_hooks.py),
+# NOT by an import edge from a JM live root. There is therefore no static
+# reachable importer, so each module is registered here so the wire-up gate does
+# not false-positive it as an orphan at ACCEPTANCE.
+#
+# FORMAT CONTRACT (load-bearing): each entry MUST be an EXPLICIT `.py` path
+# reference, one module per line. check_wired falls back to _grep_config(stem)
+# whose first pattern clause is  (?<![\w.])<stem>\.py\b  — a `<stem>.py` token
+# not preceded by a word-char or dot. The leading `tools/drive_backup/` means
+# `<stem>.py` is preceded by `/` (not [\w.]), so the clause matches. A bare
+# `-m tools.drive_backup.hook_runner` dotted token would register only one stem
+# per the `-m` clause; the explicit per-module .py paths below register all five.
+runtime_entrypoint: python -m tools.drive_backup.hook_runner
+managed_repos:
+  - /home/xnihil0zer0/JanusMaskJR
+  - /home/xnihil0zer0/NobleGreedv2
+modules:
+  - tools/drive_backup/archiver.py
+  - tools/drive_backup/ledger.py
+  - tools/drive_backup/uploader.py
+  - tools/drive_backup/hook_runner.py
+  - tools/drive_backup/install_hooks.py
