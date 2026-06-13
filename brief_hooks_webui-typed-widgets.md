@@ -23,6 +23,27 @@ EDIT `tools/webui_server.py` (whole-file; NOT on `_NEVER_AUTO_APPROVE`), ADD ONE
 
 EDIT `tools/webui_static/app.js` (whole-file): extend `pages.config` (or add a sibling typed-config card it renders) to: fetch `GET /api/config/schema`; render each field by `dtype` (`int`/`float`→`<input type=number>`, `str`→text, `bool`→checkbox/select, `enum`→`<select>`, `path-file`/`path-dir`→text input + a "Browse" button targeting the fs picker from `webui-fs-browse`); render one `<select>` per single role and TWO `<select>`s for the dual-agent role; render an `<input type=password>` per provider api-key; emit `disabled` on any api-backed provider `<option>` whose `api_key_env` is not in `keys_present`; wire a Save button that POSTs the assembled form to `/api/config/typed` via the existing `api()` wrapper (so token + CSRF are attached) and renders the per-field `field_errors` on a 400.
 
+# Required plan shape
+
+EXACTLY ONE task — do NOT split. The committed oracle (`tests/webui/test_typed_widgets.py`) spins the LIVE sidecar in a thread and asserts across all three files together, so no per-file subtask independently satisfies it; a multi-task split (one task per file) is INVALID. Single `working_dir` (null). Emit this task verbatim in shape:
+
+1. `task_id: "typed-widgets-impl"`
+   - `meta_task_type: "refactor"` (pure-edit of EXISTING files; all three targets already exist on disk; NOT `harness_self_fix` — every target is non-sensitive `tools/**`).
+   - `spec_author: null` (REQUIRED field — emit exactly `null`, never omit it).
+   - `priority: "high"`, `estimated_complexity: "medium"`.
+   - `dependencies: []` — the dependency surfaces (`webui-config-schema`, `webui-model-backends`) are ALREADY BUILT + committed; they are sibling leaves, NOT tasks in this plan, so do NOT list them as task dependencies.
+   - `files_touched: ["tools/webui_control.py", "tools/webui_server.py", "tools/webui_static/app.js"]` — three files incl. a non-`.py` target, so the orchestrator auto-routes this leaf to the verbatim whole-file `__JANUSMASK_MANIFEST__` apply: emit each file's COMPLETE new source (additive — preserve every existing symbol/method body; add the new methods/route/widgets alongside).
+   - `verification_command: "python -m pytest tests/webui/test_typed_widgets.py -q"`.
+   - `spec.non_goals` MUST include a line containing the literal word **integration** (excuses the per-task integration-test gate; the cross-leaf save flow is covered by the separate `webui-typed-config-e2e` leaf and this leaf's oracle drives the live sidecar directly).
+
+TEST-SPEC BALANCE (planner gates, all severity=error — satisfy ALL):
+- `spec.functional_requirements`: a TIGHT list of EXACTLY 6: (1) `GET /api/config/schema` returns `{fields, roles, providers, values, keys_present}`; (2) valid `POST /api/config/typed` → 200 and atomically persists `parallel_cap` into `harness/config.yaml` preserving unrelated blocks; (3) invalid-type `POST` → 400 naming the offending field, config byte-identical; (4) dual-agent-same `POST` → 400; (5) role→keyless-api-provider `POST` → 400; (6) `/static/app.js` contains the typed-save route, a Browse affordance, and the schema-fetch wiring.
+- `test_spec.unit_tests`: at least 6 entries (`len(unit_tests) >= len(functional_requirements)`) — ONE mapping each functional requirement above.
+- `test_spec.edge_cases`: ≥2 entries, EACH mirrored in `regression_tests` OR `property_tests`: (a) an `api_key__<ENV>` value is persisted via `save_secret` but NEVER echoed in the response nor written to `config.yaml`; (b) a `POST /api/config/typed` missing the operator token + CSRF nonce is rejected (401/403).
+- `test_spec.integration_tests`: MAY be empty ONLY because the gate is excused via the **integration** line in `spec.non_goals`.
+- `test_spec.minimum_test_count`: >= 9 (>= `1.5 * len(functional_requirements)`).
+- `token_budget_ratio.test_tokens` MUST be >= `1.5 * token_budget_ratio.implementation_tokens`.
+
 # Non-Goals
 
 No rewriting of existing `ControlHandlers` method BODIES (`get_config`, `put_config_control`, `put_config_autowork`, etc.) or the existing `pages.config` autowork/control cards — ADD new methods/routes/cards alongside them (never-patch-class-methods; whole-file AST merge). No backend/schema logic re-implemented here — import from `harness/webui_config_schema.py` + `harness/secrets_store.py`. No live API call. No `GET /api/fs/list` endpoint or picker modal (that is `webui-fs-browse`; this leaf only emits the Browse button + picker target). No Flask, no `webui/app.py`, no `webui/templates/` — that is the dead tree. No edits to any `_NEVER_AUTO_APPROVE` file (`harness/orchestrator.py`, `harness/autowork_daemon.py`, `harness/git_integration.py`, `harness/paths.py`, `harness/interceptors.py`, `harness/selfheal.py`, `harness/agent_jail.py`, `harness/dbus_proxy.py`, `services/**`). WebUI stays loopback-only; token + CSRF posture unchanged. No secrets in any committed file. integration: the cross-leaf save flow is exercised by `webui-typed-config-e2e`; this leaf's oracle drives the live sidecar directly.
