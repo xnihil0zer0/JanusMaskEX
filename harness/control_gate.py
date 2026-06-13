@@ -11,58 +11,39 @@ single rate-limited WARNING and returns False.
 Stdlib only.
 """
 from __future__ import annotations
-
 import json
 import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Optional, Callable
-
-logger = logging.getLogger("janusmask.control_gate")
-
-DEFAULT_PAUSE_FLAG = "state/control/orchestrator.flag"
-DEFAULT_DECISIONS_DIR = "state/control/decisions"
-DEFAULT_APPROVAL_TIMEOUT = 1800.0  # 30 min
-
-# Single source of truth for the phases an operator may gate via
-# control.require_approval. Consumed by tools/webui_control.put_config_control
-# (validation) and surfaced to the WebUI via GET /api/control/phases so the
-# Config <select> populates from one list instead of a drifting literal
-# (WUI-PHASES).
-KNOWN_PHASES: tuple[str, ...] = (
-    "synthesis",
-    "fuzzing",
-    "cross_examination",
-    "ast_validation",
-    "accepted",
-    "rejected",
-    "decomposition",
-)
+from typing import Any
+from typing import Optional
+from typing import Callable
+logger = logging.getLogger('janusmask.control_gate')
+DEFAULT_PAUSE_FLAG = 'state/control/orchestrator.flag'
+DEFAULT_DECISIONS_DIR = 'state/control/decisions'
+DEFAULT_APPROVAL_TIMEOUT = 1800.0
+KNOWN_PHASES: tuple[str, ...] = ('synthesis', 'fuzzing', 'cross_examination', 'ast_validation', 'accepted', 'rejected', 'decomposition')
 _DECISION_POLL_INTERVAL = 1.0
 _PAUSE_LOG_RATE_LIMIT = 60.0
 _last_pause_warning: dict[str, float] = {}
 
-
 def _control_section(config: dict[str, Any]) -> dict[str, Any]:
-    return config.get("control", {}) if isinstance(config, dict) else {}
-
+    return config.get('control', {}) if isinstance(config, dict) else {}
 
 def pause_flag_path(state_dir: Path, config: dict[str, Any]) -> Path:
-    rel = _control_section(config).get("pause_flag_path") or DEFAULT_PAUSE_FLAG
+    rel = _control_section(config).get('pause_flag_path') or DEFAULT_PAUSE_FLAG
     p = Path(rel)
     if not p.is_absolute():
         p = Path(state_dir).parent / rel
     return p
-
 
 def decisions_dir(state_dir: Path, config: dict[str, Any]) -> Path:
-    rel = _control_section(config).get("decisions_dir") or DEFAULT_DECISIONS_DIR
+    rel = _control_section(config).get('decisions_dir') or DEFAULT_DECISIONS_DIR
     p = Path(rel)
     if not p.is_absolute():
         p = Path(state_dir).parent / rel
     return p
-
 
 def check_pause(state_dir: Path, config: dict[str, Any]) -> bool:
     """Return True iff the pause flag is set to ``paused``.
@@ -72,52 +53,36 @@ def check_pause(state_dir: Path, config: dict[str, Any]) -> bool:
     """
     path = pause_flag_path(state_dir, config)
     try:
-        contents = path.read_text(errors="replace").strip().lower()
+        contents = path.read_text(errors='replace').strip().lower()
     except FileNotFoundError:
         return False
     except (IsADirectoryError, PermissionError, OSError) as e:
-        key = f"{path}:{type(e).__name__}"
+        key = f'{path}:{type(e).__name__}'
         now = time.time()
         if now - _last_pause_warning.get(key, 0) > _PAUSE_LOG_RATE_LIMIT:
-            logger.warning(
-                "pause flag at %s unreadable (%s); treating as not-paused",
-                path, e,
-            )
+            logger.warning('pause flag at %s unreadable (%s); treating as not-paused', path, e)
             _last_pause_warning[key] = now
         return False
-    return contents == "paused"
-
+    return contents == 'paused'
 
 def require_approval_for(phase: str, config: dict[str, Any]) -> bool:
-    requires = _control_section(config).get("require_approval", []) or []
+    requires = _control_section(config).get('require_approval', []) or []
     return phase in requires
-
 
 def _read_decision(path: Path) -> Optional[dict]:
     """Return decision dict if present + parseable; None on absent/corrupt."""
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text(errors="replace"))
+        data = json.loads(path.read_text(errors='replace'))
     except (OSError, json.JSONDecodeError, UnicodeDecodeError, ValueError) as e:
-        logger.warning("decision file %s corrupt: %s", path, e)
+        logger.warning('decision file %s corrupt: %s', path, e)
         return None
-    if not isinstance(data, dict) or "decision" not in data:
+    if not isinstance(data, dict) or 'decision' not in data:
         return None
     return data
 
-
-def await_decision(
-    state_dir: Path,
-    task_id: str,
-    phase: str,
-    config: dict[str, Any],
-    *,
-    emit_pending: Optional[Callable] = None,
-    emit_timeout: Optional[Callable] = None,
-    poll_interval: float = _DECISION_POLL_INTERVAL,
-    timeout: Optional[float] = None,
-) -> str:
+def await_decision(state_dir: Path, task_id: str, phase: str, config: dict[str, Any], *, emit_pending: Optional[Callable]=None, emit_timeout: Optional[Callable]=None, poll_interval: float=_DECISION_POLL_INTERVAL, timeout: Optional[float]=None) -> str:
     """Block until ``state/control/decisions/{task_id}.json`` exists.
 
     Returns the decision string ('approve' / 'reject' / 'retry') or
@@ -127,31 +92,29 @@ def await_decision(
     bit-identical when the operator has not opted in.
     """
     if not require_approval_for(phase, config):
-        return "auto"
+        return 'auto'
     if timeout is None:
-        timeout = float(_control_section(config).get(
-            "approval_timeout_sec", DEFAULT_APPROVAL_TIMEOUT))
+        timeout = float(_control_section(config).get('approval_timeout_sec', DEFAULT_APPROVAL_TIMEOUT))
     decisions = decisions_dir(state_dir, config)
     decisions.mkdir(parents=True, exist_ok=True)
-    path = decisions / f"{task_id}.json"
+    path = decisions / f'{task_id}.json'
     if emit_pending is not None:
         try:
             emit_pending(task_id, phase)
         except Exception:
-            logger.exception("emit_pending callback failed")
+            logger.exception('emit_pending callback failed')
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         rec = _read_decision(path)
         if rec is not None:
-            return str(rec.get("decision", "")).lower() or "auto"
+            return str(rec.get('decision', '')).lower() or 'auto'
         time.sleep(poll_interval)
     if emit_timeout is not None:
         try:
             emit_timeout(task_id, phase)
         except Exception:
-            logger.exception("emit_timeout callback failed")
-    return "timeout"
-
+            logger.exception('emit_timeout callback failed')
+    return 'timeout'
 
 def record_agent_pid(state_dir: Path, agent: str, pid: int) -> None:
     """Best-effort: stamp ``STATE.json`` with ``{agent}_pid``.
@@ -163,9 +126,14 @@ def record_agent_pid(state_dir: Path, agent: str, pid: int) -> None:
     except Exception:
         return
     try:
+
         def _set(s):
-            s[f"{agent}_pid"] = pid
+            s[f'{agent}_pid'] = pid
             return s
         _state.locked_read_modify_write(_set, state_dir)
     except Exception as e:
-        logger.warning("could not record %s_pid=%s: %s", agent, pid, e)
+        logger.warning('could not record %s_pid=%s: %s', agent, pid, e)
+from harness import webui_config_schema
+
+def typed_config_schema():
+    return webui_config_schema.CONFIG_FIELDS
