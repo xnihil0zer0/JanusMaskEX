@@ -13,7 +13,12 @@ caller-supplied ``out_dir``; there is no implicit default of ``.``,
 from __future__ import annotations
 import os
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, FrozenSet, List, Optional
+from typing import Any
+from typing import Callable
+from typing import Dict
+from typing import FrozenSet
+from typing import List
+from typing import Optional
 DEFAULT_EXCLUDES: FrozenSet[str] = frozenset({'node_modules', '.venv', 'venv', '__pycache__', '.pytest_cache', '.mypy_cache', '*.pyc', 'state/output', '_autowork_archive'})
 
 @dataclass

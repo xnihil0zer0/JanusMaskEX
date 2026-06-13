@@ -13,7 +13,10 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from typing import Any, Dict, List, Optional
+from typing import Any
+from typing import Dict
+from typing import List
+from typing import Optional
 
 class BackupLedger:
     """Newline-delimited JSON ledger of backup rows at an explicit path."""
