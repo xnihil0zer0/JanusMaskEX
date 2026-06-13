@@ -26,6 +26,28 @@ No real `.git/hooks/pre-push` writes in any tested path — `fs` is an injected 
 
 The git hooks layout (`<repo>/.git/hooks/pre-push`, must be executable, receives refs on stdin). The module path it execs: `python -m tools.drive_backup.hook_runner` from drive-backup-hook-runner. The two install targets: `/home/xnihil0zer0/JanusMaskJR` and `/home/xnihil0zer0/NobleGreedv2`. Per-leaf contract: the committed `tests/drive_backup/test_install_hooks.py` oracle. (The actual install run + the one-time `rclone config` are USER steps documented in `_autowork_scratch/DRIVE_BACKUP_USER_SETUP.md`.)
 
+# Required plan shape
+
+The plan MUST be a single working_dir (this repo; `working_dir` null) DAG of EXACTLY TWO tasks. One new `.py` module is created at `tools/drive_backup/install_hooks.py` (NOT a sensitive apply-glob), so the impl task uses a normal non-test type (`cli_tooling`). Live integration (actually writing `.git/hooks/pre-push` in either repo) is genuinely DEFERRED to the user-run install step, so the impl task EXCUSES the integration-test gate by listing the literal word "integration" in `spec.non_goals` (the install branches are exercised by unit tests against an injected fake `fs` seam). The created module is proven by a paired `test_authoring` oracle whose top-level `mutation_target` (bare dotted module-under-test) resolves to the impl's `.py` (the auto-authored, mutation-gated oracle IS the wiring/contract proof; an impl-first DAG makes a `*_wired` verification_command structurally impossible, which is expected).
+
+Emit these tasks verbatim in shape:
+
+1. `task_id: "installer-impl"`
+   - `meta_task_type: "cli_tooling"`
+   - `files_touched: ["tools/drive_backup/install_hooks.py"]`
+   - `dependencies: []`
+   - `verification_command: "python -m pytest tests/drive_backup/test_install_hooks.py -q"`  (NO leading/embedded `cd `)
+   - `spec.non_goals` MUST include a line containing the word **integration**, e.g. "Live integration — actually writing .git/hooks/pre-push in either repo — is OUT OF SCOPE here; deferred to the user-run install step. The created/updated/chained/dry branches are exercised against an injected fake fs seam only."
+
+2. `task_id: "installer-oracle"`
+   - `meta_task_type: "test_authoring"`
+   - top-level `mutation_target: "tools.drive_backup.install_hooks"`
+   - `files_touched: ["tests/drive_backup/test_install_hooks.py"]`
+   - `dependencies: ["installer-impl"]`  (oracle depends on impl — impl-first ordering)
+   - `verification_command: "python -m pytest tests/drive_backup/test_install_hooks.py -q"`
+
+Note: `mutation_target` is a BARE DOTTED module name (no path, no slashes, no `.py`). `tools.drive_backup.install_hooks` resolves to `tools/drive_backup/install_hooks.py`, which is in the impl task's `files_touched` — this satisfies the paired-auto-oracle wiring exemption.
+
 # Deliverables
 
 One GREEN NEW module verified by `python -m pytest tests/drive_backup/test_install_hooks.py -q`. Frozen surfaces: `install_hooks.SENTINEL`, `install_hooks.DEFAULT_REPOS` (`['/home/xnihil0zer0/JanusMaskJR', '/home/xnihil0zer0/NobleGreedv2']`), `install_hooks.render_shim(janusmask_root, *, chained_hook=None) -> str`, `install_hooks.InstallResult` (fields `repo, hook_path, action, ok`), `install_hooks.install(repo_roots=DEFAULT_REPOS, *, fs, janusmask_root, dry_run=False) -> list[InstallResult]`, `install_hooks.main(argv=None, *, fs=None) -> int`. After the user runs `python -m tools.drive_backup.install_hooks`, both repos fire the backup on every `git push` without ever blocking it.

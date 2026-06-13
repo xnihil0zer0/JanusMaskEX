@@ -36,3 +36,32 @@ No live network call / no real `.chat()` / `.messages.create()` assertion — bu
 # Deliverables
 
 ONE GREEN leaf: `harness/model_backends.py` + `harness/secrets_store.py` verified by `python -m pytest tests/webui/test_model_backends.py -q`. Frozen surface exactly as the frontmatter `interfaces`. Oracle is RED against stubs and asserts: every Chinese + frontier provider present with correct base_url+env from the research file; one `OpenAICompatBackend` class instance per openai-compat provider (no per-provider subclasses); Anthropic uses its own backend kind; `CodexCliBackend.agent_block()` matches the claude/gemini `{command, args}` shape; `resolve_backend` raises `BackendLockedError` for a keyless api-backed provider and returns a spec when keyed; `save_secret` writes a 0600 gitignored file under `state/secrets/` that `load_secrets` reads back, and the secrets path is under a `state/`-ignored tree (never config.yaml).
+
+# Required plan shape
+
+The plan MUST be a single working_dir (this repo; `working_dir` null) DAG of EXACTLY THREE tasks. Two new `.py` modules are created (`harness/model_backends.py`, `harness/secrets_store.py`); both are under the SENSITIVE `harness/**` apply-glob, so the impl task MUST use `meta_task_type: "harness_self_fix"` (the only non-test type permitted to commit a `harness/**` path — any other type is rejected at plan time with `sensitive_files_touched`). Integration wiring (into the WebUI / config.yaml / orchestrator) is genuinely DEFERRED to the dependent `webui-typed-widgets` leaf and an owner-gated hand-edit, so the impl task EXCUSES the integration-test gate by listing the literal word "integration" in `spec.non_goals`. Each created module is proven by its own paired `test_authoring` oracle whose top-level `mutation_target` (bare dotted module-under-test) resolves to that impl's `.py` (the auto-authored, mutation-gated oracle IS the wiring/contract proof; an impl-first DAG makes a `*_wired` verification_command structurally impossible, which is expected).
+
+Emit these tasks verbatim in shape:
+
+1. `task_id: "model-backends-impl"`
+   - `meta_task_type: "harness_self_fix"`
+   - `files_touched: ["harness/model_backends.py", "harness/secrets_store.py"]`
+   - `dependencies: []`
+   - `verification_command: "python -m pytest tests/webui/test_model_backends.py -q"`  (NO leading/embedded `cd `)
+   - `spec.non_goals` MUST include a line containing the word **integration**, e.g. "Integration wiring into the WebUI, config.yaml, and orchestrator is OUT OF SCOPE here — deferred to the dependent webui-typed-widgets leaf and an owner-gated hand-edit; this leaf only produces the spec + agent_block() dict."
+
+2. `task_id: "model-backends-oracle"`
+   - `meta_task_type: "test_authoring"`
+   - top-level `mutation_target: "harness.model_backends"`
+   - `files_touched: ["tests/webui/test_model_backends.py"]`
+   - `dependencies: ["model-backends-impl"]`  (oracle depends on impl — impl-first ordering)
+   - `verification_command: "python -m pytest tests/webui/test_model_backends.py -q"`
+
+3. `task_id: "secrets-store-oracle"`
+   - `meta_task_type: "test_authoring"`
+   - top-level `mutation_target: "harness.secrets_store"`
+   - `files_touched: ["tests/webui/test_model_backends.py"]`
+   - `dependencies: ["model-backends-impl"]`
+   - `verification_command: "python -m pytest tests/webui/test_model_backends.py -q"`
+
+Note: `mutation_target` is a BARE DOTTED module name (no path, no slashes, no `.py`). `harness.model_backends` resolves to `harness/model_backends.py` and `harness.secrets_store` to `harness/secrets_store.py`, both in the impl task's `files_touched` — this satisfies the paired-auto-oracle wiring exemption for each created module.

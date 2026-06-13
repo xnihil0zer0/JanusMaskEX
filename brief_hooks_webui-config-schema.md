@@ -33,3 +33,25 @@ No WebUI/Flask code, no template work (that is `webui-typed-widgets`). No backen
 # Deliverables
 
 ONE GREEN leaf: `harness/webui_config_schema.py` verified by `python -m pytest tests/webui/test_config_schema.py -q`. Frozen surface exactly as the frontmatter `interfaces` line. The oracle is RED against a `raise NotImplementedError` stub and asserts: typed coercion + per-field rejection; dual-agent same-agent rejection; role→keyless-api-provider rejection; role→keyed-api-provider acceptance; atomic save round-trips and does not corrupt other config blocks.
+
+# Required plan shape
+
+The plan MUST be a single working_dir (this repo; `working_dir` null) DAG of EXACTLY TWO tasks. One new `.py` module is created (`harness/webui_config_schema.py`), which sits under the SENSITIVE `harness/**` apply-glob, so the impl task MUST use `meta_task_type: "harness_self_fix"` (the only non-test type permitted to commit a `harness/**` path — any other type is rejected at plan time with `sensitive_files_touched`). Integration wiring (into the WebUI server / Flask routes) is genuinely DEFERRED to the dependent `webui-typed-widgets` leaf and an owner-gated hand-edit, so the impl task EXCUSES the integration-test gate by listing the literal word "integration" in `spec.non_goals`. The created module is proven by a paired `test_authoring` oracle whose top-level `mutation_target` (bare dotted module-under-test) resolves to the impl's `.py` (the auto-authored, mutation-gated oracle IS the wiring/contract proof; an impl-first DAG makes a `*_wired` verification_command structurally impossible, which is expected).
+
+Emit these tasks verbatim in shape:
+
+1. `task_id: "config-schema-impl"`
+   - `meta_task_type: "harness_self_fix"`
+   - `files_touched: ["harness/webui_config_schema.py"]`
+   - `dependencies: []`
+   - `verification_command: "python -m pytest tests/webui/test_config_schema.py -q"`  (NO leading/embedded `cd `)
+   - `spec.non_goals` MUST include a line containing the word **integration**, e.g. "Integration wiring into the WebUI server and Flask routes is OUT OF SCOPE here — deferred to the dependent webui-typed-widgets leaf and an owner-gated hand-edit; this leaf only produces the schema + validators."
+
+2. `task_id: "config-schema-oracle"`
+   - `meta_task_type: "test_authoring"`
+   - top-level `mutation_target: "harness.webui_config_schema"`
+   - `files_touched: ["tests/webui/test_config_schema.py"]`
+   - `dependencies: ["config-schema-impl"]`  (oracle depends on impl — impl-first ordering)
+   - `verification_command: "python -m pytest tests/webui/test_config_schema.py -q"`
+
+Note: `mutation_target` is a BARE DOTTED module name (no path, no slashes, no `.py`). `harness.webui_config_schema` resolves to `harness/webui_config_schema.py`, which is in the impl task's `files_touched` — this satisfies the paired-auto-oracle wiring exemption.

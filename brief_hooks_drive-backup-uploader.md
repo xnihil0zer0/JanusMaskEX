@@ -32,6 +32,28 @@ No real `rclone` invocation, no network, no Google-Drive API, no credential read
 
 Consumes `archiver.ArchiveResult` (fields `archive_path, diff_path, base_sha, manifest`) from drive-backup-archiver. The rclone `copyto` CLI shape (`rclone copyto <src> <remote>:<path>`) and the convention that a configured Google-Drive remote is named `gdrive:` (documented in `_autowork_scratch/DRIVE_BACKUP_USER_SETUP.md`). Per-leaf contract: the committed `tests/drive_backup/test_uploader.py` oracle.
 
+# Required plan shape
+
+The plan MUST be a single working_dir (this repo; `working_dir` null) DAG of EXACTLY TWO tasks. One new `.py` module is created at `tools/drive_backup/uploader.py` (NOT a sensitive apply-glob), so the impl task uses a normal non-test type (`io_adapter`). Integration wiring (the pre-push hook orchestration) is genuinely DEFERRED to the dependent `drive-backup-hook-runner` / `drive-backup-installer` leaves, so the impl task EXCUSES the integration-test gate by listing the literal word "integration" in `spec.non_goals`. The created module is proven by a paired `test_authoring` oracle whose top-level `mutation_target` (bare dotted module-under-test) resolves to the impl's `.py` (the auto-authored, mutation-gated oracle IS the wiring/contract proof; an impl-first DAG makes a `*_wired` verification_command structurally impossible, which is expected).
+
+Emit these tasks verbatim in shape:
+
+1. `task_id: "uploader-impl"`
+   - `meta_task_type: "io_adapter"`
+   - `files_touched: ["tools/drive_backup/uploader.py"]`
+   - `dependencies: []`
+   - `verification_command: "python -m pytest tests/drive_backup/test_uploader.py -q"`  (NO leading/embedded `cd `)
+   - `spec.non_goals` MUST include a line containing the word **integration**, e.g. "Integration wiring into the pre-push hook orchestration is OUT OF SCOPE here — deferred to the dependent drive-backup-hook-runner and drive-backup-installer leaves; this leaf only builds the uploader seam."
+
+2. `task_id: "uploader-oracle"`
+   - `meta_task_type: "test_authoring"`
+   - top-level `mutation_target: "tools.drive_backup.uploader"`
+   - `files_touched: ["tests/drive_backup/test_uploader.py"]`
+   - `dependencies: ["uploader-impl"]`  (oracle depends on impl — impl-first ordering)
+   - `verification_command: "python -m pytest tests/drive_backup/test_uploader.py -q"`
+
+Note: `mutation_target` is a BARE DOTTED module name (no path, no slashes, no `.py`). `tools.drive_backup.uploader` resolves to `tools/drive_backup/uploader.py`, which is in the impl task's `files_touched` — this satisfies the paired-auto-oracle wiring exemption.
+
 # Deliverables
 
 One GREEN NEW module verified by `python -m pytest tests/drive_backup/test_uploader.py -q`. Frozen surfaces: `uploader.DEFAULT_REMOTE` (`"gdrive:"`), `uploader.remote_dir_for(repo, *, remote=DEFAULT_REMOTE) -> str`, `uploader.UploadResult` (fields `uploaded, queued, remote_path, error`), `uploader.upload(archive_result, *, remote=DEFAULT_REMOTE, runner, queue_dir, now) -> UploadResult` (never raises; success→uploaded, failure→queued), `uploader.drive_backup_drain(queue_dir, *, remote=DEFAULT_REMOTE, runner) -> list[UploadResult]` (idempotent retry).

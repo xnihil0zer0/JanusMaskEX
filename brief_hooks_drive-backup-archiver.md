@@ -30,6 +30,35 @@ No real `tar`, `zstd`, or `git` execution in any tested path — `runner` and `n
 
 The JanusMaskJR repo (self-build). Git diff semantics for `base_sha..sha` and the empty-base full-diff form. The `tar | zstd` pipeline shape (`tar --use-compress-program=zstd` or explicit pipe — the impl picks one and records the chosen argv in the manifest). Per-leaf contract: the committed `tests/drive_backup/test_archiver.py` and `tests/drive_backup/test_ledger.py` oracles.
 
+# Required plan shape
+
+The plan MUST be a single working_dir (this repo; `working_dir` null) DAG of EXACTLY THREE tasks. Two new `.py` modules are created under `tools/drive_backup/` (NOT a sensitive apply-glob), so the impl task uses a normal non-test type (`io_adapter`). Integration wiring (the pre-push hook orchestration) is genuinely DEFERRED to the dependent `drive-backup-hook-runner` / `drive-backup-installer` leaves, so the impl task EXCUSES the integration-test gate by listing the literal word "integration" in `spec.non_goals`. EACH created module is proven by its OWN paired `test_authoring` oracle whose top-level `mutation_target` (bare dotted module-under-test) resolves to that module's `.py` (the auto-authored, mutation-gated oracle IS the wiring/contract proof; an impl-first DAG makes a `*_wired` verification_command structurally impossible, which is expected). A leaf creating TWO modules needs TWO paired test_authoring tasks — one per module.
+
+Emit these tasks verbatim in shape:
+
+1. `task_id: "archiver-impl"`
+   - `meta_task_type: "io_adapter"`
+   - `files_touched: ["tools/drive_backup/archiver.py", "tools/drive_backup/ledger.py"]`
+   - `dependencies: []`
+   - `verification_command: "python -m pytest tests/drive_backup/test_archiver.py tests/drive_backup/test_ledger.py -q"`  (NO leading/embedded `cd `)
+   - `spec.non_goals` MUST include a line containing the word **integration**, e.g. "Integration wiring into the pre-push hook orchestration is OUT OF SCOPE here — deferred to the dependent drive-backup-hook-runner and drive-backup-installer leaves; this leaf only builds the archiver + ledger seams."
+
+2. `task_id: "archiver-oracle"`
+   - `meta_task_type: "test_authoring"`
+   - top-level `mutation_target: "tools.drive_backup.archiver"`
+   - `files_touched: ["tests/drive_backup/test_archiver.py"]`
+   - `dependencies: ["archiver-impl"]`  (oracle depends on impl — impl-first ordering)
+   - `verification_command: "python -m pytest tests/drive_backup/test_archiver.py -q"`
+
+3. `task_id: "ledger-oracle"`
+   - `meta_task_type: "test_authoring"`
+   - top-level `mutation_target: "tools.drive_backup.ledger"`
+   - `files_touched: ["tests/drive_backup/test_ledger.py"]`
+   - `dependencies: ["archiver-impl"]`
+   - `verification_command: "python -m pytest tests/drive_backup/test_ledger.py -q"`
+
+Note: `mutation_target` is a BARE DOTTED module name (no path, no slashes, no `.py`). `tools.drive_backup.archiver` resolves to `tools/drive_backup/archiver.py` and `tools.drive_backup.ledger` to `tools/drive_backup/ledger.py`, both in the impl task's `files_touched` — this satisfies the paired-auto-oracle wiring exemption for each created module.
+
 # Deliverables
 
 Two GREEN NEW modules verified by `python -m pytest tests/drive_backup/test_archiver.py tests/drive_backup/test_ledger.py -q`. Frozen surfaces: `archiver.DEFAULT_EXCLUDES` (frozenset), `archiver.ArchiveResult` (fields `archive_path, diff_path, base_sha, manifest`), `archiver.build_archive(repo_root, sha, *, runner, now, out_dir, exclude=DEFAULT_EXCLUDES, base_sha=None) -> ArchiveResult`; `ledger.BackupLedger(path)` with `last_backed_up_sha() -> str|None`, `record(sha, archive_name, uploaded) -> None`, `entries() -> list[dict]`. Artifact naming is `<repo_basename>_<sha7>_<compactUTC>` with `.tar.zst` and `.diff` siblings.
