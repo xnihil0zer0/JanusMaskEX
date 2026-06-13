@@ -1,71 +1,53 @@
 ---
 complexity_score: 5
 dependencies: []
+meta_task_type: harness_self_fix
 interfaces: "harness/webui_config_schema.py: ConfigField(name, dtype, default, *, choices=None, min=None, max=None, role=None); RoleSpec(name, config_key, dual: bool); ProviderSpec(provider_id, label, api_key_env, api_backed: bool); CONFIG_FIELDS: list[ConfigField]; ROLES: list[RoleSpec]; PROVIDERS: dict[str, ProviderSpec]; ValidatedConfig(values: dict); ConfigValidationError(field_errors: dict[str,str]); validate_config(submitted: dict, *, secrets: dict[str,str]) -> ValidatedConfig; atomic_save_config(validated: ValidatedConfig, config_path) -> None."
 ---
 
 # Title
 
-NEW typed config schema module that drives server-side validation: a single declarative field list (typed int/float/str/bool/path-file/path-dir/enum), a `validate_config()` that coerces+validates each field and rejects with a per-field error map, enforces dual-agent-distinct and provider-locked-unless-keyed cross-field rules, and an atomic `atomic_save_config()` writer.
+NEW typed config schema module driving server-side validation: a declarative field list (int/float/str/bool/path-file/path-dir/enum), a `validate_config()` that coerces+validates each field and rejects with a per-field error map, enforces dual-agent-distinct and provider-locked-unless-keyed rules, and an atomic `atomic_save_config()` writer.
+
+> **AST-CREDENTIAL GATE (`harness/ast_enforcer.py:78`).** Build/oracle is REJECTED if any variable/constant NAME matching `(?i)(key|secret|password)` is assigned a string literal, at module OR function scope (this is why a var named `key`/`OVERSEER_KEY` failed). RULES: never assign a string literal to such a name; read creds via `os.environ.get(...)`; name locals `env_name`/`value`/`cred`. SAFE: these words as dict keys, kwargs (`api_key_env="DEEPSEEK_API_KEY"`), and dataclass field names. ORACLE AUTHOR: reproduce the embedded oracle source VERBATIM — it is already AST-clean and non-vacuous; do NOT rename variables or add module-level constants.
 
 # Scope
 
-Create NEW `harness/webui_config_schema.py`. Mirror the typed-dataclass + explicit-validator precedent in `harness/config_loader.py` (`HooksConfig`/`get_hooks_config` raising `ConfigError`, with the `isinstance(x, bool)`-before-`int` guards). Provide:
+Create NEW `harness/webui_config_schema.py`. Mirror the typed-dataclass + explicit-validator precedent in `harness/config_loader.py` (`HooksConfig`/`get_hooks_config` raising `ConfigError`, with `isinstance(x, bool)`-before-`int` guards). Full contract is carried by the committed oracle `tests/webui/test_config_schema.py`. Surface, per the frontmatter `interfaces`:
 
-- `ConfigField(name, dtype, default, *, choices=None, min=None, max=None, role=None)` — `dtype` in `{"int","float","str","bool","path-file","path-dir","enum"}`.
-- `RoleSpec(name, config_key, dual)` — e.g. `RoleSpec("synthesis", "synthesis.active_agents", dual=True)`, plus single-select roles `overseer` (`overseer.default_backend`) and `autobrief` (`control.autobrief_default_agent`).
-- `ProviderSpec(provider_id, label, api_key_env, api_backed)` — the selectable model backends: non-api-backed CLI agents (`claude`, `gemini`, `antigravity`, `codex`) with `api_backed=False`, and api-backed providers (`openai`, `gemini_api`, `anthropic`, `deepseek`, `moonshot`, `zhipu`, `qwen`, `minimax`) with `api_backed=True` and the env var from `_autowork_scratch/CHINESE_API_RESEARCH.md`.
-- `CONFIG_FIELDS` — the existing tunables typed: `parallel_cap`(int 1..16), `min_ram_mb`(int >=0), `cooldown_tier_1/2/3`(float >=0), `antigravity_mode`(bool), plus `sandbox.filesystem_root`(path-dir), `overseer.store_path`(path-file) to exercise path types.
-- `validate_config(submitted, *, secrets)` — coerces each field by dtype (reject non-coercible with a clear message in `field_errors[name]`), bounds/choice-checks, and applies TWO cross-field rules: (a) for every `RoleSpec.dual` role, the two chosen agents must be present and DIFFERENT else `field_errors[role_key]`; (b) any role assigned a provider with `api_backed=True` whose `secrets[api_key_env]` is empty/absent -> `field_errors[role_key]` "provider locked: set <ENV> first". Raises `ConfigValidationError(field_errors)` if any error; returns `ValidatedConfig(values)` on success. `bool` must NOT accept arbitrary truthy ints (guard `isinstance(x, bool)` precedence as config_loader does); `"true"/"false"` strings coerce to bool.
-  - **ROLE-VALUE PROPAGATION (mandatory acceptance contract).** For EVERY `RoleSpec` whose submitted assignment passes validation — i.e. the role is present in `submitted[role.config_key]`, the chosen provider(s) exist in `PROVIDERS`, dual roles are distinct, and any api-backed provider is keyed in `secrets` — `validate_config` MUST WRITE the accepted assignment into the returned `ValidatedConfig.values` under the role's `config_key`. Single-select roles: `values[role.config_key] = <provider_id>` (the submitted string, e.g. `"deepseek"`). Dual roles: `values[role.config_key] = [<agent0>, <agent1>]` (the two distinct provider ids). It is NOT enough to validate the role and drop it — the validated role assignment is a first-class output value and MUST round-trip through `values`. The exact oracle assertion the blind worker must satisfy: `mod.validate_config(sub, secrets={env: "sk-real-key"}).values["overseer.default_backend"] == "deepseek"` (where `sub["overseer.default_backend"] = "deepseek"` and `env = mod.PROVIDERS["deepseek"].api_key_env`). KNOWN-BUG-TO-FIX: the prior impl validated roles but never populated `values[role.config_key]`, so this assertion KeyError'd — the re-build MUST add the propagation write inside the per-role accept path.
-- `atomic_save_config(validated, config_path)` — merge `validated.values` into the existing YAML and write via temp file in the same dir + `os.replace` (atomic); never partial-write config.yaml.
-  - **SAVE-KEY NESTING (mandatory acceptance contract — second known bug).** The real `harness/config.yaml` NESTS the bare-named fields under blocks, but the schema's `CONFIG_FIELDS` use SHORT names so `ValidatedConfig.values` stays short-keyed (the oracle reads `v["parallel_cap"]`, not `v["autowork.parallel_cap"]`). Therefore `atomic_save_config` MUST translate each short field name to its real DOTTED save path before the nested merge — specifically `parallel_cap`/`min_ram_mb`/`cooldown_tier_1`/`cooldown_tier_2`/`cooldown_tier_3` → `autowork.<name>`, and `antigravity_mode` → `synthesis.antigravity_mode`. Fields whose `name` is ALREADY dotted (`sandbox.filesystem_root`, `overseer.store_path`) and role keys (already dotted: `overseer.default_backend`, `synthesis.active_agents`, `control.autobrief_default_agent`) save at their dotted path unchanged. Use an internal short→dotted save-path map inside the module (do NOT change the frozen `ConfigField(...)` signature, and do NOT re-key `values` — keep `values` short for the validator oracle). The exact oracle assertion the blind worker must satisfy: after `atomic_save_config(validate_config(_base_submitted(), secrets={}), cfg)`, `yaml.safe_load(cfg)["autowork"]["parallel_cap"] == 5` AND unrelated blocks (`autowork.poll_interval_sec`, `overseer.enabled`) are PRESERVED. KNOWN-BUG-TO-FIX: the prior impl merged the SHORT key `parallel_cap` at top-level, leaving the existing `autowork.parallel_cap` stale — the re-build MUST apply the short→dotted save-path translation.
+- `ConfigField(name, dtype, default, *, choices=None, min=None, max=None, role=None)` — `dtype` in `{int,float,str,bool,path-file,path-dir,enum}`.
+- `RoleSpec(name, config_key, dual)` — dual `synthesis` (`synthesis.active_agents`), single-select `overseer` (`overseer.default_backend`) and `autobrief` (`control.autobrief_default_agent`).
+- `ProviderSpec(provider_id, label, api_key_env, api_backed)` — CLI agents `{claude, gemini, antigravity, codex}` with `api_backed=False`; api-backed `{openai, gemini_api, anthropic, deepseek, moonshot, zhipu, qwen, minimax}` with `api_backed=True` and env var from `_autowork_scratch/CHINESE_API_RESEARCH.md`. (`gemini_api` = Gemini's OpenAI-compatible endpoint, `GEMINI_API_KEY` — must match the oracle's `required` set.)
+- `CONFIG_FIELDS` — typed tunables: `parallel_cap`(int 1..16), `min_ram_mb`(int >=0), `cooldown_tier_1/2/3`(float >=0), `antigravity_mode`(bool), `sandbox.filesystem_root`(path-dir), `overseer.store_path`(path-file).
+- `validate_config(submitted, *, secrets)` — coerces by dtype (reject non-coercible into `field_errors[name]`), bounds/choice-checks, and applies TWO cross-field rules: (a) each dual role's two agents must be present and DIFFERENT; (b) any role assigned an api-backed provider whose `secrets[api_key_env]` is empty → `field_errors[role_key]` "provider locked: set <ENV> first". Accumulate errors (do NOT raise mid-loop); raise `ConfigValidationError(field_errors)` if any, else return `ValidatedConfig(values)`. `bool` must reject arbitrary truthy ints (guard `isinstance(x, bool)` precedence); `"true"/"false"` strings coerce to bool.
+- `atomic_save_config(validated, config_path)` — merge `validated.values` into existing YAML, write via temp file in the same dir + `os.replace` (atomic); never partial-write.
+
+KNOWN-BUG-TO-FIX #1 — ROLE-VALUE PROPAGATION (acceptance contract): for EVERY role whose assignment passes validation, write the accepted assignment into `ValidatedConfig.values[role.config_key]` — single-select = the provider-id string (e.g. `"deepseek"`), dual = `[agent0, agent1]`. The prior impl validated roles but never populated `values`, so the assertion `validate_config(sub, secrets={env:"..."}).values["overseer.default_backend"] == "deepseek"` KeyError'd. Add the propagation write inside the per-role accept path.
+
+KNOWN-BUG-TO-FIX #2 — SAVE-KEY NESTING (acceptance contract): `values` stays SHORT-keyed (oracle reads `v["parallel_cap"]`), but `config.yaml` nests under blocks. `atomic_save_config` MUST translate short→dotted save paths via an internal map before the nested merge: `parallel_cap`/`min_ram_mb`/`cooldown_tier_1/2/3` → `autowork.<name>`; `antigravity_mode` → `synthesis.antigravity_mode`. Already-dotted fields (`sandbox.filesystem_root`, `overseer.store_path`) and role keys save unchanged. Do NOT change the `ConfigField` signature or re-key `values`. The prior impl merged the short key at top-level, leaving `autowork.parallel_cap` stale; assertion: after save, `yaml.safe_load(cfg)["autowork"]["parallel_cap"] == 5` AND unrelated blocks (`autowork.poll_interval_sec`, `overseer.enabled`) preserved.
+
+This module owns its own `PROVIDERS` table and must NOT import `harness/model_backends*`; keep it decoupled (stdlib + PyYAML only).
 
 # Non-Goals
 
-No WebUI/Flask code, no template work (that is `webui-typed-widgets`). No backend instantiation or network calls (that is `webui-model-backends`; this module only reads `secrets` as a passed-in dict to gate locks). No secret persistence (the store is `harness/secrets_store.py`). No edits to any `_NEVER_AUTO_APPROVE` file or to `harness/config_loader.py`/`config.yaml`. The NEW module is the schema body; the ONLY additional edit is a minimal, additive live-wiring anchor in `harness/control_gate.py` (see Required plan shape) — a new top-level import + a thin accessor, never a change to any existing function/class.
+No WebUI/Flask code, no template work (that is `webui-typed-widgets`). No backend instantiation or network calls (that is `webui-model-backends`; this module only reads `secrets` as a passed-in dict to gate locks). No secret persistence (that is `harness/secrets_store.py`). No edits to any `_NEVER_AUTO_APPROVE` file or to `harness/config_loader.py`/`config.yaml`. This is NOT an integration leaf — the integration wiring into the WebUI server / Flask routes is deferred to the dependent `webui-typed-widgets` leaf and an owner-gated hand-edit. INDEPENDENT FOUNDATION with NO dependency on `webui-model-backends`. The ONLY edit beyond the new module is a minimal additive live-wiring anchor in `harness/control_gate.py` — a new top-level import + a thin accessor, never a change to an existing function/class.
 
 # Inputs
 
 - Precedent: `harness/config_loader.py` (dataclass + `__post_init__` validator + bool/int guard + `ConfigError`).
-- Real config keys + defaults: `harness/config.yaml` (`autowork.parallel_cap`, `cooldown_tier_*`, `synthesis.antigravity_mode`, `synthesis.active_agents`, `overseer.default_backend`/`store_path`, `control.autobrief_default_agent`, `sandbox.filesystem_root`).
+- Real config keys + defaults: `harness/config.yaml`.
 - Provider env vars + labels: `_autowork_scratch/CHINESE_API_RESEARCH.md`.
 - Committed oracle (the contract): `tests/webui/test_config_schema.py`.
 
 # Deliverables
 
-ONE GREEN leaf: `harness/webui_config_schema.py` verified by `python -m pytest tests/webui/test_config_schema.py -q`. Frozen surface exactly as the frontmatter `interfaces` line. The oracle is RED against a `raise NotImplementedError` stub and asserts: typed coercion + per-field rejection; dual-agent same-agent rejection; role→keyless-api-provider rejection; role→keyed-api-provider acceptance **(and that the accepted provider id round-trips into `out.values[role.config_key]`)**; atomic save round-trips and does not corrupt other config blocks.
-
-# Implementation notes
-
-- **EXACT role-value contract (the oracle the blind worker must turn GREEN):**
-  ```python
-  def test_role_assigned_keyed_api_provider_is_accepted():
-      sub = _base_submitted()
-      sub["overseer.default_backend"] = "deepseek"
-      env = mod.PROVIDERS["deepseek"].api_key_env
-      out = mod.validate_config(sub, secrets={env: "sk-real-key"})
-      assert out.values["overseer.default_backend"] == "deepseek"
-  ```
-  Therefore, in the per-role accept path of `validate_config`, after a role's provider(s) pass the lock/distinct checks, set `values[role.config_key] = <accepted assignment>` (a bare provider-id string for single-select roles; a `[agent0, agent1]` list for dual roles). Do NOT raise mid-loop; accumulate `field_errors` and only write `values[role.config_key]` when that role had no error.
-- **Required api-backed providers (oracle ↔ schema reconciliation).** The api-backed `PROVIDERS` set is `{openai, gemini_api, anthropic, deepseek, moonshot, zhipu, qwen, minimax}` — `gemini_api` (Gemini's OpenAI-compatible endpoint, `GEMINI_API_KEY`) is INCLUDED in BOTH the schema's `PROVIDERS` table and the oracle's `required` set; keep them in agreement. CLI agents `{claude, gemini, antigravity, codex}` stay `api_backed=False`.
-- **AST credential gate** (`harness/ast_enforcer.py`): never assign a string literal to a name containing key/secret/password. Pass env names only via the `api_key_env=...` dataclass FIELD (e.g. `ProviderSpec(..., api_key_env='DEEPSEEK_API_KEY', ...)`), NEVER a bare `key = "..."`/`secret = "..."` assignment.
-- **No model_backends dependency.** This module owns its own `PROVIDERS` table and must NOT import `harness/model_backends*`; keep it decoupled (stdlib + PyYAML only).
+ONE GREEN leaf: `harness/webui_config_schema.py` verified by `python -m pytest tests/webui/test_config_schema.py -q`. Frozen surface exactly as the frontmatter `interfaces`. The committed oracle is RED against a `raise NotImplementedError` stub and asserts: typed coercion + per-field rejection; dual-agent same-agent rejection; role→keyless-api-provider rejection; role→keyed-api-provider acceptance (accepted provider id round-trips into `out.values[role.config_key]`); atomic save round-trips without corrupting other blocks; module passes `check_wired`.
 
 # Required plan shape
 
-The plan MUST be a single working_dir (this repo; `working_dir` null) DAG of EXACTLY TWO tasks. One new `.py` module is created (`harness/webui_config_schema.py`), which sits under the SENSITIVE `harness/**` apply-glob, so the impl task MUST use `meta_task_type: "harness_self_fix"` (the only non-test type permitted to commit a `harness/**` path — any other type is rejected at plan time with `sensitive_files_touched`). The integration wiring into the WebUI server / Flask routes is genuinely DEFERRED to the dependent `webui-typed-widgets` leaf and an owner-gated hand-edit, so the impl task EXCUSES the integration-test gate by listing the literal word "integration" in `spec.non_goals`.
+INDEPENDENT FOUNDATION (frontmatter `dependencies: []`); supplies its own LIVE_ROOT anchor. Single working_dir (`working_dir` null) DAG of EXACTLY TWO tasks. The new module is under the SENSITIVE `harness/**` glob, so the impl task MUST be `meta_task_type: "harness_self_fix"` and EXCUSE the integration-test gate via the literal word "integration" in `spec.non_goals`.
 
-**LIVE-WIRING ANCHOR (deadlock break).** A NEW `harness/**` module is rejected at acceptance with `orphan_unwired` (`harness/wire_up.py:check_wired`) unless it is reachable through the import graph from a LIVE_ROOT (`harness/orchestrator.py`, `harness/orchestrator_worker.py`, `harness/autowork_daemon.py`, `harness/planner/cli.py`), has a live importer transitively reachable from a root, or is CONFIG_WIRED. The UI leaf that imports this schema lives under `tools/` (NOT a root) and is dep-gate-held behind this leaf, so it cannot supply the importer. Therefore the impl task MUST itself add the live importer, WITHIN THIS LEAF'S SCOPE, into the root-reachable anchor **`harness/control_gate.py`** (verified `check_wired(...).wired is True`; directly imported by `harness/orchestrator.py`; NOT in `_NEVER_AUTO_APPROVE`, so a `harness_self_fix` may commit it). The edit MUST be MINIMAL and ADDITIVE (never-patch-existing-class-methods): add a module-level `from harness import webui_config_schema` plus a NEW thin top-level accessor `def typed_config_schema(): return webui_config_schema.CONFIG_FIELDS` (rides as a TRAILING top-level node), so `harness/webui_config_schema.py` becomes reachable: `webui_config_schema ← control_gate ← orchestrator (root)`. Do NOT alter any existing `control_gate.py` function or class.
-
-The created module is proven by a paired `test_authoring` oracle whose top-level `mutation_target` (bare dotted module-under-test) resolves to the impl's `.py` (the auto-authored, mutation-gated oracle IS the contract proof). In ADDITION, because this leaf supplies its own root-anchor, the oracle MUST carry an explicit wiring assertion (a `*_wired`-style check) so the deadlock-break is verified in-band:
-
-```python
-def test_webui_config_schema_is_wired():
-    from pathlib import Path
-    from harness.wire_up import check_wired
-    assert check_wired(Path('.'), 'harness/webui_config_schema.py').wired is True
-```
+LIVE-WIRING ANCHOR (deadlock break): a NEW `harness/**` module is rejected with `orphan_unwired` unless reachable from a LIVE_ROOT. The impl task additively wires the module to the PROVEN anchor `harness/control_gate.py` (imported by `harness/orchestrator.py`, a root): add `from harness import webui_config_schema` + a thin trailing `def typed_config_schema(): return webui_config_schema.CONFIG_FIELDS`. ADDITIVE only — ride new import/function as trailing top-level nodes; never patch an existing `control_gate.py` symbol.
 
 Emit these tasks verbatim in shape:
 
@@ -73,16 +55,15 @@ Emit these tasks verbatim in shape:
    - `meta_task_type: "harness_self_fix"`
    - `files_touched: ["harness/webui_config_schema.py", "harness/control_gate.py"]`
    - `dependencies: []`
-   - `verification_command: "python -m pytest tests/webui/test_config_schema.py -q"`  (NO leading/embedded `cd `)
-   - This task creates the whole-file `harness/webui_config_schema.py` AND makes a MINIMAL ADDITIVE live-wiring edit to `harness/control_gate.py`: add a module-level `from harness import webui_config_schema` and a NEW trailing top-level function `def typed_config_schema(): return webui_config_schema.CONFIG_FIELDS`. Do NOT modify any existing `control_gate.py` symbol; ride the new import + function as trailing nodes. This anchors `webui_config_schema` to a LIVE_ROOT (`control_gate ← orchestrator`) so it passes `check_wired`.
-   - `spec.non_goals` MUST include a line containing the word **integration**, e.g. "Integration wiring into the WebUI server and Flask routes is OUT OF SCOPE here — deferred to the dependent webui-typed-widgets leaf and an owner-gated hand-edit; this leaf only produces the schema + validators plus a minimal additive live-wiring anchor in harness/control_gate.py."
+   - `verification_command: "python -m pytest tests/webui/test_config_schema.py -q"`
+   - `spec.non_goals` MUST include a line containing the word **integration**.
 
 2. `task_id: "config-schema-oracle"`
    - `meta_task_type: "test_authoring"`
    - top-level `mutation_target: "harness.webui_config_schema"`
    - `files_touched: ["tests/webui/test_config_schema.py"]`
-   - `dependencies: ["config-schema-impl"]`  (oracle depends on impl — impl-first ordering)
+   - `dependencies: ["config-schema-impl"]`
    - `verification_command: "python -m pytest tests/webui/test_config_schema.py -q"`
-   - The oracle MUST include the explicit wiring assertion shown above (`assert check_wired(Path('.'), 'harness/webui_config_schema.py').wired is True`) so the live-wiring anchor is verified in-band alongside the schema contract.
+   - The oracle MUST include the wiring assertion `assert check_wired(Path('.'), 'harness/webui_config_schema.py').wired is True`.
 
-Note: `mutation_target` is a BARE DOTTED module name (no path, no slashes, no `.py`). `harness.webui_config_schema` resolves to `harness/webui_config_schema.py`, which is in the impl task's `files_touched` — this satisfies the paired-auto-oracle wiring exemption.
+Note: `mutation_target` is a BARE DOTTED module name (no path/slashes/`.py`). `harness.webui_config_schema` → `harness/webui_config_schema.py`, in the impl `files_touched` (satisfies the paired-auto-oracle wiring exemption).
