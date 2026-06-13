@@ -28,6 +28,13 @@ Build a NEW single-file, whole-file, stdlib-only module `tools/drive_backup/uplo
 
 No real `rclone` invocation, no network, no Google-Drive API, no credential reading/writing in any tested path — `runner` is the injected seam; tests assert argv shape, remote-path construction, the success→uploaded and failure→queued branches, the never-raise contract, and drain idempotency. No `rclone config` / login performed by code (that is the user-setup doc). No secrets in the repo (the credential lives in `~/.config/rclone/rclone.conf` outside both repos; this module only references the remote NAME). No archive building (consumes an `ArchiveResult` from drive-backup-archiver). No edits to any existing file (module is NEW). No edits to any `_NEVER_AUTO_APPROVE` file. No third-party imports (stdlib only). Does NOT author its own oracle — `tests/drive_backup/test_uploader.py` is the hand-authored RED precondition and is authoritative if a pinned name differs.
 
+# Resource hygiene (BUILD-BLOCKING — sibling archiver-impl died `auto_commit_failed_r1`)
+
+The uploader copies artifacts into `queue_dir` and writes `.queued.json` sidecars; it MUST keep the staging worktree removable:
+- NEVER default `queue_dir` (or any write path) to a location inside the repo/working tree — it is a caller-supplied seam; default destinations MUST NOT be `.`, `os.getcwd()`, or `__file__`'s dir. Any scratch space uses `tempfile` under the system temp dir.
+- Close EVERY file handle deterministically (context managers / `try/finally`); leave no open handles, `.lock`/`-wal`/`-shm` sidecars, or temp dirs inside the repo so `git worktree remove -f` exits 0.
+- NEVER create a nested `.git/` and NEVER spawn a real subprocess/network call in any tested path (rclone is the injected `runner` seam only).
+
 # Inputs
 
 Consumes `archiver.ArchiveResult` (fields `archive_path, diff_path, base_sha, manifest`) from drive-backup-archiver. The rclone `copyto` CLI shape (`rclone copyto <src> <remote>:<path>`) and the convention that a configured Google-Drive remote is named `gdrive:` (documented in `_autowork_scratch/DRIVE_BACKUP_USER_SETUP.md`). Per-leaf contract: the committed `tests/drive_backup/test_uploader.py` oracle.
