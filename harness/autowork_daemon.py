@@ -1645,12 +1645,11 @@ def _brief_dep_gate_ok(task: dict, status_records: list[dict], repo_root: pathli
     dispatched (-> smoke_failed -> blocked -> wasted attempt) before the sibling
     lands.
 
-    DEADLOCK-SAFE: the gate only HOLDS on a dep slug that EXISTS in
-    ``status_records`` AND still has un-accepted, non-terminal work. A dep slug
-    that is absent / never-planned, or whose record is terminally blocked, falls
-    back to DISPATCH so the queue can never wedge forever. Any error degrades to
-    DISPATCH (True). Returns True when the task has no resolvable owning brief or
-    that brief declares no frontmatter deps (byte-identical to the prior path).
+    DEADLOCK-SAFE: a dependency that is absent / not-yet-dispatched / blocked /
+    zombie all HOLD the dependent; a dependent is released ONLY on a genuine
+    terminal-ACCEPTED dependency, and any error degrades to DISPATCH (True).
+    Returns True when the task has no resolvable owning brief or that brief
+    declares no frontmatter deps (byte-identical to the prior path).
     """
     if not isinstance(task, dict):
         return True
@@ -1687,14 +1686,16 @@ def _brief_dep_gate_ok(task: dict, status_records: list[dict], repo_root: pathli
                 continue
             rec = by_slug.get(dep)
             if rec is None:
-                continue
-            state = rec.get('state')
-            if state in ('blocked', 'zombie'):
-                continue
+                # DEFECT A.1: absent / not-yet-dispatched dependency has NOT
+                # completed -> HOLD (a held task is re-evaluated next tick).
+                return False
             remaining = rec.get('remaining')
             task_ids = rec.get('task_ids') or []
+            # Released ONLY on a genuine terminal-ACCEPTED dependency.
             if task_ids and (not remaining):
                 continue
+            # Exists but not fully accepted (queued / in_flight / blocked /
+            # zombie) -> still un-accepted work -> HOLD.
             return False
         return True
     except Exception:
