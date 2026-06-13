@@ -1015,6 +1015,52 @@ class ControlHandlers:
         atomic_save_config(validated, cfg_path)
         return (200, {'saved': True})
 
+    def get_fs_list(self, query: dict) -> tuple[int, dict]:
+        if not query:
+            query = {}
+        path_list = query.get('path', [''])
+        path_val = path_list[0] if path_list else ''
+        base = self.repo_root.resolve()
+        try:
+            target = base / Path(path_val)
+            resolved = target.resolve()
+        except Exception as e:
+            return (400, {'error': f'Invalid path format: {e}'})
+        try:
+            resolved.relative_to(base)
+        except ValueError:
+            return (400, {'error': 'Path traversal outside root rejected'})
+        if not resolved.exists():
+            return (400, {'error': 'Path does not exist'})
+        if not resolved.is_dir():
+            return (400, {'error': 'Path is not a directory'})
+        try:
+            rel = resolved.relative_to(base)
+            rel_str = str(rel)
+            if rel_str == '.':
+                rel_str = ''
+        except ValueError:
+            rel_str = ''
+        if resolved == base:
+            parent_str = None
+        else:
+            try:
+                parent_rel = resolved.parent.relative_to(base)
+                parent_str = str(parent_rel)
+                if parent_str == '.':
+                    parent_str = ''
+            except ValueError:
+                parent_str = None
+        entries = []
+        try:
+            with os.scandir(resolved) as it:
+                for entry in it:
+                    entries.append({'name': entry.name, 'is_dir': entry.is_dir()})
+        except Exception as e:
+            return (400, {'error': f'Failed to read directory: {e}'})
+        entries.sort(key=lambda e: (not e['is_dir'], e['name']))
+        return (200, {'root': str(self.repo_root), 'path': rel_str, 'parent': parent_str, 'entries': entries})
+
 def _autowork_pidfile(state_dir: Path) -> Path:
     return _control_dir(state_dir) / 'autowork.pid'
 

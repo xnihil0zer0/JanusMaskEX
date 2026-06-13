@@ -432,6 +432,9 @@ class WebUIHandler(http.server.BaseHTTPRequestHandler):
         if path == '/api/briefs':
             status, body = self.server.control.get_briefs()
             return self._send_json(status, body)
+        if path == '/api/fs/list':
+            status, body = self.server.control.get_fs_list(self._query())
+            return self._send_json(status, body)
         if path == '/api/briefs/status':
             status, body = self.server.control.get_briefs_status()
             return self._send_json(status, body)

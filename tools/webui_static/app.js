@@ -1106,7 +1106,9 @@ pages.config = async () => {
     document.querySelectorAll(".browse-btn").forEach(btn => {
       btn.addEventListener("click", () => {
         const fieldName = btn.dataset.fieldName;
-        toast(`Browse clicked for ${fieldName} (target: fs-picker)`, "ok");
+        const input = document.getElementById(`typed-field-${fieldName}`);
+        const dtype = input ? input.dataset.dtype : "";
+        openFsPicker(fieldName, dtype);
       });
     });
     document.getElementById("typed-config-save-btn")?.addEventListener("click", handleSave);
@@ -1467,6 +1469,234 @@ function dagSvg(tasks) {
     </g>`;
   }).join("");
   return `<svg class="dag-svg" width="${W}" height="${H}">${edges}${nodes}</svg>`;
+}
+
+function openFsPicker(fieldName, fieldType) {
+  const existing = document.getElementById("fs-picker-modal");
+  if (existing) existing.remove();
+
+  const modal = document.createElement("div");
+  modal.id = "fs-picker-modal";
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: system-ui, -apple-system, sans-serif;
+  `;
+
+  const container = document.createElement("div");
+  container.style.cssText = `
+    width: 600px;
+    max-width: 90%;
+    max-height: 80%;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    display: flex;
+    flex-direction: column;
+    color: #c9d1d9;
+  `;
+  modal.appendChild(container);
+
+  const header = document.createElement("div");
+  header.style.cssText = `
+    padding: 16px;
+    border-bottom: 1px solid #30363d;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  `;
+  header.innerHTML = `
+    <h3 style="margin: 0; font-size: 1.1rem; color: #f0f6fc;">Browse Filesystem</h3>
+    <button id="fs-picker-close" style="
+      background: transparent;
+      border: none;
+      color: #8b949e;
+      cursor: pointer;
+      font-size: 1.5rem;
+      line-height: 1;
+      padding: 0 4px;
+    ">&times;</button>
+  `;
+  container.appendChild(header);
+
+  const navBar = document.createElement("div");
+  navBar.style.cssText = `
+    padding: 12px 16px;
+    background: #0d1117;
+    border-bottom: 1px solid #30363d;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  `;
+  container.appendChild(navBar);
+
+  const listContainer = document.createElement("div");
+  listContainer.style.cssText = `
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+    min-height: 200px;
+  `;
+  container.appendChild(listContainer);
+
+  const footer = document.createElement("div");
+  footer.style.cssText = `
+    padding: 12px 16px;
+    border-top: 1px solid #30363d;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  `;
+  footer.innerHTML = `
+    <button id="fs-picker-cancel" class="btn" style="margin: 0;">Cancel</button>
+  `;
+  container.appendChild(footer);
+
+  document.body.appendChild(modal);
+
+  let currentPath = "";
+
+  async function loadDir(path) {
+    listContainer.innerHTML = `<div style="padding: 16px; text-align: center; color: #8b949e;">Loading...</div>`;
+    const url = `/api/fs/list?path=${encodeURIComponent(path)}`;
+    const { status, body } = await api(url);
+
+    if (status !== 200 || !body) {
+      listContainer.innerHTML = `<div style="padding: 16px; color: var(--err); text-align: center;">Error loading directory: ${escape(body?.error || "Unknown error")}</div>`;
+      return;
+    }
+
+    currentPath = body.path || "";
+    const parent = body.parent;
+
+    navBar.innerHTML = "";
+    
+    const upBtn = document.createElement("button");
+    upBtn.className = "btn";
+    upBtn.textContent = "Parent ⬆️";
+    upBtn.disabled = parent === null;
+    upBtn.style.margin = "0";
+    upBtn.addEventListener("click", () => {
+      if (parent !== null) loadDir(parent);
+    });
+    navBar.appendChild(upBtn);
+
+    const pathSpan = document.createElement("span");
+    pathSpan.style.cssText = `
+      font-family: monospace;
+      font-size: 0.9rem;
+      color: #8b949e;
+      word-break: break-all;
+      flex: 1;
+    `;
+    pathSpan.textContent = "Root / " + currentPath;
+    navBar.appendChild(pathSpan);
+
+    if (fieldType === "path-dir") {
+      const selectCurrentBtn = document.createElement("button");
+      selectCurrentBtn.className = "btn primary";
+      selectCurrentBtn.textContent = "Select Current Folder";
+      selectCurrentBtn.style.margin = "0";
+      selectCurrentBtn.addEventListener("click", () => {
+        selectPath(currentPath);
+      });
+      navBar.appendChild(selectCurrentBtn);
+    }
+
+    listContainer.innerHTML = "";
+
+    const entries = body.entries || [];
+    if (entries.length === 0) {
+      listContainer.innerHTML = `<div style="padding: 16px; text-align: center; color: #8b949e;">(empty directory)</div>`;
+      return;
+    }
+
+    entries.forEach(entry => {
+      const item = document.createElement("div");
+      item.style.cssText = `
+        padding: 8px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid #21262d;
+        cursor: pointer;
+      `;
+      item.addEventListener("mouseenter", () => {
+        item.style.background = "#21262d";
+      });
+      item.addEventListener("mouseleave", () => {
+        item.style.background = "transparent";
+      });
+
+      const leftSide = document.createElement("div");
+      leftSide.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1;
+      `;
+      leftSide.innerHTML = `
+        <span style="font-size: 1.1rem;">${entry.is_dir ? "📁" : "📄"}</span>
+        <span style="font-family: monospace; color: ${entry.is_dir ? "#58a6ff" : "#c9d1d9"};">${escape(entry.name)}</span>
+      `;
+
+      if (entry.is_dir) {
+        leftSide.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const targetPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
+          loadDir(targetPath);
+        });
+      }
+
+      item.appendChild(leftSide);
+
+      const showSelect = (fieldType === "path-dir" && entry.is_dir) || (fieldType === "path-file" && !entry.is_dir) || (!fieldType);
+      
+      if (showSelect) {
+        const selectBtn = document.createElement("button");
+        selectBtn.className = "btn";
+        selectBtn.textContent = "Select";
+        selectBtn.style.margin = "0";
+        selectBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const targetPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
+          selectPath(targetPath);
+        });
+        item.appendChild(selectBtn);
+      }
+
+      listContainer.appendChild(item);
+    });
+  }
+
+  function selectPath(path) {
+    const input = document.getElementById(`typed-field-${fieldName}`);
+    if (input) {
+      input.value = path;
+      input.dispatchEvent(new Event("change"));
+      input.dispatchEvent(new Event("input"));
+    }
+    modal.remove();
+    toast(`Selected path: ${path}`, "ok");
+  }
+
+  document.getElementById("fs-picker-close").addEventListener("click", () => modal.remove());
+  document.getElementById("fs-picker-cancel").addEventListener("click", () => modal.remove());
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) modal.remove();
+  });
+
+  loadDir("");
 }
 
 // ---------------------------------------------------------------------------
