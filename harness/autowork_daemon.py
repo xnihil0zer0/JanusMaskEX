@@ -1634,7 +1634,7 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
             pass
     return summary
 
-def _brief_dep_gate_ok(task: dict, status_records: list[dict], repo_root: pathlib.Path) -> bool:
+def _brief_dep_gate_ok(task: dict, status_records: list[dict], repo_root: pathlib.Path, state_dir: pathlib.Path | None = None) -> bool:
     """Brief-level dependency gate (companion to the task-level gate).
 
     A child brief may declare ``dependencies: [sibling-slug]`` in its markdown
@@ -1650,6 +1650,16 @@ def _brief_dep_gate_ok(task: dict, status_records: list[dict], repo_root: pathli
     terminal-ACCEPTED dependency, and any error degrades to DISPATCH (True).
     Returns True when the task has no resolvable owning brief or that brief
     declares no frontmatter deps (byte-identical to the prior path).
+
+    DEADLOCK-BREAKER (active only when ``state_dir is not None``): a dep that is
+    TERMINALLY unresolvable -- no brief exists under any hyphen/underscore/case
+    spelling, or the dep brief exists but EVERY one of its tasks carries a
+    ``state_dir/tasks/blocked/<tid>.exhausted`` marker -- RELEASES the dependent
+    (release-with-warning) and emits a ``brief_dep_unresolvable`` telemetry row,
+    never an infinite hold. Dep slugs are resolved tolerantly (lower-case +
+    hyphen/underscore unified) against the status records AND on-disk
+    ``brief_hooks_*.md`` files. When ``state_dir is None`` the legacy path is
+    byte-identical: an absent record HOLDS, with no telemetry or disk inspection.
     """
     if not isinstance(task, dict):
         return True
@@ -1681,22 +1691,73 @@ def _brief_dep_gate_ok(task: dict, status_records: list[dict], repo_root: pathli
             dep_slugs = [d for d in coerced.get('dependencies') or () if isinstance(d, str) and d]
         except Exception:
             return True
+        if state_dir is None:
+            # Legacy path -- byte-identical to HEAD: absent record HOLDS, no
+            # telemetry, no disk inspection.
+            for dep in dep_slugs:
+                if dep == owner_slug:
+                    continue
+                rec = by_slug.get(dep)
+                if rec is None:
+                    # DEFECT A.1: absent / not-yet-dispatched dependency has NOT
+                    # completed -> HOLD (a held task is re-evaluated next tick).
+                    return False
+                remaining = rec.get('remaining')
+                task_ids = rec.get('task_ids') or []
+                # Released ONLY on a genuine terminal-ACCEPTED dependency.
+                if task_ids and (not remaining):
+                    continue
+                # Exists but not fully accepted (queued / in_flight / blocked /
+                # zombie) -> still un-accepted work -> HOLD.
+                return False
+            return True
+        # Deadlock-breaker active (state_dir provided).
+        def _norm(s: str) -> str:
+            return s.lower().replace('_', '-')
+        norm_by_slug: dict[str, dict] = {}
+        for s, rec in by_slug.items():
+            norm_by_slug.setdefault(_norm(s), rec)
+        on_disk_norm: set[str] = set()
+        try:
+            for p in pathlib.Path(repo_root).glob('brief_hooks_*.md'):
+                stem = p.name[len('brief_hooks_'):-len('.md')]
+                if stem:
+                    on_disk_norm.add(_norm(stem))
+        except Exception:
+            pass
+        norm_owner = _norm(owner_slug)
         for dep in dep_slugs:
-            if dep == owner_slug:
+            ndep = _norm(dep)
+            if ndep == norm_owner:
                 continue
             rec = by_slug.get(dep)
             if rec is None:
-                # DEFECT A.1: absent / not-yet-dispatched dependency has NOT
-                # completed -> HOLD (a held task is re-evaluated next tick).
+                rec = norm_by_slug.get(ndep)
+            if rec is not None:
+                remaining = rec.get('remaining')
+                task_ids = rec.get('task_ids') or []
+                # Released ONLY on a genuine terminal-ACCEPTED dependency.
+                if task_ids and (not remaining):
+                    continue
+                # Terminal class (b): the dep brief exists but EVERY task carries
+                # a blocked/.exhausted marker -> permanently dead -> RELEASE.
+                if task_ids and all(
+                    (pathlib.Path(state_dir) / 'tasks' / 'blocked' / f'{t}.exhausted').exists()
+                    for t in task_ids
+                ):
+                    _emit_telemetry(state_dir, tid, 'brief_dep_unresolvable', f'dep brief {dep!r} has every task exhausted')
+                    continue
+                # Resolved but transient (queued / in_flight / blocked-retryable
+                # / only-some-exhausted) -> still un-accepted work -> HOLD.
                 return False
-            remaining = rec.get('remaining')
-            task_ids = rec.get('task_ids') or []
-            # Released ONLY on a genuine terminal-ACCEPTED dependency.
-            if task_ids and (not remaining):
-                continue
-            # Exists but not fully accepted (queued / in_flight / blocked /
-            # zombie) -> still un-accepted work -> HOLD.
-            return False
+            # No status record under any spelling.
+            if ndep in on_disk_norm:
+                # Brief authored on disk but not yet planned -> TRANSIENT -> HOLD.
+                return False
+            # Terminal class (a): no brief exists anywhere under any spelling ->
+            # terminally unresolvable -> RELEASE with warning.
+            _emit_telemetry(state_dir, tid, 'brief_dep_unresolvable', f'dep slug {dep!r} resolves to no brief under any spelling')
+            continue
         return True
     except Exception:
         return True
@@ -1706,7 +1767,7 @@ def _decide(repo_root: pathlib.Path, state_dir: pathlib.Path, running_task_ids: 
     except Exception:
         status_records = []
     candidates = collect_dispatchable_tasks(status_records, running_task_ids, state_dir)
-    candidates = [c for c in candidates if _brief_dep_gate_ok(c, status_records, repo_root)]
+    candidates = [c for c in candidates if _brief_dep_gate_ok(c, status_records, repo_root, state_dir)]
     ordered = prioritize(candidates)
     free = max(0, cap - len(running_task_ids))
     paused = _pause_flag_path(state_dir).exists() or _full_stop_path(state_dir).exists()
