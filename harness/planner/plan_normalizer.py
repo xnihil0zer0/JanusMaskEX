@@ -231,7 +231,13 @@ def _sanitize_impl_verification_commands(plan: Dict[str, Any], repo_root: Option
         vcmd = t.get('verification_command')
         if not isinstance(vcmd, str) or not vcmd:
             continue
-        if not any((of in vcmd for of in oracle_files)):
+        references_oracle = any((of in vcmd for of in oracle_files))
+        # A.2: also handle a WEAK import-smoke (python -c "import ...") that
+        # names no oracle file — when a paired committed tests/**/test_<leaf>.py
+        # exists on disk we must still upgrade it to a real pytest gate, else a
+        # buggy-but-importable new-module / harness_self_fix impl ACCEPTs vacuously.
+        is_import_smoke = 'python -c' in vcmd and 'import' in vcmd
+        if not references_oracle and not is_import_smoke:
             continue
         modules: List[str] = []
         leaves: List[str] = []
