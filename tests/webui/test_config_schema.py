@@ -53,9 +53,9 @@ def test_dual_agent_role_is_declared():
 
 
 def test_api_backed_providers_have_env_vars():
-    # The 5 Chinese providers + OpenAI/Gemini/Anthropic must be registered, api-backed,
-    # each with a non-empty api_key_env.
-    required = {"openai", "anthropic", "deepseek", "moonshot", "zhipu", "qwen", "minimax"}
+    # The 5 Chinese providers + OpenAI/Gemini(API)/Anthropic must be registered, api-backed,
+    # each with a non-empty api_key_env. (gemini_api = Gemini OpenAI-compat endpoint.)
+    required = {"openai", "gemini_api", "anthropic", "deepseek", "moonshot", "zhipu", "qwen", "minimax"}
     ids = set(mod.PROVIDERS.keys())
     assert required <= ids, f"missing providers: {required - ids}"
     for pid in required:
@@ -113,6 +113,15 @@ def test_role_assigned_keyed_api_provider_is_accepted():
     env = mod.PROVIDERS["deepseek"].api_key_env
     out = mod.validate_config(sub, secrets={env: "sk-real-key"})
     assert out.values["overseer.default_backend"] == "deepseek"
+
+
+def test_webui_config_schema_is_wired():
+    # In-band proof of the live-wiring anchor (control_gate <- orchestrator root):
+    # the new harness/** module must be reachable from a LIVE_ROOT, else the
+    # acceptance gate rejects it with orphan_unwired.
+    from pathlib import Path
+    from harness.wire_up import check_wired
+    assert check_wired(Path('.'), 'harness/webui_config_schema.py').wired is True
 
 
 def test_atomic_save_roundtrips_without_clobbering(tmp_path):

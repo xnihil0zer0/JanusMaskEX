@@ -99,3 +99,12 @@ def test_secrets_store_is_gitignored_and_0600(tmp_path):
 
 def test_load_secrets_absent_returns_empty(tmp_path):
     assert ss.load_secrets(tmp_path / "nope") == {}
+
+
+def test_model_backends_modules_are_wired():
+    # Deadlock-break: both NEW harness modules must be reachable from a LIVE_ROOT
+    # (anchored additively into harness/control_gate.py <- orchestrator.py).
+    from pathlib import Path
+    from harness.wire_up import check_wired
+    assert check_wired(Path('.'), 'harness/model_backends.py').wired is True
+    assert check_wired(Path('.'), 'harness/secrets_store.py').wired is True
