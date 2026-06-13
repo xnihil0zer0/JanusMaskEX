@@ -32,6 +32,16 @@ agents:
     - -p
     - --dangerously-skip-permissions
     command: ${PROJECT_ROOT}/.agents/agy/agy
+  codex:
+    args:
+    - exec
+    - --dangerously-bypass-approvals-and-sandbox
+    - --skip-git-repo-check
+    - --color
+    - never
+    - -p
+    - ''
+    command: /home/xnihil0zer0/.nvm/versions/node/v22.17.0/bin/codex
   gemini:
     args:
     - -p

@@ -456,7 +456,7 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
     # jail (above) is kept; stdin/stdout compose through bwrap. The real
     # 'claude' command (basename 'claude') falls through to the original
     # streamed Popen path below, UNTOUCHED (no stdin).
-    _is_agy = os.path.basename(config['agents'][agent]['command']) == 'agy'
+    _is_agy = os.path.basename(config['agents'][agent]['command']) in ('agy', 'codex')
     if _is_agy:
         try:
             agy_cmd = list(cmd)
