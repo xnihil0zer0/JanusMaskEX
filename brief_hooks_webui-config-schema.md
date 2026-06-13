@@ -49,6 +49,8 @@ INDEPENDENT FOUNDATION (frontmatter `dependencies: []`); supplies its own LIVE_R
 
 LIVE-WIRING ANCHOR (deadlock break): a NEW `harness/**` module is rejected with `orphan_unwired` unless reachable from a LIVE_ROOT. The impl task additively wires the module to the PROVEN anchor `harness/control_gate.py` (imported by `harness/orchestrator.py`, a root): add `from harness import webui_config_schema` + a thin trailing `def typed_config_schema(): return webui_config_schema.CONFIG_FIELDS`. ADDITIVE only — ride new import/function as trailing top-level nodes; never patch an existing `control_gate.py` symbol.
 
+TEST-SPEC BALANCE (planner gate `insufficient_unit_tests`, severity error): each impl task's `test_spec.unit_tests` MUST have at least as many entries as its `functional_requirements` (`len(unit_tests) >= len(functional_requirements)`), and `test_spec.edge_cases` MUST have ≥2 entries mirrored in regression/property tests. For `config-schema-impl`, keep `functional_requirements` to a TIGHT list of ≤6 and emit ONE matching `unit_tests` entry per requirement: (1) typed coercion + per-field rejection into `field_errors`; (2) dual-agent same-agent rejection; (3) role→keyless-api-provider lock rejection; (4) role→keyed-api-provider acceptance with the provider-id propagated into `values[role.config_key]`; (5) `atomic_save_config` short→dotted nesting that preserves unrelated blocks; (6) module passes `check_wired`. `edge_cases` (≥2): bool must reject arbitrary truthy ints (isinstance precedence); `parallel_cap` out-of-bounds rejected.
+
 Emit these tasks verbatim in shape:
 
 1. `task_id: "config-schema-impl"`
