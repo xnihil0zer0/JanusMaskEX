@@ -458,6 +458,9 @@ class WebUIHandler(http.server.BaseHTTPRequestHandler):
         if path == '/api/config':
             status, body = self.server.control.get_config()
             return self._send_json(status, body)
+        if path == '/api/config/schema':
+            status, body = self.server.control.get_config_schema()
+            return self._send_json(status, body)
         if path == '/api/control/phases':
             status, body = self.server.control.get_control_phases()
             return self._send_json(status, body)
@@ -779,14 +782,13 @@ def build_tailer(state_dir: Path, logs_dir: Path, buffer_size: int) -> StateTail
     return tailer
 
 def parse_args(argv: Optional[list[str]]=None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog='tools.webui_server', description='Read-only HTTP+SSE sidecar for JanusMask harness telemetry.')
-    parser.add_argument('--state-dir', default='state', help='path to state/ (default: state)')
-    parser.add_argument('--logs-dir', default='logs', help='path to logs/ (default: logs)')
-    parser.add_argument('--host', default=DEFAULT_HOST, help=f'bind host (default: {DEFAULT_HOST})')
-    parser.add_argument('--port', type=int, default=DEFAULT_PORT, help=f'bind port (default: {DEFAULT_PORT})')
-    parser.add_argument('--buffer-lines', type=int, default=DEFAULT_BUFFER_LINES, help=f'tailer ring buffer cap (default: {DEFAULT_BUFFER_LINES})')
-    return parser.parse_args(argv)
-
+    args_parser = argparse.ArgumentParser(prog='tools.webui_server', description='Read-only HTTP+SSE sidecar for JanusMask harness telemetry.')
+    args_parser.add_argument('--state-dir', default='state', help='path to state/ (default: state)')
+    args_parser.add_argument('--logs-dir', default='logs', help='path to logs/ (default: logs)')
+    args_parser.add_argument('--host', default=DEFAULT_HOST, help=f'bind host (default: {DEFAULT_HOST})')
+    args_parser.add_argument('--port', type=int, default=DEFAULT_PORT, help=f'bind port (default: {DEFAULT_PORT})')
+    args_parser.add_argument('--buffer-lines', type=int, default=DEFAULT_BUFFER_LINES, help=f'tailer ring buffer cap (default: {DEFAULT_BUFFER_LINES})')
+    return args_parser.parse_args(argv)
 _ACTIVE_SERVER: Optional[WebUIServer] = None
 
 def release_for_handover() -> None:
@@ -794,10 +796,10 @@ def release_for_handover() -> None:
     global _ACTIVE_SERVER
     if _ACTIVE_SERVER is not None:
         try:
-            logger.info("Closing active WebUI socket for handover.")
+            logger.info('Closing active WebUI socket for handover.')
             _ACTIVE_SERVER.server_close()
         except Exception as e:
-            logger.warning(f"Failed to close WebUI socket: {e}")
+            logger.warning(f'Failed to close WebUI socket: {e}')
 
 def main(argv: Optional[list[str]]=None) -> int:
     global _ACTIVE_SERVER

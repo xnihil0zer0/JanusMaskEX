@@ -848,6 +848,14 @@ pages.approvals = async () => {
 
 pages.config = async () => {
   const { body } = await api("/api/config");
+  const schemaResp = await api("/api/config/schema");
+  const schema = schemaResp.body || { fields: [], roles: [], providers: {}, values: {}, keys_present: [] };
+  const fields = schema.fields || [];
+  const roles = schema.roles || [];
+  const providers = schema.providers || {};
+  const values = schema.values || {};
+  const keys_present = schema.keys_present || [];
+
   // WUI-PHASES: populate the require_approval <select> from the single-source
   // GET /api/control/phases (control_gate.KNOWN_PHASES); fall back to the
   // literal if the endpoint is unavailable (the fallback also includes
@@ -917,6 +925,204 @@ pages.config = async () => {
       updateConfigControl(obj);
     });
   }, 0);
+
+  // Render fields
+  let fieldsHtml = "";
+  for (const f of fields) {
+    const val = values[f.name] !== undefined ? values[f.name] : "";
+    let widget = "";
+    if (f.dtype === "int" || f.dtype === "float") {
+      const step = f.dtype === "int" ? "1" : "any";
+      widget = `<input type="number" step="${step}" id="typed-field-${f.name}" class="typed-field-input" data-field-name="${f.name}" data-dtype="${f.dtype}" value="${escape(val)}" />`;
+    } else if (f.dtype === "bool") {
+      const checked = val === true || val === "true" ? " checked" : "";
+      widget = `<input type="checkbox" id="typed-field-${f.name}" class="typed-field-input" data-field-name="${f.name}" data-dtype="bool"${checked} />`;
+    } else if (f.dtype === "enum") {
+      const choices = f.choices || [];
+      const opts = choices.map(c => `<option value="${escape(c)}"${c === val ? " selected" : ""}>${escape(c)}</option>`).join("");
+      widget = `<select id="typed-field-${f.name}" class="typed-field-input" data-field-name="${f.name}" data-dtype="enum">${opts}</select>`;
+    } else if (f.dtype === "path-file" || f.dtype === "path-dir") {
+      widget = `
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="typed-field-${f.name}" class="typed-field-input" style="flex:1;" data-field-name="${f.name}" data-dtype="${f.dtype}" value="${escape(val)}" />
+          <button class="btn browse-btn" type="button" data-field-name="${f.name}">Browse</button>
+        </div>`;
+    } else {
+      widget = `<input type="text" id="typed-field-${f.name}" class="typed-field-input" data-field-name="${f.name}" data-dtype="str" value="${escape(val)}" />`;
+    }
+    fieldsHtml += `
+      <div class="form-group" style="margin-bottom:12px;">
+        <label style="display:block;font-weight:bold;margin-bottom:4px;">${escape(f.name)} (${escape(f.dtype)})</label>
+        ${widget}
+        <span class="field-error-msg muted" id="typed-error-${f.name}" style="color:var(--err);display:block;margin-top:4px;"></span>
+      </div>`;
+  }
+
+  // Render roles
+  let rolesHtml = "";
+  for (const r of roles) {
+    const val = values[r.config_key];
+    let roleWidget = "";
+    if (r.dual) {
+      roleWidget = `
+        <div style="display:flex;gap:8px;">
+          <select id="typed-role-${r.config_key}-0" class="typed-role-select" data-config-key="${r.config_key}" data-index="0" style="flex:1;"></select>
+          <select id="typed-role-${r.config_key}-1" class="typed-role-select" data-config-key="${r.config_key}" data-index="1" style="flex:1;"></select>
+        </div>`;
+    } else {
+      roleWidget = `<select id="typed-role-${r.config_key}" class="typed-role-select" data-config-key="${r.config_key}"></select>`;
+    }
+    rolesHtml += `
+      <div class="form-group" style="margin-bottom:12px;">
+        <label style="display:block;font-weight:bold;margin-bottom:4px;">Role: ${escape(r.config_key)}</label>
+        ${roleWidget}
+        <span class="field-error-msg muted" id="typed-error-${r.config_key}" style="color:var(--err);display:block;margin-top:4px;"></span>
+      </div>`;
+  }
+
+  // Render api keys
+  let apiKeysHtml = "";
+  const uniqueApiKeys = new Set();
+  for (const name in providers) {
+    const p = providers[name];
+    if (p.api_backed && p.api_key_env) {
+      uniqueApiKeys.add(p.api_key_env);
+    }
+  }
+  for (const envVar of uniqueApiKeys) {
+    const hasKey = keys_present.includes(envVar);
+    const placeholder = hasKey ? "•••••••• (secret stored)" : "Enter API key";
+    apiKeysHtml += `
+      <div class="form-group" style="margin-bottom:12px;">
+        <label style="display:block;font-weight:bold;margin-bottom:4px;">API Key for ${escape(envVar)}</label>
+        <input type="password" id="typed-provider-key-${envVar}" class="typed-provider-key-input" data-env-var="${envVar}" placeholder="${placeholder}" />
+      </div>`;
+  }
+
+  const populateRoleSelects = () => {
+    const enteredKeys = new Set(keys_present);
+    for (const name in providers) {
+      const p = providers[name];
+      if (p.api_backed && p.api_key_env) {
+        const el = document.getElementById(`typed-provider-key-${p.api_key_env}`);
+        if (el && el.value.trim() !== "") {
+          enteredKeys.add(p.api_key_env);
+        }
+      }
+    }
+    document.querySelectorAll(".typed-role-select").forEach(sel => {
+      const configKey = sel.dataset.configKey;
+      const index = sel.dataset.index;
+      let selectedVal = "";
+      const val = values[configKey];
+      if (index !== undefined) {
+        selectedVal = Array.isArray(val) && val[index] ? val[index] : "";
+      } else {
+        selectedVal = typeof val === "string" ? val : "";
+      }
+      if (sel.value) {
+        selectedVal = sel.value;
+      }
+      let html = `<option value="">-- select provider --</option>`;
+      for (const name in providers) {
+        const p = providers[name];
+        let disabledAttr = "";
+        let disabledReason = "";
+        if (p.api_backed && p.api_key_env && !enteredKeys.has(p.api_key_env)) {
+          disabledAttr = " disabled";
+          disabledReason = " (API key required)";
+        }
+        const selectedAttr = name === selectedVal ? " selected" : "";
+        html += `<option value="${escape(name)}"${selectedAttr}${disabledAttr}>${escape(name)}${disabledReason}</option>`;
+      }
+      sel.innerHTML = html;
+    });
+  };
+
+  const handleSave = async () => {
+    document.querySelectorAll(".field-error-msg").forEach(el => el.textContent = "");
+    const payload = {};
+    document.querySelectorAll(".typed-field-input").forEach(el => {
+      const fieldName = el.dataset.fieldName;
+      const dtype = el.dataset.dtype;
+      let val = el.value;
+      if (dtype === "bool") {
+        payload[fieldName] = el.checked;
+      } else if (dtype === "int") {
+        payload[fieldName] = parseInt(val, 10);
+      } else if (dtype === "float") {
+        payload[fieldName] = parseFloat(val);
+      } else {
+        payload[fieldName] = val;
+      }
+    });
+    const roleValues = {};
+    document.querySelectorAll(".typed-role-select").forEach(sel => {
+      const configKey = sel.dataset.configKey;
+      const index = sel.dataset.index;
+      const val = sel.value;
+      if (index !== undefined) {
+        if (!roleValues[configKey]) roleValues[configKey] = [];
+        roleValues[configKey][parseInt(index, 10)] = val;
+      } else {
+        roleValues[configKey] = val;
+      }
+    });
+    for (const configKey in roleValues) {
+      payload[configKey] = roleValues[configKey];
+    }
+    document.querySelectorAll(".typed-provider-key-input").forEach(el => {
+      const envVar = el.dataset.envVar;
+      const val = el.value;
+      if (val) {
+        payload[`api_key__${envVar}`] = val;
+      }
+    });
+
+    const { status, body } = await api("/api/config/typed", {
+      method: "POST",
+      body: payload
+    });
+    if (status === 200) {
+      toast("Typed config saved successfully", "ok");
+      renderRoute();
+    } else if (status === 400 && body && body.field_errors) {
+      for (const fieldName in body.field_errors) {
+        const errEl = document.getElementById(`typed-error-${fieldName}`);
+        if (errEl) {
+          errEl.textContent = body.field_errors[fieldName];
+        } else {
+          toast(`Error on ${fieldName}: ${body.field_errors[fieldName]}`, "err");
+        }
+      }
+    }
+  };
+
+  setTimeout(() => {
+    populateRoleSelects();
+    document.querySelectorAll(".typed-provider-key-input").forEach(el => {
+      el.addEventListener("input", populateRoleSelects);
+    });
+    document.querySelectorAll(".browse-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const fieldName = btn.dataset.fieldName;
+        toast(`Browse clicked for ${fieldName} (target: fs-picker)`, "ok");
+      });
+    });
+    document.getElementById("typed-config-save-btn")?.addEventListener("click", handleSave);
+  }, 0);
+
+  const typedConfigCard = `
+    <div class="card">
+      <h3>Typed Config</h3>
+      <form id="typed-config-form" onsubmit="return false;">
+        ${fieldsHtml}
+        ${rolesHtml}
+        ${apiKeysHtml}
+        <button id="typed-config-save-btn" class="btn primary" type="button">Save Config</button>
+      </form>
+    </div>`;
+
   return `
     <h2>Config</h2>
     <div class="card">
@@ -957,6 +1163,7 @@ pages.config = async () => {
       <label>decisions_dir: <input type="text" id="ctrl-decisions-dir" value="${ctrl.decisions_dir != null ? escape(String(ctrl.decisions_dir)) : ""}" /></label>
       <button id="ctrl-save" class="btn primary">Save control</button>
     </div>
+    ${typedConfigCard}
     <div class="card"><pre>${escape(JSON.stringify(cfg, null, 2))}</pre></div>
     <div class="card muted">PUT /api/config/control accepts: require_approval, approval_timeout_sec, pause_flag_path, decisions_dir.</div>`;
 };

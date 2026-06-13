@@ -86,6 +86,7 @@ def _parse_autobrief_stdout(stdout_text: str) -> dict:
         if isinstance(inner, dict) and 'slug' in inner and ('content' in inner):
             return inner
     raise ValueError('no slug/content payload in autobrief stdout')
+
 def _jobs_dir(state_dir: Path) -> Path:
     p = _control_dir(state_dir) / 'jobs'
     p.mkdir(parents=True, exist_ok=True)
@@ -113,14 +114,10 @@ def _pid_alive(pid: int) -> bool:
 
 class ControlHandlers:
     """Owns subprocess lifecycle state for control-plane endpoints."""
-    _dispatch_post: dict[str, tuple[str, str]] = {'/api/auth/test_echo': ('post_auth_test_echo', 'none'), '/api/briefs': ('post_brief', 'body_query'), '/api/briefs/autocomplete': ('post_brief_autocomplete', 'body_query'), '/api/planner/kickoff': ('post_planner_kickoff', 'body'), '/api/orchestrator/start': ('post_orchestrator_start', 'none'), '/api/orchestrator/stop': ('post_orchestrator_stop', 'none'), '/api/orchestrator/pause': ('post_orchestrator_pause', 'none'), '/api/orchestrator/resume': ('post_orchestrator_resume', 'none'), '/api/scope-exception': ('post_scope_exception', 'body'), '^/api/briefs/([a-z0-9_]+)/validate$': ('post_brief_validate', 'groups'), '^/api/plans/([A-Za-z0-9._-]+)/extract$': ('post_plan_extract', 'groups_body'), '^/api/agents/([a-z]+)/kill$': ('post_agent_kill', 'groups'), '^/api/tasks/([A-Za-z0-9._-]+)/(approve|reject|retry)$': ('post_task_decision', 'groups_body'), '/api/autowork/start': ('post_autowork_start', 'none'), '/api/autowork/stop': ('post_autowork_stop', 'none'), '/api/autowork/pause': ('post_autowork_pause', 'none'), '/api/autowork/resume': ('post_autowork_resume', 'none'), '/api/rebuild/start': ('post_rebuild_start', 'body'), '/api/chat/send': ('post_chat_send', 'body'), '/api/chat/resend': ('post_chat_resend', 'body')}
+    _dispatch_post: dict[str, tuple[str, str]] = {'/api/auth/test_echo': ('post_auth_test_echo', 'none'), '/api/briefs': ('post_brief', 'body_query'), '/api/briefs/autocomplete': ('post_brief_autocomplete', 'body_query'), '/api/planner/kickoff': ('post_planner_kickoff', 'body'), '/api/orchestrator/start': ('post_orchestrator_start', 'none'), '/api/orchestrator/stop': ('post_orchestrator_stop', 'none'), '/api/orchestrator/pause': ('post_orchestrator_pause', 'none'), '/api/orchestrator/resume': ('post_orchestrator_resume', 'none'), '/api/scope-exception': ('post_scope_exception', 'body'), '^/api/briefs/([a-z0-9_]+)/validate$': ('post_brief_validate', 'groups'), '^/api/plans/([A-Za-z0-9._-]+)/extract$': ('post_plan_extract', 'groups_body'), '^/api/agents/([a-z]+)/kill$': ('post_agent_kill', 'groups'), '^/api/tasks/([A-Za-z0-9._-]+)/(approve|reject|retry)$': ('post_task_decision', 'groups_body'), '/api/autowork/start': ('post_autowork_start', 'none'), '/api/autowork/stop': ('post_autowork_stop', 'none'), '/api/autowork/pause': ('post_autowork_pause', 'none'), '/api/autowork/resume': ('post_autowork_resume', 'none'), '/api/rebuild/start': ('post_rebuild_start', 'body'), '/api/chat/send': ('post_chat_send', 'body'), '/api/chat/resend': ('post_chat_resend', 'body'), '/api/config/typed': ('post_save_typed_config', 'body')}
     _dispatch_put: dict[str, tuple[str, str]] = {'/api/config/control': ('put_config_control', 'body'), '/api/config/autowork': ('put_config_autowork', 'body'), '/api/autowork/allowlist': ('put_autowork_allowlist', 'body'), '/api/chat/mode': ('put_chat_mode', 'body')}
     _config_cache: dict = {}
     _config_cache_ts: float = 0.0
-    # AGENT-ISOLATION §4: test/operator seam — when set, the agents block is
-    # taken from here instead of harness/config.yaml. Lets tests that stub the
-    # agent binary on PATH inject a bare command name (the vendored absolute
-    # ${PROJECT_ROOT}/.agents/... command would otherwise bypass a PATH stub).
     _agents_override: Optional[dict] = None
 
     def post_chat_send(self, body: dict) -> tuple[int, dict]:
@@ -242,12 +239,6 @@ class ControlHandlers:
         if slug_hint:
             system_prompt += f'\n\nSlug hint: {slug_hint}\n'
         system_prompt += '\n' + exemplar
-
-        # Resolve req_agent command and args from config.yaml.
-        # AGENT-ISOLATION §4: interpolate ${PROJECT_ROOT}/${CONFIG_DIR}/${STATE_DIR}
-        # so the vendored .agents/ command resolves (config.yaml ships tokens,
-        # not host paths). webui_control reads config raw — it does NOT go
-        # through orchestrator.load_config — so the substitution must happen here.
         if self.__class__._agents_override is not None:
             agents_block = self.__class__._agents_override
         else:
@@ -262,14 +253,10 @@ class ControlHandlers:
         def _subst(s):
             if not isinstance(s, str):
                 return s
-            return (s.replace('${PROJECT_ROOT}', PROJECT_ROOT_STR)
-                     .replace('${CONFIG_DIR}', CONFIG_DIR_STR)
-                     .replace('${STATE_DIR}', STATE_DIR_STR))
-
+            return s.replace('${PROJECT_ROOT}', PROJECT_ROOT_STR).replace('${CONFIG_DIR}', CONFIG_DIR_STR).replace('${STATE_DIR}', STATE_DIR_STR)
         agent_cfg = agents_block.get(req_agent, {})
         command = _subst(agent_cfg.get('command', req_agent))
         args = [_subst(a) for a in agent_cfg.get('args', [])]
-
         if args:
             try:
                 p_index = args.index('-p')
@@ -416,9 +403,6 @@ class ControlHandlers:
                 return (400, {'error': 'invalid_output_path', 'value': v})
         argv = [sys.executable, '-m', 'harness.planner.cli', str(brief), '--output-plan', out_plan, '--output-critique', out_crit]
         info = self._spawn_tracked(argv, job_id=f'planner-{slug}-{int(time.time())}')
-        # Treat the authenticated kickoff as authorization for hands-off
-        # autowork completion: append this brief's slug to the auto-promote
-        # allowlist (idempotent, best-effort, preserving existing entries).
         auto_promote_allowlisted = False
         try:
             path = _autowork_allowlist_path(self.state_dir)
@@ -436,7 +420,7 @@ class ControlHandlers:
                     path.parent.mkdir(parents=True, exist_ok=True)
                 if path.exists():
                     existing = path.read_text(encoding='utf-8')
-                    if existing and not existing.endswith('\n'):
+                    if existing and (not existing.endswith('\n')):
                         existing += '\n'
                     path.write_text(existing + slug + '\n', encoding='utf-8')
                 else:
@@ -489,10 +473,10 @@ class ControlHandlers:
         if not plan_path.exists():
             return (404, {'error': 'plan_not_found'})
         try:
-            plan = json.loads(plan_path.read_text())
+            parsed_plan = json.loads(plan_path.read_text())
         except (OSError, json.JSONDecodeError) as exc:
             return (500, {'error': 'plan_unreadable', 'detail': str(exc)})
-        all_ids = [t.get('task_id') for t in plan.get('tasks', []) if t.get('task_id')]
+        all_ids = [t.get('task_id') for t in parsed_plan.get('tasks', []) if t.get('task_id')]
         requested = body.get('task_ids', 'all')
         if requested == 'all':
             ids = all_ids
@@ -672,7 +656,7 @@ class ControlHandlers:
             from harness import control_gate
             ra = body['require_approval']
             known_phases = set(control_gate.KNOWN_PHASES)
-            if not isinstance(ra, list) or not all(isinstance(p, str) for p in ra):
+            if not isinstance(ra, list) or not all((isinstance(p, str) for p in ra)):
                 return (400, {'error': 'require_approval_must_be_string_list'})
             bad = sorted(set(ra) - known_phases)
             if bad:
@@ -703,25 +687,13 @@ class ControlHandlers:
             pid = self._read_autowork_pid()
             if pid and _pid_alive(pid):
                 return (200, {'status': 'already_running', 'pid': pid})
-            # Clear a stale supervisor.stop sentinel from a prior Stop so the
-            # supervisor's respawn loop runs (G-SUPERVISOR-WUI).
             _autowork_supervisor_stop_sentinel(self.state_dir).unlink(missing_ok=True)
-            # Launch via the supervisor (scripts/run-autowork.sh) so the
-            # WebUI-started daemon gets self-sustain/respawn. The supervisor
-            # writes the supervised DAEMON pid to state/control/autowork.pid
-            # itself, so we do NOT overwrite it with the supervisor's pid here:
-            # Stop SIGTERMs that daemon pid AND writes supervisor.stop, which
-            # breaks the respawn loop instead of relaunching the killed child.
-            argv = ['bash', str(self.repo_root / 'scripts' / 'run-autowork.sh'),
-                    '--state-dir', str(self.state_dir)]
+            argv = ['bash', str(self.repo_root / 'scripts' / 'run-autowork.sh'), '--state-dir', str(self.state_dir)]
             info = self._spawn_tracked(argv, job_id=f'autowork-{int(time.time())}')
             return (200, {'status': 'started', 'supervisor_pid': info['pid'], 'job_id': info['job_id']})
 
     def post_autowork_stop(self) -> tuple[int, dict]:
         with self._lock:
-            # Write the supervisor.stop sentinel BEFORE killing the daemon so a
-            # run-autowork.sh supervisor breaks its respawn loop instead of
-            # relaunching the child we are about to SIGTERM (G-SUPERVISOR-WUI).
             try:
                 _autowork_supervisor_stop_sentinel(self.state_dir).write_text('stop')
             except OSError:
@@ -897,7 +869,6 @@ class ControlHandlers:
                 items = [str(x).strip() for x in v if str(x).strip()]
                 return items or None
             return None
-
         ip = Path(input_dir).expanduser()
         op = Path(output_dir).expanduser()
         if not ip.exists() or not ip.is_dir():
@@ -906,26 +877,10 @@ class ControlHandlers:
             return (400, {'error': 'output_dir must differ from input_dir'})
         try:
             from harness.rebuild import job as _job
-            j = _job.create_job(
-                input_dir=ip,
-                output_dir=op,
-                state_dir=self.state_dir,
-                name=name,
-                modules=_aslist(body.get('modules')),
-                test_files=_aslist(body.get('test_files')),
-                seed_files=_aslist(body.get('seed_files')),
-                repo_root=self.repo_root,
-            )
+            j = _job.create_job(input_dir=ip, output_dir=op, state_dir=self.state_dir, name=name, modules=_aslist(body.get('modules')), test_files=_aslist(body.get('test_files')), seed_files=_aslist(body.get('seed_files')), repo_root=self.repo_root)
         except Exception as exc:
             return (500, {'error': 'create_failed', 'detail': str(exc)})
-        return (200, {
-            'status': 'started',
-            'job_id': j['job_id'],
-            'name': j['name'],
-            'units': j['n_units'],
-            'output_dir': j['output_dir'],
-            'allowlisted': True,
-        })
+        return (200, {'status': 'started', 'job_id': j['job_id'], 'name': j['name'], 'units': j['n_units'], 'output_dir': j['output_dir'], 'allowlisted': True})
 
     def get_rebuild_status(self) -> tuple[int, dict]:
         """Live progress for every rebuild job + any running rebuild loop."""
@@ -941,21 +896,7 @@ class ControlHandlers:
                 st = _job.job_status(self.state_dir, jid, persist=False)
             except Exception:
                 st = {}
-            out.append({
-                'job_id': jid,
-                'name': j.get('name'),
-                'status': st.get('status', j.get('status', 'unknown')),
-                'done': len(st.get('done', []) or []),
-                'remaining': len(st.get('remaining', []) or []),
-                'total': st.get('total', j.get('n_units', 0)),
-                'current': st.get('current'),
-                'complete': bool(st.get('complete', False)),
-                'output_dir': j.get('output_dir'),
-                'head_sha': st.get('head_sha'),
-                'attempts': j.get('attempts', 0),
-                'dependencies': st.get('dependencies', j.get('descriptor', {}).get('dependencies', [])),
-                'venv_ready': bool(st.get('venv_ready', False)),
-            })
+            out.append({'job_id': jid, 'name': j.get('name'), 'status': st.get('status', j.get('status', 'unknown')), 'done': len(st.get('done', []) or []), 'remaining': len(st.get('remaining', []) or []), 'total': st.get('total', j.get('n_units', 0)), 'current': st.get('current'), 'complete': bool(st.get('complete', False)), 'output_dir': j.get('output_dir'), 'head_sha': st.get('head_sha'), 'attempts': j.get('attempts', 0), 'dependencies': st.get('dependencies', j.get('descriptor', {}).get('dependencies', [])), 'venv_ready': bool(st.get('venv_ready', False))})
         running: list[str] = []
         rdir = self.state_dir / 'control' / 'autowork' / 'running'
         if rdir.exists():
@@ -989,6 +930,90 @@ class ControlHandlers:
         except OSError as exc:
             return (500, {'error': 'allowlist_write_failed', 'detail': str(exc)})
         return (200, {'updated': True, 'slugs': slugs, 'file_present': True})
+
+    def get_config_schema(self) -> tuple[int, dict]:
+        from harness.webui_config_schema import CONFIG_FIELDS, ROLES, PROVIDERS
+        from harness.secrets_store import load_secrets
+        cfg_path = self.repo_root / 'harness' / 'config.yaml'
+        try:
+            config_data = yaml.safe_load(cfg_path.read_text(encoding='utf-8')) or {}
+        except Exception:
+            config_data = {}
+
+        def find_key_nested(d: dict, key: str) -> Any:
+            if key in d:
+                return d[key]
+            for k, v in d.items():
+                if isinstance(v, dict):
+                    res = find_key_nested(v, key)
+                    if res is not None:
+                        return res
+            return None
+
+        def get_config_value(config_data: dict, field_name: str) -> Any:
+            parts = field_name.split('.')
+            cur = config_data
+            found = True
+            for part in parts:
+                if isinstance(cur, dict) and part in cur:
+                    cur = cur[part]
+                else:
+                    found = False
+                    break
+            if found:
+                return cur
+            return find_key_nested(config_data, parts[-1])
+        fields_list = []
+        values_dict = {}
+        for field in CONFIG_FIELDS:
+            name = getattr(field, 'name', None)
+            dtype = getattr(field, 'dtype', None)
+            f_dict = {'name': name, 'dtype': dtype}
+            if getattr(field, 'bounds', None) is not None:
+                f_dict['bounds'] = field.bounds
+            if getattr(field, 'choices', None) is not None:
+                f_dict['choices'] = field.choices
+            fields_list.append(f_dict)
+            val = get_config_value(config_data, name)
+            if val is not None:
+                values_dict[name] = val
+        roles_list = []
+        for role in ROLES:
+            roles_list.append({'config_key': getattr(role, 'config_key', None), 'dual': getattr(role, 'dual', False)})
+        providers_dict = {}
+        if isinstance(PROVIDERS, dict):
+            for name, spec in PROVIDERS.items():
+                providers_dict[name] = {'api_backed': getattr(spec, 'api_backed', False), 'api_key_env': getattr(spec, 'api_key_env', None)}
+        elif isinstance(PROVIDERS, list):
+            for spec in PROVIDERS:
+                name = getattr(spec, 'name', None)
+                if name:
+                    providers_dict[name] = {'api_backed': getattr(spec, 'api_backed', False), 'api_key_env': getattr(spec, 'api_key_env', None)}
+        try:
+            secrets = load_secrets(self.state_dir)
+            keys_present = [k for k, v in secrets.items() if v]
+        except Exception:
+            keys_present = []
+        body = {'fields': fields_list, 'roles': roles_list, 'providers': providers_dict, 'values': values_dict, 'keys_present': keys_present}
+        return (200, body)
+
+    def post_save_typed_config(self, body: dict) -> tuple[int, dict]:
+        from harness.webui_config_schema import validate_config, atomic_save_config, ConfigValidationError
+        from harness.secrets_store import load_secrets, save_secret
+        for k, v in list(body.items()):
+            if k.startswith('api_key__'):
+                env_var = k[len('api_key__'):]
+                if v:
+                    save_secret(self.state_dir, env_var, v)
+        secrets = load_secrets(self.state_dir)
+        submitted = {k: v for k, v in body.items() if not k.startswith('api_key__')}
+        try:
+            validated = validate_config(submitted, secrets=secrets)
+        except ConfigValidationError as err:
+            return (400, {'field_errors': err.field_errors})
+        cfg_path = self.repo_root / 'harness' / 'config.yaml'
+        atomic_save_config(validated, cfg_path)
+        return (200, {'saved': True})
 
 def _autowork_pidfile(state_dir: Path) -> Path:
     return _control_dir(state_dir) / 'autowork.pid'
