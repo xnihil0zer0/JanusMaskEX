@@ -33,11 +33,21 @@ The plan MUST be a single working_dir (this repo; `working_dir` null) DAG of EXA
 Emit these tasks verbatim in shape:
 
 1. `task_id: "installer-impl"`
-   - `meta_task_type: "cli_tooling"`
+   - `meta_task_type: "cli_tooling"` (one NEW single-file stdlib-only module; NOT `refactor` — this is a new-module creation, not an edit of an existing file).
+   - `spec_author: null` (REQUIRED field — emit exactly `null`, never omit it).
+   - `priority: "high"`, `estimated_complexity: "medium"`.
    - `files_touched: ["tools/drive_backup/install_hooks.py"]`
-   - `dependencies: []`
+   - `dependencies: []`  (the built sibling drive-backup-hook-runner leaf is NOT a task dependency)
    - `verification_command: "python -m pytest tests/drive_backup/test_install_hooks.py -q"`  (NO leading/embedded `cd `)
    - `spec.non_goals` MUST include a line containing the word **integration**, e.g. "Live integration — actually writing .git/hooks/pre-push in either repo — is OUT OF SCOPE here; deferred to the user-run install step. The created/updated/chained/dry branches are exercised against an injected fake fs seam only."
+
+TEST-SPEC BALANCE for `installer-impl` (planner gates, all severity=error — satisfy ALL; the committed RED oracle `tests/drive_backup/test_install_hooks.py` (8 tests) is authoritative and already pins these):
+- `spec.functional_requirements`: a TIGHT list of EXACTLY 6: (1) `DEFAULT_REPOS == ['/home/xnihil0zer0/JanusMaskJR', '/home/xnihil0zer0/NobleGreedv2']` and `SENTINEL` marker is defined; (2) `render_shim(janusmask_root)` returns a `#!/usr/bin/env bash` shim bounded by `SENTINEL`, embedding the ABSOLUTE `janusmask_root`, `python -m tools.drive_backup.hook_runner`, and an unconditional `exit 0`; (3) `render_shim(..., chained_hook=...)` runs the saved original hook with the same stdin before the backup step; (4) `install` writes the shim when no hook exists (action `created`) and sets mode 0o755 via the `fs` seam; (5) `install` rewrites in place when a `SENTINEL`-managed shim exists (action `updated`, idempotent — never duplicated); (6) `install` moves a foreign non-managed hook to `pre-push.pre-janusmask` and chains to it (action `chained`), and `dry_run=True` computes the action/target without writing (action suffixed `:dry`).
+- `test_spec.unit_tests`: at least 6 entries (`len(unit_tests) >= len(functional_requirements)`) — ONE mapping each requirement above.
+- `test_spec.edge_cases`: ≥2 entries, EACH mirrored in `regression_tests` OR `property_tests`: (a) re-running `install` on a managed shim is IDEMPOTENT (action `updated`, sentinel never duplicated); (b) a pre-existing FOREIGN hook is PRESERVED (moved to `pre-push.pre-janusmask`) and chained, never destroyed.
+- `test_spec.integration_tests`: MAY be empty ONLY because the gate is excused via the **integration** line in `spec.non_goals`.
+- `test_spec.minimum_test_count`: >= 9 (>= `1.5 * len(functional_requirements)`).
+- `token_budget_ratio.test_tokens` MUST be >= `1.5 * token_budget_ratio.implementation_tokens`.
 
 2. `task_id: "installer-oracle"`
    - `meta_task_type: "test_authoring"`
@@ -47,6 +57,8 @@ Emit these tasks verbatim in shape:
    - `verification_command: "python -m pytest tests/drive_backup/test_install_hooks.py -q"`
 
 Note: `mutation_target` is a BARE DOTTED module name (no path, no slashes, no `.py`). `tools.drive_backup.install_hooks` resolves to `tools/drive_backup/install_hooks.py`, which is in the impl task's `files_touched` — this satisfies the paired-auto-oracle wiring exemption.
+
+`check_wired` is satisfied orphan-by-design via the committed static manifest `config/drive_backup_modules.yaml` (this module is reached from the git pre-push hook / user-run install step, not from a Python `LIVE_ROOT`; wiring is proven by the manifest, NOT by a `*_wired` verification_command). Do NOT add a `*_wired` command to any task in this plan.
 
 # Deliverables
 

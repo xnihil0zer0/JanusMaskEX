@@ -46,11 +46,21 @@ The plan MUST be a single working_dir (this repo; `working_dir` null) DAG of EXA
 Emit these tasks verbatim in shape:
 
 1. `task_id: "uploader-impl"`
-   - `meta_task_type: "io_adapter"`
+   - `meta_task_type: "io_adapter"` (one NEW single-file stdlib-only module; NOT `refactor` — this is a new-module creation, not an edit of an existing file).
+   - `spec_author: null` (REQUIRED field — emit exactly `null`, never omit it).
+   - `priority: "high"`, `estimated_complexity: "medium"`.
    - `files_touched: ["tools/drive_backup/uploader.py"]`
-   - `dependencies: []`
+   - `dependencies: []`  (the built sibling drive-backup-archiver leaf is NOT a task dependency)
    - `verification_command: "python -m pytest tests/drive_backup/test_uploader.py -q"`  (NO leading/embedded `cd `)
    - `spec.non_goals` MUST include a line containing the word **integration**, e.g. "Integration wiring into the pre-push hook orchestration is OUT OF SCOPE here — deferred to the dependent drive-backup-hook-runner and drive-backup-installer leaves; this leaf only builds the uploader seam."
+
+TEST-SPEC BALANCE for `uploader-impl` (planner gates, all severity=error — satisfy ALL; the committed RED oracle `tests/drive_backup/test_uploader.py` (8 tests) is authoritative and already pins these):
+- `spec.functional_requirements`: a TIGHT list of EXACTLY 6: (1) `DEFAULT_REMOTE == "gdrive:"`; (2) `remote_dir_for(repo, *, remote)` returns `"<remote>repo-push-backups/<repo>/"`; (3) `upload` invokes `rclone copyto` through the `runner` seam for BOTH archive and diff with the asserted argv shape; (4) runner success → `UploadResult(uploaded=True, queued=False, error=None)`; (5) ANY failure (nonzero rc, runner raising, rclone-not-found) → artifacts copied into `queue_dir/<name>` + `<name>.queued.json` sidecar written, `UploadResult(uploaded=False, queued=True)`, NEVER raises; (6) `drive_backup_drain(queue_dir, *, remote, runner)` re-attempts queued uploads, clears local copy+sidecar on success, returns `list[UploadResult]`.
+- `test_spec.unit_tests`: at least 6 entries (`len(unit_tests) >= len(functional_requirements)`) — ONE mapping each requirement above.
+- `test_spec.edge_cases`: ≥2 entries, EACH mirrored in `regression_tests` OR `property_tests`: (a) on rclone failure the uploader NEVER raises and queues both artifacts; (b) `drive_backup_drain` is IDEMPOTENT — an empty queue is a no-op and a name already absent is skipped, while repeated-failure artifacts STAY queued.
+- `test_spec.integration_tests`: MAY be empty ONLY because the gate is excused via the **integration** line in `spec.non_goals`.
+- `test_spec.minimum_test_count`: >= 9 (>= `1.5 * len(functional_requirements)`).
+- `token_budget_ratio.test_tokens` MUST be >= `1.5 * token_budget_ratio.implementation_tokens`.
 
 2. `task_id: "uploader-oracle"`
    - `meta_task_type: "test_authoring"`
@@ -60,6 +70,8 @@ Emit these tasks verbatim in shape:
    - `verification_command: "python -m pytest tests/drive_backup/test_uploader.py -q"`
 
 Note: `mutation_target` is a BARE DOTTED module name (no path, no slashes, no `.py`). `tools.drive_backup.uploader` resolves to `tools/drive_backup/uploader.py`, which is in the impl task's `files_touched` — this satisfies the paired-auto-oracle wiring exemption.
+
+`check_wired` is satisfied orphan-by-design via the committed static manifest `config/drive_backup_modules.yaml` (this module is reached from the git pre-push hook, not from a Python `LIVE_ROOT`; wiring is proven by the manifest + the dependent hook-runner/installer leaves, NOT by a `*_wired` verification_command). Do NOT add a `*_wired` command to any task in this plan.
 
 # Deliverables
 
