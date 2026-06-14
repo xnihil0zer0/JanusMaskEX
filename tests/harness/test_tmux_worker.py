@@ -1,209 +1,283 @@
-"""Unit and seam tests for ``harness/tmux_worker.py``.
+"""Oracle for the PTY-driven jailed-interactive-claude worker backend.
 
-These tests exercise the REAL observable behaviour of the tmux worker backend
-over injected fakes only. No real ``tmux`` session or ``claude`` process is ever
-spawned: every side-effecting seam (the executor, the optional jail backend, the
-filesystem) is redirected at injected fakes or ``tmp_path``. Per the spec, the
-live end-to-end path (a real interactive claude in a real tmux session) is an
-operator-validated, post-merge step and is deliberately out of scope here.
+Exercises the REAL orchestration API of ``harness.tmux_worker`` over injected
+fakes -- no real PTY, bwrap, or claude process is ever spawned:
+
+  * ``run_pty_worker`` drives spawn -> reach-ready (auto-answering startup
+    dialogs) -> send-seed -> complete-on-stable-deliverable, always tearing the
+    child down.
+  * ``spawn_claude_tmux`` wires the real jail + interactive (never ``-p``) argv
+    and hands a jailed argv to ``run_pty_worker``.
+  * marker matching is whitespace/case-insensitive (the raw PTY render drops the
+    literal spaces a tmux capture would show).
+
+These tests are NON-VACUOUS: each asserts an observable behaviour that a broken
+mutant (e.g. emitting ``-p``, not jailing, never sending the seed, space-sensitive
+marker matching, or leaking the child) would violate.
 """
 from __future__ import annotations
-import json
+import os
+from pathlib import Path
+
 import pytest
-from harness import tmux_worker as tw
 
-def test_exited_proc_poll_and_wait() -> None:
-    """poll()/wait() report an immediate clean exit and never block."""
-    proc = tw._ExitedProc(work_dir='/some/work')
-    result = proc.poll()
-    assert result is not None
-    assert result == 0
-    assert proc.wait() == 0
-    assert proc.wait(timeout=5.0) == 0
-    assert proc.returncode == 0
-    assert proc._work_dir == '/some/work'
-    assert '/some/work' in repr(proc)
+import harness.tmux_worker as tw
 
-def test_exited_proc_kill() -> None:
-    """kill()/terminate() are no-ops that do not mutate the clean exit code."""
-    proc = tw._ExitedProc()
-    assert proc._work_dir is None
-    assert proc.kill() is None
-    assert proc.terminate() is None
-    assert proc.returncode == 0
-    assert proc.poll() == 0
 
-def test_tmux_worker_result_ok_reflects_returncode() -> None:
-    """``ok`` is True only for a zero returncode."""
-    clean = tw.TmuxWorkerResult(returncode=0, session_name='s', work_dir='/w')
-    assert clean.ok is True
-    assert clean.session_name == 's'
-    failed = tw.TmuxWorkerResult(returncode=3)
-    assert failed.ok is False
+# --------------------------------------------------------------------------- #
+# Fake PTY environment shared by the run_pty_worker tests.
+# --------------------------------------------------------------------------- #
+class FakePty:
+    """A scripted PTY whose seams feed run_pty_worker deterministically."""
 
-def test_as_mapping_coerces_none_object_and_mapping() -> None:
-    """_as_mapping tolerates None / objects / mappings without raising."""
-    assert tw._as_mapping(None) == {}
-    src = {'a': 1, 'b': 2}
-    coerced = tw._as_mapping(src)
-    assert coerced == src
-    assert coerced is not src
+    def __init__(self, *, startup_frames, work_frames, deliver_after=0.6,
+                 deliver_size=42, fd=7, pid=4242):
+        self._startup = list(startup_frames)
+        self._work = list(work_frames)
+        self.fd = fd
+        self.pid = pid
+        self.t = 1000.0
+        self.writes = []
+        self.kills = []
+        self.waited = []
+        self.spawned = None
+        self.geometry = None
+        self.seed_sent = False
+        self._seed_text_seen = False
+        self._deliver_at = None
+        self._deliver_after = deliver_after
+        self._deliver_size = deliver_size
+        self._startup_last = b''
 
-    class Cfg:
+    # clock ------------------------------------------------------------------ #
+    def monotonic(self):
+        v = self.t
+        self.t += 0.2
+        return v
 
-        def __init__(self) -> None:
-            self.claude_bin = 'claude'
-            self.extra = 7
-    obj = tw._as_mapping(Cfg())
-    assert obj['claude_bin'] == 'claude'
-    assert obj['extra'] == 7
-    assert tw._as_mapping(42) == {}
+    def sleep(self, _seconds):
+        return None
 
-def test_cfg_get_skips_empty_and_uses_default() -> None:
-    """_cfg_get returns first present, non-empty value, else the default."""
-    cfg = {'primary': '', 'secondary': 'value', 'blank': None, 'empty': []}
-    assert tw._cfg_get(cfg, 'primary', 'secondary') == 'value'
-    assert tw._cfg_get(cfg, 'blank', 'empty', default='fallback') == 'fallback'
-    assert tw._cfg_get(cfg, 'missing', default='d') == 'd'
+    # process / pty ---------------------------------------------------------- #
+    def spawn(self, argv, cwd):
+        self.spawned = (list(argv), cwd)
+        return self.pid, self.fd
 
-def test_default_session_name_sanitizes_task_id() -> None:
-    """Session name is derived from JANUSMASK_TASK_ID with unsafe chars scrubbed."""
-    assert tw._default_session_name({'JANUSMASK_TASK_ID': 'abc-123'}) == 'janusmask-abc-123'
-    assert tw._default_session_name({'JANUSMASK_TASK_ID': 'a b/c.d'}) == 'janusmask-a_b_c_d'
-    assert tw._default_session_name({}) == 'janusmask-worker'
+    def set_geometry(self, fd, cols, rows):
+        self.geometry = (fd, cols, rows)
 
-def test_seed_from_prompt_file_writes_config_and_credentials(tmp_path) -> None:
-    """Config (and credentials, when present) are seeded into the work dir."""
-    work = tmp_path / 'wd'
-    config = {'claude_config': {'key': 'abc', 'nested': {'x': 1}}, 'credentials': {'token': 'secret'}, 'claude_bin': 'claude'}
-    dest = tw.seed_from_prompt_file(config, work)
-    assert dest == work / '.claude.json'
-    assert dest.exists()
-    written = json.loads(dest.read_text())
-    assert written == {'key': 'abc', 'nested': {'x': 1}}
-    creds_file = work / '.credentials.json'
-    assert creds_file.exists()
-    assert json.loads(creds_file.read_text()) == {'token': 'secret'}
+    def select(self, rlist, _w, _x, _timeout):
+        return list(rlist), [], []
 
-def test_seed_from_prompt_file_handles_empty_config(tmp_path) -> None:
-    """With no explicit sub-config the bin/arg keys are stripped from the seed."""
-    work = tmp_path / 'wd2'
-    dest = tw.seed_from_prompt_file({'claude_bin': 'claude', 'claude_args': ['-x']}, work)
-    assert json.loads(dest.read_text()) == {}
-    assert not (work / '.credentials.json').exists()
+    def read(self, _fd, _n):
+        if not self.seed_sent:
+            if self._startup:
+                self._startup_last = self._startup.pop(0)
+            return self._startup_last
+        if self._work:
+            return self._work.pop(0)
+        return b' working (esc to interrupt) '
 
-def test_jail_command_passthrough_without_backend(monkeypatch) -> None:
-    """With no jail backend the command is returned unchanged (a fresh list)."""
-    monkeypatch.setattr(tw, '_agent_jail', None)
-    cmd = ['claude', '--flag']
-    out = tw.jail_command(cmd, env={}, work_dir='/w', state_dir='/s')
-    assert out == ['claude', '--flag']
-    assert out is not cmd
+    def write(self, _fd, data):
+        self.writes.append(data)
+        if b'Read the file' in data:
+            self._seed_text_seen = True
+        elif data == b'\r' and self._seed_text_seen and not self.seed_sent:
+            self.seed_sent = True
+            self._deliver_at = self.t + self._deliver_after
+        return len(data)
 
-def test_jail_command_uses_backend_when_available(monkeypatch) -> None:
-    """When a jail backend exposes a known entrypoint it wraps the command."""
-    calls = {}
+    def kill(self, pid, sig):
+        self.kills.append((pid, sig))
 
-    class FakeJail:
+    def waitpid(self, pid, flags):
+        self.waited.append((pid, flags))
+        return pid, 0
 
-        @staticmethod
-        def build_jail_command(command, *, env, work_dir, state_dir, dbus_sock=None):
-            calls['command'] = command
-            calls['work_dir'] = work_dir
-            return ['bwrap', '--'] + command
-    monkeypatch.setattr(tw, '_agent_jail', FakeJail)
-    out = tw.jail_command(['claude'], env={'A': '1'}, work_dir='/w', state_dir='/s')
-    assert out == ['bwrap', '--', 'claude']
-    assert calls['command'] == ['claude']
-    assert calls['work_dir'] == '/w'
+    def close(self, _fd):
+        return None
 
-def test_tmux_executor_raises_when_unconfigured(monkeypatch) -> None:
-    """The default executor RAISES (never hangs) when no tmux seam exists."""
-    monkeypatch.setattr(tw, '_resolve_tmux_seam', lambda: None)
-    with pytest.raises(RuntimeError):
-        tw._tmux_executor(['claude'], env={}, work_dir='/w', session_name='s')
+    # deliverable ------------------------------------------------------------ #
+    def exists(self, _path):
+        return self.seed_sent and self._deliver_at is not None and self.t >= self._deliver_at
 
-def test_tmux_executor_drives_resolved_seam(monkeypatch) -> None:
-    """The executor forwards to the resolved seam and coerces its result."""
-    seen = {}
+    def getsize(self, _path):
+        return self._deliver_size
 
-    def fake_seam(command, *, env, work_dir, session_name):
-        seen['command'] = command
-        seen['session_name'] = session_name
-        return 7
-    monkeypatch.setattr(tw, '_resolve_tmux_seam', lambda: fake_seam)
-    rc = tw._tmux_executor(['claude'], env={}, work_dir='/w', session_name='sess')
-    assert rc == 7
-    assert seen['command'] == ['claude']
-    assert seen['session_name'] == 'sess'
+    # convenience ------------------------------------------------------------ #
+    def run(self, **overrides):
+        kwargs = dict(
+            jailed_argv=['/usr/bin/bwrap', 'claude'], work_dir='/tmp/wd', seed=tw.seed_from_prompt_file(),
+            deliverable='/tmp/wd/outbox/submission.py', startup_timeout=20.0, idle_timeout=60.0,
+            poll=0.5, settle_k=2, min_work=0.0, grace=2.0,
+            spawn=self.spawn, os_read=self.read, os_write=self.write, select_fn=self.select,
+            os_kill=self.kill, os_waitpid=self.waitpid, os_close=self.close,
+            monotonic=self.monotonic, sleep=self.sleep,
+            exists=self.exists, getsize=self.getsize, set_geometry=self.set_geometry,
+        )
+        kwargs.update(overrides)
+        return tw.run_pty_worker(**kwargs)
 
-def test_run_tmux_worker_uses_injected_executor(tmp_path) -> None:
-    """run_tmux_worker delegates to the injected executor and reports its rc."""
+
+def test_run_pty_worker_reaches_ready_sends_seed_completes_on_deliverable():
+    fake = FakePty(
+        startup_frames=[b'\x1b[2J Welcome back  (shift+tab to cycle) '],
+        work_frames=[b' Thinking (esc to interrupt) ', b' Working (esc to interrupt) '],
+    )
+    result = fake.run()
+    assert result.started is True
+    assert result.idle is True
+    # the seed turn text was typed, followed by an Enter to submit it
+    assert any(b'Read the file' in w for w in fake.writes)
+    assert b'\r' in fake.writes
+    # child was torn down
+    assert fake.kills, 'child process must be killed on teardown'
+    assert fake.kills[0][0] == fake.pid
+
+
+def test_run_pty_worker_does_not_send_seed_before_ready():
+    # never renders the ready marker -> startup must time out, seed never sent
+    fake = FakePty(startup_frames=[b' loading... '], work_frames=[])
+    result = fake.run(startup_timeout=3.0)
+    assert result.idle is False
+    assert not any(b'Read the file' in w for w in fake.writes), 'seed sent before ready'
+    # even on the timeout path the child is killed
+    assert fake.kills, 'child must be killed even when startup times out'
+
+
+def test_run_pty_worker_answers_trust_dialog_before_ready():
+    fake = FakePty(
+        startup_frames=[b' Do you trust this folder? ', b' (shift+tab to cycle) '],
+        work_frames=[b' (esc to interrupt) '],
+    )
+    fake.run()
+    # the trust dialog is answered with Enter BEFORE the seed text is typed
+    first_enter = fake.writes.index(b'\r') if b'\r' in fake.writes else -1
+    first_seed = next((i for i, w in enumerate(fake.writes) if b'Read the file' in w), -1)
+    assert first_enter != -1, 'trust dialog must be answered with Enter'
+    assert first_seed == -1 or first_enter < first_seed
+
+
+def test_run_pty_worker_kills_child_when_spawn_succeeds_then_select_dies():
+    fake = FakePty(startup_frames=[b' x '], work_frames=[])
+
+    def dying_select(*_a, **_k):
+        raise OSError('pty closed')
+
+    result = fake.run(select_fn=dying_select, startup_timeout=3.0)
+    assert result.started is True
+    assert fake.kills, 'child must be killed even if select raises'
+
+
+def test_run_pty_worker_returns_not_idle_when_deliverable_never_appears():
+    fake = FakePty(
+        startup_frames=[b' (shift+tab to cycle) '],
+        work_frames=[b' (esc to interrupt) '],
+        deliver_after=10_000.0,  # effectively never within idle_timeout
+    )
+    result = fake.run(idle_timeout=5.0)
+    assert result.started is True
+    assert result.idle is False
+
+
+# --------------------------------------------------------------------------- #
+# marker normalisation: the raw PTY stream has no literal spaces between words.
+# --------------------------------------------------------------------------- #
+def test_marker_matching_is_whitespace_and_case_insensitive():
+    # 'shift+tabtocycle' (spaces collapsed) must still match the READY marker
+    assert tw._has(b'foo shift+tabtocycle bar', tw.READY_MARKER)
+    assert tw._has(b'ESCTOINTERRUPT', tw.IN_FLIGHT_MARKER)
+    assert not tw._has(b'nothing here', tw.READY_MARKER)
+
+
+def test_latest_idle_reflects_most_recent_footer():
+    # working footer renders BOTH markers with in-flight LAST -> not idle
+    assert tw._latest_idle(b'(shift+tab to cycle) ... (esc to interrupt)') is False
+    # finished -> ready footer is the most recent
+    assert tw._latest_idle(b'(esc to interrupt) ...later... (shift+tab to cycle)') is True
+    # neither marker -> not idle
+    assert tw._latest_idle(b'just booting') is False
+
+
+# --------------------------------------------------------------------------- #
+# seed text points claude at the on-disk prompt file (small typed turn).
+# --------------------------------------------------------------------------- #
+def test_seed_from_prompt_file_references_the_file():
+    seed = tw.seed_from_prompt_file('.tmux_prompt.txt')
+    assert '.tmux_prompt.txt' in seed
+    assert seed.strip(), 'seed must not be empty'
+
+
+# --------------------------------------------------------------------------- #
+# spawn_claude_tmux real-wiring: jailed INTERACTIVE argv, never headless -p.
+# --------------------------------------------------------------------------- #
+def test_spawn_claude_tmux_builds_jailed_interactive_argv(tmp_path, monkeypatch):
+    work_dir = tmp_path / 'wd'
+    (work_dir / 'outbox').mkdir(parents=True)
+    state_dir = tmp_path / 'state'
+    state_dir.mkdir()
+    # empty fake HOME so seed_config_dir finds no creds to copy (no real I/O)
+    fake_home = tmp_path / 'home'
+    fake_home.mkdir()
+    monkeypatch.setenv('HOME', str(fake_home))
+    monkeypatch.delenv('JANUSMASK_WORKING_DIR', raising=False)
+
     captured = {}
 
-    def fake_executor(cmd, *, env, work_dir, session_name, config):
-        captured['cmd'] = cmd
-        captured['session_name'] = session_name
-        captured['env'] = env
-        return 0
-    result = tw.run_tmux_worker(['claude', '-p'], env={'JANUSMASK_TASK_ID': 't9'}, work_dir=tmp_path / 'run', executor=fake_executor)
-    assert isinstance(result, tw.TmuxWorkerResult)
-    assert result.ok is True
-    assert result.session_name == 'janusmask-t9'
-    assert result.command == ['claude', '-p']
-    assert (tmp_path / 'run').is_dir()
-    assert captured['cmd'] == ['claude', '-p']
-    assert captured['session_name'] == 'janusmask-t9'
+    def spy_build_jail_argv(cmd, **kwargs):
+        captured['interactive'] = list(cmd)
+        captured['jail_kwargs'] = kwargs
+        return ['/usr/bin/bwrap', '--JAILED--', *cmd]
 
-def test_run_tmux_worker_propagates_failure_returncode(tmp_path) -> None:
-    """A non-zero executor result surfaces as a non-ok TmuxWorkerResult."""
-    result = tw.run_tmux_worker(['claude'], env={}, work_dir=tmp_path / 'fail', session_name='explicit-name', executor=lambda cmd, **kw: 5)
-    assert result.returncode == 5
-    assert result.ok is False
-    assert result.session_name == 'explicit-name'
+    def spy_run(**kwargs):
+        captured['run_kwargs'] = kwargs
+        return tw.TmuxWorkerResult(started=True, idle=True, snapshot='')
 
-def test_build_claude_command_includes_bin_and_args(tmp_path) -> None:
-    """The claude command honours configured binary and extra args."""
-    prompt = tmp_path / 'prompt.txt'
-    cmd = tw._build_claude_command(agent=object(), config={'claude_bin': '/usr/bin/claude', 'claude_args': ['--dangerously', '-v']}, prompt_file=prompt)
-    assert cmd == ['/usr/bin/claude', '--dangerously', '-v']
-    assert tw._build_claude_command(object(), {}, prompt) == ['claude']
+    monkeypatch.setattr(tw.agent_jail, 'build_jail_argv', spy_build_jail_argv)
+    monkeypatch.setattr(tw, 'run_pty_worker', spy_run)
 
-def test_spawn_claude_tmux_success(tmp_path, monkeypatch) -> None:
-    """Full happy path: dirs prepared, config/prompt seeded, seam driven, shim returned."""
-    work = tmp_path / 'work'
-    state = tmp_path / 'state'
-    env = {'JANUSMASK_TASK_ID': 'task42', 'JANUSMASK_WORK_DIR': str(work), 'JANUSMASK_STATE_DIR': str(state)}
-    config = {'claude_config': {'flag': True}, 'claude_bin': 'claude'}
-    executor_calls = {}
+    config = {
+        'agents': {'claude': {
+            'command': '/opt/claude/bin/claude',
+            'args': ['-p', '--model', 'opus', '--tools', 'Read,Glob,Grep,Write', '--output-format', 'stream-json'],
+        }},
+        'synthesis': {'timeout_seconds': 999},
+    }
+    env = {
+        'JANUSMASK_WORK_DIR': str(work_dir),
+        'JANUSMASK_STATE_DIR': str(state_dir),
+        'JANUSMASK_TASK_ID': 'leaf-x',
+    }
+    proc = tw.spawn_claude_tmux('claude', 'FULL PROMPT BODY', env, config, dbus_sock=None)
 
-    def fake_executor(cmd, *, env, work_dir, session_name, config):
-        executor_calls['cmd'] = cmd
-        executor_calls['session_name'] = session_name
-        return 0
-    monkeypatch.setattr(tw, '_tmux_executor', fake_executor)
-    monkeypatch.setattr(tw, '_agent_jail', None)
-    proc = tw.spawn_claude_tmux(agent=object(), resolved_prompt='do the thing', env=env, config=config)
+    # returns an exited-proc shim stamped with the work dir
     assert isinstance(proc, tw._ExitedProc)
-    assert proc._work_dir == str(work)
     assert proc.poll() == 0
-    assert proc.wait() == 0
-    assert work.is_dir()
-    assert state.is_dir()
-    prompt_file = work / 'prompt.txt'
-    assert prompt_file.read_text() == 'do the thing'
-    seeded = json.loads((work / '.claude.json').read_text())
-    assert seeded == {'flag': True}
-    assert executor_calls['session_name'] == 'janusmask-task42'
-    assert executor_calls['cmd'] == ['claude']
+    assert proc._work_dir == str(work_dir)
 
-def test_spawn_claude_tmux_failure(tmp_path, monkeypatch) -> None:
-    """When the tmux seam is unconfigured the spawn RAISES rather than hangs."""
-    work = tmp_path / 'work'
-    env = {'JANUSMASK_WORK_DIR': str(work), 'JANUSMASK_TASK_ID': 'boom'}
-    monkeypatch.setattr(tw, '_resolve_tmux_seam', lambda: None)
-    monkeypatch.setattr(tw, '_agent_jail', None)
-    with pytest.raises(RuntimeError):
-        tw.spawn_claude_tmux(agent=object(), resolved_prompt='hi', env=env, config={})
-    assert work.is_dir()
-    assert (work / 'prompt.txt').read_text() == 'hi'
+    # run_pty_worker was handed the JAILED argv (not the bare interactive one)
+    jailed = captured['run_kwargs']['jailed_argv']
+    assert jailed[:2] == ['/usr/bin/bwrap', '--JAILED--']
+
+    # the INTERACTIVE argv given to the jail is interactive, NEVER headless
+    interactive = captured['interactive']
+    assert '-p' not in interactive
+    assert '--print' not in interactive
+    assert '--output-format' not in interactive
+    assert '/opt/claude/bin/claude' in interactive
+    assert '--model' in interactive and 'opus' in interactive
+    # per-task CLAUDE_CONFIG_DIR lives UNDER the jailed work dir
+    cfg_dir_tokens = [a for a in interactive if a.startswith('CLAUDE_CONFIG_DIR=')]
+    assert cfg_dir_tokens, 'interactive argv must set CLAUDE_CONFIG_DIR'
+    assert str(work_dir) in cfg_dir_tokens[0]
+
+    # the jail was scoped to the work/state dirs
+    assert captured['jail_kwargs'].get('work_dir') == str(work_dir)
+    assert captured['jail_kwargs'].get('state_dir') == str(state_dir)
+
+    # the full prompt was written to the file the seed points at
+    prompt_file = work_dir / '.tmux_prompt.txt'
+    assert prompt_file.read_text() == 'FULL PROMPT BODY'
+
+    # the configured synthesis timeout is honored as the idle budget
+    assert captured['run_kwargs']['idle_timeout'] == 999.0
