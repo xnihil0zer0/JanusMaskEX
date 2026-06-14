@@ -83,10 +83,10 @@ class SpyLedger:
         self._base = base
         self.records = []
 
-    def last_backed_up_sha(self):
+    def last_backed_up_sha(self, repo=None):
         return self._base
 
-    def record(self, sha, archive_name, uploaded):
+    def record(self, sha, archive_name, uploaded, repo=None):
         self.records.append((sha, archive_name, uploaded))
 
 
