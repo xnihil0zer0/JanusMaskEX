@@ -135,13 +135,19 @@ overseer:
   store_path: state/overseer/sessions.json
   unlock_policy: {}
 workers:
-  # Claude worker execution backend. Default 'headless' runs `claude -p` as a
-  # streamed subprocess (the current path in orchestrator.spawn_agent). Set to
-  # 'tmux' to delegate the claude spawn to harness/tmux_worker.py
-  # (spawn_claude_tmux) -- an operator-validated, flag-gated alternative wired
-  # into spawn_agent. Keep 'headless' until the tmux_worker backend is
-  # live-validated by an operator.
-  claude_backend: headless
+  # Claude worker execution backend.
+  #   'headless' runs `claude -p` as a streamed subprocess (API-billed).
+  #   'tmux' delegates the claude spawn to harness/tmux_worker.py
+  #     (spawn_claude_tmux): a bwrap-JAILED *interactive* claude driven over a
+  #     direct PTY (pty.fork) -- billed to the Max/OAuth subscription, never the
+  #     headless `-p` API. (The 'tmux' name is historical; the transport is a
+  #     PTY, since a jailed interactive claude renders fine under a PTY but dies
+  #     in a literal tmux pane.) Termination is gated on the orchestrator
+  #     deliverable (outbox/submission.py) going stable.
+  # DEFAULT 'tmux' (2026-06-14, owner directive: tmux-jailed-claude default
+  # everywhere). Live-validated e2e (jailed interactive claude over PTY wrote a
+  # real deliverable in ~11s). Revert to 'headless' if a regression appears.
+  claude_backend: tmux
   # Project-local pool of isolated agy worker HOMEs (harness/agy_pool.py).
   # Ships OFF: when disabled, daemon-spawned agy workers share the operator's
   # ~/.gemini exactly as before. Enable to give each concurrent worker a private
