@@ -135,6 +135,13 @@ overseer:
   store_path: state/overseer/sessions.json
   unlock_policy: {}
 workers:
+  # Claude worker execution backend. Default 'headless' runs `claude -p` as a
+  # streamed subprocess (the current path in orchestrator.spawn_agent). Set to
+  # 'tmux' to delegate the claude spawn to harness/tmux_worker.py
+  # (spawn_claude_tmux) -- an operator-validated, flag-gated alternative wired
+  # into spawn_agent. Keep 'headless' until the tmux_worker backend is
+  # live-validated by an operator.
+  claude_backend: headless
   # Project-local pool of isolated agy worker HOMEs (harness/agy_pool.py).
   # Ships OFF: when disabled, daemon-spawned agy workers share the operator's
   # ~/.gemini exactly as before. Enable to give each concurrent worker a private

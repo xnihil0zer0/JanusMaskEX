@@ -176,14 +176,6 @@ def _build_agent_command(agent: str, prompt: str, config: dict[str, Any]) -> lis
     rewire = _HOOK_CONFIG_REWIRE_SYNTHESIS if mode == 'synthesis' else _HOOK_CONFIG_REWIRE_PLANNING
     raw_args = [rewire.get(a, a) for a in raw_args]
     if agent == 'claude' and '--permission-mode' not in raw_args:
-        # CONTAIN C4 (deviation, evidenced): keep 'acceptEdits'. The plan called for
-        # 'default', but claude-code >=2.1.114 SILENTLY DROPS hook-granted permission
-        # verbs under headless -p (see tests/adversarial/test_B3_path_b_permission_mode
-        # docstring); the vendored claude is 2.1.156. Under 'default' the PreToolUse
-        # hook's Write-allow is dropped and Write-to-outbox -- the sole submission path
-        # -- is denied, breaking ALL synthesis. The containment that dropping acceptEdits
-        # was meant to buy (it overrode 'defaultMode: denyAll') is instead delivered by
-        # --tools (Bash/Edit are not even presented) + the C2 bwrap jail (repo read-only).
         raw_args = raw_args + ['--permission-mode', 'acceptEdits']
     try:
         p_index = raw_args.index('-p')
@@ -238,14 +230,13 @@ def _apply_agy_pool_env(agent, env, config=None):
     except (TypeError, ValueError):
         return env
     from harness import agy_pool
-    # AGENT-ISOLATION §8: the external agy CLI hardcodes ~/.gemini, so pool-slot
-    # seeding must read the real $HOME to copy auth/state from it.
-    home = os.environ.get('HOME') or os.path.expanduser('~')  # home-free: allow
+    home = os.environ.get('HOME') or os.path.expanduser('~')
     try:
         agy_pool.ensure_seeded(str(PROJECT_DIR), slot, home=home, copy=shutil.copy2, exists=os.path.exists, makedirs=lambda d: os.makedirs(d, exist_ok=True))
     except OSError:
         pass
     return agy_pool.worker_env(str(PROJECT_DIR), slot, env)
+
 def _build_agent_env(agent: str, state_dir: str, round_number: int=1) -> dict[str, str]:
     """Build the environment for an agent process.
 
@@ -272,43 +263,12 @@ def _build_agent_env(agent: str, state_dir: str, round_number: int=1) -> dict[st
     task_id = os.environ.get('JANUSMASK_TASK_ID', '')
     import uuid as _uuid
     session_slug = f'{agent}-r{round_number}-{task_id or 'notask'}-{_uuid.uuid4().hex[:8]}'
-    # AGENT-ISOLATION §3.1/§3.2: workdirs live OUTSIDE the repo (shared helper)
-    # so an agent launched with cwd=work_dir cannot reach the live source tree
-    # by relative path and git cannot auto-discover the repo .git from CWD.
     work_dir = agent_work_dir(agent, session_slug)
-    # CONTAIN C1: point CLAUDE_PROJECT_DIR at the per-spawn work_dir (OUTSIDE the
-    # repo), not the live repo. Claude resolves its project root / hook discovery /
-    # ${CLAUDE_PROJECT_DIR} permission roots / settings+mcp interpolation from this
-    # var, so leaving it on the repo defeated the outside-repo CWD relocation. The
-    # harness side keeps JANUSMASK_PROJECT_DIR=<repo> (the trusted hook process reads
-    # its roots from it) and PYTHONPATH=<repo> so the worker hooks + janusmask MCP
-    # server still `import harness.*` -- decoupled from CLAUDE_PROJECT_DIR. The
-    # worker hook configs no longer derive these from ${CLAUDE_PROJECT_DIR}.
     _existing_pp = os.environ.get('PYTHONPATH', '')
     _pythonpath = str(PROJECT_DIR) if not _existing_pp else str(PROJECT_DIR) + os.pathsep + _existing_pp
-    # SEC_ENV_ALLOWLIST: do NOT spread the operator's full os.environ into the
-    # jailed agent. A blanket {**os.environ, ...} leaked operator secrets such as
-    # GITHUB_TOKEN and AWS_* credentials into the worker process. Inherit only an
-    # explicit allowlist of execution-essential and vendor-auth variables (by exact
-    # name or by prefix) so OAuth/token-refresh + the node runtime keep working
-    # while host secrets are scrubbed.
-    _ENV_ALLOW_EXACT = frozenset((
-        'PATH', 'HOME', 'LANG', 'LANGUAGE', 'LC_ALL', 'TERM', 'SHELL',
-        'USER', 'LOGNAME', 'TZ', 'TMPDIR', 'PWD',
-        'DBUS_SESSION_BUS_ADDRESS', 'GOOGLE_GENAI_USE_GCA',
-        'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE',
-        'NODE_EXTRA_CA_CERTS', 'CURL_CA_BUNDLE',
-        'NO_PROXY', 'no_proxy', 'HTTP_PROXY', 'http_proxy',
-        'HTTPS_PROXY', 'https_proxy',
-    ))
-    _ENV_ALLOW_PREFIXES = (
-        'JANUSMASK_', 'XDG_', 'NVM_', 'NODE_', 'GEMINI_', 'GOOGLE_',
-        'ANTHROPIC_', 'CLAUDE_', 'LC_',
-    )
-    base_env = {
-        k: v for k, v in os.environ.items()
-        if k in _ENV_ALLOW_EXACT or any(k.startswith(p) for p in _ENV_ALLOW_PREFIXES)
-    }
+    _ENV_ALLOW_EXACT = frozenset(('PATH', 'HOME', 'LANG', 'LANGUAGE', 'LC_ALL', 'TERM', 'SHELL', 'USER', 'LOGNAME', 'TZ', 'TMPDIR', 'PWD', 'DBUS_SESSION_BUS_ADDRESS', 'GOOGLE_GENAI_USE_GCA', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE', 'NODE_EXTRA_CA_CERTS', 'CURL_CA_BUNDLE', 'NO_PROXY', 'no_proxy', 'HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy'))
+    _ENV_ALLOW_PREFIXES = ('JANUSMASK_', 'XDG_', 'NVM_', 'NODE_', 'GEMINI_', 'GOOGLE_', 'ANTHROPIC_', 'CLAUDE_', 'LC_')
+    base_env = {k: v for k, v in os.environ.items() if k in _ENV_ALLOW_EXACT or any((k.startswith(p) for p in _ENV_ALLOW_PREFIXES))}
     env: dict[str, str] = {**base_env, 'PYTHONHASHSEED': '0', 'CLAUDE_PROJECT_DIR': str(work_dir), 'JANUSMASK_PROJECT_DIR': str(PROJECT_DIR), 'PYTHONPATH': _pythonpath, 'GEMINI_CLI_TRUST_WORKSPACE': 'true', 'JANUSMASK_AGENT': agent, 'JANUSMASK_STATE_DIR': state_dir, 'JANUSMASK_ROUND': str(round_number), 'JANUSMASK_MODE': mode, 'JANUSMASK_TASK_ID': task_id, 'JANUSMASK_WORK_DIR': str(work_dir)}
     if agent == 'gemini':
         env['JANUSMASK_GEMINI_SETTINGS'] = os.environ.get('JANUSMASK_GEMINI_SETTINGS', str(PROJECT_DIR / 'config' / 'gemini_settings.json'))
@@ -316,47 +276,29 @@ def _build_agent_env(agent: str, state_dir: str, round_number: int=1) -> dict[st
     return env
 
 def _boost_antigravity_mcp_config(state_dir: Path) -> None:
-    # AGENT-ISOLATION §8: de-obfuscated from home_key = "HO" + "ME". This is
-    # live, load-bearing code (writes ~/.gemini/antigravity-cli/mcp_config.json
-    # on every antigravity spawn), not evasion. Any future HOME override must be
-    # reconciled with this read or the antigravity MCP server fails to register.
-    home_dir = os.environ["HOME"]  # home-free: allow (external agy CLI hardcodes ~/.gemini; see §8)
-    mcp_path = Path(home_dir) / ".gemini" / "antigravity-cli" / "mcp_config.json"
+    home_dir = os.environ['HOME']
+    mcp_path = Path(home_dir) / '.gemini' / 'antigravity-cli' / 'mcp_config.json'
     mcp_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Python binary path and target script path
     py_exe = sys.executable
-    server_script = Path(__file__).resolve().parent / "mcp_server.py"
-    
-    config_entry = {
-        "mcpServers": {
-            "janusmask": {
-                "command": py_exe,
-                "args": [str(server_script), "antigravity", str(state_dir.resolve())]
-            }
-        }
-    }
-    
-    # Thread-safe atomic write using lock or tempfile
-    tmp_path = mcp_path.with_suffix(".tmp")
+    server_script = Path(__file__).resolve().parent / 'mcp_server.py'
+    config_entry = {'mcpServers': {'janusmask': {'command': py_exe, 'args': [str(server_script), 'antigravity', str(state_dir.resolve())]}}}
+    tmp_path = mcp_path.with_suffix('.tmp')
     try:
         if mcp_path.exists():
             try:
-                with open(mcp_path, "r", encoding="utf-8") as f:
+                with open(mcp_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
             except Exception:
                 data = {}
         else:
             data = {}
-        
-        data.setdefault("mcpServers", {})["janusmask"] = config_entry["mcpServers"]["janusmask"]
-        
-        with open(tmp_path, "w", encoding="utf-8") as f:
+        data.setdefault('mcpServers', {})['janusmask'] = config_entry['mcpServers']['janusmask']
+        with open(tmp_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-            f.write("\n")
+            f.write('\n')
         tmp_path.rename(mcp_path)
     except Exception as e:
-        logger.error(f"Failed to boost antigravity MCP config: {e}")
+        logger.error(f'Failed to boost antigravity MCP config: {e}')
 
 def _external_jail_extra_ro(jail_repo_root):
     """Extra ro-bind paths for a synthesis jail whose repo_root is EXTERNAL.
@@ -374,6 +316,7 @@ def _external_jail_extra_ro(jail_repo_root):
     except Exception:
         pass
     return []
+
 def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: int=1) -> subprocess.Popen:
     """Spawn an agent CLI as a managed subprocess with live output streaming.
 
@@ -389,6 +332,14 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
     the Gemini SessionStart hook's inbox-ready gate stops denying every
     planning + reconciliation spawn. Exactly one new call site;
     public signature unchanged.
+
+    TMUX-BACKEND (additive, flag-gated): when ``workers.claude_backend`` is
+    ``tmux`` and ``agent`` is the claude worker, delegate the spawn to the tmux
+    worker backend (``harness.tmux_worker.spawn_claude_tmux``). The import is
+    LAZY (inside the gated branch) so the default ``headless`` path never
+    imports ``tmux_worker`` and stays byte-for-byte unchanged. The delegated
+    ``_ExitedProc`` honors the existing proc-handling contract
+    (poll/returncode/wait/kill/_work_dir) and is returned to the caller as-is.
     """
     state_dir = config.get('state_dir', str(DEFAULT_STATE_DIR))
     if agent == 'antigravity':
@@ -402,28 +353,14 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
     try:
         interceptor_registry.pre_invocation(agent, resolved_prompt, env)
     except Exception as exc:
-        logger.error("Error in pre_invocation interceptor: %s", exc, exc_info=True)
+        logger.error('Error in pre_invocation interceptor: %s', exc, exc_info=True)
     cmd = _build_agent_command(agent, resolved_prompt, config)
-    # CONTAIN C5: fail-closed hook-config assertion (claude only) before any spawn.
     if agent == 'claude':
         _assert_claude_hook_config(cmd)
-    # CONTAIN C2: wrap the spawn in a bwrap jail (repo read-only) when enabled in
-    # config. CWD relocation alone is not a filesystem jail (paths.py:33-36); the
-    # jail makes an absolute-path write to harness/*.py structurally impossible.
-    # Fail-closed: build_jail_argv raises if bwrap is missing while the gate is on.
     from harness import agent_jail
-    # SEC-1c: the filtered xdg-dbus-proxy session bus is entered ONLY on the
-    # sandboxed path. Defaults keep the non-sandboxed path and the claude-proc
-    # attachment safe (stack stays None when no proxy is created).
     _dbus_stack = None
     _dbus_sock = None
     if agent_jail.sandbox_enabled(config):
-        # SEC-1c: thread the keyring-preserving / systemd1-blocking filtered bus
-        # socket into the jail. FAIL-CLOSED (SEC-1): when the proxy binary genuinely
-        # resolves on PATH but the proxy spawn FAILED, refuse to spawn rather than
-        # silently fall back to the unfiltered host session bus (which re-exposes
-        # systemd1 StartTransientUnit -- a sandbox escape). When the binary is simply
-        # NOT installed, the prior graceful fall-back-to-None is preserved.
         import contextlib
         _dbus_stack = contextlib.ExitStack()
         try:
@@ -434,9 +371,6 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
             if agent_jail.sandbox_enabled(config) and shutil.which('xdg-dbus-proxy') is not None:
                 raise RuntimeError('agent_sandbox is enabled and xdg-dbus-proxy is present but the filtered D-Bus proxy failed to start; refusing to spawn an agent on the unfiltered host bus (fail-closed).')
             _dbus_sock = None
-        # T_RETARGET: for EXTERNAL tasks (JANUSMASK_WORKING_DIR not _target_is_self),
-        # retarget the jail repo_root onto the external target tree so the agent jails
-        # the work tree it is actually editing; self tasks keep repo_root=PROJECT_DIR.
         working_dir = os.environ.get('JANUSMASK_WORKING_DIR')
         from harness.paths import _target_is_self, effective_target_root
         if not _target_is_self(working_dir):
@@ -444,35 +378,21 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
         else:
             _jail_repo_root = PROJECT_DIR
         cmd = agent_jail.build_jail_argv(cmd, repo_root=_jail_repo_root, work_dir=env['JANUSMASK_WORK_DIR'], state_dir=env['JANUSMASK_STATE_DIR'], dbus_proxy_socket=_dbus_sock, extra_ro=_external_jail_extra_ro(_jail_repo_root))
+    if _use_tmux_claude(agent, config):
+        import harness.tmux_worker
+        return harness.tmux_worker.spawn_claude_tmux(agent, resolved_prompt, env, config, dbus_sock=_dbus_sock)
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.OK}spawning{_C.RESET} {_C.DIM}{cmd[0]}{_C.RESET}')
     logger.info('Spawning %s: %s', agent, ' '.join(cmd[:6]) + ' ...')
-    # AGENT-ISOLATION §3.2: cwd is the isolated, outside-repo workdir.
-    # AGY-FIX (STDIN synthesis): agy-backed agents (config keys gemini /
-    # claude_fallback / antigravity, command basename 'agy') run an agentic
-    # cascade that tries to WRITE the read-only jailed repo instead of
-    # submitting code, producing {"code": "# Placeholder"} and timing out.
-    # For those agents, route the prompt over STDIN with a no-file-write tail
-    # and parse a single fenced python block into the outbox submission. The
-    # jail (above) is kept; stdin/stdout compose through bwrap. The real
-    # 'claude' command (basename 'claude') falls through to the original
-    # streamed Popen path below, UNTOUCHED (no stdin).
     _is_agy = os.path.basename(config['agents'][agent]['command']) in ('agy', 'codex')
     if _is_agy:
         try:
             agy_cmd = list(cmd)
-            # The prompt now goes over STDIN, so strip the `-p <prompt>` positional
-            # that _build_agent_command inserted (works post-jail-wrap or pre-jail).
             try:
                 _p_index = agy_cmd.index('-p')
                 del agy_cmd[_p_index:_p_index + 2]
             except ValueError:
                 pass
-            _no_write_tail = (
-                '\n\nDo NOT write, create, or edit any file. Do NOT use any '
-                'file-editing or shell tool. Output ONLY the complete solution as a '
-                'single fenced ```python code block — the full contents of the '
-                'target file — no prose before or after.'
-            )
+            _no_write_tail = '\n\nDo NOT write, create, or edit any file. Do NOT use any file-editing or shell tool. Output ONLY the complete solution as a single fenced ```python code block — the full contents of the target file — no prose before or after.'
             stdin_prompt = resolved_prompt + _no_write_tail
             proc = subprocess.Popen(agy_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, start_new_session=True, cwd=str(Path(env['JANUSMASK_WORK_DIR'])))
             proc._work_dir = Path(env['JANUSMASK_WORK_DIR'])
@@ -480,17 +400,10 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
             try:
                 out, _err = proc.communicate(input=stdin_prompt, timeout=_timeout)
             except subprocess.TimeoutExpired:
-                # Graceful fail: kill the process group and write NO submission so
-                # the gate rejects this round.
                 try:
                     os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
                 except (ProcessLookupError, PermissionError, OSError):
                     pass
-                # AGY2A: the group SIGKILL signals the children, but the direct
-                # child is still a zombie until we reap it. proc.kill() + a bounded
-                # proc.wait() collect the exit status so the worker neither hangs
-                # nor leaks a defunct process. Both are fail-safe: a stuck or
-                # already-gone child must not propagate out of the timeout path.
                 try:
                     proc.kill()
                 except (ProcessLookupError, PermissionError, OSError):
@@ -510,17 +423,11 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
                     tmp.replace(sub_path)
                 except OSError:
                     logger.warning('AGY-FIX: outbox submission write failed for %s', sub_path)
-            # proc has already exited; poll_for_submission promotes the outbox on its
-            # first loop iteration and kill_agent early-returns (proc.poll() is set).
             return proc
         finally:
-            # SEC-1c: the agy path is SYNCHRONOUS — reap the proxy before returning
-            # on BOTH the normal and TimeoutExpired return paths.
             if _dbus_stack is not None:
                 _dbus_stack.close()
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, start_new_session=True, cwd=str(Path(env['JANUSMASK_WORK_DIR'])))
-    # SEC-1c: the claude path is DETACHED — attach the live ExitStack to the proc
-    # so the proxy outlives spawn_agent and is reaped later by kill_agent.
     proc._dbus_stack = _dbus_stack
     proc._work_dir = Path(env['JANUSMASK_WORK_DIR'])
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.DIM}pid={proc.pid}{_C.RESET}')
@@ -537,7 +444,6 @@ def kill_agent(proc: subprocess.Popen, agent: str, reason: str='handoff') -> Non
     if proc.poll() is not None:
         _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.DIM}already exited (code {proc.returncode}){_C.RESET}')
         _join_stream_threads(proc)
-        # SEC-1c: reap any attached filtered-bus proxy (idempotent double-close ok).
         _dbus_stack = getattr(proc, '_dbus_stack', None)
         if _dbus_stack is not None:
             try:
@@ -565,7 +471,6 @@ def kill_agent(proc: subprocess.Popen, agent: str, reason: str='handoff') -> Non
             pass
     _join_stream_threads(proc)
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.DIM}terminated{_C.RESET}')
-    # SEC-1c: reap any attached filtered-bus proxy (idempotent double-close ok).
     _dbus_stack = getattr(proc, '_dbus_stack', None)
     if _dbus_stack is not None:
         try:
@@ -617,6 +522,7 @@ def _route_stateful_fuzz(task, code_a, code_b, config, session_id='default'):
         return stateful_differential_fuzz(code_a, code_b, class_name, config, session_id)
     except Exception as exc:
         return FuzzResult(equivalent=True, skipped_reason='stateful routing error: %s' % (exc,))
+
 def stateful_differential_fuzz(code_a, code_b, class_name, config, session_id):
     """Drive end-to-end stateful differential fuzzing of two implementations.
 
@@ -786,6 +692,7 @@ def stateful_differential_fuzz(code_a, code_b, class_name, config, session_id):
         repr ``<Cls object at 0x...>`` is normalised so two structurally
         identical instances are not flagged purely on memory address.
         """
+
         def _norm_repr(r):
             if not isinstance(r, str):
                 return r
@@ -822,7 +729,6 @@ def stateful_differential_fuzz(code_a, code_b, class_name, config, session_id):
                     return False
                 return ea.get('message') == eb.get('message')
             return _norm_repr(sa.get('value_repr')) == _norm_repr(sb.get('value_repr'))
-
         la = list(ta) if ta is not None else []
         lb = list(tb) if tb is not None else []
         n = min(len(la), len(lb))
@@ -916,6 +822,7 @@ def stateful_differential_fuzz(code_a, code_b, class_name, config, session_id):
     if fuzz_error is not None:
         return _result(False, counters['total'], counters['matching'], [], error='stateful fuzz harness error: %s' % (fuzz_error,))
     return _result(True, counters['total'], counters['matching'], [])
+
 def _join_stream_threads(proc: subprocess.Popen, timeout: float=2.0) -> None:
     """Join the stdout/stderr stream threads if they exist."""
     threads = getattr(proc, '_stream_threads', None)
@@ -958,15 +865,7 @@ def _path_b_outbox_fallback(work_dir: Path, sub_path: Path, task_id: str) -> str
     except OSError:
         logger.warning('Path-B fallback: outbox promote write failed for %s', sub_path)
     return content
-
-# A1: in planning/reconciliation mode the agent submits a JSON artifact written
-# to outbox/<filename>, NOT the synthesis outbox/submission.py. Mirrors the
-# mode->mandatory-output mapping in harness/hooks/claude/stop.py:MANDATORY_VERBS.
-_MODE_OUTBOX_ARTIFACT: dict[str, str] = {
-    'planning': 'plan_draft.json',
-    'reconciliation': 'reconciliation.json',
-}
-
+_MODE_OUTBOX_ARTIFACT: dict[str, str] = {'planning': 'plan_draft.json', 'reconciliation': 'reconciliation.json'}
 
 def _poll_mode_artifact(work_dir: Path | None, mode: str) -> str | None:
     """Return the planning/reconciliation outbox artifact text, or None.
@@ -995,7 +894,6 @@ def _poll_mode_artifact(work_dir: Path | None, mode: str) -> str | None:
     except (OSError, UnicodeDecodeError):
         return None
     return text if text.strip() else None
-
 
 def _submission_target_path(state_dir: Path, task_id: str) -> str | None:
     """Return the task's primary target file (``files_touched[0]``) so the
@@ -1033,12 +931,8 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
     task_id = os.environ.get('JANUSMASK_TASK_ID', 'default')
     filename = generate_submission_filename(agent, round_number, task_id)
     sub_path = sessions_dir / filename
-    # P-UNB3: resolve the task's target file so the submission interceptor can
-    # exempt non-.py targets (e.g. config.yaml) from Python AST validation.
     target_path = _submission_target_path(state_dir, task_id)
     work_dir = getattr(proc, '_work_dir', None)
-    # A1: planning/reconciliation agents submit a JSON outbox artifact, not the
-    # synthesis submission. Detect it so the agy fallback isn't fired needlessly.
     mode = os.environ.get('JANUSMASK_MODE', 'synthesis')
     deadline = time.monotonic() + timeout
     poll_start_wall = time.time()
@@ -1059,7 +953,7 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
                 if code and isinstance(code, str):
                     inter_res = interceptor_registry.pre_tool_use(agent, 'submit_code', {'code': code, 'path': target_path})
                     if inter_res and inter_res.get('decision') == 'deny':
-                        _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}submission denied by interceptor: {inter_res.get("reason")}{_C.RESET}')
+                        _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}submission denied by interceptor: {inter_res.get('reason')}{_C.RESET}')
                         try:
                             sub_path.unlink()
                         except OSError:
@@ -1075,7 +969,7 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
             if code and isinstance(code, str):
                 inter_res = interceptor_registry.pre_tool_use(agent, 'submit_code', {'code': code, 'path': target_path})
                 if inter_res and inter_res.get('decision') == 'deny':
-                    _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}fallback submission denied by interceptor: {inter_res.get("reason")}{_C.RESET}')
+                    _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}fallback submission denied by interceptor: {inter_res.get('reason')}{_C.RESET}')
                     code = None
                 else:
                     interceptor_registry.post_tool_use(agent, 'submit_code', {'code': code, 'status': 'success'})
@@ -1097,7 +991,7 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
                         if code:
                             inter_res = interceptor_registry.pre_tool_use(agent, 'submit_code', {'code': code, 'path': target_path})
                             if inter_res and inter_res.get('decision') == 'deny':
-                                _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}exited submission denied by interceptor: {inter_res.get("reason")}{_C.RESET}')
+                                _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}exited submission denied by interceptor: {inter_res.get('reason')}{_C.RESET}')
                                 code = None
                             else:
                                 interceptor_registry.post_tool_use(agent, 'submit_code', {'code': code, 'status': 'success'})
@@ -1110,7 +1004,7 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
                     if code and isinstance(code, str):
                         inter_res = interceptor_registry.pre_tool_use(agent, 'submit_code', {'code': code, 'path': target_path})
                         if inter_res and inter_res.get('decision') == 'deny':
-                            _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}exited fallback submission denied by interceptor: {inter_res.get("reason")}{_C.RESET}')
+                            _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.ERR}exited fallback submission denied by interceptor: {inter_res.get('reason')}{_C.RESET}')
                             code = None
                         else:
                             interceptor_registry.post_tool_use(agent, 'submit_code', {'code': code, 'status': 'success'})
@@ -1124,10 +1018,7 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
             current_state = read_state(state_dir)
             agent_status = current_state.get(f'{agent}_status')
             updated_at = current_state.get('status_updated_at_epoch') or current_state.get('status_updated_at')
-            # M7: only honor the running-watchdog for a status freshly written
-            # during THIS poll. A stale 'running' epoch left over from a prior
-            # task must not self-time-out a brand-new poll whose process is alive.
-            if agent_status == 'running' and updated_at is not None and updated_at >= poll_start_wall:
+            if agent_status == 'running' and updated_at is not None and (updated_at >= poll_start_wall):
                 if time.time() - updated_at > timeout:
                     set_agent_status(state_dir, agent=agent, status='timeout')
                     _emit_lifecycle(state_dir, event='agent_status', agent=agent, status='timeout', task_id=os.environ.get('JANUSMASK_TASK_ID'))
@@ -1141,8 +1032,7 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
     logger.error('%s agent timed out after %ds', agent, timeout)
     if read_state(state_dir).get(f'{agent}_status') == 'running':
         set_agent_status(state_dir, agent=agent, status='timeout')
-        _emit_lifecycle(state_dir, event='agent_status', agent=agent,
-                        status='timeout', task_id=os.environ.get('JANUSMASK_TASK_ID'))
+        _emit_lifecycle(state_dir, event='agent_status', agent=agent, status='timeout', task_id=os.environ.get('JANUSMASK_TASK_ID'))
     return None
 
 def run_agent_phase(agent: str, prompt: str, config: dict[str, Any], state_dir: Path, round_number: int, phase_name: str, max_retries: int=3) -> str | None:
@@ -1177,11 +1067,9 @@ def run_both_agents(prompt_claude: str, prompt_gemini: str, config: dict[str, An
     active_agents = config.get('synthesis', {}).get('active_agents', ['claude', 'gemini'])
     agent_a = active_agents[0]
     agent_b = active_agents[1] if len(active_agents) > 1 else active_agents[0]
-
-    _con(f'\n{"─" * 60}')
+    _con(f'\n{'─' * 60}')
     _con(f'  {_orch_tag()} {_C.BOLD}phase: {phase_name}{_C.RESET}')
-    _con(f'{"─" * 60}')
-
+    _con(f'{'─' * 60}')
     if config.get('synthesis', {}).get('antigravity_mode', True):
         _con(f'  {_orch_tag()} Running agents sequentially (Antigravity Mode)')
         code_a = run_agent_phase(agent_a, prompt_claude, config, state_dir, round_number, phase_name)
@@ -1201,7 +1089,6 @@ def run_both_agents(prompt_claude: str, prompt_gemini: str, config: dict[str, An
                 logger.exception('Error in claude_fallback agent phase')
                 code_b = None
         return (code_a, code_b)
-
     with ThreadPoolExecutor(max_workers=2) as executor:
         claude_future = executor.submit(run_agent_phase, agent_a, prompt_claude, config, state_dir, round_number, phase_name)
         gemini_future = executor.submit(run_agent_phase, agent_b, prompt_gemini, config, state_dir, round_number, phase_name)
@@ -1215,7 +1102,6 @@ def run_both_agents(prompt_claude: str, prompt_gemini: str, config: dict[str, An
             except Exception:
                 logger.exception('Error in %s agent phase', agent_name)
                 results[agent_name] = None
-
     if 'claude' == agent_a and results[agent_a] is None:
         _con(f'  {_orch_tag()} {_C.WARN}Claude failed or returned None (parallel). Running fallback: claude_fallback{_C.RESET}')
         try:
@@ -1230,8 +1116,7 @@ def run_both_agents(prompt_claude: str, prompt_gemini: str, config: dict[str, An
         except Exception:
             logger.exception('Error in claude_fallback agent phase')
             results[agent_b] = None
-
-    _con(f'  {_orch_tag()} {agent_a}={"submitted" if results[agent_a] else "NONE"}  {agent_b}={"submitted" if results[agent_b] else "NONE"}')
+    _con(f'  {_orch_tag()} {agent_a}={('submitted' if results[agent_a] else 'NONE')}  {agent_b}={('submitted' if results[agent_b] else 'NONE')}')
     return (results[agent_a], results[agent_b])
 
 def await_both(claude_future: Any, gemini_future: Any, timeout: int) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
@@ -1384,7 +1269,7 @@ def get_next_task(state_dir: Path) -> dict[str, Any] | None:
                 try:
                     row = json.loads(_line)
                     if row.get('phase') == 'accepted' and row.get('event') == 'auto_commit':
-                        accepted_names.add(f"{row['task_id']}.json")
+                        accepted_names.add(f'{row['task_id']}.json')
                 except (json.JSONDecodeError, KeyError, TypeError):
                     pass
     except OSError:
@@ -1404,9 +1289,6 @@ def get_next_task(state_dir: Path) -> dict[str, Any] | None:
         if deps:
             unmet = [d for d in deps if f'{d}.json' not in accepted_names]
             if unmet:
-                # A3: an unmet dep that has TERMINALLY failed (.exhausted) can
-                # never be accepted -> terminally block this dependent instead
-                # of skipping it forever (which hangs the single-task worker).
                 terminal = _terminally_failed_task_ids(state_dir)
                 failed_deps = [d for d in unmet if d in terminal]
                 if failed_deps:
@@ -1478,6 +1360,7 @@ def _requires_verbatim_manifest(files_touched) -> bool:
     if not isinstance(files_touched, list) or not files_touched:
         return False
     return len(files_touched) > 1 or any((not str(f).endswith('.py') for f in files_touched))
+
 def prepare_task_prompt(task: dict[str, Any]) -> str:
     """Format a task dict into the prompt string sent to agents.
 
@@ -1520,18 +1403,14 @@ def prepare_task_prompt(task: dict[str, Any]) -> str:
     _pe_candidates = files_touched if isinstance(files_touched, list) else [files_touched]
     from harness.paths import effective_target_root
     _target_root = effective_target_root(task.get('working_dir'))
-    _targets_exist = bool(_pe_candidates) and all(
-        isinstance(p, str) and (_target_root / p).exists() for p in _pe_candidates)
-    # BYPASS_WHOLE_FILE (2026-05-28): fall back to partial_edit patches for fuzzer-bypassed tasks
-    # NEW-FILE GUARD (2026-06-09): never offer patches when any target does not yet exist --
-    # patches cannot create files; fall through to the whole-file prompt.
-    if (task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES) and not use_manifest and _targets_exist:
+    _targets_exist = bool(_pe_candidates) and all((isinstance(p, str) and (_target_root / p).exists() for p in _pe_candidates))
+    if (task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES) and (not use_manifest) and _targets_exist:
         pe_files = files_touched if isinstance(files_touched, list) else [files_touched]
         pe_repr = ', '.join((repr(p) for p in pe_files)) if pe_files else '<see current_task.json>'
         prompt += '\nPARTIAL-EDIT DISPATCH (__JANUSMASK_PATCHES__) for ' + pe_repr + f":\n\nThis task edits one or more LARGE existing files IN PLACE. DO NOT\nreproduce the whole file. Read each target's CURRENT on-disk content\n(read-only) from {{WORK_DIR}}/inbox/targets/<rel> -- do not look for the\nfiles by repo-relative path. Emit a single top-level Python list assigned\nto ``__JANUSMASK_PATCHES__`` whose elements each replace exactly ONE\nnamed block. Two entry kinds:\n\n  # replace a top-level def/async def/class (or dotted Outer.method):\n  {{'file': '<rel/path>', 'kind': 'symbol', 'name': '<qualified.Name>',\n   'code': r{tsq}<full replacement def/class source>{tsq}}}\n\n  # replace only the lines between a pair of sentinel comments:\n  {{'file': '<rel/path>', 'kind': 'region', 'marker': '<SENTINEL>',\n   'code': r{tsq}<replacement region body>{tsq}}}\n\nThe exact shape:\n\n    __JANUSMASK_PATCHES__ = [\n        {{'file': '...', 'kind': 'symbol', 'name': '...', 'code': r{tsq}...{tsq}}},\n    ]\n\nRules:\n- Use raw triple-quoted strings (r{tsq}...{tsq}) for ``code`` so newlines,\n  quotes, and backslash escape sequences survive verbatim.\n- For kind 'symbol', ``code`` MUST be exactly ONE def/async def/class\n  whose name matches the leaf of ``name``; every byte outside that block\n  is preserved by the harness.\n- For kind 'region', the file must already contain the sentinel pair\n  ``# JANUSMASK_REGION:<SENTINEL>`` ... ``# JANUSMASK_ENDREGION:<SENTINEL>``;\n  only the lines strictly between them are replaced (sentinels kept).\n- The submission file MUST contain ONLY this ``__JANUSMASK_PATCHES__``\n  assignment at top level (no other statements, imports, or decorators).\n- Replace ONLY the named symbols/regions you must change. Never emit a\n  whole-file manifest for a partial edit.\n\nADDING A NEW TOP-LEVEL SYMBOL (R-ANCHOR):\n- A 'symbol' patch can ONLY replace a top-level def/async def/class that\n  must already exist in the file; naming a symbol that does not yet exist\n  fails the patch-apply path with KeyError. To ADD brand-new top-level\n  symbol(s), use the R-ANCHOR additive pattern: pick an EXISTING top-level\n  symbol as the anchor and emit ONE 'symbol' entry whose ``name`` is that\n  anchor and whose ``code`` reproduces the anchor VERBATIM plus the new\n  symbol(s) as extras. The harness inserts the extras immediately before\n  the anchor and preserves the rest of the file.\n- Worked example -- add brand-new functions foo and bar by anchoring them\n  on the existing top-level symbol baz:\n\n    __JANUSMASK_PATCHES__ = [\n        {{'file': '<rel/path>', 'kind': 'symbol', 'name': 'baz',\n         'code': r{tsq}def foo() -> int:\n    return 1\n\ndef bar() -> int:\n    return 2\n\ndef baz() -> int:  # existing anchor, reproduced verbatim\n    return 3\n{tsq}}},\n    ]\n"
     elif use_manifest:
         files_repr = ', '.join((repr(p) for p in files_touched))
-        prompt += f'\nMULTI-FILE DISPATCH ({len(files_touched)} files: {files_repr}):\n\nThis task touches more than one file. The CURRENT on-disk content of each\nexisting target is staged read-only at {{WORK_DIR}}/inbox/targets/<rel>;\nread it there rather than by repo-relative path. Instead of writing\nsingle-file source, emit a single top-level Python dict literal assigned to\n``__JANUSMASK_MANIFEST__`` that maps each rel-path above to that file\'s\nfull source as a string. The exact shape:\n\n    __JANUSMASK_MANIFEST__ = {{\n        \'<rel/path/to/file>\': r{tsq}<file source here>{tsq},\n        \'<rel/path/to/other>\': r{tsq}<file source here>{tsq},\n    }}\n\nVERBATIM file content rule:\n- Each value MUST be the VERBATIM file content as it currently appears on\n  disk -- not a paraphrase, not a summary, not a fragment.\n- {tsq} (triple-single-quote) and """ (triple-double-quote) are DIFFERENT\n  Python string-delimiter tokens; they do NOT conflict with each other.\n  When you wrap the file content in r{tsq}...{tsq}, any """ inside the file\n  (e.g. the module docstring markers at the top of the file) MUST be\n  preserved byte-for-byte. Do not strip, rewrite, or convert them.\n\nRaw-string wrapping rule:\n- The recommended wrapping is r{tsq}...{tsq} (raw triple-single-quote). The r\n  prefix makes the string LITERAL, so backslash escape sequences inside\n  the file content (e.g. \\n, \\t, \\\\, \\x41, \\u0041, and regex literals\n  such as r\'\\d+\\.\\d+\') survive verbatim instead of being re-interpreted\n  by the Python lexer when the orchestrator parses the manifest. Using a\n  non-raw {tsq} would silently convert each \\n in the file content into a\n  real newline and reject \\d / \\. as invalid escape sequences, corrupting\n  the round-tripped source.\n\nConcrete example (a short file beginning with a Module docstring and a\nregex literal whose pattern contains backslash escape sequences):\n\n    __JANUSMASK_MANIFEST__ = {{\n        \'pkg/example.py\': r{tsq}"""Module docstring."""\\nimport re\\n\\nVERSION_RE = re.compile(r\'\\d+\\.\\d+\')\\n\\ndef f() -> int:\\n    return 1\\n{tsq},\n    }}\n\nNote how the inner """Module docstring.""" markers AND the backslash\nescape sequences inside the regex literal r\'\\d+\\.\\d+\' appear INSIDE the\nraw triple-single-quote manifest value, completely unchanged from the\nsource file -- the outer r{tsq} raw-string prefix keeps every backslash\nbyte-for-byte, so the orchestrator parses the manifest into the exact\nbytes that are on disk.\n\nDO NOT (common error modes that will fail validation):\n- DO NOT strip or rewrite the file\'s existing triple-double-quote (""")\n  docstring markers. They are part of the file\'s content and must round-trip\n  verbatim inside the raw triple-single-quote manifest value.\n- DO NOT wrap a file that contains backslash escape sequences in a non-raw\n  {tsq} value (i.e. plain triple-single-quote without the leading r prefix).\n  Without the r prefix, Python\'s string lexer interprets every backslash at\n  parse time -- \\n collapses to a real newline, \\d raises an invalid escape\n  sequence warning / error, and the manifest source itself can become\n  unparseable. Use r{tsq}...{tsq} instead so the backslashes survive.\n- DO NOT add an f-string prefix f{tsq}, concatenate multiple string fragments\n  with ``+``, manually escape inner quotes with backslashes, or truncate the\n  file with ellipses (``...``) instead of including the whole source.\n- If the file\'s source itself contains a literal triple-single-quote ({tsq})\n  sequence at module scope, fall back to r"""...""" (raw triple-double-quote)\n  for that one entry so the outer delimiter does not clash with the inner\n  {tsq} tokens.\n\nRequirements:\n- Provide WHOLE-FILE source for every entry (no diffs, no fragments).\n- Use raw triple-quoted strings (r{tsq}...{tsq} or r"""...""") for values so\n  embedded newlines, quotes, and backslash escape sequences survive\n  verbatim.\n- The submission file MUST contain only this assignment at top level\n  (no other top-level statements, no imports, no decorators).\n- Include every path listed above as a manifest key, using the exact\n  relative paths shown.\n'
+        prompt += f'''\nMULTI-FILE DISPATCH ({len(files_touched)} files: {files_repr}):\n\nThis task touches more than one file. The CURRENT on-disk content of each\nexisting target is staged read-only at {{WORK_DIR}}/inbox/targets/<rel>;\nread it there rather than by repo-relative path. Instead of writing\nsingle-file source, emit a single top-level Python dict literal assigned to\n``__JANUSMASK_MANIFEST__`` that maps each rel-path above to that file's\nfull source as a string. The exact shape:\n\n    __JANUSMASK_MANIFEST__ = {{\n        '<rel/path/to/file>': r{tsq}<file source here>{tsq},\n        '<rel/path/to/other>': r{tsq}<file source here>{tsq},\n    }}\n\nVERBATIM file content rule:\n- Each value MUST be the VERBATIM file content as it currently appears on\n  disk -- not a paraphrase, not a summary, not a fragment.\n- {tsq} (triple-single-quote) and """ (triple-double-quote) are DIFFERENT\n  Python string-delimiter tokens; they do NOT conflict with each other.\n  When you wrap the file content in r{tsq}...{tsq}, any """ inside the file\n  (e.g. the module docstring markers at the top of the file) MUST be\n  preserved byte-for-byte. Do not strip, rewrite, or convert them.\n\nRaw-string wrapping rule:\n- The recommended wrapping is r{tsq}...{tsq} (raw triple-single-quote). The r\n  prefix makes the string LITERAL, so backslash escape sequences inside\n  the file content (e.g. \\n, \\t, \\\\, \\x41, \\u0041, and regex literals\n  such as r'\\d+\\.\\d+') survive verbatim instead of being re-interpreted\n  by the Python lexer when the orchestrator parses the manifest. Using a\n  non-raw {tsq} would silently convert each \\n in the file content into a\n  real newline and reject \\d / \\. as invalid escape sequences, corrupting\n  the round-tripped source.\n\nConcrete example (a short file beginning with a Module docstring and a\nregex literal whose pattern contains backslash escape sequences):\n\n    __JANUSMASK_MANIFEST__ = {{\n        'pkg/example.py': r{tsq}"""Module docstring."""\\nimport re\\n\\nVERSION_RE = re.compile(r'\\d+\\.\\d+')\\n\\ndef f() -> int:\\n    return 1\\n{tsq},\n    }}\n\nNote how the inner """Module docstring.""" markers AND the backslash\nescape sequences inside the regex literal r'\\d+\\.\\d+' appear INSIDE the\nraw triple-single-quote manifest value, completely unchanged from the\nsource file -- the outer r{tsq} raw-string prefix keeps every backslash\nbyte-for-byte, so the orchestrator parses the manifest into the exact\nbytes that are on disk.\n\nDO NOT (common error modes that will fail validation):\n- DO NOT strip or rewrite the file's existing triple-double-quote (""")\n  docstring markers. They are part of the file's content and must round-trip\n  verbatim inside the raw triple-single-quote manifest value.\n- DO NOT wrap a file that contains backslash escape sequences in a non-raw\n  {tsq} value (i.e. plain triple-single-quote without the leading r prefix).\n  Without the r prefix, Python's string lexer interprets every backslash at\n  parse time -- \\n collapses to a real newline, \\d raises an invalid escape\n  sequence warning / error, and the manifest source itself can become\n  unparseable. Use r{tsq}...{tsq} instead so the backslashes survive.\n- DO NOT add an f-string prefix f{tsq}, concatenate multiple string fragments\n  with ``+``, manually escape inner quotes with backslashes, or truncate the\n  file with ellipses (``...``) instead of including the whole source.\n- If the file's source itself contains a literal triple-single-quote ({tsq})\n  sequence at module scope, fall back to r"""...""" (raw triple-double-quote)\n  for that one entry so the outer delimiter does not clash with the inner\n  {tsq} tokens.\n\nRequirements:\n- Provide WHOLE-FILE source for every entry (no diffs, no fragments).\n- Use raw triple-quoted strings (r{tsq}...{tsq} or r"""...""") for values so\n  embedded newlines, quotes, and backslash escape sequences survive\n  verbatim.\n- The submission file MUST contain only this assignment at top level\n  (no other top-level statements, no imports, no decorators).\n- Include every path listed above as a manifest key, using the exact\n  relative paths shown.\n'''
     if mtt == 'test_authoring':
         prompt += '\nTEST-AUTHORING DISPATCH:\n\nYou are authoring a pytest TEST FILE (a verification oracle), NOT an implementation function. Write the COMPLETE contents of the test file as ordinary Python source to the submission.py path given above -- a whole .py file. DO NOT emit a __JANUSMASK_PATCHES__ list and DO NOT emit a __JANUSMASK_MANIFEST__ dict; submit the test file source directly.\n\nThe test MUST import the module(s) under test by name and exercise their REAL observable behaviour per the spec. It MUST be NON-VACUOUS: the harness re-runs it against a deliberately broken mutant of the code and REJECTS it unless it FAILS on the mutant -- so a test that asserts trivially (e.g. assert True) or never exercises the behaviour will be rejected. Follow EVERY required test property and safety constraint in the spec / acceptance_criteria (fixtures, monkeypatch + teardown, redirected paths, skip markers, negative and positive controls) exactly, and name each test function test_<unit>_<behaviour>.\n'
     if spec_summary:
@@ -1705,21 +1584,9 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
             return (False, all_violations)
         logger.info('%s manifest submission (%d files) passed AST validation (%d warnings)', agent, len(manifest), len(all_violations))
         return (True, all_violations)
-    # BYPASS_WHOLE_FILE (2026-05-28): Validate as patches if partial_edit or fuzzer-bypassed
     if task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES:
-        # AW10d/C9.14 partial-edit submission: the agent emits a
-        # ``__JANUSMASK_PATCHES__`` list (one entry per replaced symbol), NOT
-        # whole-file source. Validating the patch-list ASSIGNMENT as if it were the
-        # target module spuriously reports the module's functions missing (the
-        # ``synthesis_or_ast_failed`` that blocked the large-file rebuild keystone).
-        # Validate each patch entry's ``code`` block (a single def/class) on its own;
-        # git_integration._apply_symbol_patch enforces name/shape at commit time and
-        # the merged==original oracle + scoped tests gate behavior post-commit.
         patches = git_integration._parse_patches(code)
         if patches is not None:
-            # VALIDATOR_SIG: the declared signature describes a single named
-            # function, so only the matching patch entry may be gated by its
-            # return-type contract. Lazy in-body import per PATCH_CONVENTIONS #3/#8.
             from harness.ast_enforcer import _extract_func_name_from_signature
             sig_func = _extract_func_name_from_signature(declared_signature) if declared_signature else None
             pv: list = []
@@ -1731,7 +1598,7 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
                 blk = entry.get('code', '')
                 blk = textwrap.dedent(blk)
                 entry_name = entry.get('name') if entry.get('kind') == 'symbol' else None
-                blk_sig = declared_signature if (sig_func is not None and entry_name == sig_func) else None
+                blk_sig = declared_signature if sig_func is not None and entry_name == sig_func else None
                 pv.extend(validate_code(blk, allow_nondeterminism=allow_nondet, declared_signature=blk_sig, relax_external_constructs=relax_external))
             errors = [v for v in pv if v.severity == 'error']
             if errors:
@@ -1740,12 +1607,9 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
             logger.info('%s partial-edit submission (%d patches) passed AST validation (%d warnings)', agent, len(patches), len(pv))
             return (True, pv)
         if task.get('partial_edit'):
-            msg = ("partial_edit task requires a top-level __JANUSMASK_PATCHES__ = [ {file, kind, name|marker, code}, ... ] assignment, "
-                   "but the submission contained no parseable __JANUSMASK_PATCHES__ block. Resubmit as a __JANUSMASK_PATCHES__ list "
-                   "(one entry per replaced symbol/region) so the patch encoding is deterministic.")
+            msg = 'partial_edit task requires a top-level __JANUSMASK_PATCHES__ = [ {file, kind, name|marker, code}, ... ] assignment, but the submission contained no parseable __JANUSMASK_PATCHES__ block. Resubmit as a __JANUSMASK_PATCHES__ list (one entry per replaced symbol/region) so the patch encoding is deterministic.'
             logger.warning('%s partial_edit submission missing __JANUSMASK_PATCHES__ block (task_id=%r)', agent, task.get('task_id'))
             return (False, [Violation(rule='patches_required', severity='error', line=0, message=msg)])
-        # else (BYPASS_FUZZER_TYPES but not partial_edit): fall through unchanged.
     files_touched_raw = task.get('files_touched')
     if isinstance(files_touched_raw, list) and len(files_touched_raw) > 1:
         file_list_str = ', '.join((str(f) for f in files_touched_raw))
@@ -1948,7 +1812,6 @@ def _terminally_failed_task_ids(state_dir: Path) -> set[str]:
         pass
     return out
 
-
 def _mark_dependency_failed(state_dir: Path, task_id: str, failed_deps: list[str]) -> None:
     """A3: terminally block a task whose dependency has terminally failed.
 
@@ -1970,7 +1833,6 @@ def _mark_dependency_failed(state_dir: Path, task_id: str, failed_deps: list[str
         write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'autowork', 'task_id': task_id, 'event': 'dependency_failed', 'detail': f'terminally blocked: dependency terminally failed ({failed_deps})'})
     except OSError:
         pass
-
 
 def _resolve_files_touched(state_dir: Path, task: dict[str, Any], task_id: str) -> list[str]:
     """Return the files_touched list for a task.
@@ -2025,8 +1887,8 @@ def _resolve_verification_command(state_dir: Path, task: dict[str, Any], task_id
             return parent_vcmd
         current_parent = parent_task.get('parent_task')
     return None
-
-from harness.wire_up import check_wired, WireResult
+from harness.wire_up import check_wired
+from harness.wire_up import WireResult
 
 def _wire_up_gate_enabled(state_dir=None) -> bool:
     """WIRE_UP_GATE: return ``config['autowork']['wire_up_gate']`` (default False).
@@ -2091,6 +1953,7 @@ def _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, wor
             _mark_blocked(state_dir, task_id, outcome='orphan_unwired')
             return True
     return False
+
 def _rollback_rejected_commit(worktree_root: Path, sha: str | None, target_rel: str, task_id: str, kind: str) -> None:
     """Undo a rejected auto-commit without destroying a peer worker's commit.
 
@@ -2145,40 +2008,32 @@ def perform_process_handover(state_dir: Path) -> None:
     import logging
     import shutil
     logger = logging.getLogger('janusmask.orchestrator')
-
-    # 1. State preservation
     from harness.state import serialize_orchestrator_state
     try:
         serialize_orchestrator_state(state_dir)
-        logger.info("Preserved orchestrator state for handover.")
+        logger.info('Preserved orchestrator state for handover.')
     except Exception as e:
-        logger.error(f"Failed to preserve state: {e}")
-
-    # 2. Port release (WebUI port, default 8765 or custom)
+        logger.error(f'Failed to preserve state: {e}')
     try:
         from tools.webui_server import release_for_handover
         release_for_handover()
-        logger.info("Released WebUI socket/port.")
+        logger.info('Released WebUI socket/port.')
     except Exception as e:
-        logger.debug(f"WebUI release not required or failed: {e}")
-
-    # 3. Process execution handoff via os.execv
-    executable = sys.executable or shutil.which("python3") or shutil.which("python") or "/usr/bin/python3"
+        logger.debug(f'WebUI release not required or failed: {e}')
+    executable = sys.executable or shutil.which('python3') or shutil.which('python') or '/usr/bin/python3'
     cmd_args = sys.argv
     if not cmd_args:
-        cmd_args = ["-m", "harness.orchestrator", "--state-dir", str(state_dir)]
+        cmd_args = ['-m', 'harness.orchestrator', '--state-dir', str(state_dir)]
     args = [executable] + cmd_args
-
-    logger.info(f"Triggering os.execv with command: {args}")
+    logger.info(f'Triggering os.execv with command: {args}')
     sys.stdout.flush()
     sys.stderr.flush()
     for handler in logging.root.handlers:
         handler.flush()
-
     try:
         os.execv(executable, args)
     except Exception as e:
-        logger.critical(f"os.execv handover failed! {e}")
+        logger.critical(f'os.execv handover failed! {e}')
         raise
 
 def _auto_approve_sensitive_eligible(state_dir, task, task_id, rel_paths, config, repo_root=None) -> bool:
@@ -2223,17 +2078,6 @@ def _auto_approve_sensitive_eligible(state_dir, task, task_id, rel_paths, config
             return False
         if not isinstance(task_id, str) or not task_id:
             return False
-        # AUTONOMY POSTURE (owner decision 2026-06-05; memory
-        # phase2-autonomy-security-posture): the security posture is CONDITIONAL on
-        # the webui-controlled ``autowork.enabled`` toggle (put_config_autowork
-        # writes it to harness/config.yaml).
-        #   * enabled  -> WIDENED: auto-approve ANY harness/** path that is not on
-        #     the irreducible _NEVER_AUTO_APPROVE deny-list. The INV9 content gate
-        #     at the call site still applies. Drops the self-heal-only gates
-        #     (harness_self_fix meta + HMAC provenance + ceiling) so the daemon
-        #     runs fully unattended.
-        #   * disabled/absent -> STRICT FLOOR (unchanged): self-heal-only
-        #     (harness_self_fix + HMAC provenance + ceiling<configured-ceiling).
         from pathlib import Path as _Path
         _widened = bool(autowork.get('enabled'))
         if not _widened:
@@ -2246,8 +2090,6 @@ def _auto_approve_sensitive_eligible(state_dir, task, task_id, rel_paths, config
             from harness.selfheal import _selfheal_provenance_valid
             if not _selfheal_provenance_valid(slug, brief_path, state_dir):
                 return False
-        # PATH SCOPE (both modes): rel_paths non-empty; every rel has no raw '..'
-        # component, is not on the deny-list, and is under harness/**.
         import os as _os
         if not rel_paths:
             return False
@@ -2291,8 +2133,8 @@ def _auto_approve_sensitive_eligible(state_dir, task, task_id, rel_paths, config
         return True
     except Exception:
         return False
-
 _NEVER_AUTO_APPROVE: tuple[str, ...] = ('harness/agent_jail.py', 'harness/dbus_proxy.py', 'harness/paths.py', 'harness/git_integration.py', 'harness/orchestrator.py', 'harness/interceptors.py', 'harness/selfheal.py', 'harness/autowork_daemon.py', 'services/**')
+
 def _apply_approval_granted(state_dir: Path, task_id: str) -> bool:
     """AGENT-ISOLATION §1b: True iff an operator approved this task's apply.
 
@@ -2404,14 +2246,6 @@ def _auto_approve_content_safe(state_dir, task_id) -> bool:
                         if kw.arg == 'shell' and isinstance(kw.value, ast.Constant) and (kw.value.value is True):
                             return False
     return True
-# GAP2 (hands-off): the RO-parent gate (git_integration._verify_from_ro_parent)
-# runs these from a bare `git archive` snapshot (no .git, no runtime state/), so
-# every gate test MUST be hermetic. test_replication_clean_room_static.py was
-# REMOVED — its TestSmokeArtifactsTracked cases read git-tracking + the
-# state/impl_progress.jsonl ledger (both absent from the archive) and so errored,
-# making the gate fail-closed on EVERY auto-approve commit. The two that remain
-# are the hermetic security invariants the RO gate exists to protect (trust-root
-# integrity + the deny-list-no-widen invariant); both pass in a bare snapshot.
 _RO_GATE_TESTS = ('tests/adversarial/test_sec_inv2_trustroot.py', 'tests/adversarial/test_p10b_denylist_widen.py')
 _GIT_COMMIT_LOCK_DEADLINE_SEC = 60.0
 
@@ -2728,28 +2562,11 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     import subprocess
     import sys
     import time
-
-    # SEC-5c (VERIFY_EXTRA_BINDS): read the config-driven jailed-verify
-    # allowlists once via the already-available load_config. Safe .get(..., [])
-    # defaults keep configs that omit agent_sandbox.verify_extra_ro /
-    # verify_extra_rw backward compatible (empty -> no widening). These augment
-    # the SEC-2 [sys.base_prefix, sys.prefix] prefix at all four jailed sites.
     _sandbox_cfg = load_config().get('agent_sandbox', {})
     verify_extra_ro = _sandbox_cfg.get('verify_extra_ro', [])
     verify_extra_rw = _sandbox_cfg.get('verify_extra_rw', [])
-
-    # FLAG2_ORCH (REV22 §3 / CR-6): read the LLM-supplied working_dir and
-    # classify the target. For self-builds working_dir is absent -> None ->
-    # _target_is_self(None) == True, so the fail-closed external gate below is
-    # INERT and the historical unjailed shell=True fallback is preserved
-    # byte-for-byte. For an EXTERNAL target (working_dir outside the JM tree)
-    # the four sandbox-OFF branches REFUSE to spawn rather than run
-    # attacker-controlled verification_command unjailed on the host with full
-    # creds+network and a host-env copy via _vcmd_scrubbed_env() [CR-11].
-    # _target_is_self is imported lazily in-body (no new module-level import).
     from harness.paths import _target_is_self
     working_dir = task.get('working_dir')
-
     files_touched = _resolve_files_touched(state_dir, task, task_id)
     if not files_touched:
         logger.info('auto-commit: skipped %s (no files_touched resolved)', task_id)
@@ -2767,150 +2584,60 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
             logger.warning('multi_file_missing_sidecar: ledger append failed for %s: %s', task_id, exc)
     if not target_rel.endswith('.py'):
         logger.info('auto-commit: target %s is non-py; delegating to git_integration.commit_accepted_output (direct-copy path)', task_id)
-
-    # 1. Resolve worktree root + staging path. STAGING_REROOT: classify the
-    # target via _target_is_self(working_dir). For an EXTERNAL target the
-    # worktree root is the LLM-supplied target tree (effective_target_root) and
-    # the staging worktree is re-rooted UNDER the JanusMask-owned external
-    # staging root rather than as a sibling of the parent repo. Both
-    # effective_target_root and external_staging_root are imported lazily
-    # in-body (no new module-level imports). The SELF branch resolves
-    # worktree_root / staging_path exactly as before (byte-identical logic).
     if not _target_is_self(working_dir):
         from harness.paths import effective_target_root
         from harness.target_bootstrap import external_staging_root
         worktree_root = Path(effective_target_root(working_dir)).resolve()
         staging_path = Path(external_staging_root()) / f'{worktree_root.name}_{task_id}'
     else:
-        # SELF path -- resolve the parent workspace worktree root and place the
-        # task-scoped staging worktree as a sibling of it (ROLLB-A).
         try:
             rev = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=True, timeout=10, cwd=str(state_dir.parent))
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
             logger.warning('auto-commit: git rev-parse failed for %s: %s', task_id, exc)
             return False
         worktree_root = Path(rev.stdout.strip()).resolve()
-
-        # Determine staging directory as sibling to the parent worktree. ROLLB-A:
-        # scope the directory name by task_id so concurrent runs do not collide on
-        # a single shared staging worktree. The path remains under
-        # worktree_root.parent (sibling placement required by create_staging_worktree).
-        staging_path = worktree_root.parent / f"{worktree_root.name}_{task_id}_staging"
-
+        staging_path = worktree_root.parent / f'{worktree_root.name}_{task_id}_staging'
     logger.info('auto-commit: using staging worktree at %s for task %s', staging_path, task_id)
-
-    # G3_VENV (VENV_JAIL): bind the EXTERNAL target's own .venv subtree read-only
-    # into the jail and pin PATH at the target interpreter. For a SELF task both
-    # are inert (empty list / unmodified scrubbed env) so the fallback-interpreter
-    # behavior is byte-identical. worktree_root / working_dir / _target_is_self /
-    # _vcmd_scrubbed_env / os / sys are already in scope (no new top-level
-    # symbols, no new module-level imports).
     _ext_venv_ro = [str(worktree_root / '.venv')] if not _target_is_self(working_dir) else []
 
     def _venv_jail_env() -> dict[str, str]:
-        # Start from the scrubbed env (PATH preserved, JANUSMASK_* dropped). For a
-        # SELF task return it unmodified: no .venv injection, default interpreter.
         _env = _vcmd_scrubbed_env()
         if _target_is_self(working_dir):
             return _env
-        # EXTERNAL: fail CLOSED if the target's own venv interpreter is absent --
-        # never silently inherit the harness environment python. Otherwise PREFIX
-        # <worktree_root>/.venv/bin onto PATH so the verification_command resolves
-        # the TARGET interpreter first.
         _venv_bin = worktree_root / '.venv' / 'bin'
         if not (_venv_bin / 'python').exists():
-            raise RuntimeError(
-                'G3_VENV: refusing to run the verification_command for an EXTERNAL '
-                'target whose virtualenv is missing (%s is absent); the orchestrator '
-                'will NOT silently inherit the harness environment python (no-venv '
-                'refusal, fail-closed). Create the target .venv and retry.'
-                % (_venv_bin / 'python',)
-            )
+            raise RuntimeError('G3_VENV: refusing to run the verification_command for an EXTERNAL target whose virtualenv is missing (%s is absent); the orchestrator will NOT silently inherit the harness environment python (no-venv refusal, fail-closed). Create the target .venv and retry.' % (_venv_bin / 'python',))
         _path = _env.get('PATH', '')
         _env['PATH'] = str(_venv_bin) + (os.pathsep + _path if _path else '')
         return _env
-
-    # EXTERNAL_DIRTY_GATE (REV23 §3-2): before creating the staging worktree,
-    # REFUSE an EXTERNAL task whose target repository root has a dirty working
-    # tree. We never auto-stage/stash a user's repo -- a non-empty
-    # ``git status --porcelain`` means there is uncommitted work that staging
-    # would clobber, so we fail closed before git_integration.create_staging_worktree
-    # is ever called. SELF tasks (_target_is_self(working_dir) True) BYPASS this
-    # check entirely (the SELF branch above stays byte-identical and is not
-    # subject to the dirty gate). worktree_root on the EXTERNAL branch is already
-    # Path(effective_target_root(working_dir)).resolve(); _target_is_self and
-    # subprocess are already imported lazily in-body (no new module-level
-    # symbols / imports). Mirrors the existing FLAG2_ORCH refusal idiom.
     if not _target_is_self(working_dir):
         _dirty = subprocess.run(['git', 'status', '--porcelain'], cwd=str(worktree_root), capture_output=True, text=True)
         if _dirty.returncode == 0 and _dirty.stdout.strip():
             raise RuntimeError('EXTERNAL_DIRTY_GATE (REV23 §3-2): refusing to stage/commit an EXTERNAL target whose repository has a dirty working tree; JanusMask never auto-stages or stashes a user repo (working_dir=%r is outside the JanusMask tree). Commit or stash the external working tree and retry.' % (working_dir,))
-
-    # 2. Create the staging worktree
     try:
         git_integration.create_staging_worktree(str(staging_path), parent_root=worktree_root)
     except Exception as e:
         logger.error('Failed to create staging worktree for %s: %s', task_id, e)
         return False
-
-    # ROLLB-D (STAGING_CLEANUP_GUARANTEE): the staging worktree created just
-    # above must be torn down on EVERY exit path -- not only the explicit
-    # reject/merge branches. Wrap the entire post-creation body in try/finally
-    # so an unexpected mid-body exception (commit_accepted_output raising on an
-    # index.lock race / OSError, a ledger/_resolve crash) AND the SEC-3
-    # disabled-sandbox FileNotFoundError re-raise still propagate but leave NO
-    # leaked worktree. remove_staging_worktree is idempotent + never-raises: on
-    # the success path (merge already removed the dir) and the explicit-reject
-    # paths (already removed) it is a no-op; it only does real work on the
-    # previously-leaking paths. On the success path perform_process_handover's
-    # os.execv replaces the process so the finally never runs -- harmless.
     try:
-        # 3. Create symlink to .venv if it exists in the parent
-        parent_venv = worktree_root / ".venv"
-        staging_venv = staging_path / ".venv"
-        if parent_venv.exists() and not staging_venv.exists():
+        parent_venv = worktree_root / '.venv'
+        staging_venv = staging_path / '.venv'
+        if parent_venv.exists() and (not staging_venv.exists()):
             try:
                 os.symlink(parent_venv.resolve(), staging_venv)
             except Exception as sym_exc:
                 logger.warning('Failed to symlink .venv to staging: %s', sym_exc)
-
-        # 4. Commit changes inside the staging worktree
         target_abs = str((worktree_root / target_rel).resolve())
-        # AGENT-ISOLATION §1b: scope the apply to the declared files_touched and
-        # gate any harness/**, config/**, scripts/** write behind harness_self_fix
-        # + an explicit operator approval decision.
         _mtt = task.get('meta_task_type') or (task.get('constraints') or {}).get('meta_task_type')
         _approval_ok = _apply_approval_granted(state_dir, task_id)
-        # P10-B CONSULT (REV29 §3a): when the operator decision file did NOT grant
-        # the apply, consult the pure auto-approve eligibility gate for a self-heal
-        # harness submission. The helper is dead-until-flag (default-off) and
-        # side-effect free; it reads (never mutates) the persisted ceiling counter.
-        # _granted_via_auto_approve records whether the grant came from the
-        # auto-approve path so the ceiling counter below is incremented ONLY for
-        # auto-approved commits -- never for operator-decided ones.
         _granted_via_auto_approve = False
         if not _approval_ok:
             _approval_ok = _auto_approve_sensitive_eligible(state_dir, task, task_id, files_touched, load_config(), repo_root=worktree_root)
             _granted_via_auto_approve = _approval_ok
-        # INV9 (CONTENT_GATE): only when the grant came from the auto-approve
-        # consult (never the operator-decision path), require the staged artifact
-        # bytes that commit_accepted_output will actually apply to clear the pure
-        # capability gate. On a refusal fail CLOSED -- drop the approval AND the
-        # auto-approve grant flag so the sensitive apply is blocked and the
-        # ceiling counter below is NOT incremented for the refused patch.
-        if _granted_via_auto_approve and not _auto_approve_content_safe(state_dir, task_id):
+        if _granted_via_auto_approve and (not _auto_approve_content_safe(state_dir, task_id)):
             _approval_ok = False
             _granted_via_auto_approve = False
 
-        # INV5 (TOCTOU_PIN): now that the auto-approve grant is FINALIZED (it
-        # survived the content gate above), capture the staged artifact sha256 and
-        # the parent HEAD so a tamper of either in the TOCTOU window before the
-        # flocked commit can be detected. hashlib is imported lazily here (no
-        # module-level import). Both helpers are pure reads; they are only invoked
-        # for the auto-approve path so the operator-approval and flag-off paths
-        # never pin or compare. _inv5_artifact_sha mirrors the SAME precedence the
-        # commit uses (.patches.json > .files.json > .py, first that exists);
-        # _inv5_parent_head runs `git rev-parse HEAD` in worktree_root.
         def _inv5_artifact_sha() -> str | None:
             import hashlib
             _odir = Path(state_dir) / 'output'
@@ -2929,35 +2656,11 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
             except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
                 return None
             return _rp.stdout.strip() if _rp.returncode == 0 else None
-
         _pinned_artifact_sha = _inv5_artifact_sha() if _granted_via_auto_approve else None
         _pinned_parent_head = _inv5_parent_head() if _granted_via_auto_approve else None
-
-        # SEC_RO_CHECKOUT_WIRING (H2): wire the read-only-parent verification
-        # primitive (git_integration._verify_from_ro_parent, ported by the
-        # sec_ro_checkout_primitive dependency and already in scope via the
-        # in-body ``from harness import git_integration``) into the auto-approve
-        # commit path. This runs OUTSIDE the git_commit.lock flock -- it is placed
-        # BEFORE the lock_dir/flock acquisition below -- so the RO-parent pytest
-        # battery never executes while the commit lock is held. It is
-        # DEAD-UNTIL-FLAG: the gate is consulted ONLY when the grant came from the
-        # auto-approve consult (``_granted_via_auto_approve`` True) AND the net-new
-        # default-off flag ``autowork.auto_approve_ro_gate`` is True. load_config()
-        # is read once here and the boolean defaults to False whenever the config
-        # is not a dict, ``autowork`` is missing/not a dict, or the key is absent,
-        # so existing auto-approve tests that do not set the flag are byte-identical
-        # to HEAD (and the operator-approval / flag-off paths never consult it).
-        # When the primitive returns False the grant is REFUSED fail-closed: both
-        # ``_approval_ok`` and ``_granted_via_auto_approve`` are dropped to False so
-        # the sensitive apply is blocked (commit_accepted_output's _enforce_apply_scope
-        # raises on a sensitive path with approval_ok=False, mirroring the
-        # content-gate abort) AND the ceiling counter below is NOT incremented
-        # (guarded by ``_granted_via_auto_approve and result.get('committed')``); a
-        # warning is logged and a rejected ledger row is appended (best-effort, the
-        # OSError-wrapped write mirrors the INV5 TOCTOU abort).
         _ro_gate_cfg = load_config()
         _ro_gate_on = bool(isinstance(_ro_gate_cfg, dict) and isinstance(_ro_gate_cfg.get('autowork'), dict) and _ro_gate_cfg['autowork'].get('auto_approve_ro_gate'))
-        if _granted_via_auto_approve and _ro_gate_on and not git_integration._verify_from_ro_parent(worktree_root, _pinned_parent_head, staging_path, _RO_GATE_TESTS):
+        if _granted_via_auto_approve and _ro_gate_on and (not git_integration._verify_from_ro_parent(worktree_root, _pinned_parent_head, staging_path, _RO_GATE_TESTS)):
             _approval_ok = False
             _granted_via_auto_approve = False
             logger.warning('auto_approve_ro_gate_failed: aborting auto-approve commit for %s -- the RO-parent verification gate refused the staged candidate (git_integration._verify_from_ro_parent returned False against pinned parent HEAD %s); treating as refused apply', task_id, _pinned_parent_head)
@@ -2965,13 +2668,10 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                 write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'auto_approve_ro_gate_failed', 'commit_sha': None, 'files': files_touched, 'reason': 'RO-parent verification gate refused the staged candidate'})
             except OSError as _exc:
                 logger.warning('auto_approve_ro_gate_failed: ledger append failed for %s: %s', task_id, _exc)
-
         lock_dir = state_dir / 'control' / 'autowork'
         lock_dir.mkdir(parents=True, exist_ok=True)
         lock_path = lock_dir / 'git_commit.lock'
         with open(lock_path, 'a') as lock_fd:
-            # §4b BOUNDED LOCK (2026-06-10): a LIVE hung holder must not wedge this
-            # worker forever -- bounded LOCK_NB retry, then fail the attempt cleanly.
             _lock_acquired = _acquire_git_commit_lock_bounded(lock_fd)
             try:
                 if not _lock_acquired:
@@ -2981,17 +2681,6 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                     except OSError as _exc:
                         logger.warning('git_commit_lock_timeout: ledger append failed for %s: %s', task_id, _exc)
                     result = {'committed': False, 'error': 'git_commit_lock_timeout: git_commit.lock held by a live process past the acquisition deadline'}
-                # INV5 (TOCTOU_PIN): still holding LOCK_EX and IMMEDIATELY before
-                # the commit, re-read the staged artifact sha + parent HEAD and
-                # compare against the values pinned after the content gate. Only
-                # the auto-approve path is guarded -- the operator-approval and
-                # flag-off paths skip this branch entirely (byte-identical). Any
-                # mismatch means the staged bytes were tampered or the parent HEAD
-                # shifted inside the TOCTOU window, so ABORT: do NOT call
-                # commit_accepted_output, drop both approval flags, emit a
-                # telemetry line, and synthesize an error result so the
-                # not-committed handler below scrubs staging and returns False (the
-                # ceiling counter is NOT incremented).
                 _inv5_abort = False
                 if _lock_acquired and _granted_via_auto_approve:
                     _now_artifact_sha = _inv5_artifact_sha()
@@ -3006,21 +2695,16 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                         except OSError as _exc:
                             logger.warning('auto_approve_toctou_pin_mismatch: ledger append failed for %s: %s', task_id, _exc)
                         result = {'committed': False, 'error': 'auto_approve_toctou_pin_mismatch: staged artifact bytes or parent HEAD changed between pin and commit'}
-                if _lock_acquired and not _inv5_abort:
+                if _lock_acquired and (not _inv5_abort):
                     result = git_integration.commit_accepted_output(task_id, target_abs, state_dir, worktree_root=staging_path, allowed_files=set(files_touched), meta_task_type=_mtt, approval_ok=_approval_ok, working_dir=working_dir, widened_auto_approve=_granted_via_auto_approve)
-                    # P10-B CEILING INCREMENT (REV29 §3c): still holding LOCK_EX, when
-                    # the commit landed AND the grant came from the auto-approve consult
-                    # (not an operator decision), read-modify-write the persisted
-                    # ceiling counter (mirrors the helper's count_path) bumping it by
-                    # one. n defaults to 0 when the file is absent or corrupt.
                     if _granted_via_auto_approve and result.get('committed'):
                         _count_path = Path(state_dir) / 'control' / 'autowork' / 'auto_approve_count.json'
                         _n = 0
                         try:
                             _cdata = json.loads(_count_path.read_text(encoding='utf-8', errors='replace'))
-                            if isinstance(_cdata, dict) and isinstance(_cdata.get('count'), int) and not isinstance(_cdata.get('count'), bool):
+                            if isinstance(_cdata, dict) and isinstance(_cdata.get('count'), int) and (not isinstance(_cdata.get('count'), bool)):
                                 _n = _cdata['count']
-                            elif isinstance(_cdata, int) and not isinstance(_cdata, bool):
+                            elif isinstance(_cdata, int) and (not isinstance(_cdata, bool)):
                                 _n = _cdata
                         except Exception:
                             _n = 0
@@ -3028,8 +2712,6 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
             finally:
                 if _lock_acquired:
                     fcntl.flock(lock_fd, fcntl.LOCK_UN)
-
-        # 5. Run verification inside staging
         if result.get('committed'):
             vcmd = _resolve_verification_command(state_dir, task, task_id)
             if not (isinstance(vcmd, str) and vcmd.strip()):
@@ -3057,13 +2739,8 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                         break
                 if idx == -1:
                     return False
-                args = parts[idx+1:]
-                options_with_args = {
-                    '-k', '-m', '-o', '-c', '-p', '--tb', '--import-mode', '--color',
-                    '--durations', '--maxfail', '--lf', '--last-failed', '--ff',
-                    '--failed-first', '--nf', '--new-first', '--cache-clear',
-                    '--rootdir', '--override-ini', '--show-capture',
-                }
+                args = parts[idx + 1:]
+                options_with_args = {'-k', '-m', '-o', '-c', '-p', '--tb', '--import-mode', '--color', '--durations', '--maxfail', '--lf', '--last-failed', '--ff', '--failed-first', '--nf', '--new-first', '--cache-clear', '--rootdir', '--override-ini', '--show-capture'}
                 has_target = False
                 skip_next = False
                 for arg in args:
@@ -3077,7 +2754,6 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                     has_target = True
                     break
                 return not has_target
-
             if _is_unscoped_pytest(vcmd):
                 from harness.test_scoper import get_relevant_test_files
                 relevant_tests = get_relevant_test_files(staging_path, files_touched)
@@ -3086,44 +2762,18 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                     existing_tests = ['tests/test_import.py']
                 vcmd = vcmd.rstrip() + ' ' + ' '.join(existing_tests)
                 logger.info('Rewrote unscoped pytest command for task %s to: %s', task_id, vcmd)
-
             verify_exit: int | None = None
             verify_stdout = ''
             verify_stderr = ''
             timed_out = False
-            # H5: derive the verify-subprocess timeout from config rather than a
-            # hardcoded 600s. synthesis.timeout_seconds was raised to 1200 (28db488)
-            # but the verify cap stayed at 600, so a verify run that legitimately took
-            # >600s was killed -> exit 124 -> spurious reject_rollback. Prefer an
-            # explicit synthesis.verification_timeout_seconds; else floor the synthesis
-            # window at 900s. A load_config failure falls back to the historical 600
-            # (fail-safe -- never an unbounded verify subprocess).
             try:
                 _vcfg = load_config().get('synthesis', {}) or {}
-                verification_timeout = int(_vcfg.get(
-                    'verification_timeout_seconds',
-                    max(900, int(_vcfg.get('timeout_seconds', 600))),
-                ))
+                verification_timeout = int(_vcfg.get('verification_timeout_seconds', max(900, int(_vcfg.get('timeout_seconds', 600)))))
             except Exception:
                 verification_timeout = 600
             try:
-                # We run the verification command inside staging_path. H2A: when
-                # sandboxing is enabled, route the bash invocation through the
-                # bubblewrap jail (no shell=True -- the bwrap argv is already a
-                # list whose inner /bin/bash -c carries the pipefail wrapper);
-                # extra_ro=[sys.base_prefix, sys.prefix] keeps the real python +
-                # pytest resolvable even when the venv lives outside repo_root.
-                # SEC-5c: widen extra_ro with verify_extra_ro and add extra_rw.
-                # G3_VENV: append _ext_venv_ro (the EXTERNAL target's .venv) and
-                # pin PATH at the target interpreter via env=_venv_jail_env().
                 _vfull = f'set -o pipefail; {vcmd}'
                 if agent_jail.sandbox_enabled(load_config()):
-                    # SEC-1 (FAILCLOSED_VERIFY_ORCHACC): narrow the try to the
-                    # proxied_session_bus() CONTEXT ENTRY ONLY; capture the socket
-                    # and run subprocess.run OUTSIDE the try. If the proxy fails to
-                    # start while xdg-dbus-proxy IS present on PATH, fail closed
-                    # (RuntimeError) rather than spawn on the unfiltered host bus;
-                    # if the binary is absent, degrade to dbus_proxy_socket=None.
                     _dbus_stack = contextlib.ExitStack()
                     try:
                         _sock = _dbus_stack.enter_context(proxied_session_bus())
@@ -3158,16 +2808,6 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                     verify_stderr = partial_err
                 verify_stderr = (verify_stderr + '\n' if verify_stderr else '') + f'[verification_command timed out after {verification_timeout}s: {texc!r}]'
             except FileNotFoundError as fnf:
-                # SEC-3 (FAIL_CLOSED_VERIFY): when sandboxing is ENABLED the verify
-                # run is routed through agent_jail.build_jail_argv, whose bubblewrap
-                # binary (bwrap) may be ABSENT on the host. In that case
-                # build_jail_argv / subprocess.run raises FileNotFoundError which
-                # previously escaped UNCAUGHT and crashed the worker. Fail CLOSED:
-                # roll back the staging commit, remove the staging worktree, write a
-                # rejected ledger row, and return False -- NEVER fall through to an
-                # unjailed run. When sandboxing is DISABLED a FileNotFoundError is
-                # re-raised to preserve the historical (no-handler) behavior of the
-                # unjailed shell=True branch byte-for-byte.
                 if agent_jail.sandbox_enabled(load_config()):
                     logger.warning('verification_sandbox_error: task=%s -- sandbox enabled but bwrap/jail unavailable (%r); staging rolled back fail-closed (never run unjailed)', task_id, fnf)
                     _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'verification_sandbox_error')
@@ -3178,15 +2818,11 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                         logger.warning('verification_sandbox_error: ledger append failed for %s: %s', task_id, exc)
                     return False
                 raise
-
             if verify_exit != 0:
                 cmd_preview = vcmd if len(vcmd) <= 200 else vcmd[:200] + '...(truncated)'
                 logger.warning('verification_failed: task=%s exit=%s timeout=%s cmd=%s', task_id, verify_exit, timed_out, cmd_preview)
-
-                # Discard staging worktree after rollback
                 _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'verification_failed')
                 git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
-
                 stdout_tail = verify_stdout[-2000:] if verify_stdout else ''
                 stderr_tail = verify_stderr[-2000:] if verify_stderr else ''
                 try:
@@ -3194,22 +2830,11 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                 except OSError as exc:
                     logger.warning('verification_failed: ledger append failed for %s: %s', task_id, exc)
                 return False
-
-            # Verification succeeded!
             logger.info('auto-commit: SUCCESS in staging for %s -> %s (sha=%s)', task_id, target_rel, result.get('sha'))
-
-            # PHASE B (G-MUTATION-GATE): non-vacuity / fix-detector gate for
-            # agent-authored tests. Verification PASSED against the correct staged
-            # code above; a genuine detector must ALSO fail against a declared
-            # mutant. Re-run vcmd in a throwaway COPY of staging with each mutant
-            # applied; reject (rollback) if any mutant still passes (a vacuous test).
-            # Engages for meta_task_type 'test_authoring' (which MUST declare a
-            # mutant -> fail-closed) and for any task declaring mutations/
-            # mutation_target; no-op for all other tasks (preserves existing accept).
             _mut_specs = list(task.get('mutations') or [])
             _mut_target = task.get('mutation_target')
             if _mtt == 'test_authoring' or _mut_specs or _mut_target:
-                if not _mut_specs and not _mut_target:
+                if not _mut_specs and (not _mut_target):
                     logger.warning('mutation_gate_missing: task=%s declares no mutant -- rejected fail-closed', task_id)
                     _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'mutation_gate_missing')
                     git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
@@ -3218,24 +2843,16 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                     except OSError as _exc:
                         logger.warning('mutation_gate_missing: ledger append failed for %s: %s', task_id, _exc)
                     return False
-                # H1 (MUTATION_GATE_HARDENING): wrap the mutant-application body so
-                # any unexpected exception (copytree ENOSPC/PermissionError, git or
-                # mutant-apply crash, malformed mutation_target) is caught and
-                # rejected fail-closed as ``mutation_gate_error`` -- never re-raised.
                 try:
                     import re as _re
                     import tempfile
 
                     def _valid_mut_module(_v: object) -> bool:
-                        # A bare dotted module name only: reject path-like values
-                        # (slashes), parent-traversal ('..'), explicit '.py'
-                        # extensions, and anything that is not dotted identifiers.
                         if not isinstance(_v, str) or not _v:
                             return False
                         if '/' in _v or '\\' in _v or '..' in _v or _v.endswith('.py'):
                             return False
-                        return _re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*', _v) is not None
-
+                        return _re.fullmatch('[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*', _v) is not None
                     _mut_all = list(_mut_specs)
                     if _mut_target:
                         if not _valid_mut_module(_mut_target):
@@ -3247,25 +2864,8 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                         try:
                             _mcopy = os.path.join(_mtmp, 'staging')
                             shutil.copytree(str(staging_path), _mcopy, symlinks=True, ignore=shutil.ignore_patterns('.git', '__pycache__', '*.pyc', 'state', 'samples', '.pytest_cache', '*.egg-info'))
-                            # MUT-MASK (MUTANT_INFRA_VS_ASSERTION): BASELINE-IN-COPY
-                            # guard. Before applying the mutant, re-run the UNMUTATED
-                            # vcmd inside the fresh _mcopy through the SAME jail/shell
-                            # discipline used for the mutant rerun below (same
-                            # pipefail wrapper, cwd=_mcopy, extra_ro, scrubbed env).
-                            # If the unmutated verify does NOT pass in the copy, the
-                            # copytree dropped a path the verification_command needs
-                            # (e.g. samples/ or state/), so a NON-ZERO mutant rerun
-                            # would be an INFRA failure -- NOT a genuine assertion
-                            # catch. Raise so the enclosing H1 try/except rolls back
-                            # and records mutation_gate_error; never credit the
-                            # mutant as caught on an infra fluke. SEC-5c: same
-                            # verify_extra_ro/extra_rw widening as every jailed site.
-                            # G3_VENV: append _ext_venv_ro and env=_venv_jail_env().
                             _bfull = f'set -o pipefail; {vcmd}'
                             if agent_jail.sandbox_enabled(load_config()):
-                                # SEC-1 (FAILCLOSED_VERIFY_ORCHACC): proxy context
-                                # entry in the try; subprocess.run outside; fail
-                                # closed if xdg-dbus-proxy present but proxy fails.
                                 _dbus_stack = contextlib.ExitStack()
                                 try:
                                     _sock = _dbus_stack.enter_context(proxied_session_bus())
@@ -3296,18 +2896,8 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                 with open(_sf, 'w', encoding='utf-8') as _wf:
                                     _wf.write(test_author.stub_for(_osrc))
                             elif _mut.get('apply'):
-                                # H2A: jail the mutant-apply subprocess when sandboxing
-                                # is enabled (same bwrap argv discipline as verify);
-                                # otherwise the original shell=True call. The pipefail
-                                # wrapper text is byte-identical in both branches.
-                                # SEC-5c: widen extra_ro/extra_rw like every site.
-                                # G3_VENV: append _ext_venv_ro and env=_venv_jail_env().
-                                _afull = f"set -o pipefail; {_mut['apply']}"
+                                _afull = f'set -o pipefail; {_mut['apply']}'
                                 if agent_jail.sandbox_enabled(load_config()):
-                                    # SEC-1 (FAILCLOSED_VERIFY_ORCHACC): proxy
-                                    # context entry in the try; subprocess.run
-                                    # outside; fail closed if xdg-dbus-proxy present
-                                    # but the proxy fails to start.
                                     _dbus_stack = contextlib.ExitStack()
                                     try:
                                         _sock = _dbus_stack.enter_context(proxied_session_bus())
@@ -3324,22 +2914,12 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                     if not _target_is_self(working_dir):
                                         raise RuntimeError('FLAG2_ORCH (REV22 §3): refusing to run the verification_command UNJAILED via shell=True on the host because agent_sandbox is disabled and the target is EXTERNAL (working_dir=%r is outside the JanusMask tree). An external verify/baseline/mutant spawn MUST run inside the bubblewrap jail; enable agent_sandbox.bwrap or origin the task against self.' % (working_dir,))
                                     _ap = subprocess.run(_afull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
-                                _applied = (_ap.returncode == 0)
+                                _applied = _ap.returncode == 0
                             else:
                                 _applied = False
                             if _applied:
-                                # H2A: jail the mutant verify-rerun subprocess when
-                                # sandboxing is enabled; otherwise the original
-                                # shell=True call. The pipefail wrapper + vcmd text
-                                # stay byte-identical in both branches. SEC-5c: widen
-                                # extra_ro/extra_rw like every jailed site.
-                                # G3_VENV: append _ext_venv_ro and env=_venv_jail_env().
                                 _rfull = f'set -o pipefail; {vcmd}'
                                 if agent_jail.sandbox_enabled(load_config()):
-                                    # SEC-1 (FAILCLOSED_VERIFY_ORCHACC): proxy
-                                    # context entry in the try; subprocess.run
-                                    # outside; fail closed if xdg-dbus-proxy present
-                                    # but the proxy fails to start.
                                     _dbus_stack = contextlib.ExitStack()
                                     try:
                                         _sock = _dbus_stack.enter_context(proxied_session_bus())
@@ -3356,8 +2936,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                                     if not _target_is_self(working_dir):
                                         raise RuntimeError('FLAG2_ORCH (REV22 §3): refusing to run the verification_command UNJAILED via shell=True on the host because agent_sandbox is disabled and the target is EXTERNAL (working_dir=%r is outside the JanusMask tree). An external verify/baseline/mutant spawn MUST run inside the bubblewrap jail; enable agent_sandbox.bwrap or origin the task against self.' % (working_dir,))
                                     _mproc = subprocess.run(_rfull, shell=True, cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_vcmd_scrubbed_env(), executable='/bin/bash')
-                                _mvacuous = (_mproc.returncode == 0)
-                            # _applied False (un-appliable mutant) -> _mvacuous stays True -> reject fail-closed
+                                _mvacuous = _mproc.returncode == 0
                         finally:
                             shutil.rmtree(_mtmp, ignore_errors=True)
                         if _mvacuous:
@@ -3379,53 +2958,26 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                     except OSError as _exc:
                         logger.warning('mutation_gate_error: ledger append failed for %s: %s', task_id, _exc)
                     return False
-
-            # WIRE_UP_GATE (wire_up_accept_gate): flag-gated reachability gate at
-            # the single accept chokepoint -- AFTER the mutation gate and BEFORE
-            # the staging->parent merge. When the default-OFF
-            # autowork.wire_up_gate flag is enabled, a NEWLY-CREATED module that
-            # no live importer reaches is rejected exactly like a failed mutation
-            # gate (staging rolled back, orphan_unwired ledger row, return False --
-            # no merge). When the flag is OFF _run_wire_up_gate (and therefore
-            # check_wired) is NEVER consulted, so the existing accept path is
-            # preserved byte-for-byte.
             if _wire_up_gate_enabled(state_dir):
                 if _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, worktree_root, result, working_dir):
                     return False
-
             try:
                 write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'accepted', 'task_id': task_id, 'event': 'auto_commit', 'commit_sha': result.get('sha'), 'files': files_touched, 'exit': 0})
             except OSError as exc:
                 logger.warning('auto-commit: ledger append failed for %s: %s', task_id, exc)
-
-            # 6. Merge staging changes back to parent and remove worktree
             try:
                 git_integration.merge_staging_to_parent(staging_path, worktree_root, working_dir=working_dir)
-                logger.info("Merged staging commit back to parent repository.")
+                logger.info('Merged staging commit back to parent repository.')
             except Exception as merge_err:
                 logger.error('Failed to merge staging changes: %s', merge_err)
-                # M-a: the merge failed (fail-closed). Do NOT mark the task
-                # processed -- route it to blocked/ (re-claimable, with the retry
-                # sidecar) instead of orphaning the accept in processed/.
                 _mark_blocked(state_dir, task_id, outcome='merge_failed')
                 return False
-
-            # 7. Mark the task processed ONLY after a successful merge. This is the
-            # last durable step before handover, so a doomed merge can no longer
-            # leave an accepted task in processed/ with no corresponding parent
-            # commit (the silent-task-loss class Phase M closes).
             _mark_processed(state_dir, task_id)
-
-            # 8. Check if running inside test environment
-            if "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ:
-                logger.info("Test environment detected. Skipping os.execv process handover.")
+            if 'pytest' in sys.modules or 'PYTEST_CURRENT_TEST' in os.environ:
+                logger.info('Test environment detected. Skipping os.execv process handover.')
                 return True
-
-            # 9. Perform process exec handover
             perform_process_handover(state_dir)
             return True
-
-        # Error handling when not committed
         err = result.get('error')
         if err:
             logger.warning('auto-commit: FAILED %s: %s', task_id, err)
@@ -3452,7 +3004,6 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                         subprocess.run(['git', 'checkout', 'HEAD', '--', _rel], cwd=str(staging_path), check=False, timeout=30)
                     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as cexc:
                         logger.error('commit_failed scrub: git checkout HEAD -- %s failed for %s: %s; worktree may be in inconsistent state', _rel, task_id, cexc)
-            # Staging directory cleanup on error (no reset needed on parent repository as it was untouched)
             git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
         return False
     finally:
@@ -3479,34 +3030,25 @@ def _promote_fuzz_failures_to_tests(task: dict, failures: list, state_dir: Path)
         if not failures:
             return
         existing = task.get('specification') or task.get('description') or ''
-        if MARKER in existing:                       # idempotency: round-1 + round-2 / re-dispatch
+        if MARKER in existing:
             return
-        # Re-derive the target name from the SAME source fuzz_from_task uses.
         import re
         sig = (task.get('constraints') or {}).get('function_signature', '') or ''
-        m = re.match(r'def\s+(\w+)\s*\(', sig) if isinstance(sig, str) else None
+        m = re.match('def\\s+(\\w+)\\s*\\(', sig) if isinstance(sig, str) else None
         fname = m.group(1) if m else 'target'
-        lines = [
-            '',
-            MARKER,
-            'Differential-fuzzing boundary hints (reproduce this behavior EXACTLY '
-            'so the differential fuzzer does not diverge on these inputs):',
-        ]
-        for i, f in enumerate(failures[:8]):         # CAP to bound spec growth
+        lines = ['', MARKER, 'Differential-fuzzing boundary hints (reproduce this behavior EXACTLY so the differential fuzzer does not diverge on these inputs):']
+        for i, f in enumerate(failures[:8]):
             try:
-                args_repr = ', '.join(repr(a) for a in (getattr(f, 'input_args', None) or []))
-                kw_repr = ', '.join(f'{k}={v!r}' for k, v in (getattr(f, 'input_kwargs', None) or {}).items())
-                call = ', '.join(x for x in (args_repr, kw_repr) if x)
+                args_repr = ', '.join((repr(a) for a in getattr(f, 'input_args', None) or []))
+                kw_repr = ', '.join((f'{k}={v!r}' for k, v in (getattr(f, 'input_kwargs', None) or {}).items()))
+                call = ', '.join((x for x in (args_repr, kw_repr) if x))
                 exp = getattr(getattr(f, 'result_a', None), 'return_repr', '') or ''
                 reason = getattr(f, 'reason', '') or ''
-                # COMMENT HINT, not an executable assert (return_repr / arg reprs
-                # may be non-eval-able, e.g. '<ast.FunctionDef object at 0x...>').
                 lines.append(f'    # boundary {i}: {fname}({call})  -> result == {exp}  (reason: {reason})')
             except Exception:
                 continue
         block = '\n'.join(lines)
-        task['specification'] = existing + '\n' + block   # APPEND only; never overwrite
-        # Re-persist so inbox staging + (deferred) daemon re-read see the enriched spec.
+        task['specification'] = existing + '\n' + block
         task_id = task.get('task_id', 'unknown')
         tasks_dir = state_dir / 'tasks'
         payload = json.dumps(task, indent=2)
@@ -3522,7 +3064,6 @@ def _promote_fuzz_failures_to_tests(task: dict, failures: list, state_dir: Path)
     except Exception as exc:
         logger.warning('fuzz-promotion best-effort failed for %s: %s', task.get('task_id'), exc)
         return
-
 
 def _should_bypass_or_route_task(task: Any, config: dict[str, Any]) -> str:
     """Mirror the dispatch-path MD-ROUTING decision for a single task.
@@ -3565,6 +3106,7 @@ def _should_bypass_or_route_task(task: Any, config: dict[str, Any]) -> str:
     if mtt in BYPASS_FUZZER_TYPES or _skip_ifz:
         return 'bypass'
     return 'fuzz'
+
 def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
     """Main pipeline loop implementing the full JanusMask task lifecycle.
 
@@ -3635,7 +3177,6 @@ def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
                 logger.info('Phase -> synthesis (ast_retry per-agent module)')
                 results: dict[str, tuple[bool, str | None]] = {}
                 if config.get('synthesis', {}).get('antigravity_mode', True):
-                    # Sequential execution
                     for agent_name in (agent_a, agent_b):
                         try:
                             ok, code, _violations = synthesize_with_retries(agent_name, base_prompt, config, state_dir, round_number, task, run_agent_phase, (lambda a: lambda code, t: _validate_submission(code, a, t))(agent_name))
@@ -3753,9 +3294,9 @@ def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
                 logger.info('=== Round %d complete (Synthesis/AST failure) ===\n', round_number)
                 continue
             mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
-            _skip_ifz = (mtt == 'test_authoring') and META_TASK_POLICY.get('test_authoring', {}).get('skip_interface_fuzz')
+            _skip_ifz = mtt == 'test_authoring' and META_TASK_POLICY.get('test_authoring', {}).get('skip_interface_fuzz')
             if _should_bypass_or_route_task(task, config) == 'bypass':
-                if mtt not in SKIP_SMOKE_GATE_TYPES and not _skip_ifz:
+                if mtt not in SKIP_SMOKE_GATE_TYPES and (not _skip_ifz):
                     smoke_err = smoke_import('_smoke_candidate', claude_code)
                     if smoke_err is not None:
                         logger.error('Smoke rejected bypass-eligible %s (mtt=%s): %s', task_id, mtt, smoke_err)
@@ -3765,18 +3306,10 @@ def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
                         _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
                         logger.info('=== Round %d complete (rejected via sandbox smoke) ===\n', round_number)
                         continue
-                    # FLAG2_EMBEDDED_FUZZ (REV23 §C6): refuse to run the embedded-test
-                    # runner UNJAILED on an EXTERNAL target while agent_sandbox is OFF.
-                    # working_dir is read at the call site only and NEVER threaded into
-                    # the runner (the candidate is a JM-synthesized string in a tempdir,
-                    # repo_root stays PROJECT_ROOT). For self-builds working_dir is
-                    # absent -> _target_is_self(None) == True -> gate INERT. Helpers are
-                    # imported lazily in-body (no new module-level import / top symbol),
-                    # mirroring the FLAG2_ORCH idiom.
                     working_dir = task.get('working_dir')
                     from harness import agent_jail
                     from harness.paths import _target_is_self
-                    if not _target_is_self(working_dir) and not agent_jail.sandbox_enabled(config):
+                    if not _target_is_self(working_dir) and (not agent_jail.sandbox_enabled(config)):
                         raise RuntimeError('FLAG2_EMBEDDED_FUZZ (REV23 §C6): refusing to run embedded tests UNJAILED on an EXTERNAL target while agent_sandbox is disabled (working_dir=%r is outside the JanusMask tree). An external candidate MUST run inside the bubblewrap jail; enable agent_sandbox.bwrap or origin the task against self.' % (working_dir,))
                     embedded_err = run_embedded_tests('_embedded_candidate', claude_code)
                     if embedded_err is not None:
@@ -3787,14 +3320,10 @@ def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
                         _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
                         logger.info('=== Round %d complete (rejected via embedded tests) ===\n', round_number)
                         continue
-                    # FLAG2_EMBEDDED_FUZZ (REV23 §C6): same fail-closed gate for the
-                    # narrow-fuzz runner. On the external + sandbox-OFF path the embedded
-                    # gate above fires first, so neither runner is ever reached; this
-                    # guard keeps the narrow site refusal-complete in its own right.
                     working_dir = task.get('working_dir')
                     from harness import agent_jail
                     from harness.paths import _target_is_self
-                    if not _target_is_self(working_dir) and not agent_jail.sandbox_enabled(config):
+                    if not _target_is_self(working_dir) and (not agent_jail.sandbox_enabled(config)):
                         raise RuntimeError('FLAG2_EMBEDDED_FUZZ (REV23 §C6): refusing to run narrow-fuzz UNJAILED on an EXTERNAL target while agent_sandbox is disabled (working_dir=%r is outside the JanusMask tree). An external candidate MUST run inside the bubblewrap jail; enable agent_sandbox.bwrap or origin the task against self.' % (working_dir,))
                     narrow_err = run_narrow_fuzz(mtt, '_narrow_fuzz_candidate', claude_code)
                     if narrow_err is not None:
@@ -3865,7 +3394,7 @@ def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
                     logger.warning('=== Round %d complete (rejected: auto-commit failed) ===\n', round_number)
                 continue
             logger.info('DIVERGENT after round 1 (%d failures out of %d inputs)', len(fuzz_result.failures), fuzz_result.total_inputs)
-            _promote_fuzz_failures_to_tests(task, fuzz_result.failures, state_dir)  # B3: fold divergent boundaries into the spec
+            _promote_fuzz_failures_to_tests(task, fuzz_result.failures, state_dir)
             set_phase(state_dir, phase='cross_examination')
             _emit_lifecycle(state_dir, event='phase_transition', phase='cross_examination', task_id=task_id, phase_transition={'to': 'cross_examination'})
             logger.info('Phase -> cross_examination')
@@ -3924,12 +3453,6 @@ def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
             _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
             logger.info('=== Round %d complete (decomposed into %d subtasks) ===\n', round_number, len(subtask_ids))
         finally:
-            # ROLLB-E (CRASH_SAFE_TERMINAL): the legacy serial loop has NO daemon
-            # reclaim, so an UNEXPECTED exception that leaves the task still CLAIMED
-            # as <id>.json.processing (no body terminal ran _mark_processed/
-            # _mark_blocked) is the only orphan-recovery point. Best-effort route the
-            # still-existing claim to blocked/; a no-op once a body terminal consumed
-            # the .processing file. Never raises out of finally.
             try:
                 if list((state_dir / 'tasks').glob(f'*{task_id}.json.processing')):
                     _mark_blocked(state_dir, task_id, 'pipeline_crash_orphan')
@@ -4457,15 +3980,9 @@ def _stage_inbox(work_dir: Path, mode: str, state_dir: str) -> None:
             logger.warning('inbox stage failed src=%s dst=%s: %s', src, inbox / inbox_name, exc)
             return
         logger.info('staged inbox: %s -> %s', src, inbox / inbox_name)
-        # AGENT-ISOLATION §3.5: for synthesis, also stage the CURRENT on-disk
-        # contents of each files_touched target into inbox/targets/<rel> so
-        # partial-edit / manifest tasks can still read their targets after the
-        # agent's CWD is relocated outside the repo (bare repo-relative paths
-        # no longer resolve there).
         if mode == 'synthesis':
             _stage_targets(inbox, state_path, inbox / inbox_name)
         return
-
 
 def _stage_targets(inbox: Path, state_path: Path, task_json: Path) -> None:
     """Copy each resolved files_touched target into ``inbox/targets/<rel>``.
@@ -4505,7 +4022,7 @@ def _stage_targets(inbox: Path, state_path: Path, task_json: Path) -> None:
             continue
         try:
             src = (repo_root / rel).resolve()
-            src.relative_to(repo_root)  # never copy from outside the repo
+            src.relative_to(repo_root)
         except (OSError, RuntimeError, ValueError):
             continue
         if not src.is_file():
@@ -4520,7 +4037,7 @@ def _stage_targets(inbox: Path, state_path: Path, task_json: Path) -> None:
         logger.info('staged inbox target: %s -> %s', src, dst)
 "GH1: Stage <work_dir>/inbox/<mode-file> in spawn_agent so Gemini's\nSessionStart hook stops denying every planning + reconciliation spawn.\n\nPure-additive, single-file harness self-fix targeting Report 01 H2.\n\nAdds two module-level entities to ``harness/orchestrator.py``:\n\n* ``_INBOX_SOURCES_BY_MODE``: maps each JANUSMASK_MODE the orchestrator\n  spawns to ``(inbox_filename, candidate_state_dir_relpaths)``. Synthesis\n  copies ``tasks/current_task.json`` -> ``inbox/task.json``; planning\n  copies ``planning/brief.json`` (master layout) or ``../../brief.json``\n  (per-agent layout via ``master/planning/sessions/<agent>``) ->\n  ``inbox/brief.json``; reconciliation copies\n  ``planning/current_diff.json`` (matching reconciliation.py:126's\n  per-agent write site) -> ``inbox/diff_summary.json``. The inbox_name\n  side of each tuple is exactly the filename Gemini's session-start hook\n  expects from ``harness.hooks._env._INBOX_EXPECTATIONS`` (asserted by\n  Subtest 7).\n\n* ``_stage_inbox(work_dir, mode, state_dir)``: creates\n  ``work_dir/inbox`` (parents=True, exist_ok=True), looks up the mode's\n  source candidates, and ``shutil.copy2``'s the first existing file into\n  ``inbox/<inbox_name>``. Failures at every layer -- mkdir OSError,\n  Path.resolve OSError/RuntimeError, copy OSError -- are caught and\n  surface as ``logger.warning`` records; the function never raises so a\n  staging failure cannot regress the orchestrator's terminal state.\n\n``spawn_agent`` is wholesale-replaced (AST merge keys top-level\nFunctionDef by name) to add exactly one new call:\n``_stage_inbox(Path(env['JANUSMASK_WORK_DIR']), env['JANUSMASK_MODE'],\nstate_dir)`` between ``outbox_path.mkdir`` and the prompt\n``.replace(...)`` line. Public signature\n``(agent, prompt, config, round_number=1) -> subprocess.Popen`` is\nbyte-identical.\n\nNo source file outside ``harness/orchestrator.py`` is modified. No new\ntop-level imports: ``shutil`` (line 9), ``pathlib.Path`` (line 14), and\n``logger`` (line 37) are already bound in the target module.\n"
 'G19a-3: Harden the __JANUSMASK_MANIFEST__ prompt block.\n\nSingle-file harness self-fix. Replaces only the MULTI-FILE manifest\nprompt block inside ``prepare_task_prompt``: adds an explicit\nVERBATIM-file-content rule, a concrete docstring-bearing example, and\na DO NOT enumeration of common error modes. Surrounding code (base\nprompt, files_touched extraction, guard, files_repr, spec_summary\ntail, return) is byte-identical with the pre-fix file.\n'
-"G19a-4: prepare_task_prompt manifest block uses raw triple-single-quote.\n\nReverses the G19a-3 anti-raw-triple-single-quote rule. Recommends raw-triple-single-quote raw\ntriple-single-quote wrapping for ``__JANUSMASK_MANIFEST__`` values so\nbackslash escape sequences in the embedded file source survive verbatim\nwithout the agent having to double-escape. Single-file change to\nharness/orchestrator.py; this submission carries only ``prepare_task_prompt``\nfor AST-merge by ``meta_task_type=harness_self_fix``.\n"
+'G19a-4: prepare_task_prompt manifest block uses raw triple-single-quote.\n\nReverses the G19a-3 anti-raw-triple-single-quote rule. Recommends raw-triple-single-quote raw\ntriple-single-quote wrapping for ``__JANUSMASK_MANIFEST__`` values so\nbackslash escape sequences in the embedded file source survive verbatim\nwithout the agent having to double-escape. Single-file change to\nharness/orchestrator.py; this submission carries only ``prepare_task_prompt``\nfor AST-merge by ``meta_task_type=harness_self_fix``.\n'
 'AW3: serialize git commit critical section in _auto_commit_accepted.\n\nWraps the call to ``git_integration.commit_accepted_output`` in an\n``fcntl.flock(LOCK_EX)`` over ``state/control/autowork/git_commit.lock``\nso concurrent orchestrator_worker processes (spawned by the autowork\ndaemon, Task 2) can never race git add/commit/rev-parse against each\nother. Also defends against operator-driven META commits that race\nwith an in-flight auto_commit.\n\nPattern mirrors ``harness/state.py:locked_read_modify_write`` lines\n139-146 (open lock file in \'a\' mode, flock LOCK_EX, try/finally,\nLOCK_UN on release). Lock is held only around the commit critical\nsection -- verification subprocess and rollback paths run unlocked\nper the brief\'s explicit directive ("Do NOT lock around the\nverification_command subprocess that runs INSIDE _auto_commit_accepted\nafter the commit lands").\n\nSingle-file dispatch; AST merger adds ``import fcntl`` to top-level\nimports and replaces ``_auto_commit_accepted`` by name.\n'
 import fcntl
 from harness.ast_enforcer import Violation
@@ -4528,5 +4045,29 @@ from harness.ast_enforcer import Violation
 'ROLLBACK_WORKTREE_CHECKOUT: add `git checkout HEAD -- <target_rel>` after both\n`git reset --hard HEAD~1` sites in :func:`_auto_commit_accepted`.\n\nRationale: `git reset --hard HEAD~1` reverts the commit but a follow-up\n`git checkout HEAD -- <target_rel>` guarantees the specific file is restored\nfrom HEAD even if the reset left the file in a stale state (e.g. partial\nindex entries from a concurrent operator commit, or a worktree where the\ntarget was modified after the auto-commit but before the rollback path\nfired).  Both checkout calls are wrapped in try/except for\n`subprocess.TimeoutExpired`, `FileNotFoundError`, and `OSError` with\n`logger.error` on failure -- consistent with the existing rollback-reset\nexception handling so the rollback path remains best-effort and never\nraises.\n'
 "ROLLBACK_WORKTREE_CHECKOUT: add git checkout HEAD -- <target_rel> after both reset sites.\n\nWhole-file submission for AST-merge. The merger keys on FunctionDef name,\nso only ``_auto_commit_accepted`` is replaced on the target side; all\nother top-level nodes (imports, ``_emit_lifecycle``, ``get_next_task``,\n``_resolve_files_touched``, etc.) remain byte-identical.\n\nDefense-in-depth: ``git reset --hard HEAD~1`` rewinds the index and the\ncommitted tree to the pre-commit state, but if a stray edit lingers in\nthe working tree (e.g. an editor write between commit and reset, or a\nfilesystem race), the working copy of ``target_rel`` can drift from\nHEAD. A follow-up ``git checkout HEAD -- <target_rel>`` restores the\nworking-copy file to match HEAD, guaranteeing the next dispatch sees a\nclean baseline. The checkout is best-effort -- failures are logged at\nERROR level (matching the reset's own failure branch) and do not change\nthe function's return value.\n"
 'ROLLBACK_COMPLETENESS submission for harness/orchestrator.py:_auto_commit_accepted.\n\nWhole-file AST-merge submission: the orchestrator merges by FunctionDef name, so\nonly ``_auto_commit_accepted`` is replaced; all other top-level nodes in\n``harness/orchestrator.py`` stay byte-identical.\n\nCloses the staged-worktree-drift leak: when\n``git_integration.commit_accepted_output`` writes the merged file(s) to disk and\n``git add``-stages them, but a later git step (e.g. ``git commit`` racing an\noperator ``index.lock``) raises CalledProcessError/TimeoutExpired/OSError, the\nreturned error is a generic exception string (NOT a ``no_diff:`` string). The\nprior err branch only handled ``no_diff:`` and otherwise just logged + returned\nFalse, leaving on-disk merged content AND staged index entries that corrupt the\nnext dispatch (dirty AST-merge base, scoped-commit ride-along, polluted git\nstatus). This adds a defensive best-effort, non-destructive per-target scrub\n(``git reset -q`` + ``git checkout HEAD``) over the resolved ``files_touched``\nlist. The scrub never raises and the branch still returns False.\n\nThe module-level imports below mirror the names the merged function references so\nthis file is itself importable; they are NOT merged into the orchestrator (which\nalready has them in scope).\n'
+
+def _claude_backend(config: dict) -> str:
+    """Return the configured claude worker backend (``workers.claude_backend``).
+
+    Reads ``config['workers']['claude_backend']`` and returns it as a string.
+    Defaults to ``'headless'`` when the ``workers`` table or the
+    ``claude_backend`` key is missing/None, treating absence as the safe
+    default so the current (headless) behavior is preserved unless the operator
+    explicitly opts in.
+    """
+    workers = config.get('workers') or {}
+    backend = workers.get('claude_backend')
+    if backend is None:
+        return 'headless'
+    return str(backend)
+
+def _use_tmux_claude(agent: str, config: dict) -> bool:
+    """Return True only for the claude worker on the tmux backend.
+
+    True iff ``_claude_backend(config) == 'tmux'`` AND ``agent`` is the claude
+    worker; False otherwise -- covering the headless backend, any unrecognized
+    backend string, and any non-claude agent.
+    """
+    return _claude_backend(config) == 'tmux' and agent == 'claude'
 if __name__ == '__main__':
     main()
