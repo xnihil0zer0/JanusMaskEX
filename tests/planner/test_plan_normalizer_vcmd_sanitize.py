@@ -283,9 +283,12 @@ def test_non_referencing_fields_and_task_order_preserved():
 
 
 def test_multiple_importable_targets_imported_comma_separated():
-    """An impl with multiple importable targets imports them comma-separated in
-    files_touched order; a substring oracle reference among pytest args is still
-    detected and rewritten."""
+    """After the _split_multifile_module_tasks pass, an impl that creates
+    multiple NEW modules is split into one task per module (the old
+    comma-separated single-task vcmd no longer applies to new-module impls).
+    Each split task gets its OWN single-module import vcmd, in files_touched
+    order; the non-importable test file under tests/ is not a created module and
+    is dropped, and the oracle reference is gone."""
     impl = _impl_task(
         "multi-impl",
         ["pkg/alpha.py", "tests/pkg/test_alpha.py", "pkg/beta.py"],
@@ -298,14 +301,21 @@ def test_multiple_importable_targets_imported_comma_separated():
 
     result = normalize_plan(copy.deepcopy(plan))
 
-    vc = _task_by_id(result, "multi-impl")["verification_command"]
-    assert vc.startswith('python -c "import ')
-    # The non-importable test file under tests/ is excluded from the imports.
-    assert "tests" not in vc and "test_alpha" not in vc
-    assert ORACLE_TEST_FILE not in vc
-    # Both importable modules are present, in files_touched order.
-    assert "pkg.alpha" in vc and "pkg.beta" in vc
-    assert vc.index("pkg.alpha") < vc.index("pkg.beta")
+    a = _task_by_id(result, "multi-impl__alpha")
+    b = _task_by_id(result, "multi-impl__beta")
+    assert a["files_touched"] == ["pkg/alpha.py"]
+    assert b["files_touched"] == ["pkg/beta.py"]
+    # each split gets its own single-module import vcmd
+    assert a["verification_command"].startswith('python -c "import ')
+    assert "pkg.alpha" in a["verification_command"]
+    assert "pkg.beta" in b["verification_command"]
+    # the test file and oracle reference are excluded from both
+    for vc in (a["verification_command"], b["verification_command"]):
+        assert "tests" not in vc and "test_alpha" not in vc
+        assert ORACLE_TEST_FILE not in vc
+    # order preserved: alpha task before beta task
+    ids = [t["task_id"] for t in result["tasks"]]
+    assert ids.index("multi-impl__alpha") < ids.index("multi-impl__beta")
 
 
 if __name__ == "__main__":  # pragma: no cover
