@@ -42,16 +42,33 @@ class BackupLedger:
                     rows.append(obj)
         return rows
 
-    def last_backed_up_sha(self) -> Optional[str]:
-        """Return the most recently recorded sha, or None when empty/missing."""
+    def last_backed_up_sha(self, repo: Optional[str]=None) -> Optional[str]:
+        """Return the most recently recorded sha, or None when empty/missing.
+
+        When ``repo`` is given, only rows tagged with that ``repo`` are
+        considered -- so a single global ledger shared by several repos hands
+        each push a base_sha that actually exists in ITS repo (rows written
+        before repo-tagging, which lack a ``repo`` key, are skipped for a
+        scoped query). When ``repo`` is None the historical behavior is
+        preserved: the most recent row overall.
+        """
         rows = self.entries()
+        if repo is not None:
+            rows = [r for r in rows if r.get('repo') == repo]
         if not rows:
             return None
         return rows[-1].get('sha')
 
-    def record(self, sha: str, archive_name: str, uploaded: bool) -> None:
-        """Append one row atomically via write-temp-then-rename."""
+    def record(self, sha: str, archive_name: str, uploaded: bool, repo: Optional[str]=None) -> None:
+        """Append one row atomically via write-temp-then-rename.
+
+        When ``repo`` is provided it is stored on the row so future
+        :meth:`last_backed_up_sha` queries can be scoped per repo. Omitting
+        ``repo`` preserves the original (untagged) row shape.
+        """
         row = {'sha': sha, 'archive_name': archive_name, 'uploaded': uploaded}
+        if repo is not None:
+            row['repo'] = repo
         line = json.dumps(row)
         existing = ''
         if os.path.exists(self._path):

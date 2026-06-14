@@ -2,8 +2,8 @@ import argparse
 from dataclasses import dataclass
 import os
 import shutil
-from typing import List, Optional
-
+from typing import List
+from typing import Optional
 DEFAULT_REPOS = ['/home/xnihil0zer0/JanusMaskJR', '/home/xnihil0zer0/NobleGreedv2']
 SENTINEL = '# >>> janusmask-drive-backup >>>'
 
@@ -33,42 +33,18 @@ class RealFS:
     def chmod(self, path: str, mode: int) -> None:
         os.chmod(path, mode)
 
-    def makedirs(self, path: str, exist_ok: bool = True) -> None:
+    def makedirs(self, path: str, exist_ok: bool=True) -> None:
         os.makedirs(path, exist_ok=exist_ok)
 
-def render_shim(janusmask_root: str, *, chained_hook: Optional[str] = None) -> str:
+def render_shim(janusmask_root: str, *, chained_hook: Optional[str]=None) -> str:
     abs_root = os.path.abspath(janusmask_root)
-    lines = [
-        "#!/usr/bin/env bash",
-        SENTINEL,
-        "# Managed by the janusmask drive-backup installer.",
-        "# Do not edit between the sentinel markers; rerun the installer instead.",
-        "set -u",
-        f'JANUSMASK_ROOT="{abs_root}"',
-        "",
-        "# Buffer the pushed refs from stdin so they can be replayed below.",
-        '_jm_stdin="$(cat)"',
-        "",
-    ]
+    lines = ['#!/usr/bin/env bash', SENTINEL, '# Managed by the janusmask drive-backup installer.', '# Do not edit between the sentinel markers; rerun the installer instead.', 'set -u', f'JANUSMASK_ROOT="{abs_root}"', '', '# Buffer the pushed refs from stdin so they can be replayed below.', '_jm_stdin="$(cat)"', '']
     if chained_hook:
-        lines.extend([
-            "# Run the saved original hook first.",
-            f'printf \'%s\' "$_jm_stdin" | "{chained_hook}" "$@"',
-            "exit_code=$?",
-            "if [ $exit_code -ne 0 ]; then",
-            "    exit $exit_code",
-            "fi",
-            "",
-        ])
-    lines.extend([
-        "# Drive-backup step: never affects the exit code (never blocks a push).",
-        '( cd "$JANUSMASK_ROOT" && printf \'%s\' "$_jm_stdin" | python -m tools.drive_backup.hook_runner "$@" ) || true',
-        "exit 0",
-        "# <<< janusmask-drive-backup <<<"
-    ])
-    return "\n".join(lines) + "\n"
+        lines.extend(['# Run the saved original hook first.', f'''printf '%s' "$_jm_stdin" | "{chained_hook}" "$@"''', 'exit_code=$?', 'if [ $exit_code -ne 0 ]; then', '    exit $exit_code', 'fi', ''])
+    lines.extend(['# Capture the repo being pushed BEFORE cd-ing into JANUSMASK_ROOT.', "# git invokes pre-push with cwd = the pushed repo's top-level, so this", '# resolves the ACTUAL repo. Exported as JM_PUSH_REPO and honored first', '# by hook_runner._resolve_repo_root -- without it, GIT_DIR (relative', "# '.git') resolves against the JanusMask cwd and every repo's push", '# would back up the JanusMask tree instead of itself.', 'JM_PUSH_REPO="$(git rev-parse --show-toplevel 2>/dev/null || true)"', '', '# Drive-backup step: never affects the exit code (never blocks a push).', '( cd "$JANUSMASK_ROOT" && printf \'%s\' "$_jm_stdin" | JM_PUSH_REPO="$JM_PUSH_REPO" python -m tools.drive_backup.hook_runner "$@" ) || true', 'exit 0', '# <<< janusmask-drive-backup <<<'])
+    return '\n'.join(lines) + '\n'
 
-def install(repo_roots: List[str] = DEFAULT_REPOS, *, fs, janusmask_root: str, dry_run: bool = False) -> List[InstallResult]:
+def install(repo_roots: List[str]=DEFAULT_REPOS, *, fs, janusmask_root: str, dry_run: bool=False) -> List[InstallResult]:
     results = []
     for repo in repo_roots:
         hooks_dir = f'{repo}/.git/hooks'
@@ -82,7 +58,7 @@ def install(repo_roots: List[str] = DEFAULT_REPOS, *, fs, janusmask_root: str, d
                     fs.makedirs(hooks_dir, exist_ok=True)
                     shim_content = render_shim(janusmask_root)
                     fs.write_text(hook_path, shim_content)
-                    fs.chmod(hook_path, 0o755)
+                    fs.chmod(hook_path, 493)
             else:
                 existing_content = fs.read_text(hook_path)
                 if SENTINEL in existing_content:
@@ -94,7 +70,7 @@ def install(repo_roots: List[str] = DEFAULT_REPOS, *, fs, janusmask_root: str, d
                         chained_hook = sidecar_path if fs.exists(sidecar_path) else None
                         shim_content = render_shim(janusmask_root, chained_hook=chained_hook)
                         fs.write_text(hook_path, shim_content)
-                        fs.chmod(hook_path, 0o755)
+                        fs.chmod(hook_path, 493)
                 else:
                     action = 'chained'
                     if dry_run:
@@ -105,13 +81,13 @@ def install(repo_roots: List[str] = DEFAULT_REPOS, *, fs, janusmask_root: str, d
                         fs.move(hook_path, sidecar_path)
                         shim_content = render_shim(janusmask_root, chained_hook=sidecar_path)
                         fs.write_text(hook_path, shim_content)
-                        fs.chmod(hook_path, 0o755)
+                        fs.chmod(hook_path, 493)
             results.append(InstallResult(repo=repo, hook_path=hook_path, action=action, ok=True))
         except Exception:
             results.append(InstallResult(repo=repo, hook_path=hook_path, action='error', ok=False))
     return results
 
-def main(argv: Optional[List[str]] = None, *, fs=None) -> int:
+def main(argv: Optional[List[str]]=None, *, fs=None) -> int:
     if fs is None:
         fs = RealFS()
     try:

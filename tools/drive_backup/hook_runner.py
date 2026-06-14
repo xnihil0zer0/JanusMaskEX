@@ -18,7 +18,12 @@ happens here; all such work is delegated to injected seams.
 from __future__ import annotations
 import os
 import sys
-from typing import Any, Callable, Iterable, List, NamedTuple, Optional
+from typing import Any
+from typing import Callable
+from typing import Iterable
+from typing import List
+from typing import NamedTuple
+from typing import Optional
 __all__ = ['PushRef', 'parse_push_refs', 'pushed_shas', 'run_backup', 'main']
 
 class PushRef(NamedTuple):
@@ -76,15 +81,21 @@ def _archive_name(archive_result: Any) -> str:
 def run_backup(repo_root: Any, refs: Iterable[Any], *, archiver: Callable[..., Any], uploader: Callable[..., Any], ledger: Any, log: Callable[..., Any]) -> int:
     """Orchestrate archiver -> uploader -> ledger.record for pushed shas.
 
-    Reads ``ledger.last_backed_up_sha()`` as the base for incremental
-    archives. For each pushed sha it builds the archive, uploads/queues it,
-    and records the result in the ledger -- recording ONLY after a
-    successful archive. Every collaborator exception is caught and logged
-    via the ``log`` seam; this function ALWAYS returns 0 and never raises.
+    Reads ``ledger.last_backed_up_sha(repo)`` as the base for incremental
+    archives, SCOPED to the repo being pushed (derived as the basename of
+    ``repo_root``). This is critical: a single global ledger holds rows for
+    multiple repos, so an unscoped base_sha could hand the archiver a sha
+    that does not exist in THIS repo, producing an invalid ``git diff
+    base..sha``. For each pushed sha it builds the archive, uploads/queues
+    it, and records the result in the ledger (tagged with ``repo``) -- only
+    after a successful archive. Every collaborator exception is caught and
+    logged via the ``log`` seam; this function ALWAYS returns 0 and never
+    raises.
     """
+    repo_name = os.path.basename(os.path.normpath(str(repo_root)))
     base_sha = None
     try:
-        base_sha = ledger.last_backed_up_sha()
+        base_sha = ledger.last_backed_up_sha(repo_name)
     except Exception as exc:
         log('drive_backup: failed to read base_sha from ledger', error=repr(exc))
     for sha in pushed_shas(refs):
@@ -101,7 +112,7 @@ def run_backup(repo_root: Any, refs: Iterable[Any], *, archiver: Callable[..., A
             log('drive_backup: upload failed', sha=sha, error=repr(exc))
             uploaded = False
         try:
-            ledger.record(sha, _archive_name(archive_result), uploaded)
+            ledger.record(sha, _archive_name(archive_result), uploaded, repo=repo_name)
         except Exception as exc:
             log('drive_backup: ledger record failed', sha=sha, error=repr(exc))
     return 0
@@ -109,9 +120,17 @@ def run_backup(repo_root: Any, refs: Iterable[Any], *, archiver: Callable[..., A
 def _resolve_repo_root() -> str:
     """Best-effort repo root resolution without spawning a subprocess.
 
-    Honors ``$GIT_DIR`` if set, otherwise walks up from the current working
-    directory looking for a ``.git`` entry, falling back to cwd.
+    Honors ``$JM_PUSH_REPO`` FIRST: the pre-push shim captures the pushed
+    repo's top-level (``git rev-parse --show-toplevel``) BEFORE it ``cd``s
+    into the JanusMask root to import this module, and exports it as
+    ``JM_PUSH_REPO``. Without this, ``$GIT_DIR`` (which git sets to the
+    relative ``.git`` for the pushed repo) would be resolved against the
+    now-JanusMask cwd, so EVERY repo's push would back up the JanusMask tree
+    instead of itself. Falls back to ``$GIT_DIR`` and then a cwd walk.
     """
+    push_repo = os.environ.get('JM_PUSH_REPO')
+    if push_repo and os.path.isdir(push_repo):
+        return os.path.abspath(push_repo)
     git_dir = os.environ.get('GIT_DIR')
     if git_dir:
         return os.path.dirname(os.path.abspath(git_dir)) or os.getcwd()
@@ -151,7 +170,6 @@ def _default_build_deps(repo_root: Any) -> Any:
     from tools.drive_backup import archiver as archiver_mod
     from tools.drive_backup import uploader as uploader_mod
     from tools.drive_backup import ledger as ledger_mod
-
     base_dir = os.path.join(os.path.expanduser('~'), '.janusmask', 'drive_backup')
     out_dir = os.path.join(base_dir, 'artifacts')
     queue_dir = os.path.join(base_dir, 'queue')
@@ -163,10 +181,8 @@ def _default_build_deps(repo_root: Any) -> Any:
     def now() -> Any:
         return _dt.datetime.now(_dt.timezone.utc)
 
-    def archiver(repo: Any, sha: Any, *, base_sha: Any = None) -> Any:
-        return archiver_mod.build_archive(
-            repo, sha, runner=runner, now=now, out_dir=out_dir, base_sha=base_sha
-        )
+    def archiver(repo: Any, sha: Any, *, base_sha: Any=None) -> Any:
+        return archiver_mod.build_archive(repo, sha, runner=runner, now=now, out_dir=out_dir, base_sha=base_sha)
 
     def uploader(archive_result: Any) -> Any:
         return uploader_mod.upload(archive_result, runner=runner, queue_dir=queue_dir)
