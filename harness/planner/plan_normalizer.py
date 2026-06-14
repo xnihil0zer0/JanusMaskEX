@@ -991,6 +991,25 @@ def _split_multifile_module_tasks(tasks: list, repo_root: Optional[Any]=None) ->
         except (TypeError, ValueError, KeyError):
             pass
     return result
+def _strip_stray_mutation_targets(tasks: List[Dict[str, Any]]) -> None:
+    """Delete a stray scalar ``mutation_target`` from non-``test_authoring`` tasks.
+
+    The blind planner reflexively attaches ``mutation_target =
+    "<module>.<function>"`` to NEW-FILE implementation/data_model tasks; the
+    downstream orchestrator non-vacuity mutation gate then triggers on that
+    stray field, maps the dotted value to a path that does not exist, and
+    fail-closes the task with ``mutation_gate_error``.  This final pass
+    enforces the planner-schema invariant "omit ``mutation_target`` for all
+    non-``test_authoring`` tasks" by dropping the scalar key in place, while
+    preserving it verbatim on genuine ``test_authoring`` oracles where the
+    non-vacuity gate legitimately needs it.
+
+    Pure and deterministic: mutates ``tasks`` in place and returns ``None``.
+    Non-dict entries and tasks lacking ``mutation_target`` are left untouched.
+    """
+    for t in tasks:
+        if isinstance(t, dict) and (not _is_test_authoring(t)) and ('mutation_target' in t):
+            del t['mutation_target']
 def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[str, Any]:
     """Auto-correct a leaf plan: dedupe oracles + enforce module-first order.
 
@@ -1023,4 +1042,6 @@ def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[
     normalized = _force_smoke_gated_leaf_impl(normalized, repo_root)
     normalized = _inject_credential_naming_constraint(normalized, repo_root)
     normalized = _inject_oracle_sources(normalized, repo_root)
+    if isinstance(normalized.get('tasks'), list):
+        _strip_stray_mutation_targets(normalized['tasks'])
     return normalized
