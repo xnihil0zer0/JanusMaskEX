@@ -292,6 +292,45 @@ def test_spawn_claude_tmux_builds_jailed_interactive_argv(tmp_path, monkeypatch)
     assert captured['run_kwargs']['deliverable'].endswith('outbox/submission.py')
 
 
+def test_spawn_claude_tmux_is_mode_aware_planning_targets_plan_draft(tmp_path, monkeypatch):
+    """In planning/reconciliation mode the PTY backend must watch (and direct claude
+    to write) the MODE deliverable -- outbox/plan_draft.json, NOT outbox/submission.py.
+    The hardcoded-submission.py bug hung every claude planner-draft under the tmux
+    backend until plan_timeout."""
+    work_dir = tmp_path / 'wd'
+    (work_dir / 'outbox').mkdir(parents=True)
+    state_dir = tmp_path / 'state'
+    state_dir.mkdir()
+    fake_home = tmp_path / 'home'
+    fake_home.mkdir()
+    monkeypatch.setenv('HOME', str(fake_home))
+    monkeypatch.delenv('JANUSMASK_WORKING_DIR', raising=False)
+    monkeypatch.setattr(tw.agent_jail, 'build_jail_argv', lambda cmd, **k: ['/usr/bin/bwrap', *cmd])
+    captured = {}
+
+    def spy_run(**kwargs):
+        captured['run_kwargs'] = kwargs
+        return tw.TmuxWorkerResult(started=True, idle=True, snapshot='')
+
+    monkeypatch.setattr(tw, 'run_pty_worker', spy_run)
+    config = {'agents': {'claude': {'command': '/opt/claude/bin/claude', 'args': ['--model', 'opus']}},
+              'synthesis': {'timeout_seconds': 99}}
+    env = {
+        'JANUSMASK_WORK_DIR': str(work_dir),
+        'JANUSMASK_STATE_DIR': str(state_dir),
+        'JANUSMASK_TASK_ID': 'leaf-plan',
+        'JANUSMASK_MODE': 'planning',
+    }
+    tw.spawn_claude_tmux('claude', 'DRAFT THIS PLAN', env, config, dbus_sock=None)
+    # run_pty_worker watches the planning deliverable, not submission.py
+    assert captured['run_kwargs']['deliverable'].endswith('outbox/plan_draft.json')
+    # and the directive names plan_draft.json, NOT the synthesis default
+    written = (work_dir / '.tmux_prompt.txt').read_text()
+    assert 'DRAFT THIS PLAN' in written
+    assert 'plan_draft.json' in written
+    assert 'submission.py' not in written
+
+
 def test_spawn_claude_tmux_persists_snapshot_for_diagnosis(tmp_path, monkeypatch):
     """A failed PTY turn (started, no deliverable) must leave a persisted snapshot
     under state_dir/sessions so the silent agy-fallback is diagnosable -- the live
