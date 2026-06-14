@@ -833,6 +833,164 @@ def _drop_committed_module_impls(plan: Dict[str, Any], repo_root: Optional[Any])
         return plan
     except (TypeError, ValueError, OSError, subprocess.SubprocessError):
         return plan
+def _split_multifile_module_tasks(tasks: list, repo_root: Optional[Any]=None) -> list:
+    """Split a multi-file module-creating task into one task per new module.
+
+    For every NON-``test_authoring`` task whose ``files_touched`` lists MORE
+    THAN ONE *new module* path -- a ``.py`` not under ``tests/`` that does not
+    already exist on disk under the repo root, mirroring
+    ``plan_validator._is_module_creating`` -- the task is replaced by ``N``
+    tasks, one per created module.  Each split task carries a single-element
+    ``files_touched`` (just its module), copies every other field from the
+    original, and gets a deterministic, unique id ``f"{orig_id}__{stem}"``
+    (``stem = Path(path).stem``); colliding stems within one task are
+    disambiguated by parent folder, then a numeric counter.  The split tasks
+    never depend on one another (they only inherit the original's
+    dependencies).
+
+    Any OTHER task whose ``dependencies`` named the original ``task_id`` is
+    fanned out to depend on ALL of the split ids (the original id removed).
+    When the original had a paired ``test_authoring`` sibling whose
+    ``mutation_target`` is one of the created modules, the pairing is extended
+    only as needed: a sibling oracle is cloned for any other split module that
+    has neither its own oracle nor a wiring oracle already covering it.
+
+    The pass is pure (it builds new dicts via deep copy and never mutates the
+    input tasks) and idempotent: once a multi-file task has been split it no
+    longer exists, so a second application is a strict no-op.  ``repo_root``
+    defaults to the project root so the on-disk existence probe matches the
+    planner's notion of a freshly-created module.
+    """
+    if not isinstance(tasks, list):
+        return tasks
+    from pathlib import Path
+    root: Optional[Any] = None
+    try:
+        if repo_root is not None:
+            root = Path(repo_root)
+        else:
+            from harness.paths import PROJECT_ROOT
+            root = Path(PROJECT_ROOT)
+    except (TypeError, ValueError, OSError):
+        root = None
+
+    def _new_modules(task: Dict[str, Any]) -> List[str]:
+        mods: List[str] = []
+        for f in _files_touched(task):
+            if not isinstance(f, str) or not f.endswith('.py'):
+                continue
+            if 'tests/' in f:
+                continue
+            exists = False
+            if root is not None:
+                try:
+                    exists = (root / f).exists()
+                except (TypeError, ValueError, OSError):
+                    exists = False
+            if exists:
+                continue
+            if f not in mods:
+                mods.append(f)
+        return mods
+    result: List[Dict[str, Any]] = []
+    fanout: Dict[str, List[str]] = {}
+    split_modules: Dict[str, Dict[str, str]] = {}
+    for task in tasks:
+        if not isinstance(task, dict) or _is_test_authoring(task):
+            result.append(copy.deepcopy(task) if isinstance(task, dict) else task)
+            continue
+        mods = _new_modules(task)
+        if len(mods) <= 1:
+            result.append(copy.deepcopy(task))
+            continue
+        orig_id = _task_id(task)
+        used: Set[str] = set()
+        module_to_id: Dict[str, str] = {}
+        split_ids: List[str] = []
+        for mod in mods:
+            stem = Path(mod).stem
+            base = orig_id + '__' + stem if orig_id else '__' + stem
+            new_id = base
+            if new_id in used:
+                parent = Path(mod).parent.name
+                new_id = base + '__' + parent if parent else base
+                counter = 1
+                while new_id in used:
+                    new_id = base + '__' + str(counter)
+                    counter += 1
+            used.add(new_id)
+            clone = copy.deepcopy(task)
+            clone['task_id'] = new_id
+            clone['files_touched'] = [mod]
+            result.append(clone)
+            split_ids.append(new_id)
+            module_to_id[mod] = new_id
+        fanout[orig_id] = split_ids
+        split_modules[orig_id] = module_to_id
+    if fanout:
+        for task in result:
+            if not isinstance(task, dict):
+                continue
+            deps = task.get('dependencies')
+            if not isinstance(deps, list):
+                continue
+            if not any((d in fanout for d in deps)):
+                continue
+            own_id = _task_id(task)
+            rewritten: List[str] = []
+            for d in deps:
+                targets = fanout.get(d, [d]) if isinstance(d, str) else [d]
+                for nd in targets:
+                    if nd == own_id:
+                        continue
+                    if nd not in rewritten:
+                        rewritten.append(nd)
+            task['dependencies'] = rewritten
+        try:
+            for orig_id, module_to_id in split_modules.items():
+                module_set = set(module_to_id.keys())
+                if not module_set:
+                    continue
+                paired = [t for t in result if isinstance(t, dict) and _is_test_authoring(t) and (_module_path(_mutation_target(t)) in module_set)]
+                if not paired:
+                    continue
+                covered: Set[str] = set()
+                for t in result:
+                    if not isinstance(t, dict) or not _is_test_authoring(t):
+                        continue
+                    mp = _module_path(_mutation_target(t))
+                    if mp in module_set:
+                        covered.add(mp)
+                    vc = t.get('verification_command')
+                    files = _files_touched(t)
+                    for mod in module_set:
+                        dotted = mod[:-3].replace('/', '.') if mod.endswith('.py') else mod
+                        if isinstance(vc, str) and (mod in vc or dotted in vc):
+                            covered.add(mod)
+                        elif any((isinstance(f, str) and mod in f for f in files)):
+                            covered.add(mod)
+                template = min(paired, key=_task_id)
+                existing_ids = {_task_id(t) for t in result if isinstance(t, dict)}
+                for mod in sorted(module_set):
+                    if mod in covered:
+                        continue
+                    stem = Path(mod).stem
+                    base = _task_id(template) + '__' + stem
+                    clone_id = base
+                    counter = 1
+                    while clone_id in existing_ids:
+                        clone_id = base + '__' + str(counter)
+                        counter += 1
+                    existing_ids.add(clone_id)
+                    clone = copy.deepcopy(template)
+                    clone['task_id'] = clone_id
+                    clone['mutation_target'] = mod[:-3].replace('/', '.')
+                    clone['dependencies'] = [module_to_id[mod]]
+                    result.append(clone)
+                    covered.add(mod)
+        except (TypeError, ValueError, KeyError):
+            pass
+    return result
 def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[str, Any]:
     """Auto-correct a leaf plan: dedupe oracles + enforce module-first order.
 
@@ -852,6 +1010,7 @@ def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[
     tasks = normalized.get('tasks')
     if not isinstance(tasks, list):
         return normalized
+    tasks = _split_multifile_module_tasks(tasks, repo_root)
     tasks = _dedupe_oracles(tasks)
     tasks = _drop_redundant_precommitted_oracles(tasks, repo_root)
     normalized['tasks'] = tasks
