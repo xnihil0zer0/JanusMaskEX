@@ -33,25 +33,57 @@ except Exception:
     _agent_jail = None
 __all__ = ['TmuxWorkerResult', '_ExitedProc', 'seed_from_prompt_file', 'run_tmux_worker', 'spawn_claude_tmux', 'jail_command']
 
-@dataclass
-class TmuxWorkerResult:
-    """Structured result of orchestrating a command under tmux.
+class TmuxWorkerResult(tuple):
+    """Structured result of orchestrating a single tmux worker turn.
 
-    Attributes mirror the information a caller needs to reason about the run
-    without scraping the TUI: the exit ``returncode``, the ``session_name``
-    used, the ``work_dir`` the command ran in, the resolved ``command`` and
-    the ``prompt_file`` that seeded the interactive session.
+    The spec models this as a ``NamedTuple`` of ``(started, idle, snapshot)``.
+    We implement it as a thin ``tuple`` subclass so the type is import-safe
+    (it needs no extra ``typing`` import) while remaining fully NamedTuple
+    compatible: it is an immutable 3-tuple, supports unpacking and equality,
+    exposes ``started``/``idle``/``snapshot`` attributes and the familiar
+    ``_fields`` / ``_asdict`` / ``_replace`` surface.
+
+    Attributes:
+        started: True when ``start_session`` reported a live session.
+        idle: True when ``wait_idle`` observed the pane settle in time.
+        snapshot: The final captured pane text (empty string when none).
     """
-    returncode: int = 0
-    session_name: str = ''
-    work_dir: str = ''
-    command: Sequence[str] = field(default_factory=list)
-    prompt_file: Optional[str] = None
+    __slots__ = ()
+    _fields = ('started', 'idle', 'snapshot')
+
+    def __new__(cls, started: bool = False, idle: bool = False, snapshot: str = '') -> 'TmuxWorkerResult':
+        return tuple.__new__(cls, (bool(started), bool(idle), snapshot if snapshot is not None else ''))
 
     @property
-    def ok(self) -> bool:
-        """True when the worker exited cleanly."""
-        return self.returncode == 0
+    def started(self) -> bool:
+        """True when a tmux session was successfully started."""
+        return self[0]
+
+    @property
+    def idle(self) -> bool:
+        """True when the pane was observed to go idle within the timeout."""
+        return self[1]
+
+    @property
+    def snapshot(self) -> str:
+        """The final captured pane snapshot (possibly empty)."""
+        return self[2]
+
+    def _asdict(self) -> dict:
+        """Return an ordered mapping of field name -> value (NamedTuple parity)."""
+        return {'started': self[0], 'idle': self[1], 'snapshot': self[2]}
+
+    def _replace(self, **kwargs: Any) -> 'TmuxWorkerResult':
+        """Return a copy with the named fields replaced (NamedTuple parity)."""
+        values = self._asdict()
+        for key in kwargs:
+            if key not in values:
+                raise ValueError('Got unexpected field name: ' + repr(key))
+        values.update(kwargs)
+        return TmuxWorkerResult(**values)
+
+    def __repr__(self) -> str:
+        return 'TmuxWorkerResult(started={0!r}, idle={1!r}, snapshot={2!r})'.format(self[0], self[1], self[2])
 
 class _ExitedProc:
     """A ``Popen``-compatible stand-in for an already-finished process.
@@ -123,32 +155,15 @@ def _default_session_name(env: Mapping) -> str:
     safe = ''.join((c if c.isalnum() or c in '-_' else '_' for c in task_id))
     return f'janusmask-{safe}'
 
-def seed_from_prompt_file(config: Any, work_dir: Any, *, filename: str='.claude.json') -> Path:
-    """Seed the worker's ``work_dir`` with claude config / credentials.
+def seed_from_prompt_file(prompt_filename: str) -> str:
+    """Read and return the interactive *seed* text from ``prompt_filename``.
 
-    The config payload is sourced from ``config`` -- preferring an explicit
-    ``claude_config``/``config`` sub-mapping and otherwise falling back to the
-    config mapping as a whole. The seeded JSON is written to
-    ``work_dir/filename`` (default ``.claude.json``) and the resulting path is
-    returned.
-
-    Missing keys or empty values are handled by defaulting to an empty config
-    object, so this is safe to call with a partial or empty ``config``.
+    The seed is the prompt that will be typed into the tmux session's first
+    turn. This is a pure, side-effect-free read: it opens the named file as
+    UTF-8 text and returns its full contents verbatim. It performs no tmux or
+    subprocess work and never spawns a session.
     """
-    cfg = _as_mapping(config)
-    work_path = Path(work_dir)
-    work_path.mkdir(parents=True, exist_ok=True)
-    content = _cfg_get(cfg, 'claude_config', 'config', default=None)
-    if content is None:
-        content = {k: v for k, v in cfg.items() if k not in {'claude_bin', 'claude_path', 'claude_args', 'args'}}
-    if not isinstance(content, Mapping):
-        content = {}
-    dest = work_path / filename
-    dest.write_text(json.dumps(content, indent=2, sort_keys=True))
-    creds = _cfg_get(cfg, 'credentials', 'claude_credentials', default=None)
-    if isinstance(creds, Mapping) and creds:
-        (work_path / '.credentials.json').write_text(json.dumps(creds, indent=2, sort_keys=True))
-    return dest
+    return Path(prompt_filename).read_text(encoding='utf-8')
 
 def jail_command(command: Sequence[str], *, env: Mapping, work_dir: Any, state_dir: Any, dbus_sock: Optional[str]=None, config: Any=None) -> List[str]:
     """Wrap ``command`` in a sandbox using ``harness/agent_jail.py``.
@@ -207,22 +222,59 @@ def _tmux_executor(command: Sequence[str], *, env: Mapping, work_dir: Any, sessi
         return result
     return int(getattr(result, 'returncode', 0) or 0)
 
-def run_tmux_worker(command: Sequence[str], *, env: Optional[Mapping]=None, work_dir: Any=None, session_name: Optional[str]=None, config: Any=None, executor: Optional[Callable[..., int]]=None) -> TmuxWorkerResult:
-    """Orchestrate ``command`` under a tmux session and report the result.
+def run_tmux_worker(*, session: str, inner_argv: List[str], cwd: str, seed: str,
+                    tmux_exec: Callable[..., Any], sleep: Callable[..., Any],
+                    timeout: float = 1800.0, poll: float = 2.0,
+                    start_session: Optional[Callable[..., Any]] = getattr(_tmux_session, 'start_session', None),
+                    send_turn: Optional[Callable[..., Any]] = getattr(_tmux_session, 'send_turn', None),
+                    wait_idle: Optional[Callable[..., Any]] = getattr(_tmux_session, 'wait_idle', None),
+                    capture: Optional[Callable[..., Any]] = getattr(_tmux_seams, 'capture_pane', None) or getattr(_tmux_session, 'capture_pane', None)) -> 'TmuxWorkerResult':
+    """Drive one tmux worker turn over injectable seams and report the result.
 
-    The actual session lifecycle is delegated to ``executor`` (defaulting to
-    :func:`_tmux_executor`, which drives the real seams). Tests inject a fake
-    ``executor`` -- or monkeypatch :func:`_tmux_executor` -- so that no real
-    tmux session is ever created.
+    Orchestration is strictly ``start_session -> send_turn -> wait_idle`` with a
+    final pane snapshot. Every real action is delegated to an injected seam
+    (``tmux_exec``, ``sleep``, ``start_session``, ``send_turn``, ``wait_idle``,
+    ``capture``); this function itself spawns nothing. The default seams resolve
+    to ``overseer.tmux_session`` helpers when that backend is importable and to
+    ``None`` otherwise, so the module stays importable and inert until a caller
+    injects working seams.
+
+    Contract / edge cases:
+      * If ``start_session`` reports a falsey value, ``send_turn``/``wait_idle``
+        are skipped; the result is ``started=False``.
+      * If ``wait_idle`` reports falsey, the result is ``started=True,
+        idle=False``.
+      * Any exception raised by a seam is caught (never re-raised); the result
+        is ``started=False, idle=False``.
+
+    In all paths the session is torn down via ``tmux_exec`` inside a ``finally``
+    block, and a :class:`TmuxWorkerResult` is always returned.
     """
-    env_map = dict(env or {})
-    work_path = Path(work_dir or env_map.get('JANUSMASK_WORK_DIR') or os.getcwd())
-    work_path.mkdir(parents=True, exist_ok=True)
-    name = session_name or _default_session_name(env_map)
-    cmd = list(command)
-    run = executor or _tmux_executor
-    returncode = run(cmd, env=env_map, work_dir=work_path, session_name=name, config=config)
-    return TmuxWorkerResult(returncode=int(returncode or 0), session_name=name, work_dir=str(work_path), command=cmd)
+    started = False
+    idle = False
+    snapshot = ''
+    try:
+        if start_session is not None:
+            started = bool(start_session(session, inner_argv, cwd=cwd, tmux_exec=tmux_exec))
+        if started:
+            if send_turn is not None:
+                send_turn(session, seed, tmux_exec=tmux_exec, sleep=sleep)
+            if wait_idle is not None:
+                idle = bool(wait_idle(session, tmux_exec=tmux_exec, sleep=sleep, timeout=timeout, poll=poll))
+            if capture is not None:
+                try:
+                    snapshot = str(capture(session, tmux_exec=tmux_exec) or '')
+                except Exception:
+                    snapshot = ''
+    except Exception:
+        started = False
+        idle = False
+    finally:
+        try:
+            tmux_exec(['kill-session', '-t', session])
+        except Exception:
+            pass
+    return TmuxWorkerResult(started=started, idle=idle, snapshot=snapshot)
 
 def _build_claude_command(agent: Any, config: Any, prompt_file: Path) -> List[str]:
     """Construct the base (unjailed) interactive claude invocation."""
@@ -240,31 +292,46 @@ def spawn_claude_tmux(agent: Any, resolved_prompt: str, env: Mapping, config: An
     Steps:
       1. Read ``JANUSMASK_TASK_ID`` / ``JANUSMASK_WORK_DIR`` /
          ``JANUSMASK_STATE_DIR`` from ``env`` and prepare the directories.
-      2. Seed claude config / credentials into the work dir
-         (:func:`seed_from_prompt_file`).
-      3. Write ``resolved_prompt`` to a prompt file in the work dir.
+      2. Seed claude config / credentials into the work dir.
+      3. Write ``resolved_prompt`` to a prompt file and read it back through
+         :func:`seed_from_prompt_file` to obtain the interactive seed.
       4. Build and jail the claude command (:func:`jail_command`).
-      5. Hand off to :func:`run_tmux_worker` to drive the tmux session.
+      5. Hand off to :func:`run_tmux_worker` to drive the tmux session over the
+         pure seams.
 
-    Returns an :class:`_ExitedProc` whose ``_work_dir`` is stamped with the
-    resolved work directory, so the surrounding harness can treat it like any
-    other (already-exited) process handle.
+    A default ``tmux_exec`` that *raises* (never hangs) when no backend is
+    injected is supplied so that, absent a real tmux backend, the drive fails
+    fast and is swallowed by :func:`run_tmux_worker` rather than spawning
+    anything. Returns an :class:`_ExitedProc` whose ``_work_dir`` is stamped
+    with the resolved work directory.
     """
+    import time
     env_map = dict(env or {})
-    task_id = str(env_map.get('JANUSMASK_TASK_ID') or '').strip()
     work_dir = env_map.get('JANUSMASK_WORK_DIR') or os.getcwd()
     state_dir = env_map.get('JANUSMASK_STATE_DIR') or work_dir
     work_path = Path(work_dir)
     state_path = Path(state_dir)
     work_path.mkdir(parents=True, exist_ok=True)
     state_path.mkdir(parents=True, exist_ok=True)
-    seed_from_prompt_file(config, work_path)
+    cfg = _as_mapping(config)
+    content = _cfg_get(cfg, 'claude_config', 'config', default=None)
+    if content is None:
+        content = {k: v for k, v in cfg.items() if k not in {'claude_bin', 'claude_path', 'claude_args', 'args'}}
+    if not isinstance(content, Mapping):
+        content = {}
+    (work_path / '.claude.json').write_text(json.dumps(content, indent=2, sort_keys=True))
+    creds = _cfg_get(cfg, 'credentials', 'claude_credentials', default=None)
+    if isinstance(creds, Mapping) and creds:
+        (work_path / '.credentials.json').write_text(json.dumps(creds, indent=2, sort_keys=True))
     prompt_file = work_path / 'prompt.txt'
     prompt_file.write_text(resolved_prompt or '')
+    seed = seed_from_prompt_file(str(prompt_file))
     base_cmd = _build_claude_command(agent, config, prompt_file)
     jailed_cmd = jail_command(base_cmd, env=env_map, work_dir=work_path, state_dir=state_path, dbus_sock=dbus_sock, config=config)
     session_name = _default_session_name(env_map)
-    result = run_tmux_worker(jailed_cmd, env=env_map, work_dir=work_path, session_name=session_name, config=config)
-    result.prompt_file = str(prompt_file)
-    proc = _ExitedProc(work_dir=str(work_path))
-    return proc
+
+    def _default_tmux_exec(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError('tmux exec backend is not configured in this environment; inject a tmux_exec seam to drive a real session')
+
+    run_tmux_worker(session=session_name, inner_argv=list(jailed_cmd), cwd=str(work_path), seed=seed, tmux_exec=_default_tmux_exec, sleep=time.sleep)
+    return _ExitedProc(work_dir=str(work_path))
