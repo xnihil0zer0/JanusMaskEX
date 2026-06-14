@@ -184,3 +184,55 @@ def test_manifest_is_jsonable_and_complete(tmp_path):
         assert key in m
     # JSON round-trips (no non-serializable objects leaked into the manifest).
     json.dumps(m)
+
+
+# ---- diff-file contract + REAL integration (catches the unwritten-.diff bug) --
+
+def test_diff_argv_writes_to_diff_path_via_output_flag(tmp_path):
+    """git diff must write the file itself (--output=<diff_path>); the runner
+    only executes argv and never redirects stdout, so a bare `git diff <sha>`
+    would silently produce no .diff file."""
+    spy = SpyRunner()
+    res = build_archive(
+        "/repo/JanusMaskJR", SHA, runner=spy, now=_now,
+        out_dir=str(tmp_path), base_sha="b" * 40,
+    )
+    git_call = next(c for c in spy.calls if any("git" in t for t in c))
+    assert any(t == f"--output={res.diff_path}" for t in git_call), git_call
+
+
+def test_real_git_and_tar_produce_both_artifacts(tmp_path):
+    """Integration: run the REAL subprocess runner against a REAL git repo and
+    assert the .tar.zst AND .diff are actually written and non-empty. This is
+    the end-to-end check the hermetic units could not provide."""
+    import os
+    import shutil
+    import subprocess
+
+    if shutil.which("git") is None or shutil.which("zstd") is None:
+        pytest.skip("git/zstd not available")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def run(argv, **kw):
+        return subprocess.run(argv, capture_output=True, check=False, **kw)
+
+    run(["git", "-C", str(repo), "init", "-q"])
+    run(["git", "-C", str(repo), "config", "user.email", "t@t"])
+    run(["git", "-C", str(repo), "config", "user.name", "t"])
+    (repo / "a.txt").write_text("hello\n")
+    run(["git", "-C", str(repo), "add", "."])
+    run(["git", "-C", str(repo), "commit", "-q", "-m", "c1"])
+    sha = run(["git", "-C", str(repo), "rev-parse", "HEAD"]).stdout.decode().strip()
+    # working-tree change so the (base=None) full diff is non-empty
+    (repo / "a.txt").write_text("hello\nworld\n")
+
+    out = tmp_path / "out"
+    res = build_archive(str(repo), sha, runner=run, now=_now, out_dir=str(out))
+
+    assert os.path.isfile(res.archive_path), "tar.zst not written"
+    assert os.path.getsize(res.archive_path) > 0
+    assert os.path.isfile(res.diff_path), "diff file not written"
+    assert os.path.getsize(res.diff_path) > 0
+    assert b"world" in (out / os.path.basename(res.diff_path)).read_bytes()

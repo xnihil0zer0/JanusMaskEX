@@ -50,9 +50,9 @@ def build_archive(repo_root: str, sha: str, *, runner: Callable[..., Any], now: 
         archive_argv.extend(['--exclude', item])
     archive_argv.extend(['-C', repo_root, '.'])
     if base_sha is None:
-        diff_argv: List[str] = ['git', '-C', repo_root, 'diff', sha]
+        diff_argv: List[str] = ['git', '-C', repo_root, 'diff', f'--output={diff_path}', sha]
     else:
-        diff_argv = ['git', '-C', repo_root, 'diff', f'{base_sha}..{sha}']
+        diff_argv = ['git', '-C', repo_root, 'diff', f'--output={diff_path}', f'{base_sha}..{sha}']
     runner(archive_argv)
     runner(diff_argv)
     manifest: Dict[str, Any] = {'repo': repo, 'sha': sha, 'base_sha': base_sha, 'stem': stem, 'excludes': excludes, 'archive_argv': archive_argv, 'diff_argv': diff_argv, 'created_at': now().isoformat()}

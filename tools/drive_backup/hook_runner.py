@@ -139,18 +139,43 @@ def _default_build_deps(repo_root: Any) -> Any:
     """Wire the real archiver/uploader/ledger/log for production use.
 
     Imported lazily so unit tests (which inject ``build_deps``) never touch
-    the real sibling modules or any real I/O.
+    the real sibling modules or any real I/O. The sibling seam-builders are
+    pure (all subprocess/clock/IO injected); this adapter supplies the REAL
+    seams: a ``subprocess.run`` runner, a tz-aware UTC clock, and out/queue
+    dirs + a ledger path that live OUTSIDE any repo working tree (under
+    ``~/.janusmask/drive_backup``) so backups never pollute the tracked tree.
     """
+    import datetime as _dt
+    import subprocess
     from types import SimpleNamespace
     from tools.drive_backup import archiver as archiver_mod
     from tools.drive_backup import uploader as uploader_mod
-    from tools.drive_backup.archiver import ledger as ledger_mod
+    from tools.drive_backup import ledger as ledger_mod
+
+    base_dir = os.path.join(os.path.expanduser('~'), '.janusmask', 'drive_backup')
+    out_dir = os.path.join(base_dir, 'artifacts')
+    queue_dir = os.path.join(base_dir, 'queue')
+    ledger_path = os.path.join(base_dir, 'ledger.ndjson')
+
+    def runner(argv: Any) -> Any:
+        return subprocess.run(argv, capture_output=True, check=False)
+
+    def now() -> Any:
+        return _dt.datetime.now(_dt.timezone.utc)
+
+    def archiver(repo: Any, sha: Any, *, base_sha: Any = None) -> Any:
+        return archiver_mod.build_archive(
+            repo, sha, runner=runner, now=now, out_dir=out_dir, base_sha=base_sha
+        )
+
+    def uploader(archive_result: Any) -> Any:
+        return uploader_mod.upload(archive_result, runner=runner, queue_dir=queue_dir)
 
     def log(message: str, **fields: Any) -> None:
         extra = ' '.join((f'{k}={v!r}' for k, v in fields.items()))
         line = message if not extra else f'{message} {extra}'
         print(line, file=sys.stderr)
-    return SimpleNamespace(archiver=archiver_mod.build_archive, uploader=uploader_mod.upload, ledger=ledger_mod.BackupLedger(repo_root), log=log)
+    return SimpleNamespace(archiver=archiver, uploader=uploader, ledger=ledger_mod.BackupLedger(ledger_path), log=log)
 
 def main(argv: Optional[List[str]]=None, *, stdin: Any=None, repo_root: Any=None, build_deps: Optional[Callable[[Any], Any]]=None) -> int:
     """Pre-push entrypoint: read refs, build deps, run the backup.
