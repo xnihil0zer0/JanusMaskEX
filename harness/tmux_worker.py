@@ -33,7 +33,11 @@ import struct
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Sequence
+from typing import Any
+from typing import Callable
+from typing import List
+from typing import Optional
+from typing import Sequence
 from overseer import tmux_seams
 from harness import agent_jail
 __all__ = ['TmuxWorkerResult', '_ExitedProc', 'seed_from_prompt_file', 'run_pty_worker', 'spawn_claude_tmux']
@@ -298,15 +302,30 @@ def _parse_model_tools(agent_cfg: dict) -> tuple:
             tools = [t for t in str(args[i + 1]).split(',') if t]
     return (model, tools)
 
-def spawn_claude_tmux(agent: str, resolved_prompt: str, env: dict, config: dict, *, dbus_sock: Optional[str]=None) -> _ExitedProc:
+def spawn_claude_tmux(agent: str, resolved_prompt: str, env: dict, config: dict, *, dbus_sock: Optional[str]=None, run_worker: Optional[Callable[..., Any]]=None) -> _ExitedProc:
     """Real-wiring entrypoint: launch a bwrap-jailed interactive claude over a PTY.
 
     Builds the interactive argv (never ``-p``), seeds a per-task
     ``CLAUDE_CONFIG_DIR`` UNDER the jailed work_dir so claude reads its OAuth
-    creds from inside the sandbox, jails the argv, writes the full prompt to a
-    file the seed turn points at, and drives the turn to completion via
-    :func:`run_pty_worker`. Returns an :class:`_ExitedProc` stamped with the work
-    dir; the orchestrator then harvests ``outbox/submission.py`` as usual."""
+    creds from inside the sandbox, jails the argv, writes the full prompt PLUS an
+    explicit submission directive to a file the seed turn points at, and drives
+    the turn to completion via :func:`run_pty_worker`.
+
+    The submission directive is load-bearing: unlike the headless ``-p`` backend
+    (whose stdout the orchestrator captures) or agy (stdin -> fenced stdout), the
+    interactive PTY claude has NO submit/stdout channel. Its only way to deliver
+    is to WRITE ``outbox/submission.py`` itself; without being told to, it ends
+    its turn having only described the code, the deliverable never appears, and
+    the orchestrator silently falls back to agy. The directive names that exact
+    path (which is also what :func:`run_pty_worker` watches and
+    ``poll_for_submission`` harvests).
+
+    The :class:`TmuxWorkerResult` from the worker is persisted to
+    ``state_dir/sessions/pty_<agent>_<task>.snapshot.txt`` so a no-deliverable
+    turn is diagnosable instead of vanishing into the silent fallback. Returns an
+    :class:`_ExitedProc` stamped with the work dir; the orchestrator then harvests
+    ``outbox/submission.py`` as usual. ``run_worker`` is an injectable seam for
+    the oracle (defaults to :func:`run_pty_worker`)."""
     work_dir = env['JANUSMASK_WORK_DIR']
     state_dir = env['JANUSMASK_STATE_DIR']
     task_id = str(env.get('JANUSMASK_TASK_ID') or 'worker')
@@ -320,7 +339,19 @@ def spawn_claude_tmux(agent: str, resolved_prompt: str, env: dict, config: dict,
     working_dir = os.environ.get('JANUSMASK_WORKING_DIR')
     repo_root = str(PROJECT_DIR) if _target_is_self(working_dir) else str(effective_target_root(working_dir))
     jailed = agent_jail.build_jail_argv(interactive, repo_root=repo_root, work_dir=work_dir, state_dir=state_dir, dbus_proxy_socket=dbus_sock)
-    Path(work_dir, '.tmux_prompt.txt').write_text(resolved_prompt or '')
+    deliverable = os.path.join(str(work_dir), 'outbox', 'submission.py')
+    Path(work_dir, '.tmux_prompt.txt').write_text((resolved_prompt or '') + _PTY_SUBMISSION_DIRECTIVE)
     timeout = float((config.get('synthesis') or {}).get('timeout_seconds', 1200))
-    run_pty_worker(jailed_argv=jailed, work_dir=work_dir, seed=seed_from_prompt_file(), idle_timeout=timeout)
+    runner = run_worker or run_pty_worker
+    result = runner(jailed_argv=jailed, work_dir=work_dir, seed=seed_from_prompt_file(), deliverable=deliverable, idle_timeout=timeout)
+    try:
+        snap_dir = os.path.join(str(state_dir), 'sessions')
+        os.makedirs(snap_dir, exist_ok=True)
+        status = 'OK' if getattr(result, 'idle', False) else 'NO_DELIVERABLE'
+        snapshot = getattr(result, 'snapshot', '') or ''
+        header = f'started={getattr(result, 'started', False)} idle={getattr(result, 'idle', False)} status={status} deliverable={deliverable}\n\n'
+        Path(snap_dir, f'pty_{agent}_{task_id}.snapshot.txt').write_text(header + snapshot)
+    except Exception:
+        pass
     return _ExitedProc(work_dir=str(work_dir))
+_PTY_SUBMISSION_DIRECTIVE = '\n\n---\nSUBMISSION PROTOCOL (MANDATORY -- READ CAREFULLY):\nYou are running as an INTERACTIVE worker over a PTY. You have NO submit tool and NO stdout submission channel: nothing you print is captured. Your ONLY delivery channel is the Write tool. When you have finished the task you MUST write the COMPLETE final file content to the path `outbox/submission.py` (relative to your current working directory) using the Write tool, creating the `outbox/` directory if it does not exist. That file is harvested verbatim as your submission -- write nothing else to it. Do NOT end your turn until `outbox/submission.py` exists and contains your full answer; if you only describe the code in prose without writing the file, your work is LOST.'
