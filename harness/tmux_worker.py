@@ -339,8 +339,11 @@ def spawn_claude_tmux(agent: str, resolved_prompt: str, env: dict, config: dict,
     working_dir = os.environ.get('JANUSMASK_WORKING_DIR')
     repo_root = str(PROJECT_DIR) if _target_is_self(working_dir) else str(effective_target_root(working_dir))
     jailed = agent_jail.build_jail_argv(interactive, repo_root=repo_root, work_dir=work_dir, state_dir=state_dir, dbus_proxy_socket=dbus_sock)
-    deliverable = os.path.join(str(work_dir), 'outbox', 'submission.py')
-    Path(work_dir, '.tmux_prompt.txt').write_text((resolved_prompt or '') + _PTY_SUBMISSION_DIRECTIVE)
+    mode = str(env.get('JANUSMASK_MODE') or 'synthesis')
+    artifact = _MODE_DELIVERABLE.get(mode, 'submission.py')
+    deliverable = os.path.join(str(work_dir), 'outbox', artifact)
+    directive = _PTY_SUBMISSION_DIRECTIVE.replace('submission.py', artifact)
+    Path(work_dir, '.tmux_prompt.txt').write_text((resolved_prompt or '') + directive)
     timeout = float((config.get('synthesis') or {}).get('timeout_seconds', 1200))
     runner = run_worker or run_pty_worker
     result = runner(jailed_argv=jailed, work_dir=work_dir, seed=seed_from_prompt_file(), deliverable=deliverable, idle_timeout=timeout)
@@ -355,3 +358,4 @@ def spawn_claude_tmux(agent: str, resolved_prompt: str, env: dict, config: dict,
         pass
     return _ExitedProc(work_dir=str(work_dir))
 _PTY_SUBMISSION_DIRECTIVE = '\n\n---\nSUBMISSION PROTOCOL (MANDATORY -- READ CAREFULLY):\nYou are running as an INTERACTIVE worker over a PTY. You have NO submit tool and NO stdout submission channel: nothing you print is captured. Your ONLY delivery channel is the Write tool. When you have finished the task you MUST write the COMPLETE final file content to the path `outbox/submission.py` (relative to your current working directory) using the Write tool, creating the `outbox/` directory if it does not exist. That file is harvested verbatim as your submission -- write nothing else to it. Do NOT end your turn until `outbox/submission.py` exists and contains your full answer; if you only describe the code in prose without writing the file, your work is LOST.'
+_MODE_DELIVERABLE = {'planning': 'plan_draft.json', 'reconciliation': 'reconciliation.json'}
