@@ -275,9 +275,52 @@ def test_spawn_claude_tmux_builds_jailed_interactive_argv(tmp_path, monkeypatch)
     assert captured['jail_kwargs'].get('work_dir') == str(work_dir)
     assert captured['jail_kwargs'].get('state_dir') == str(state_dir)
 
-    # the full prompt was written to the file the seed points at
+    # the full prompt was written to the file the seed points at, with an
+    # appended deliverable directive: the PTY claude has NO submit/stdout channel
+    # (unlike headless -p / agy), so it MUST be told to write its submission to
+    # outbox/submission.py via the Write tool, or it delivers nothing and the
+    # orchestrator silently falls back to agy.
     prompt_file = work_dir / '.tmux_prompt.txt'
-    assert prompt_file.read_text() == 'FULL PROMPT BODY'
+    written = prompt_file.read_text()
+    assert 'FULL PROMPT BODY' in written
+    assert 'outbox/submission.py' in written
+    assert 'Write tool' in written
 
     # the configured synthesis timeout is honored as the idle budget
     assert captured['run_kwargs']['idle_timeout'] == 999.0
+    # run_pty_worker is told which deliverable to watch (the harvested submission)
+    assert captured['run_kwargs']['deliverable'].endswith('outbox/submission.py')
+
+
+def test_spawn_claude_tmux_persists_snapshot_for_diagnosis(tmp_path, monkeypatch):
+    """A failed PTY turn (started, no deliverable) must leave a persisted snapshot
+    under state_dir/sessions so the silent agy-fallback is diagnosable -- the live
+    bug was that run_pty_worker's TmuxWorkerResult/snapshot was discarded."""
+    work_dir = tmp_path / 'wd'
+    (work_dir / 'outbox').mkdir(parents=True)
+    state_dir = tmp_path / 'state'
+    state_dir.mkdir()
+    fake_home = tmp_path / 'home'
+    fake_home.mkdir()
+    monkeypatch.setenv('HOME', str(fake_home))
+    monkeypatch.delenv('JANUSMASK_WORKING_DIR', raising=False)
+    monkeypatch.setattr(tw.agent_jail, 'build_jail_argv', lambda cmd, **k: ['/usr/bin/bwrap', *cmd])
+    monkeypatch.setattr(
+        tw, 'run_pty_worker',
+        lambda **k: tw.TmuxWorkerResult(started=True, idle=False, snapshot='CLAUDE-TUI-DUMP-ZZZ'),
+    )
+    config = {
+        'agents': {'claude': {'command': '/opt/claude/bin/claude', 'args': ['--model', 'opus']}},
+        'synthesis': {'timeout_seconds': 5},
+    }
+    env = {
+        'JANUSMASK_WORK_DIR': str(work_dir),
+        'JANUSMASK_STATE_DIR': str(state_dir),
+        'JANUSMASK_TASK_ID': 'leaf-z',
+    }
+    tw.spawn_claude_tmux('claude', 'BODY', env, config, dbus_sock=None)
+    snaps = list((state_dir / 'sessions').glob('pty_claude_leaf-z*'))
+    assert snaps, 'a PTY snapshot must be persisted for diagnosis'
+    text = snaps[0].read_text()
+    assert 'CLAUDE-TUI-DUMP-ZZZ' in text
+    assert 'NO_DELIVERABLE' in text or 'idle=False' in text
