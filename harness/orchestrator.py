@@ -831,6 +831,7 @@ def _join_stream_threads(proc: subprocess.Popen, timeout: float=2.0) -> None:
             t.join(timeout=timeout)
 
 def _path_b_outbox_fallback(work_dir: Path, sub_path: Path, task_id: str) -> str | None:
+    work_dir = Path(work_dir)
     outbox_path = work_dir / 'outbox' / 'submission.py'
     if not outbox_path.is_file():
         return None
@@ -4069,5 +4070,6 @@ def _use_tmux_claude(agent: str, config: dict) -> bool:
     backend string, and any non-claude agent.
     """
     return _claude_backend(config) == 'tmux' and agent == 'claude'
+"Minimal single-symbol submission for AST-merge into harness/orchestrator.py.\n\nOnly _path_b_outbox_fallback is replaced (merge keys by name; all other symbols in\nthe target survive). Adds a Path() coercion so the PTY backend's str _work_dir does\nnot raise TypeError on `str / 'outbox'` (the live silent-agy-fallback bug). Path,\njson, ast, logger are already module-level in orchestrator.py.\n"
 if __name__ == '__main__':
     main()
