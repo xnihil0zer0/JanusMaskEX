@@ -116,6 +116,24 @@ def test_v01_happy_path(outbox_env):
 
 
 # ---------------------------------------------------------------------------
+# 1b. str work_dir (PTY backend) -- _ExitedProc._work_dir is a str, so
+#     poll_for_submission passes a str here; the fallback must coerce to Path
+#     instead of raising TypeError on ``str / 'outbox'`` (the live agy-fallback bug).
+# ---------------------------------------------------------------------------
+
+def test_v01b_str_work_dir_from_pty_backend(outbox_env):
+    src = "def f(x):\n    return x + 1\n"
+    work_dir, sub_path, tid = outbox_env(src, task_id="PTY-1")
+
+    # the PTY worker's _ExitedProc stamps _work_dir as a plain string
+    result = _path_b_outbox_fallback(str(work_dir), sub_path, tid)
+
+    assert result == src
+    assert sub_path.is_file()
+    assert json.loads(sub_path.read_text()) == {"code": src, "task_id": "PTY-1"}
+
+
+# ---------------------------------------------------------------------------
 # 2. missing outbox file (outbox dir exists, submission.py does not)
 # ---------------------------------------------------------------------------
 
