@@ -333,7 +333,7 @@ def spawn_claude_tmux(agent: str, resolved_prompt: str, env: dict, config: dict,
     claude_bin = agent_cfg['command']
     model, tools = _parse_model_tools(agent_cfg)
     config_dir = os.path.join(work_dir, '.tmuxcfg')
-    tmux_seams.seed_config_dir(config_dir, home=os.environ['HOME'], copy=shutil.copy2, exists=os.path.exists, makedirs=lambda d: os.makedirs(d, exist_ok=True))
+    tmux_seams.seed_config_dir(config_dir, home=os.environ['HOME'], copy=shutil.copy2, exists=os.path.exists, makedirs=lambda d: os.makedirs(d, exist_ok=True))  # home-free: allow
     interactive = tmux_seams.build_interactive_argv(claude_bin, config_dir, model=model, tools=tools)
     from harness.paths import _target_is_self, effective_target_root, PROJECT_ROOT as PROJECT_DIR
     working_dir = os.environ.get('JANUSMASK_WORKING_DIR')

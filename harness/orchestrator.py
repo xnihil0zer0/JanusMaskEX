@@ -230,7 +230,7 @@ def _apply_agy_pool_env(agent, env, config=None):
     except (TypeError, ValueError):
         return env
     from harness import agy_pool
-    home = os.environ.get('HOME') or os.path.expanduser('~')
+    home = os.environ.get('HOME') or os.path.expanduser('~')  # home-free: allow
     try:
         agy_pool.ensure_seeded(str(PROJECT_DIR), slot, home=home, copy=shutil.copy2, exists=os.path.exists, makedirs=lambda d: os.makedirs(d, exist_ok=True))
     except OSError:
@@ -276,7 +276,7 @@ def _build_agent_env(agent: str, state_dir: str, round_number: int=1) -> dict[st
     return env
 
 def _boost_antigravity_mcp_config(state_dir: Path) -> None:
-    home_dir = os.environ['HOME']
+    home_dir = os.environ['HOME']  # home-free: allow
     mcp_path = Path(home_dir) / '.gemini' / 'antigravity-cli' / 'mcp_config.json'
     mcp_path.parent.mkdir(parents=True, exist_ok=True)
     py_exe = sys.executable
