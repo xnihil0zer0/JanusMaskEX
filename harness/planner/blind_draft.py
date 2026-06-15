@@ -106,6 +106,34 @@ def _synthesize_wiring_oracle_tokens(draft, working_dir=None):
         if not stem:
             continue
         t['verification_command'] = vcmd + ' # tests/test_' + stem + '_wired.py'
+_META_TASK_TYPE_ALIASES = {'implementation': 'data_model', 'impl': 'data_model', 'feature': 'data_model', 'module': 'data_model', 'new_module': 'data_model', 'code': 'data_model', 'function': 'data_model', 'class': 'data_model'}
+
+def _coerce_meta_task_types(draft) -> None:
+    """Coerce well-known non-canonical meta_task_type aliases to canonical values in place.
+
+    Deterministic pre-validation pass: for each dict task in ``draft['tasks']``
+    whose ``meta_task_type`` is a str that is NOT already a canonical
+    ``META_TASK_TYPES`` value, look up its lower-cased/stripped form in
+    ``_META_TASK_TYPE_ALIASES`` and rewrite it to the canonical value when a
+    mapping exists. Canonical values and unknown types absent from the alias
+    map are left untouched for the validator to reject. No-ops when ``draft`` is
+    not a dict or ``draft['tasks']`` is not a list. Performs no I/O, network,
+    clock, or randomness, and is idempotent.
+    """
+    if not isinstance(draft, dict):
+        return
+    tasks = draft.get('tasks')
+    if not isinstance(tasks, list):
+        return
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        mtt = t.get('meta_task_type')
+        if not isinstance(mtt, str) or mtt in META_TASK_TYPES:
+            continue
+        canonical = _META_TASK_TYPE_ALIASES.get(mtt.strip().lower())
+        if canonical is not None:
+            t['meta_task_type'] = canonical
 def collect_agent_draft(agent: str, agent_dir: Path, state_dir: Path, elapsed: float, timeout: float, spawn_start_epoch: Optional[float]=None, min_response_seconds: float=10.0, mode: str='leaf', working_dir: Optional[str]=None) -> Tuple[Optional[Dict[str, Any]], str]:
     """Collect an agent's plan draft from canonical paths, falling back to
     per-spawn outbox when the post_tool promoter didn't fire.
@@ -147,6 +175,7 @@ def collect_agent_draft(agent: str, agent_dir: Path, state_dir: Path, elapsed: f
         return (None, 'invalid')
     if working_dir and isinstance(draft, dict) and not draft.get('working_dir'):
         draft['working_dir'] = working_dir
+    _coerce_meta_task_types(draft)
     if mode != 'epic':
         _synthesize_wiring_oracle_tokens(draft, working_dir)
     if mode == 'epic':
