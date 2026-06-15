@@ -10,10 +10,23 @@ def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
                 for line in f:
                     try:
                         row = json.loads(line)
-                        if isinstance(row, dict) and row.get('phase') == 'accepted' and (row.get('event') == 'auto_commit'):
-                            tid = row.get('task_id')
-                            if tid:
-                                accepted_map[tid] = {'task_id': tid, 'commit_sha': row.get('commit_sha'), 'ts': row.get('ts')}
+                        if not isinstance(row, dict):
+                            continue
+                        tid = row.get('task_id')
+                        if not tid:
+                            continue
+                        # Process ledger rows CHRONOLOGICALLY (the file is
+                        # append-only): an ``accepted/auto_commit`` row is
+                        # logged at COMMIT time, but if the later push/merge
+                        # fails the task is rolled back / routed to blocked.
+                        # A subsequent ``reject_rollback`` or ``task_blocked``
+                        # row for the same task_id INVALIDATES the stale accept,
+                        # so the daemon re-stages it instead of treating an
+                        # orphaned commit as done. Last terminal event wins.
+                        if row.get('phase') == 'accepted' and row.get('event') == 'auto_commit':
+                            accepted_map[tid] = {'task_id': tid, 'commit_sha': row.get('commit_sha'), 'ts': row.get('ts')}
+                        elif row.get('event') in ('reject_rollback', 'task_blocked'):
+                            accepted_map.pop(tid, None)
                     except json.JSONDecodeError:
                         pass
         except OSError:
