@@ -1416,6 +1416,9 @@ def prepare_task_prompt(task: dict[str, Any]) -> str:
         prompt += '\nTEST-AUTHORING DISPATCH:\n\nYou are authoring a pytest TEST FILE (a verification oracle), NOT an implementation function. Write the COMPLETE contents of the test file as ordinary Python source to the submission.py path given above -- a whole .py file. DO NOT emit a __JANUSMASK_PATCHES__ list and DO NOT emit a __JANUSMASK_MANIFEST__ dict; submit the test file source directly.\n\nThe test MUST import the module(s) under test by name and exercise their REAL observable behaviour per the spec. It MUST be NON-VACUOUS: the harness re-runs it against a deliberately broken mutant of the code and REJECTS it unless it FAILS on the mutant -- so a test that asserts trivially (e.g. assert True) or never exercises the behaviour will be rejected. Follow EVERY required test property and safety constraint in the spec / acceptance_criteria (fixtures, monkeypatch + teardown, redirected paths, skip markers, negative and positive controls) exactly, and name each test function test_<unit>_<behaviour>.\n'
     if spec_summary:
         prompt += f'\nBrief overview (full details in current_task.json):\n{spec_summary}\n'
+    repair_feedback = task.get('repair_feedback')
+    if isinstance(repair_feedback, str) and repair_feedback:
+        prompt += '\n\nPRIOR ATTEMPT FAILED VERIFICATION. Do NOT repeat the same mistake; fix exactly this:\n' + repair_feedback + '\n'
     return prompt
 
 def collect_submissions(state_dir: Path, round_number: int) -> tuple[str | None, str | None]:
@@ -1735,6 +1738,63 @@ def _mark_processed(state_dir: Path, task_id: str) -> None:
         except OSError as e:
             logger.warning('Failed to remove current_task_%s.json: %s', task_id, e)
 
+def _last_failure_tail(state_dir: Path, task_id: str) -> str:
+    """Return a compact tail of the LAST captured failure for *task_id*.
+
+    Reads the same ``state_dir/impl_progress.jsonl`` ledger that
+    ``_auto_commit_accepted`` appends verification / mutation failure rows to,
+    scans every row, and keeps the LAST one whose ``task_id`` matches AND whose
+    ``event`` is one of the recognised failure events
+    {verification_failed, mutation_gate_failed, mutation_gate_error,
+    mutation_gate_missing}. From that row it assembles a compact,
+    human-readable string out of ``stdout_tail`` / ``stderr_tail`` (plus
+    ``event`` and ``reason`` / ``exit`` when present), truncated to the last
+    ~2000 chars so a re-dispatched worker can see exactly why the prior attempt
+    failed instead of reproducing the same mistake.
+
+    Pure and fail-soft: returns '' when the file is missing, unreadable, or no
+    matching failure row exists, and never raises (OSError/ValueError caught).
+    """
+    failure_events = {'verification_failed', 'mutation_gate_failed', 'mutation_gate_error', 'mutation_gate_missing'}
+    path = state_dir / 'impl_progress.jsonl'
+    last_row = None
+    try:
+        if not path.exists():
+            return ''
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(row, dict) and row.get('task_id') == task_id and (row.get('event') in failure_events):
+                    last_row = row
+    except (OSError, ValueError):
+        return ''
+    if not isinstance(last_row, dict):
+        return ''
+    parts: list[str] = []
+    event = last_row.get('event')
+    if event:
+        parts.append(f'event={event}')
+    exit_code = last_row.get('exit')
+    if exit_code is not None:
+        parts.append(f'exit={exit_code}')
+    reason = last_row.get('reason')
+    if reason:
+        parts.append(f'reason={reason}')
+    stdout_tail = last_row.get('stdout_tail')
+    if stdout_tail:
+        parts.append('stdout_tail:\n' + str(stdout_tail))
+    stderr_tail = last_row.get('stderr_tail')
+    if stderr_tail:
+        parts.append('stderr_tail:\n' + str(stderr_tail))
+    if not parts:
+        return ''
+    return '\n'.join(parts)[-2000:]
 def _write_retry_sidecar(blocked_dir: Path, task_id: str, outcome: str) -> int:
     """Bump the {attempts,last_outcome,ts} retry sidecar for a blocked task.
 
@@ -1785,6 +1845,16 @@ def _mark_blocked(state_dir: Path, task_id: str, outcome: str='rejected') -> Non
     try:
         write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'autowork', 'task_id': task_id, 'event': 'task_blocked', 'detail': f'non-accept terminal ({outcome}) routed to blocked/ (attempt {attempts})', 'outcome': outcome, 'attempts': attempts})
     except OSError:
+        pass
+    try:
+        _rf_tail = _last_failure_tail(state_dir, task_id)
+        if _rf_tail:
+            _blocked_spec_path = blocked_dir / f'{task_id}.json'
+            _blocked_spec = json.loads(_blocked_spec_path.read_text(encoding='utf-8'))
+            if isinstance(_blocked_spec, dict):
+                _blocked_spec['repair_feedback'] = _rf_tail
+                _blocked_spec_path.write_text(json.dumps(_blocked_spec, indent=2), encoding='utf-8')
+    except (OSError, ValueError):
         pass
     current_task_path = tasks_dir / f'current_task_{task_id}.json'
     if current_task_path.exists():
