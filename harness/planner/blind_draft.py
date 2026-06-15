@@ -41,11 +41,76 @@ def _resolve_outbox_artifact(agent_dir: Path, agent: str, filename: str, round_n
         return None
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
+def _synthesize_wiring_oracle_tokens(draft, working_dir=None):
+    """Synthesize a commented wiring-oracle token for module-creating leaves.
+
+    Blind per-agent validation discards otherwise-valid external NEW-module
+    drafts for ``plan_validator.missing_wiring_oracle``. For each leaf that
+    ``_is_module_creating`` (per the resolved working_dir) whose
+    ``verification_command`` is a non-empty string that is not already a
+    ``_is_wiring_oracle`` and that has no paired ``test_authoring`` task whose
+    ``mutation_target`` maps to one of its created non-test ``.py`` files,
+    append a COMMENTED ``# tests/test_<stem>_wired.py`` token derived from the
+    first created non-test ``.py`` file's stem. The draft is mutated in place.
+
+    No-ops when ``draft`` is not a dict, the working_dir is unknown, or
+    ``draft['tasks']`` is not a list.
+    """
+    if not isinstance(draft, dict):
+        return
+    wd = draft.get('working_dir') or working_dir
+    if not wd:
+        return
+    tasks = draft.get('tasks')
+    if not isinstance(tasks, list):
+        return
+    try:
+        from harness.planner.plan_validator import _is_module_creating, _is_wiring_oracle
+    except ImportError:
+        return
+    paired_targets = set()
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        if t.get('meta_task_type') != 'test_authoring':
+            continue
+        mt = t.get('mutation_target')
+        if isinstance(mt, str) and mt.strip():
+            paired_targets.add(mt.strip().replace('.', '/') + '.py')
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        if not _is_module_creating(t, working_dir=wd):
+            continue
+        vcmd = t.get('verification_command')
+        if not isinstance(vcmd, str) or not vcmd.strip():
+            continue
+        if _is_wiring_oracle(vcmd):
+            continue
+        created = []
+        for f in t.get('files_touched') or []:
+            if not isinstance(f, str):
+                continue
+            fp = f.replace('\\', '/')
+            if not fp.endswith('.py'):
+                continue
+            base = fp.rsplit('/', 1)[-1]
+            if base.startswith('test_') or base.endswith('_test.py'):
+                continue
+            created.append(fp)
+        if not created:
+            continue
+        if any((c == p or c.endswith('/' + p) or p.endswith('/' + c) for c in created for p in paired_targets)):
+            continue
+        stem = created[0].rsplit('/', 1)[-1][:-3]
+        if not stem:
+            continue
+        t['verification_command'] = vcmd + ' # tests/test_' + stem + '_wired.py'
 def collect_agent_draft(agent: str, agent_dir: Path, state_dir: Path, elapsed: float, timeout: float, spawn_start_epoch: Optional[float]=None, min_response_seconds: float=10.0, mode: str='leaf', working_dir: Optional[str]=None) -> Tuple[Optional[Dict[str, Any]], str]:
     """Collect an agent's plan draft from canonical paths, falling back to
     per-spawn outbox when the post_tool promoter didn't fire.
 
-    Search order: per-agent canonical → top-level canonical → per-spawn
+    Search order: per-agent canonical -> top-level canonical -> per-spawn
     outbox glob (mtime-sorted, newest wins). Returns ``(draft, "ok")`` on
     success, ``(None, "timeout"|"crashed"|"invalid")`` on the various
     failure modes (preserves the prior closure semantics).
@@ -82,6 +147,8 @@ def collect_agent_draft(agent: str, agent_dir: Path, state_dir: Path, elapsed: f
         return (None, 'invalid')
     if working_dir and isinstance(draft, dict) and not draft.get('working_dir'):
         draft['working_dir'] = working_dir
+    if mode != 'epic':
+        _synthesize_wiring_oracle_tokens(draft, working_dir)
     if mode == 'epic':
         # Local import avoids a module-level circular dependency between the
         # planner validator and the blind-draft collector.
