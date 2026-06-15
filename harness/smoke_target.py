@@ -11,4 +11,3 @@ The committed stub intentionally does NOT define ``__version__`` so the first
 dispatch produces a real diff (and a real commit). See README "Prove the
 pipeline".
 """
-__version__ = '0.0.1'

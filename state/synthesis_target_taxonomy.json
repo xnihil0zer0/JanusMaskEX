@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "keys": {
+    "array_transform": "array_transform",
+    "numerical_computation": "numerical_computation",
+    "string_parsing": "string_parsing",
+    "string_formatting": "string_formatting",
+    "graph_traversal": "graph_traversal",
+    "tree_recursion": "tree_recursion",
+    "dynamic_programming": "dynamic_programming",
+    "bitwise_logic": "bitwise_logic",
+    "hash_set_logic": "hash_set_logic",
+    "greedy_interval": "greedy_interval",
+    "constraint_satisfaction": "constraint_satisfaction",
+    "stateful_simulation": "stateful_simulation",
+    "geometry": "geometry",
+    "io_transform": "io_transform"
+  }
+}
