@@ -102,6 +102,9 @@ def persist_plan(plan, out_path, brief_obj=None):
         wd = getattr(brief_obj, 'working_dir', None)
         if isinstance(wd, str) and wd and ('working_dir' not in plan):
             plan['working_dir'] = wd
+        rti = getattr(brief_obj, 'required_task_ids', ()) or ()
+        if isinstance(rti, (list, tuple)) and rti and ('required_task_ids' not in plan):
+            plan['required_task_ids'] = list(rti)
         pe = getattr(brief_obj, 'parent_epic_slug', None)
         if isinstance(pe, str) and pe and ('parent_epic_slug' not in plan):
             plan['parent_epic_slug'] = pe
@@ -152,22 +155,16 @@ def _finalize_epic_children(merged, epic_wd, child_epics):
         if not slug:
             continue
         canonical = str(slug).strip().replace('_', '-')
-        # SANITIZE (CWE-22/CWE-20): the canonical slug flows into a filesystem
-        # path (brief_hooks_<slug>.md) at _run_epic_pipeline; strip directory
-        # components and restrict to a safe charset so an untrusted reconciled
-        # slug cannot inject a path separator or '..' that escapes repo_root.
         import os
         import re
         canonical = os.path.basename(canonical)
-        canonical = re.sub(r'[^A-Za-z0-9_-]', '', canonical).strip('.')
+        canonical = re.sub('[^A-Za-z0-9_-]', '', canonical).strip('.')
         if not canonical:
             continue
         if canonical in seen:
             continue
         child_tokens = frozenset(canonical.split('-')) - _STOPWORDS
-        if child_tokens and any(
-            child_tokens <= ts or ts <= child_tokens for ts in kept_token_sets
-        ):
+        if child_tokens and any((child_tokens <= ts or ts <= child_tokens for ts in kept_token_sets)):
             continue
         seen.add(canonical)
         kept_token_sets.append(child_tokens)
@@ -179,6 +176,7 @@ def _finalize_epic_children(merged, epic_wd, child_epics):
             new_child['epic'] = True
         finalized.append(new_child)
     return finalized
+
 def _run_epic_pipeline(brief_obj, config, state_dir, output_plan) -> int:
     """Decompose an epic brief into re-plannable child briefs plus an epic record.
 

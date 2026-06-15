@@ -10,7 +10,6 @@ from pathlib import Path
 from harness.planner.taxonomies import META_TASK_TYPES
 PRIORITY_CANONICAL = {'critical', 'high', 'medium', 'low'}
 
-
 def _is_wiring_oracle(verification_command: Any) -> bool:
     """A wiring oracle is recognised when ``verification_command`` names a pytest
     path whose filename stem ends with ``_wired`` (e.g.
@@ -25,10 +24,9 @@ def _is_wiring_oracle(verification_command: Any) -> bool:
         if stem.endswith('_wired'):
             return True
     return False
-
 _PURE_EDIT_META_TASK_TYPES = {'refactor', 'logging_observability', 'docs_writing'}
-
 from harness.paths import effective_target_root
+
 def _is_module_creating(task: Any, working_dir=None) -> bool:
     """A leaf is MODULE-CREATING when its ``files_touched`` contains a ``.py``
     path that is NOT under a ``tests/`` directory, is NOT already present on
@@ -57,10 +55,11 @@ def _is_module_creating(task: Any, working_dir=None) -> bool:
         if 'tests/' in path.replace('\\', '/'):
             continue
         p = Path(path)
-        resolved = p if p.is_absolute() else (repo_root / p)
+        resolved = p if p.is_absolute() else repo_root / p
         if not resolved.exists():
             return True
     return False
+
 def _valid_mutation_module(v: Any) -> bool:
     """A2: a ``mutation_target`` must be a bare dotted module name (the
     module-under-test), e.g. ``harness.symbol_ledger``. Mirrors the
@@ -71,7 +70,7 @@ def _valid_mutation_module(v: Any) -> bool:
         return False
     if '/' in v or '\\' in v or '..' in v or v.endswith('.py'):
         return False
-    return re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*', v) is not None
+    return re.fullmatch('[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*', v) is not None
 
 @dataclass(frozen=True, order=True)
 class PlanViolation:
@@ -158,6 +157,7 @@ def _sensitive_glob_violations(task: dict, path_prefix: str) -> List[PlanViolati
         if any((fnmatch.fnmatch(norm, glob) for glob in _GLOBS)):
             violations.append(PlanViolation('sensitive_files_touched', f'{path_prefix}.files_touched', f'files_touched lists sensitive path {entry!r}: a non-harness_self_fix task can never commit a path under _SENSITIVE_APPLY_GLOBS ({', '.join(_GLOBS)}) — _enforce_apply_scope refuses the write at accept, so the plan is rejected at planning time'))
     return violations
+
 def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]:
     if isinstance(plan, (str, Path)):
         try:
@@ -196,17 +196,9 @@ def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]
             violations.append(PlanViolation('missing_meta_task_type', f'{path_prefix}.meta_task_type', 'meta_task_type must be a non-empty string from the canonical taxonomy'))
         elif meta_task_type not in META_TASK_TYPES:
             violations.append(PlanViolation('unknown_meta_task_type', f'{path_prefix}.meta_task_type', f'Unknown meta_task_type: {meta_task_type}'))
-        # A verification_command that re-roots the shell with a leading or embedded
-        # ``cd `` overrides the worker's staging-worktree cwd, so the post-run diff
-        # is taken against the wrong tree and the leaf silently dead-ends with
-        # auto_commit_failed. Reject it at plan time instead.
         vcmd = task.get('verification_command')
-        if isinstance(vcmd, str) and (re.match(r'\s*cd\s', vcmd) or re.search(r'(?:^|&&|;|\|)\s*cd\s', vcmd)):
+        if isinstance(vcmd, str) and (re.match('\\s*cd\\s', vcmd) or re.search('(?:^|&&|;|\\|)\\s*cd\\s', vcmd)):
             violations.append(PlanViolation('cd_prefixed_verification_command', f'{path_prefix}.verification_command', f'verification_command must not begin with or embed a `cd ` re-root: it overrides the worker staging-worktree cwd and silently produces auto_commit_failed, got {vcmd!r}'))
-        # A2: a test_authoring task is forced through the auto-commit non-vacuity
-        # gate, which fail-closed-rejects it unless it declares a mutation_target
-        # (bare dotted module-under-test) or a non-empty mutations[]. Catch the
-        # omission here at planning time instead of late at the mutation gate.
         if meta_task_type == 'test_authoring':
             mut_target = task.get('mutation_target')
             mutations = task.get('mutations')
@@ -216,29 +208,9 @@ def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]
                     violations.append(PlanViolation('invalid_mutation_target', f'{path_prefix}.mutation_target', f'mutation_target must be a bare dotted module name (the module-under-test), got {mut_target!r}'))
             elif not has_mutations:
                 violations.append(PlanViolation('missing_mutation_target', f'{path_prefix}.mutation_target', "test_authoring task must declare a 'mutation_target' (bare dotted module-under-test) or a non-empty 'mutations[]' so the non-vacuity gate can fail-detect"))
-        # Wiring-oracle requirement: a leaf that creates a NEW module must declare a
-        # wiring oracle (a *_wired test named in its verification_command) so the
-        # module is proven reachable from a live importer. Reject pre-spawn otherwise.
-        if _is_module_creating(task, working_dir=wd) and not _is_wiring_oracle(task.get('verification_command')):
-            # Paired-auto-oracle exemption: a module-creating leaf whose vcmd is a
-            # smoke check is EXEMPT when the SAME plan carries a test_authoring
-            # oracle whose mutation_target (dotted) resolves to one of this leaf's
-            # non-test .py files. The auto-authored, mutation-gated oracle is the
-            # module's wiring/contract proof (impl-first ordering makes a *_wired
-            # vcmd structurally impossible here).
-            _created = {
-                p.replace('\\', '/')
-                for p in (task.get('files_touched') or [])
-                if isinstance(p, str) and p.endswith('.py') and 'tests/' not in p.replace('\\', '/')
-            }
-            _has_paired_oracle = any(
-                isinstance(o, dict)
-                and o.get('meta_task_type') == 'test_authoring'
-                and isinstance(o.get('mutation_target'), str)
-                and o.get('mutation_target')
-                and (o['mutation_target'].replace('.', '/') + '.py') in _created
-                for o in tasks
-            )
+        if _is_module_creating(task, working_dir=wd) and (not _is_wiring_oracle(task.get('verification_command'))):
+            _created = {p.replace('\\', '/') for p in task.get('files_touched') or [] if isinstance(p, str) and p.endswith('.py') and ('tests/' not in p.replace('\\', '/'))}
+            _has_paired_oracle = any((isinstance(o, dict) and o.get('meta_task_type') == 'test_authoring' and isinstance(o.get('mutation_target'), str) and o.get('mutation_target') and (o['mutation_target'].replace('.', '/') + '.py' in _created) for o in tasks))
             if not _has_paired_oracle:
                 violations.append(PlanViolation('missing_wiring_oracle', f'{path_prefix}.verification_command', 'a leaf that creates a new module must declare a wiring oracle (a *_wired test named in its verification_command) so the module is proven reachable from a live importer'))
         priority = task.get('priority')
@@ -293,6 +265,11 @@ def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]
                 if isinstance(frs, list) and isinstance(min_count, (int, float)):
                     if min_count < 1.5 * len(frs):
                         violations.append(PlanViolation('insufficient_total_tests', f'{path_prefix}.test_spec.minimum_test_count', 'minimum_test_count >= 1.5 * len(functional_requirements)'))
+    required = plan.get('required_task_ids') or []
+    if isinstance(required, list):
+        missing = [tid for tid in required if isinstance(tid, str) and tid not in seen_task_ids]
+        if missing:
+            violations.append(PlanViolation('missing_required_task', 'plan.tasks', f'Plan is missing required task_ids declared by the brief: {missing}'))
     visited = set()
     path = []
     path_set = set()
@@ -397,6 +374,7 @@ def validate_child_brief_plan(plan: Union[Dict[str, Any], str, Path]) -> List[Pl
             if dep not in valid_slugs:
                 violations.append(PlanViolation('unknown_dependency', f'{prefix}.dependencies', f'Unknown dependency: {dep!r}'))
     return violations
+
 def validate_epic_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]:
     """Validate a persisted epic plan record (plan_kind='epic').
 
@@ -442,6 +420,7 @@ def validate_epic_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViola
         if not isinstance(epic_slug, str) or not epic_slug.strip():
             violations.append(PlanViolation('invalid_epic_slug', 'plan.epic_slug', 'epic_slug must be a non-empty string'))
     return violations
+
 def validate_draft(plan: Union[Dict[str, Any], str, Path], mode: str='leaf') -> List[PlanViolation]:
     """Unified entrypoint for draft validation that routes by ``mode``.
 
@@ -456,6 +435,7 @@ def validate_draft(plan: Union[Dict[str, Any], str, Path], mode: str='leaf') -> 
     if mode == 'epic':
         return validate_child_brief_plan(plan)
     return validate_plan(plan)
+
 def validate_plan_wrapper(plan):
     """Validate schema v2.1 wrapper fields (source_brief_path + source_brief_sha256).
 
