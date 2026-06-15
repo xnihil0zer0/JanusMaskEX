@@ -155,7 +155,8 @@ def _run_with_spy(monkeypatch, tmp_path, epic: bool) -> list[str]:
     seen: list[str] = []
 
     def _spy(agent, agent_dir, state_dir, elapsed, timeout,
-             spawn_start_epoch=None, min_response_seconds=10.0, mode="leaf"):
+             spawn_start_epoch=None, min_response_seconds=10.0, mode="leaf",
+             working_dir=None):
         seen.append(mode)
         return ({"ok": True}, "ok")
 
