@@ -41,7 +41,7 @@ def _resolve_outbox_artifact(agent_dir: Path, agent: str, filename: str, round_n
         return None
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
-def collect_agent_draft(agent: str, agent_dir: Path, state_dir: Path, elapsed: float, timeout: float, spawn_start_epoch: Optional[float]=None, min_response_seconds: float=10.0, mode: str='leaf') -> Tuple[Optional[Dict[str, Any]], str]:
+def collect_agent_draft(agent: str, agent_dir: Path, state_dir: Path, elapsed: float, timeout: float, spawn_start_epoch: Optional[float]=None, min_response_seconds: float=10.0, mode: str='leaf', working_dir: Optional[str]=None) -> Tuple[Optional[Dict[str, Any]], str]:
     """Collect an agent's plan draft from canonical paths, falling back to
     per-spawn outbox when the post_tool promoter didn't fire.
 
@@ -80,6 +80,8 @@ def collect_agent_draft(agent: str, agent_dir: Path, state_dir: Path, elapsed: f
             draft = json.load(f)
     except Exception:
         return (None, 'invalid')
+    if working_dir and isinstance(draft, dict) and not draft.get('working_dir'):
+        draft['working_dir'] = working_dir
     if mode == 'epic':
         # Local import avoids a module-level circular dependency between the
         # planner validator and the blind-draft collector.
@@ -158,7 +160,7 @@ def _planning_prompt(brief: PlanningBrief, mode: str = 'leaf') -> str:
     return f'''You are a planning agent. Your task is to draft a plan of JanusMask tasks that implements the planning brief titled "{brief.title}".\n\nScope: {brief.scope}\nNon-goals: {brief.non_goals}\nExpected deliverables: {brief.deliverables}\nRelevant inputs to investigate: {brief.inputs}\n\n----- BRIEF (full markdown body) -----\n{brief.raw_text}\n----- END BRIEF -----\n\nYour plan must directly address the concerns in this brief — do NOT substitute your own unrelated agenda. Each task in the plan must map to a concern or deliverable from the brief; a task that does not trace back to the brief is a bug.\n\nSubmit your plan by writing a single JSON file at:\n    {{OUTBOX_PATH}}/plan_draft.json\nWriting this file IS how you submit; the harness intercepts the Write via a PostToolUse/AfterTool hook, validates the JSON, and persists it for the planner to pick up. The MCP janusmask execute tool is NOT registered in this worker session — only file read/write and read-only exploration tools (Read, Glob, Grep) are available.\n\nIf the PreToolUse hook rejects the Write with a validation error, fix the JSON and Write the same path again — the gate is single-shot only on accepted submissions.\n\nIMPORTANT SCHEMA REQUIREMENTS for plan_draft.json:\nThe file MUST contain a JSON object with a 'tasks' array. Every task in the array MUST be a complete object with the following structure:\n{{\n  "task_id": "...",\n  "title": "...",\n  "meta_task_type": "refactor", // REQUIRED non-empty string. Choose the best fit from the canonical taxonomy: {', '.join(sorted(META_TASK_TYPES))}\n  "priority": "...",\n  "dependencies": [], // Array of task_ids this depends on\n  "files_touched": [],\n  "acceptance_criteria": [],\n  "spec_author": null, // MUST be exactly null (not a string)\n  "estimated_complexity": "...",\n  "verification_command": "...",\n  "spec": {{\n    "objective": "...",\n    "functional_requirements": ["..."], // Minimum 1 requirement\n    "interfaces": "...",\n    "edge_cases": ["..."],\n    "non_goals": ["..."],\n    "implementation_notes": "..."\n  }},\n  "test_spec": {{\n    "unit_tests": [{{"name": "..."}}], // Array of objects. Length MUST be >= len(functional_requirements)\n    "integration_tests": [{{"name": "..."}}], // Array of objects\n    "property_tests": [{{"name": "..."}}], // Array of objects\n    "regression_tests": [{{"name": "..."}}], // Array of objects\n    "minimum_test_count": 10, // MUST be >= 1.5 * len(functional_requirements)\n    "test_data_requirements": "..."\n  }},\n  "token_budget_ratio": {{\n    "implementation_tokens": 100,\n    "test_tokens": 200, // MUST be >= 1.5 * implementation_tokens. If impl is 0, test_tokens must be > 0\n    "note": "..."\n  }},\n  "attribution_metadata": {{\n    "proposed_by": "agent",\n    "reconciled": false,\n    "diff_resolution": ""\n  }}\n}}\n\nMUTATION TARGET (REQUIRED for test_authoring tasks): any task whose meta_task_type is "test_authoring" MUST ALSO carry a top-level "mutation_target" field whose value is the BARE DOTTED MODULE NAME of the module-under-test (e.g. "harness.symbol_ledger" — NOT a path, NOT a filename, NO ".py" suffix, NO slashes). The non-vacuity gate applies the named module's declared mutant and requires the authored test to FAIL against it; a test_authoring task without a valid mutation_target is rejected fail-closed. Omit "mutation_target" for all non-test_authoring tasks.\n\nIf validation fails repeatedly, simplify the DAG and read the gate's rejection reason carefully — bash and arbitrary Python are BLOCKED, so you cannot script schema generation; emit JSON directly that matches the structure above.'''
 
 def run_blind_drafts(brief: PlanningBrief, config: Dict[str, Any], state_dir: Path) -> BlindDraftResult:
-    '''Spawns both agents in planning mode and returns their drafts.'''
+    """Spawns both agents in planning mode and returns their drafts."""
     planning_dir = state_dir / 'planning'
     planning_dir.mkdir(parents=True, exist_ok=True)
     brief_path = planning_dir / 'brief.json'
@@ -195,6 +197,6 @@ def run_blind_drafts(brief: PlanningBrief, config: Dict[str, Any], state_dir: Pa
             del os.environ['JANUSMASK_MODE']
         else:
             os.environ['JANUSMASK_MODE'] = old_env
-    c_draft, c_status = collect_agent_draft('claude', claude_dir, state_dir, elapsed, timeout, spawn_start_epoch=spawn_wall_start, mode=mode)
-    g_draft, g_status = collect_agent_draft('gemini', gemini_dir, state_dir, elapsed, timeout, spawn_start_epoch=spawn_wall_start, mode=mode)
+    c_draft, c_status = collect_agent_draft('claude', claude_dir, state_dir, elapsed, timeout, spawn_start_epoch=spawn_wall_start, mode=mode, working_dir=getattr(brief, 'working_dir', None))
+    g_draft, g_status = collect_agent_draft('gemini', gemini_dir, state_dir, elapsed, timeout, spawn_start_epoch=spawn_wall_start, mode=mode, working_dir=getattr(brief, 'working_dir', None))
     return BlindDraftResult(claude_draft=c_draft, claude_status=c_status, gemini_draft=g_draft, gemini_status=g_status)
