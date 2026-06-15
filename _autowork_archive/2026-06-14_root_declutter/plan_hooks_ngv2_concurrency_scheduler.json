@@ -1,0 +1,116 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2-concurrency-scheduler",
+      "title": "ngv2/concurrency_scheduler.py \u2014 NEW Phase-8.2 concurrency-ceiling admission controller (per-type caps + HARD SPAWN CEILING + deterministic token bucket)",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/concurrency_scheduler.py"
+      ],
+      "acceptance_criteria": [
+        "ngv2/concurrency_scheduler.py is created with the exact byte-for-byte content from the brief's Deliverables (no edits, no extra symbols).",
+        "Module exposes constants PHASE_CAPS={'hunt':6,'poc':4,'verify':4,'submit':2} and HARD_SPAWN_CEILING=8.",
+        "ConcurrencyScheduler(*, phase_caps=None, hard_ceiling=8) with .cap_for(worker_type) and .admit(*, worker_type, total_active, type_active, tokens_available=1.0, force=False) is present and pure.",
+        "admit checks the HARD SPAWN CEILING FIRST and force=True cannot bypass it; then per-type cap; then token-bucket rate gate.",
+        "TokenBucket(*, capacity, refill_per_s, tokens=None, last=0.0) with clock-injected .available(now)/.consume(now, amount=1.0) and lazy monotonic refill.",
+        "Stdlib-only, no network/clock/random/threading/subprocess/filesystem/sqlite/psutil in any path; no ngv2 sibling imports.",
+        "The committed oracle tests/test_concurrency_scheduler_wired.py passes via the verification_command."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": ".venv/bin/python -m pytest tests/test_concurrency_scheduler_wired.py -q",
+      "spec": {
+        "objective": "Create the NEW single-file Phase-8.2 concurrency-ceiling admission controller ngv2/concurrency_scheduler.py, reproducing the brief's Deliverables byte-for-byte: a pure, deterministic ConcurrencyScheduler that fans qualified targets concurrently while enforcing a HARD SPAWN CEILING (anti-spawn-storm), per-type CAPS, and a clock-injected TokenBucket rate gate.",
+        "functional_requirements": [
+          "Define module constants PHASE_CAPS = {'hunt': 6, 'poc': 4, 'verify': 4, 'submit': 2} and HARD_SPAWN_CEILING = 8.",
+          "Implement ConcurrencyScheduler(*, phase_caps=None, hard_ceiling=8): phase_caps defaults to a copy of PHASE_CAPS; hard_ceiling stored as int.",
+          "Implement ConcurrencyScheduler.cap_for(worker_type) returning min(phase_caps.get(worker_type, hard_ceiling), hard_ceiling) so no per-type cap exceeds the ceiling.",
+          "Implement ConcurrencyScheduler.admit(*, worker_type, total_active, type_active, tokens_available=1.0, force=False) returning {'admit', 'blocked_by', 'reason'} and enforcing the HARD SPAWN CEILING FIRST \u2014 structurally un-bypassable, force=True cannot exceed it.",
+          "admit applies the remaining bounds in order after the ceiling: force=True short-circuits to admit; else per-type cap (blocked_by 'type_cap'); else token-bucket gate tokens_available < 1.0 (blocked_by 'rate_limit'); else admit True.",
+          "Implement TokenBucket(*, capacity, refill_per_s, tokens=None, last=0.0) with lazy monotonic _refill(now), .available(now) returning tokens after refill, and .consume(now, amount=1.0) refilling then deducting if available (returns bool).",
+          "Use stdlib only (from __future__ import annotations; typing imports); no real clock/network/random/threading/subprocess/filesystem and no ngv2 sibling imports in any path."
+        ],
+        "interfaces": "NEW orchestration module ngv2/concurrency_scheduler.py exposing class ConcurrencyScheduler(*, phase_caps=None, hard_ceiling=8) with .cap_for(worker_type) -> int and .admit(*, worker_type, total_active, type_active, tokens_available=1.0, force=False) -> dict (HARD SPAWN CEILING first \u2014 force CANNOT bypass \u2014 then per-type cap then token-bucket rate gate); class TokenBucket(*, capacity, refill_per_s, tokens=None, last=0.0) with .available(now) and .consume(now, amount=1.0); module constants PHASE_CAPS={'hunt':6,'poc':4,'verify':4,'submit':2} and HARD_SPAWN_CEILING=8.",
+        "edge_cases": [
+          "total_active == hard_ceiling and total_active > hard_ceiling both block with blocked_by 'hard_ceiling' even when force=True.",
+          "force=True with total_active below the ceiling returns admit True, reason 'forced', bypassing per-type cap and rate gate.",
+          "Unknown worker_type falls back to hard_ceiling as its cap via cap_for.",
+          "tokens_available exactly 1.0 admits; any value < 1.0 blocks with blocked_by 'rate_limit'.",
+          "TokenBucket refill is capped at capacity and only advances when now > last (now <= last is a no-op); consume returns False when tokens < amount."
+        ],
+        "non_goals": [
+          "Do NOT author or modify any test; tests/test_concurrency_scheduler_wired.py is the committed authoritative oracle.",
+          "Do NOT add integration/e2e tests or any wiring; the loop wires this module externally.",
+          "Do NOT touch, import, or alter ngv2/worker_registry.py, ngv2/dynamic_scheduler.py, ngv2/spawn_preflight.py, or any other module.",
+          "No network, real clock, randomness, threading, multiprocessing, sqlite, psutil, filesystem, or subprocess in any path.",
+          "No LLM and no third-party imports \u2014 stdlib only.",
+          "Do NOT emit a __JANUSMASK_PATCHES__ list \u2014 this is a new whole file, not a symbol patch."
+        ],
+        "implementation_notes": "Emit ngv2/concurrency_scheduler.py as a single whole-file deliverable reproducing the brief's Deliverables BYTE-FOR-BYTE. The live worker census (total_active, type_active) and the current time (now) are INJECTED \u2014 never probed. The hard-ceiling check must be the very first branch in admit so force=True cannot exceed it (anti-spawn-storm). meta_task_type=io_adapter because the external NGv2 target's imports cannot be resolved by the diff-fuzzer; use the fuzzer-bypassed, smoke-gated io_adapter meta-type.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_concurrency_scheduler_wired.py\n```python\nimport importlib\n\ncs = importlib.import_module(\"ngv2.concurrency_scheduler\")\n\n\ndef test_module_surface():\n    assert hasattr(cs, \"ConcurrencyScheduler\")\n    assert hasattr(cs, \"TokenBucket\")\n    assert cs.PHASE_CAPS == {\"hunt\": 6, \"poc\": 4, \"verify\": 4, \"submit\": 2}\n    assert cs.HARD_SPAWN_CEILING == 8\n\n\ndef test_caps_clamped_to_ceiling():\n    s = cs.ConcurrencyScheduler(hard_ceiling=4)\n    assert s.cap_for(\"hunt\") == 4  # 6 clamped to 4\n    assert s.cap_for(\"submit\") == 2\n\n\ndef test_admit_clean():\n    s = cs.ConcurrencyScheduler()\n    r = s.admit(worker_type=\"hunt\", total_active=0, type_active=0)\n    assert r[\"admit\"] is True\n\n\ndef test_hard_ceiling_blocks():\n    s = cs.ConcurrencyScheduler(hard_ceiling=8)\n    r = s.admit(worker_type=\"hunt\", total_active=8, type_active=0)\n    assert r[\"admit\"] is False\n    assert r[\"blocked_by\"] == \"hard_ceiling\"\n\n\ndef test_hard_ceiling_cannot_be_forced():\n    s = cs.ConcurrencyScheduler(hard_ceiling=8)\n    r = s.admit(worker_type=\"hunt\", total_active=8, type_active=0, force=True)\n    assert r[\"admit\"] is False\n    assert r[\"blocked_by\"] == \"hard_ceiling\"\n\n\ndef test_type_cap_blocks():\n    s = cs.ConcurrencyScheduler()\n    r = s.admit(worker_type=\"submit\", total_active=2, type_active=2)\n    assert r[\"admit\"] is False\n    assert r[\"blocked_by\"] == \"type_cap\"\n\n\ndef test_rate_limit_blocks():\n    s = cs.ConcurrencyScheduler()\n    r = s.admit(worker_type=\"hunt\", total_active=0, type_active=0, tokens_available=0.0)\n    assert r[\"admit\"] is False\n    assert r[\"blocked_by\"] == \"rate_limit\"\n\n\ndef test_force_bypasses_type_and_rate_only():\n    s = cs.ConcurrencyScheduler()\n    r = s.admit(worker_type=\"submit\", total_active=3, type_active=5,\n                tokens_available=0.0, force=True)\n    assert r[\"admit\"] is True\n    assert r[\"reason\"] == \"forced\"\n\n\ndef test_token_bucket_refill_and_consume():\n    b = cs.TokenBucket(capacity=3, refill_per_s=1.0, tokens=0.0, last=0.0)\n    assert b.available(0.0) == 0.0\n    assert b.consume(0.0) is False\n    assert b.available(2.0) == 2.0\n    assert b.consume(2.0) is True\n    assert round(b.available(2.0), 5) == 1.0\n\n\ndef test_token_bucket_caps_at_capacity():\n    b = cs.TokenBucket(capacity=2, refill_per_s=1.0, tokens=0.0, last=0.0)\n    assert b.available(100.0) == 2.0\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_phase_caps_and_hard_ceiling_constants"
+          },
+          {
+            "name": "test_scheduler_defaults_to_phase_caps"
+          },
+          {
+            "name": "test_cap_for_clamped_to_hard_ceiling"
+          },
+          {
+            "name": "test_hard_ceiling_blocks"
+          },
+          {
+            "name": "test_admit_order_force_then_type_cap_then_rate_limit"
+          },
+          {
+            "name": "test_token_bucket_refill_and_consume"
+          },
+          {
+            "name": "test_module_is_stdlib_only_pure"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_admit_never_exceeds_hard_ceiling_under_any_input"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_hard_ceiling_blocks"
+          },
+          {
+            "name": "test_hard_ceiling_cannot_be_forced"
+          },
+          {
+            "name": "test_type_cap_blocks"
+          },
+          {
+            "name": "test_token_bucket_refill_and_consume"
+          }
+        ],
+        "minimum_test_count": 11,
+        "test_data_requirements": "No external data. The committed oracle tests/test_concurrency_scheduler_wired.py drives admit with injected (total_active, type_active, tokens_available, force) tuples and TokenBucket with injected monotonic `now` values; the regression_tests entries NAME existing cases in that committed oracle and do not authorize authoring new tests."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation is a verbatim whole-file emission; testing is owned entirely by the committed oracle, so the test budget dominates per the 1.5x floor."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2_concurrency_scheduler.md",
+  "source_brief_sha256": "5c6060051421c183482b3484f30afd2502dace766f7c026fbbf6e7583351ea9b",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

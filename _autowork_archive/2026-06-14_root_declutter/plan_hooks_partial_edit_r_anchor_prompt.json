@@ -1,0 +1,104 @@
+{
+  "tasks": [
+    {
+      "task_id": "partial-edit-r-anchor-prompt",
+      "title": "Document the R-ANCHOR additive pattern in the PARTIAL-EDIT prompt (harness/orchestrator.py::prepare_task_prompt EDIT)",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/orchestrator.py"
+      ],
+      "acceptance_criteria": [
+        "The PARTIAL-EDIT DISPATCH prompt f-string inside prepare_task_prompt (the `prompt += '\\nPARTIAL-EDIT DISPATCH ...'` assignment, ~orchestrator.py:1531) gains a new 'ADDING A NEW TOP-LEVEL SYMBOL (R-ANCHOR)' section appended IMMEDIATELY AFTER the existing final 'Rules:' bullet (the '- Replace ONLY the named symbols/regions ... whole-file manifest for a partial edit.\\n' tail), before the closing quote.",
+        "The appended section is reproduced byte-for-byte using the SAME f-string escaping the existing string uses: `{tsq}` for raw triple-quotes and `{{`/`}}` for literal braces.",
+        "The prompt returned by prepare_task_prompt for a task that gets the partial-edit block CONTAINS the marker `R-ANCHOR` and the phrase `already exist`.",
+        "The same prompt CONTAINS the worked-example anchor name `baz` and the new symbol names `foo` and `bar`.",
+        "Every other byte of prepare_task_prompt is preserved: the docstring, all other `prompt += ...` blocks, the manifest block, the test_authoring block, the spec_summary tail, the existing REPLACE/region guidance, and `return prompt` are unchanged.",
+        "The edit is emitted as a single top-level `__JANUSMASK_PATCHES__` list with EXACTLY ONE entry of kind 'symbol', name 'prepare_task_prompt', code = the FULL corrected function; no `__JANUSMASK_MANIFEST__`, no whole-file rewrite, no other symbol touched.",
+        "No module-level import is added; the signature of prepare_task_prompt is unchanged.",
+        "tests/test_partial_edit_prompt_r_anchor_wired.py is 4/4 GREEN."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "pytest tests/test_partial_edit_prompt_r_anchor_wired.py",
+      "spec": {
+        "objective": "Augment the PARTIAL-EDIT DISPATCH prompt f-string inside harness/orchestrator.py::prepare_task_prompt with a new 'ADDING A NEW TOP-LEVEL SYMBOL (R-ANCHOR)' section so additive EDIT leaves anchor brand-new top-level symbols on an existing symbol (R-ANCHOR extras) instead of naming a not-yet-existing symbol in a kind:'symbol' entry \u2014 which fails with KeyError on the patch-apply path. Behavior-only, additive to the prompt string; no harness behavior changes.",
+        "functional_requirements": [
+          "Append the new 'ADDING A NEW TOP-LEVEL SYMBOL (R-ANCHOR)' section to the END of the PARTIAL-EDIT DISPATCH f-string, immediately after the existing final 'Rules:' bullet tail ('- Replace ONLY the named symbols/regions you must change. Never emit a\\n  whole-file manifest for a partial edit.\\n') and before the closing quote.",
+          "Reproduce the new section text byte-for-byte using the SAME f-string escaping as the surrounding string: `{tsq}` for raw triple-quotes and `{{`/`}}` for literal braces (the worked example uses `{{'file': ...}}` literal braces and `r{tsq}...{tsq}` for the raw triple-quoted code block).",
+          "Emit the edit as a single `__JANUSMASK_PATCHES__` list with exactly one kind:'symbol' entry named 'prepare_task_prompt' whose code is the FULL corrected function copied verbatim from the staged read-only target except for the appended section \u2014 a straight symbol replacement, NOT an R-anchor-with-extras, and NOT a manifest or whole-file rewrite.",
+          "Preserve every other byte of prepare_task_prompt and the rest of the file: docstring, all other prompt += blocks, REPLACE/region guidance, manifest block, test_authoring block, spec_summary tail, and return prompt are unchanged; no module-level import is added; the signature is unchanged.",
+          "After the edit, the prompt prepare_task_prompt returns for a partial-edit task contains the marker `R-ANCHOR`, the phrase `already exist`, and the worked-example identifiers `baz`, `foo`, and `bar`."
+        ],
+        "interfaces": "In-place EDIT of harness/orchestrator.py::prepare_task_prompt(task). Augment the PARTIAL-EDIT DISPATCH prompt f-string with an 'ADDING A NEW TOP-LEVEL SYMBOL (R-ANCHOR)' section. Behavior-only; signature unchanged; additive to the prompt string only. Single __JANUSMASK_PATCHES__ symbol entry for 'prepare_task_prompt'.",
+        "edge_cases": [
+          "r-anchor-mechanism-documented: the PARTIAL-EDIT prompt returned by prepare_task_prompt for a task that gets the partial-edit block CONTAINS the marker `R-ANCHOR` and the phrase `already exist`.",
+          "r-anchor-example-present: the same prompt CONTAINS the worked example anchor name `baz` and the new symbol names `foo` and `bar`."
+        ],
+        "non_goals": [
+          "Does NOT change harness/git_integration.py or the _apply_symbol_patch R-anchor (PHASE_R_ANCHORED_PATCH) behavior \u2014 guidance only.",
+          "Does NOT touch any file other than harness/orchestrator.py.",
+          "Does NOT change the existing REPLACE / region / manifest / test_authoring guidance; the new section is purely additive.",
+          "Does NOT change the signature of prepare_task_prompt or any other symbol in the file.",
+          "Does NOT add any module-level import.",
+          "Out of scope: integration testing of the end-to-end additive-edit commit flow; this leaf is a behavior-only unit fix verified by the pre-committed oracle."
+        ],
+        "implementation_notes": "Read the CURRENT on-disk content of prepare_task_prompt from the read-only staged target at /home/xnihil0zer0/JanusMaskJR_agentwork/claude/claude-r1-notask-0734a253/inbox/targets/harness/orchestrator.py. The PARTIAL-EDIT f-string is the `prompt += '\\nPARTIAL-EDIT DISPATCH ...'` assignment (~orchestrator.py:1531). Locate the verbatim tail '- Replace ONLY the named symbols/regions you must change. Never emit a\\n  whole-file manifest for a partial edit.\\n' and append the new fragment immediately after that final \\n, before the closing quote. The exact new fragment (to be reproduced with `{tsq}` for raw triple-quotes and `{{`/`}}` for literal braces) is embedded verbatim in the brief's Scope section and begins '\\nADDING A NEW TOP-LEVEL SYMBOL (R-ANCHOR):\\n' and ends with the foo/bar-on-baz worked example. LOUD DISPATCH: harness/orchestrator.py is LARGE so this MUST be a partial edit; this MODIFIES the existing function prepare_task_prompt (does NOT add a new top-level symbol), so it is a STRAIGHT symbol replacement \u2014 emit ONE __JANUSMASK_PATCHES__ entry kind:'symbol' name:'prepare_task_prompt' whose code is the entire corrected function with every other line preserved byte-for-byte. Do NOT emit __JANUSMASK_MANIFEST__, a whole-file rewrite, or touch any other symbol. The pre-committed RED oracle tests/test_partial_edit_prompt_r_anchor_wired.py (JM master 5072082) is the authoritative contract \u2014 make it 4/4 green; do NOT author new tests.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_partial_edit_prompt_r_anchor_wired.py\n```python\n\"\"\"RED oracle \u2014 the PARTIAL-EDIT DISPATCH prompt must document the R-ANCHOR\npattern for ADDING brand-new top-level symbols.\n\nRoot cause under test: ``prepare_task_prompt``'s PARTIAL-EDIT DISPATCH prompt\nstring (harness/orchestrator.py) documents only how to REPLACE an existing\n``kind:'symbol'`` block. It says nothing about how to ADD a brand-new\ntop-level def/class/constant. So an additive EDIT leaf (e.g. \"add 3 new\nfunctions to ngv2/debate_router.py\") emits patch entries naming NOT-YET-\nEXISTING symbols, and ``git_integration._apply_symbol_patch`` \u2014 which can only\nslice-replace an EXISTING symbol \u2014 raises ``KeyError`` (\"patch apply failed\").\n\nThe harness already supports additive edits via the R-ANCHOR mechanism\n(PHASE_R_ANCHORED_PATCH in ``_apply_symbol_patch``): a ``kind:'symbol'`` entry\nwhose ``name`` is an EXISTING top-level anchor, whose ``code`` reproduces that\nanchor PLUS the new top-level symbol(s) as \"extras\"; the harness inserts the\nextras immediately before the anchor and preserves the rest of the file.\n\nContract pinned here: the PARTIAL-EDIT prompt returned by ``prepare_task_prompt``\nfor a task that gets the partial-edit block MUST now also contain guidance that\ndocuments this additive R-anchor pattern. Specifically the prompt must:\n  - mention the R-ANCHOR mechanism by name;\n  - state that a 'symbol' patch can ONLY replace a symbol that ALREADY EXISTS;\n  - explain anchoring new symbols on an existing top-level symbol;\n  - include a concrete worked example anchoring NEW ``foo``/``bar`` on existing\n    ``baz``.\n\nA hermetic SELF EDIT task (working_dir=None, an existing repo .py target,\nmeta_task_type='validation') is used so the PARTIAL-EDIT block is present and\nthe test does not couple to any external checkout.\n\nRED today: HEAD's PARTIAL-EDIT string lacks all of these markers.\n\"\"\"\nimport os\n\nimport pytest\n\nfrom harness.orchestrator import prepare_task_prompt\n\n_PARTIAL_MARKER = \"PARTIAL-EDIT DISPATCH\"\n\n\ndef _self_edit_partial_prompt() -> str:\n    \"\"\"Return the PARTIAL-EDIT prompt for a hermetic SELF EDIT task.\"\"\"\n    rel = os.path.join(\"harness\", \"orchestrator.py\")\n    task = {\n        \"task_id\": \"r-anchor-prompt-probe\",\n        \"working_dir\": None,\n        \"files_touched\": [rel],\n        \"meta_task_type\": \"validation\",\n        \"specification\": \"edit a large self file in place\",\n    }\n    return prepare_task_prompt(task)\n\n\n_self_edit_partial_prompt.__test__ = False\n\n\ndef test_partial_edit_prompt_block_is_present():\n    \"\"\"Sanity guard: the probe task really does receive the PARTIAL-EDIT block.\n\n    Passes before and after the fix; guarantees the marker assertions below are\n    exercising the right code path (not a false-green from an absent block).\n    \"\"\"\n    prompt = _self_edit_partial_prompt()\n    assert _PARTIAL_MARKER in prompt\n\n\ndef test_partial_edit_prompt_documents_r_anchor_mechanism():\n    \"\"\"The prompt must name the R-ANCHOR additive mechanism. RED today.\"\"\"\n    prompt = _self_edit_partial_prompt()\n    assert \"R-ANCHOR\" in prompt, (\n        \"PARTIAL-EDIT prompt must document the R-ANCHOR additive pattern by \"\n        \"name so additive EDIT leaves know how to add brand-new top-level \"\n        \"symbols instead of naming a not-yet-existing symbol (which fails)\"\n    )\n\n\ndef test_partial_edit_prompt_states_symbol_must_already_exist():\n    \"\"\"The prompt must warn that 'symbol' only replaces an EXISTING symbol.\n\n    RED today: nothing in the PARTIAL-EDIT string says a named symbol must\n    already exist, so additive leaves emit not-yet-existing names and fail.\n    \"\"\"\n    prompt = _self_edit_partial_prompt()\n    assert \"already exist\" in prompt, (\n        \"PARTIAL-EDIT prompt must state that a 'symbol' patch can ONLY replace \"\n        \"a symbol that ALREADY EXISTS\"\n    )\n\n\ndef test_partial_edit_prompt_includes_anchor_example():\n    \"\"\"The prompt must include the concrete foo/bar-anchored-on-baz example.\n\n    RED today: no worked additive example exists in the PARTIAL-EDIT string.\n    \"\"\"\n    prompt = _self_edit_partial_prompt()\n    # The worked example adds new functions ``foo`` and ``bar`` anchored on an\n    # existing top-level symbol ``baz``.\n    assert \"baz\" in prompt, (\n        \"PARTIAL-EDIT prompt must include a concrete R-anchor example whose \"\n        \"anchor symbol is 'baz' and whose new symbols are 'foo'/'bar'\"\n    )\n    assert \"foo\" in prompt and \"bar\" in prompt, (\n        \"the R-anchor worked example must add new symbols 'foo' and 'bar'\"\n    )\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_partial_edit_block_present_sanity"
+          },
+          {
+            "name": "r-anchor-mechanism-documented"
+          },
+          {
+            "name": "r-anchor-example-present"
+          },
+          {
+            "name": "test_r_anchor_section_appended_after_rules_tail"
+          },
+          {
+            "name": "test_prepare_task_prompt_signature_and_return_unchanged"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "r-anchor-mechanism-documented"
+          },
+          {
+            "name": "r-anchor-example-present"
+          },
+          {
+            "name": "test_existing_replace_region_manifest_guidance_preserved"
+          },
+          {
+            "name": "test_no_module_level_import_added"
+          },
+          {
+            "name": "test_single_symbol_patch_for_prepare_task_prompt_only"
+          }
+        ],
+        "minimum_test_count": 8,
+        "test_data_requirements": "Use the pre-committed RED oracle tests/test_partial_edit_prompt_r_anchor_wired.py (committed at JM master 5072082) as the authoritative contract; it constructs a task that routes through the partial-edit block and asserts (1) the PARTIAL-EDIT block is present [green sanity], (2) the prompt contains `R-ANCHOR`, (3) the prompt contains `already exist`, and (4) the prompt contains `baz`/`foo`/`bar`. Do NOT author new tests; make the existing 4 assertions green."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation is a single byte-preserving additive augmentation of one prompt f-string; the verification burden (confirming byte-for-byte preservation of the rest of the function and the 4 oracle assertions) dominates, so test_tokens exceed 1.5x implementation_tokens. No new tests are authored \u2014 the budget reflects validating against the pre-committed oracle."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_partial_edit_r_anchor_prompt.md",
+  "source_brief_sha256": "363654261a27be9baacb36c45a1f7dd8953208360f5bbcf781dbb9cf8a3b1986"
+}

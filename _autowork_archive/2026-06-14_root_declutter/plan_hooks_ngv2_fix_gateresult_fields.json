@@ -1,0 +1,95 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2-fix-gateresult-fields",
+      "title": "ngv2/session_gate.py \u2014 add phase_from / phase_to / error fields to the GateResult dataclass so gate_transition returns a real GateResult instead of raising TypeError",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/session_gate.py"
+      ],
+      "acceptance_criteria": [
+        "The GateResult dataclass in ngv2/session_gate.py carries exactly five fields: the unchanged `ok: bool` and `payload: Dict[str, Any] = field(default_factory=dict)`, plus three NEW additive fields `phase_from: str = \"\"`, `phase_to: str = \"\"`, `error: Optional[str] = None`, in that order.",
+        "`ok` remains the first and only required positional field; `payload` keeps its `field(default_factory=dict)` default; no existing field is reordered, retyped, or has its default changed.",
+        "No handler, helper, table (`_HANDLERS` / `_TRANSITIONS`), `_bind` seam table, `gate_transition`, `semantic_verdict`, the module docstring, or any import is changed; only the GateResult class body is rewritten.",
+        "GateResult remains a plain/inert dataclass \u2014 no methods, no `__post_init__`, no validation, no properties, no from_dict/to_dict, no clock/randomness/network/subprocess.",
+        "No new imports are added (dataclass, field, Dict, Any, Optional are already imported at module level).",
+        "`python -m pytest tests/ngv2/test_gate_result_fields_wired.py -q` is GREEN: gate_transition and every gate handler return a real GateResult across all nine lifecycle edges and the unknown-edge `no_gate` fallback instead of raising TypeError."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "trivial",
+      "verification_command": "python -m pytest tests/ngv2/test_gate_result_fields_wired.py -q",
+      "spec": {
+        "objective": "Add the three missing fields (`phase_from`, `phase_to`, `error`) to the `GateResult` dataclass in ngv2/session_gate.py so that the `phase_from=` / `phase_to=` / `error=` keyword arguments every lifecycle gate handler AND the `no_gate` fallback inside `gate_transition` already pass become valid, eliminating the `TypeError: GateResult.__init__() got an unexpected keyword argument 'phase_from'` that fires on every one of the nine lifecycle edges (source->hunt, triage->verify, verify->poc, poc->detonate, detonate->novelty, novelty->report, report->awaiting_submission, awaiting_submission->submitted, submitted->done) and on the unknown-edge fallback. This is a purely additive-fields dataclass change with NO handler-logic change.",
+        "functional_requirements": [
+          "Add the field `phase_from: str = \"\"` to the GateResult dataclass immediately after the existing `payload` field.",
+          "Add the field `phase_to: str = \"\"` to the GateResult dataclass immediately after `phase_from`.",
+          "Add the field `error: Optional[str] = None` to the GateResult dataclass immediately after `phase_to`.",
+          "Keep the `@dataclass` decorator, the docstring, the `ok: bool` line, and the `payload: Dict[str, Any] = field(default_factory=dict)` line byte-for-byte unchanged, and keep GateResult constructible both as `GateResult(ok=...)` and as `GateResult(ok=..., phase_from=..., phase_to=..., error=..., payload=...)` so every existing construction site is valid."
+        ],
+        "interfaces": "Rewrites ONLY the top-level `GateResult` dataclass in ngv2/session_gate.py. Corrected target (reproduce VERBATIM):\n\n    @dataclass\n    class GateResult:\n        \"\"\"Outcome of a single FSM gate evaluation.\"\"\"\n\n        ok: bool\n        payload: Dict[str, Any] = field(default_factory=dict)\n        phase_from: str = \"\"\n        phase_to: str = \"\"\n        error: Optional[str] = None\n\nNo public signature of any function or method changes; the only surface change is three additional defaulted dataclass fields, all backward compatible. dataclass, field, Dict, Any, Optional are already imported at module level \u2014 no new imports.",
+        "edge_cases": [
+          "Passing edge over a REAL seam: gate_transition('detonate', 'novelty', {'finding': {...}, 'corpus': []}) runs the real ngv2.novelty_gate.classify_novelty seam (empty corpus -> NOVEL -> GO) and yields a GateResult with ok is True, phase_from == 'detonate', phase_to == 'novelty', payload['novelty'] == 'NOVEL', error is None.",
+          "Failing-gate edge: gate_transition('verify', 'poc', {'poc': {'built': False, 'exit_code': 1}}) returns ok=False, error='poc_build_failed' with the phases populated instead of raising TypeError.",
+          "Fail-PATH construction on source->hunt: the phases populate and error == 'unqualified'.",
+          "Unknown-edge no_gate fallback: gate_transition('nowhere', 'elsewhere', {}) returns ok=False, error='no_gate', phase_from='nowhere', phase_to='elsewhere'.",
+          "Minimal construction GateResult(ok=True) still works, defaulting phase_from='', phase_to='', error=None, payload={}."
+        ],
+        "non_goals": [
+          "Integration testing is OUT OF SCOPE: do NOT add integration/e2e tests; this fix is verified solely by the committed unit oracle tests/ngv2/test_gate_result_fields_wired.py.",
+          "Do NOT author or modify any test \u2014 the oracle tests/ngv2/test_gate_result_fields_wired.py (NGv2 commit bacf337) is committed and authoritative.",
+          "Do NOT change ANY gate handler (_gate_hunt_to_triage, _gate_triage_to_poc, _gate_detonate_to_report, _gate_source_to_hunt, _gate_triage_to_verify, _gate_verify_to_poc, _gate_poc_to_detonate, _gate_detonate_to_novelty, _gate_novelty_to_report, _gate_report_to_awaiting, _gate_awaiting_to_submitted, _gate_submitted_to_done), gate_transition, the _HANDLERS / _TRANSITIONS tables, the _bind seam table, semantic_verdict, or any helper.",
+          "Do NOT 'fix' the separate _gate_source_to_hunt qualify-arity issue (calls qualify with one positional arg while qualify needs two) \u2014 that is a DIFFERENT defect, explicitly out of scope.",
+          "Do NOT add a __post_init__, methods, validation, properties, or from_dict/to_dict to GateResult.",
+          "Do NOT reorder existing fields (ok stays first/only required positional; payload keeps field(default_factory=dict)) and do NOT change their types or defaults.",
+          "Do NOT add new imports, no network, no wall-clock, no randomness, no third-party dependencies.",
+          "Do NOT touch ngv2/state_machine.py, ngv2/human_checkpoint_gate.py, ngv2/submission_readiness_gate.py, ngv2/session_api.py, ngv2/session_db.py, ngv2/contracts.py, or any other module."
+        ],
+        "implementation_notes": "DISPATCH DIRECTIVE \u2014 PATCH FORMAT (single whole-symbol patch on an EXISTING 1-part top-level class \u2014 the canonical safe shape): emit a single top-level `__JANUSMASK_PATCHES__` list with EXACTLY ONE entry:\n\n    __JANUSMASK_PATCHES__ = [\n        {'file': 'ngv2/session_gate.py', 'kind': 'symbol', 'name': 'GateResult',\n         'code': r'''@dataclass\nclass GateResult:\n    \"\"\"Outcome of a single FSM gate evaluation.\"\"\"\n\n    ok: bool\n    payload: Dict[str, Any] = field(default_factory=dict)\n    phase_from: str = \"\"\n    phase_to: str = \"\"\n    error: Optional[str] = None\n'''},\n    ]\n\nThe `name` MUST be the 1-part TOP-LEVEL name `'GateResult'` \u2014 never a dotted qualname (never `GateResult.something`), never a manifest, never a whole-file rewrite, never any extra top-level node (the fix needs NO new symbol, NO new import: `dataclass`, `field`, `Dict`, `Any`, `Optional` already exist at module level). The emitted `code` must reproduce the class BYTE-FOR-BYTE as it exists at HEAD plus ONLY the three appended field lines \u2014 keep the `@dataclass` decorator line, the exact docstring, and the existing `ok` / `payload` lines unchanged. POST-EMIT SELF-CHECK (mandatory): your emitted `code` must START with `@dataclass` at column 0 followed by `class GateResult:`, contain the unchanged `ok: bool` and `payload: Dict[str, Any] = field(default_factory=dict)` lines, then the three NEW lines `phase_from: str = \"\"`, `phase_to: str = \"\"`, `error: Optional[str] = None`; it must contain exactly ONE top-level `class` and no extra `def` / `class ` / `import ` statements and no methods.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/ngv2/test_gate_result_fields_wired.py\n```python\n\"\"\"Hand-authored RED oracle \u2014 ``GateResult`` must carry the fields its handlers\nconstruct it with, so ``gate_transition`` works end-to-end on EVERY edge.\n\nDEFECT under test (verified live 2026-06-11):\n``ngv2/session_gate.py`` declares ``GateResult`` with only ``ok`` and\n``payload`` fields, but every lifecycle gate handler AND the ``no_gate``\nfallback construct it with ``phase_from=`` / ``phase_to=`` / ``error=`` kwargs\n(e.g. ``GateResult(ok=True, phase_from=pf, phase_to=pt, payload={...})`` and\n``GateResult(ok=False, phase_from=phase_from, phase_to=phase_to,\nerror='no_gate')``). Because the dataclass has no such fields, *every* call to\n``gate_transition`` raises ``TypeError: __init__() got an unexpected keyword\nargument 'phase_from'`` \u2014 the entire evidence-gated FSM dispatch surface is\nnon-functional for all nine lifecycle edges and the unknown-edge fallback.\n\nTHE FIX (data_model): add the three missing fields to ``GateResult`` with\nsensible defaults so every existing construction site becomes valid WITHOUT\nchanging any handler logic::\n\n    @dataclass\n    class GateResult:\n        ok: bool\n        payload: Dict[str, Any] = field(default_factory=dict)\n        phase_from: str = \"\"\n        phase_to: str = \"\"\n        error: Optional[str] = None\n\nThis oracle is RED TODAY: each test below calls ``gate_transition`` (or a\nhandler through it) and therefore raises ``TypeError`` at the ``GateResult(...)``\nconstruction inside the handler. It self-heals to GREEN once the fields land.\n\nEdge selection note: ``source -> hunt`` cannot return GO end-to-end because\n``_gate_source_to_hunt`` only ever calls ``qualify`` with ONE positional arg\nwhile ``ngv2.source_qualify_gate.qualify(target, oracle_result, *, ...)``\nrequires two (a separate, out-of-scope arity defect), so its result is always a\n*fail* GateResult. We therefore use ``detonate -> novelty`` (real\n``classify_novelty`` seam) for the genuine passing edge, and still exercise\n``source -> hunt`` to prove its fail-path ``GateResult`` construction no longer\nTypeErrors once the fields exist.\n\"\"\"\nfrom __future__ import annotations\n\nimport ngv2.session_gate as sg\n\n\n# --------------------------------------------- (a) passing edge, real seam\n\ndef test_passing_edge_real_seam_returns_ok_gateresult():\n    \"\"\"detonate -> novelty over the REAL classify_novelty seam returns an ok\n    GateResult carrying the from/to phases and a payload (no TypeError).\"\"\"\n    evidence = {\n        'finding': {'title': 'x', 'cwe': 'CWE-78', 'file': 'a.py'},\n        'corpus': [],  # empty corpus -> NOVEL -> GO\n    }\n    result = sg.gate_transition('detonate', 'novelty', evidence)\n    assert result.ok is True\n    assert result.phase_from == 'detonate'\n    assert result.phase_to == 'novelty'\n    assert isinstance(result.payload, dict)\n    assert result.payload.get('novelty') == 'NOVEL'\n    assert result.error is None\n\n\n# ------------------------------- (b) failing-gate edge returns the contract\n\ndef test_failing_gate_edge_returns_error_contract_not_typeerror():\n    \"\"\"verify -> poc with an unbuilt PoC returns a *fail* GateResult carrying\n    the documented error string \u2014 never a TypeError from GateResult(...).\"\"\"\n    evidence = {'poc': {'built': False, 'exit_code': 1}}\n    result = sg.gate_transition('verify', 'poc', evidence)\n    assert result.ok is False\n    assert result.error == 'poc_build_failed'\n    assert result.phase_from == 'verify'\n    assert result.phase_to == 'poc'\n\n\ndef test_handler_fail_path_constructs_gateresult_without_typeerror():\n    \"\"\"source -> hunt's fail path (qualify arity mismatch -> unqualified) must\n    still construct a GateResult with the phase fields populated, proving the\n    field defect is repaired for the fail-branch construction too.\"\"\"\n    evidence = {'target': {'repo': 'owner/repo', 'package': 'pkg-x'}}\n    result = sg.gate_transition('source', 'hunt', evidence)\n    assert result.ok is False\n    assert result.phase_from == 'source'\n    assert result.phase_to == 'hunt'\n    assert result.error == 'unqualified'\n\n\n# ----------------------------------- (c) unknown edge -> no_gate fallback\n\ndef test_unknown_edge_returns_no_gate_fallback_gateresult():\n    \"\"\"An unregistered edge returns the no_gate fallback GateResult with ok set\n    False and the requested phases echoed back (no TypeError).\"\"\"\n    result = sg.gate_transition('nowhere', 'elsewhere', {})\n    assert result.ok is False\n    assert result.error == 'no_gate'\n    assert result.phase_from == 'nowhere'\n    assert result.phase_to == 'elsewhere'\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_passing_edge_real_seam_returns_ok_gateresult"
+          },
+          {
+            "name": "test_failing_gate_edge_returns_error_gateresult"
+          },
+          {
+            "name": "test_fail_path_source_to_hunt_populates_phases_and_error"
+          },
+          {
+            "name": "test_unknown_edge_returns_no_gate_fallback_gateresult"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_passing_edge_real_seam_returns_ok_gateresult"
+          },
+          {
+            "name": "test_unknown_edge_returns_no_gate_fallback_gateresult"
+          }
+        ],
+        "minimum_test_count": 6,
+        "test_data_requirements": "No new test data and NO new tests authored. The committed authoritative oracle tests/ngv2/test_gate_result_fields_wired.py (NGv2 commit bacf337) is the acceptance contract \u2014 it is currently RED with `TypeError: GateResult.__init__() got an unexpected keyword argument 'phase_from'` on all four cases and flips GREEN once the three additive fields land. The listed unit/regression entries are descriptors referencing those committed/landed oracle cases; they do NOT authorize authoring new tests. The passing-edge case exercises the real ngv2.novelty_gate.classify_novelty seam with an empty corpus (NOVEL -> GO)."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "Implementation is a single whole-symbol replacement of the GateResult dataclass adding three defaulted fields (no logic). No tests are authored \u2014 verification is the committed oracle tests/ngv2/test_gate_result_fields_wired.py; the test_tokens budget covers reading/understanding that oracle to confirm GREEN."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2_fix_gateresult_fields.md",
+  "source_brief_sha256": "0c4ee58b5cc6e424d783a7257c89fbaae611d6b4a1345673789f618cc852f60c",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

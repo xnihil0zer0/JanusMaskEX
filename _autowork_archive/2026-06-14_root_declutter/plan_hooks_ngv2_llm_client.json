@@ -1,0 +1,133 @@
+{
+  "tasks": [
+    {
+      "task_id": "P4.1-llm-client-seam",
+      "title": "ngv2/llm_client.py \u2014 injected LLM client seam for PoC synthesis (io_adapter, smoke-gated)",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/llm_client.py"
+      ],
+      "acceptance_criteria": [
+        "`ngv2/llm_client.py` is created as a NEW single-file, whole-file module exactly matching the validated artifact in the brief.",
+        "`.venv/bin/python -m pytest tests/test_llm_client_wired.py -q` passes GREEN (no `cd` prefix; runs in the staging worktree).",
+        "`DEFAULT_MODEL == 'claude-fable-5'` and the module exposes `LLMClient`, `LLMError`, `CompleteFn`, `DEFAULT_MODEL`, and `make_anthropic_client`.",
+        "Module is importable with only stdlib + typing at module scope; the `anthropic` SDK is imported lazily INSIDE `make_anthropic_client` and never on the import path or any oracle path.",
+        "The request contract (`messages`/`model`/`max_tokens`/`system`) is passed through unchanged to the injected `complete` callable.",
+        "`complete_messages` supports multi-turn message lists; `complete_text` wraps a single user prompt.",
+        "`LLMError` is raised when no `complete` seam is injected and on non-transient completion failures.",
+        "On a rate-limit error the client calls `cascade.report_rate_limit(model, error_text=...)` and retries with the next `cascade.get_active_model()`, up to `max_retries`.",
+        "`make_anthropic_client` is a callable factory returning a `CompleteFn`; it is never invoked by the oracle.",
+        "`ngv2/model_cascade.py` is NOT modified; the cascade is consumed only via the injected object."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": ".venv/bin/python -m pytest tests/test_llm_client_wired.py -q",
+      "spec": {
+        "objective": "Create the new whole-file module `ngv2/llm_client.py` as an injected LLM client seam (io_adapter, smoke-gated) for PoC synthesis, proven GREEN against the already-committed oracle `tests/test_llm_client_wired.py`. The model edge is an injected `complete` callable so the oracle is hermetic; the real network path lives behind `make_anthropic_client` with a lazy `anthropic` import.",
+        "functional_requirements": [
+          "Define module-level `DEFAULT_MODEL = 'claude-fable-5'`, `DEFAULT_MAX_TOKENS = 4096`, `CompleteFn = Callable[..., str]`, and `RATE_LIMIT_MARKERS`, importing only stdlib `typing` at module scope.",
+          "Define `class LLMError(RuntimeError)` raised on non-transient completion failure or when no completion seam is injected.",
+          "`LLMClient.__init__(complete=None, *, model=None, cascade=None, max_retries=3)` stores the injected seam, defaults `self.model` to `DEFAULT_MODEL`, holds the optional cascade-shaped object, and initializes `last_request`/`last_response` to None.",
+          "`_active_model()` returns `cascade.get_active_model()` (falling back to `self.model`) when a cascade is present, else `self.model`, swallowing cascade exceptions.",
+          "`complete_text(prompt, *, system=None, max_tokens=DEFAULT_MAX_TOKENS)` wraps the prompt into a single `{'role':'user','content':prompt}` message and delegates to `complete_messages`.",
+          "`complete_messages(messages, *, system=None, max_tokens=DEFAULT_MAX_TOKENS)` raises `LLMError` when no seam is injected, otherwise passes `messages`/`model`/`max_tokens`/`system` through to the injected `complete`, records `last_request`/`last_response`, and returns the assistant text.",
+          "On an exception whose text looks rate-limited (per `RATE_LIMIT_MARKERS` via `_looks_rate_limited`) and while `attempts < max_retries`, call `cascade.report_rate_limit(model, error_text=...)` (when a cascade is present) and retry with the next active model; non-transient errors are wrapped and re-raised as `LLMError`.",
+          "`make_anthropic_client(*, api_key=None, model=None)` lazily imports `anthropic` inside the body, constructs the SDK client, and returns a `CompleteFn` that calls `client.messages.create` and concatenates the response `content` text blocks."
+        ],
+        "interfaces": "ngv2/llm_client.py exposes `LLMClient`, `LLMError`, `DEFAULT_MODEL` (=='claude-fable-5'), `CompleteFn`, and `make_anthropic_client(*, api_key=None, model=None)`. The injected seam signature is `complete(messages, *, model, max_tokens, system) -> str`. `LLMClient` exposes `complete_text(prompt, *, system=None, max_tokens=DEFAULT_MAX_TOKENS)` and `complete_messages(messages, *, system=None, max_tokens=DEFAULT_MAX_TOKENS)`, plus public attributes `model`, `last_request`, `last_response`.",
+        "edge_cases": [
+          "No `complete` seam injected (`complete=None`): both `complete_text` and `complete_messages` raise `LLMError`.",
+          "Rate-limit error with no cascade: retries with `self.model` until `max_retries` is exhausted, then raises `LLMError`.",
+          "Rate-limit error with a cascade: `report_rate_limit(model, error_text=...)` is invoked and `get_active_model()` advances the model on retry.",
+          "Cascade methods themselves raise: exceptions from `get_active_model()`/`report_rate_limit()` are swallowed and fall back to `self.model`.",
+          "`anthropic` not installed: module still imports because the import is lazy inside `make_anthropic_client`.",
+          "Empty/None error text passed to `_looks_rate_limited` returns False (treated as non-transient)."
+        ],
+        "non_goals": [
+          "No real network call in the import path or any oracle path; `anthropic` is imported lazily inside `make_anthropic_client` only.",
+          "No third-party imports at module scope (stdlib typing + the lazy anthropic only).",
+          "No tests authored \u2014 the oracle `tests/test_llm_client_wired.py` is already committed.",
+          "Do NOT modify `ngv2/model_cascade.py`; compose only with an injected cascade-shaped object.",
+          "No PoC-writing logic here (that is P4.2)."
+        ],
+        "implementation_notes": "Submit the file as EXACTLY the validated whole-file artifact embedded in the brief (it is proven GREEN against the committed oracle). `RATE_LIMIT_MARKERS` mirrors `model_cascade.RATE_LIMIT_PATTERNS` so the two seams agree on what counts as transient. Verify with `.venv/bin/python -m pytest tests/test_llm_client_wired.py -q` (no `cd` prefix \u2014 verification runs in the staging worktree).\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_llm_client_wired.py\n```python\n\"\"\"Oracle for P4.1 -- ngv2.llm_client injected LLM client seam.\n\nHermetic: the model edge is an injected canned ``complete`` callable; no network.\nAsserts: default model is the latest Claude (claude-fable-5); the request/response\ncontract passes through (messages/model/max_tokens/system); cascade fallback fires\non a rate-limit error; a non-injected client raises; a non-transient failure maps\nto LLMError. RED until ngv2/llm_client.py exists.\n\"\"\"\nimport pytest\n\nfrom ngv2.llm_client import (\n    LLMClient,\n    LLMError,\n    DEFAULT_MODEL,\n    make_anthropic_client,\n)\n\n\ndef test_default_model_is_latest_claude():\n    assert DEFAULT_MODEL == \"claude-fable-5\"\n    assert LLMClient(lambda *a, **k: \"x\").model == \"claude-fable-5\"\n\n\ndef test_request_contract_passes_through():\n    seen = {}\n\n    def canned(messages, *, model, max_tokens, system):\n        seen[\"messages\"] = messages\n        seen[\"model\"] = model\n        seen[\"max_tokens\"] = max_tokens\n        seen[\"system\"] = system\n        return \"RESPONSE\"\n\n    client = LLMClient(canned, model=\"claude-fable-5\")\n    out = client.complete_text(\"hello\", system=\"be terse\", max_tokens=128)\n    assert out == \"RESPONSE\"\n    assert seen[\"messages\"] == [{\"role\": \"user\", \"content\": \"hello\"}]\n    assert seen[\"model\"] == \"claude-fable-5\"\n    assert seen[\"max_tokens\"] == 128\n    assert seen[\"system\"] == \"be terse\"\n    # request/response retained for contract assertions\n    assert client.last_request[\"model\"] == \"claude-fable-5\"\n    assert client.last_response == \"RESPONSE\"\n\n\ndef test_multiturn_messages():\n    def echo(messages, *, model, max_tokens, system):\n        return messages[-1][\"content\"].upper()\n\n    client = LLMClient(echo)\n    out = client.complete_messages(\n        [{\"role\": \"user\", \"content\": \"a\"}, {\"role\": \"assistant\", \"content\": \"b\"},\n         {\"role\": \"user\", \"content\": \"c\"}]\n    )\n    assert out == \"C\"\n\n\ndef test_no_seam_raises():\n    with pytest.raises(LLMError):\n        LLMClient(None).complete_text(\"x\")\n\n\ndef test_non_transient_failure_maps_to_llmerror():\n    def boom(messages, *, model, max_tokens, system):\n        raise ValueError(\"bad request: malformed\")\n\n    with pytest.raises(LLMError):\n        LLMClient(boom).complete_text(\"x\")\n\n\ndef test_cascade_fallback_on_rate_limit():\n    # A fake cascade: first model 'A' is rate-limited once, then 'B' succeeds.\n    class FakeCascade:\n        def __init__(self):\n            self.order = [\"model-A\", \"model-B\"]\n            self.reports = []\n\n        def get_active_model(self):\n            return self.order[0]\n\n        def report_rate_limit(self, model, error_text=None):\n            self.reports.append((model, error_text))\n            self.order.pop(0)  # advance to the next model\n\n    cascade = FakeCascade()\n    calls = {\"n\": 0}\n\n    def flaky(messages, *, model, max_tokens, system):\n        calls[\"n\"] += 1\n        if model == \"model-A\":\n            raise RuntimeError(\"429 too many requests\")\n        return \"OK from \" + model\n\n    client = LLMClient(flaky, cascade=cascade)\n    out = client.complete_text(\"x\")\n    assert out == \"OK from model-B\"\n    assert calls[\"n\"] == 2\n    assert cascade.reports and cascade.reports[0][0] == \"model-A\"\n\n\ndef test_make_anthropic_client_is_lazy():\n    # Building the real seam is a factory; it must be importable + callable as a\n    # symbol even when the SDK is absent (it only imports anthropic when invoked).\n    assert callable(make_anthropic_client)\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_default_model_is_claude_fable_5"
+          },
+          {
+            "name": "test_module_exports_public_surface"
+          },
+          {
+            "name": "test_init_defaults_model_to_default_model"
+          },
+          {
+            "name": "test_active_model_prefers_cascade_then_falls_back"
+          },
+          {
+            "name": "test_complete_text_wraps_single_user_prompt"
+          },
+          {
+            "name": "test_request_contract_passes_through_to_injected_complete"
+          },
+          {
+            "name": "test_complete_messages_multi_turn_returns_text_and_records_last"
+          },
+          {
+            "name": "test_llm_error_when_no_seam_injected"
+          },
+          {
+            "name": "test_non_transient_failure_raises_llm_error"
+          },
+          {
+            "name": "test_make_anthropic_client_is_callable_factory_not_invoked"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_rate_limit_reports_to_cascade_and_advances_model"
+          },
+          {
+            "name": "test_rate_limit_without_cascade_retries_until_exhausted"
+          },
+          {
+            "name": "test_module_imports_without_anthropic_installed"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_looks_rate_limited_matches_all_markers_and_rejects_none"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_model_cascade_module_unmodified"
+          },
+          {
+            "name": "test_oracle_test_llm_client_wired_green"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "Canned in-memory `complete` callables: one that echoes/records its kwargs to assert the request contract, one that raises a rate-limit-marked exception, one that raises a non-transient exception. A fake cascade-shaped object with sequenced `get_active_model()` return values and a recording `report_rate_limit(model, error_text=...)`. No network access; the `anthropic` SDK is never imported by oracle paths."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "IMPL-only task: the whole-file artifact is fixed and validated, and the oracle tests/test_llm_client_wired.py is already committed. Test tokens reflect running/inspecting the committed oracle rather than authoring new tests."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2_llm_client.md",
+  "source_brief_sha256": "8b14688207d3040e73c6a5aa9121cdbe471d3529cb41c8d26759444dde4a50ad",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

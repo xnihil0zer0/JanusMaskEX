@@ -1,0 +1,108 @@
+{
+  "tasks": [
+    {
+      "task_id": "integration_smoke_accept_gate",
+      "title": "Accept-time gate: wire the classifiers into _auto_commit_accepted (Layer 1)",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/orchestrator.py",
+        "tests/harness/test_integration_smoke_accept_gate.py"
+      ],
+      "acceptance_criteria": [
+        "orchestrator exposes _integration_smoke_gate_enabled(state_dir) -> bool and _run_integration_smoke_gate(task, files_touched, state_dir, task_id, staging_path, worktree_root, result, working_dir) -> bool, both invoked inside _auto_commit_accepted immediately after the wire-up block.",
+        "when integration_smoke_gate is enabled, _run_integration_smoke_gate is called to classify touched modules using is_io_bound, and rejects any I/O-bound module lacking an executing integration oracle via _rollback_rejected_commit, git_integration.remove_staging_worktree, _mark_blocked(outcome='missing_integration_smoke'), writing to impl_progress.jsonl, and returning False.",
+        "when the flag is OFF, the gate is a strict no-op and does not alter the accept/merge behavior.",
+        "tests/harness/test_integration_smoke_accept_gate.py passes as an edge-asserting oracle asserting block/merge conditions end-to-end."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "M",
+      "verification_command": "python3 -m pytest -q tests/harness/test_integration_smoke_accept_gate.py",
+      "spec": {
+        "objective": "Add the load-bearing accept-time gate to harness/orchestrator.py, mirroring the wire-up gate line-for-line, to reject commits touching I/O-bound modules that lack an executing integration oracle, gated by the autowork.integration_smoke_gate flag.",
+        "functional_requirements": [
+          "Add _integration_smoke_gate_enabled(state_dir) -> bool that loads config via load_config() and returns config.get('autowork', {}).get('integration_smoke_gate', False). Fail-safe to False on exceptions.",
+          "Add _run_integration_smoke_gate(task, files_touched, state_dir, task_id, staging_path, worktree_root, result, working_dir) -> bool that returns True to reject and False to proceed.",
+          "In _run_integration_smoke_gate, identify touched python modules (files_touched ending in .py not under tests/).",
+          "Read each touched module's source from staging_path and classify it using is_io_bound from harness.integration_smoke.",
+          "For every I/O-bound module, extract committed test sources in files_touched (ending in .py under tests/) and read their content from staging_path.",
+          "Verify the test set with has_executing_integration_oracle. If any I/O-bound module has no executing integration oracle, reject using _rollback_rejected_commit, removing the staging worktree, marking task blocked as missing_integration_smoke, appending to impl_progress.jsonl, and returning True.",
+          "Call the helpers in _auto_commit_accepted immediately after the wire-up gate block: if _integration_smoke_gate_enabled(state_dir): if _run_integration_smoke_gate(...): return False"
+        ],
+        "interfaces": "Exposes _integration_smoke_gate_enabled(state_dir) -> bool and _run_integration_smoke_gate(task, files_touched, state_dir, task_id, staging_path, worktree_root, result, working_dir) -> bool from harness/orchestrator.py.",
+        "edge_cases": [
+          "Pure-logic touched module (non-I/O-bound) -> does not require integration oracle, merged successfully.",
+          "I/O-bound touched module with executing integration oracle -> passes checks, merged successfully.",
+          "I/O-bound touched module without executing integration oracle -> rejected, rollback triggered, returns False.",
+          "Integration smoke gate flag is OFF -> gate is bypassed, normal accept/merge behavior."
+        ],
+        "non_goals": [
+          "Do NOT create any new production files in this leaf; import classifiers from harness.integration_smoke.",
+          "Do NOT modify smoke_import.",
+          "Do NOT alter the wire-up gate or any current behavior or passing tests.",
+          "Do NOT spawn agents, make network/model/API calls, or add un-injected subprocesses.",
+          "Do NOT flip the autowork.integration_smoke_gate flag to True; it must default to False."
+        ],
+        "implementation_notes": "Mirror the structure of wire_up_gate line-for-line. Import classifiers dynamically inside the gate function to avoid startup crashes if harness.integration_smoke does not exist yet. Use _rollback_rejected_commit, git_integration.remove_staging_worktree, and write_jsonl_row for rollbacks."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_integration_smoke_gate_enabled_helper"
+          },
+          {
+            "name": "test_run_integration_smoke_gate_pure_logic_passes"
+          },
+          {
+            "name": "test_run_integration_smoke_gate_io_bound_with_oracle_passes"
+          },
+          {
+            "name": "test_run_integration_smoke_gate_io_bound_without_oracle_rejects"
+          },
+          {
+            "name": "test_auto_commit_accepted_gate_disabled_noop"
+          },
+          {
+            "name": "test_auto_commit_accepted_gate_enabled_blocks"
+          },
+          {
+            "name": "test_auto_commit_accepted_gate_enabled_allows_proven_io_bound"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_integration_smoke_accept_gate_edge_asserting_oracle"
+          }
+        ],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_edge_case_pure_logic_exemption"
+          },
+          {
+            "name": "test_edge_case_io_bound_missing_oracle_rollback"
+          },
+          {
+            "name": "test_edge_case_flag_off_bypasses_gate"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "Temp git repositories and staging worktrees setup by pytest fixtures."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation is straightforward wiring, while test verification requires complex edge-asserting setup over a mock git repository."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_integration-smoke-accept-gate.md",
+  "source_brief_sha256": "b77b381d476c5335b2bd0bbf7c94d5ee976611b72e17baab12de29ab75eaa489"
+}

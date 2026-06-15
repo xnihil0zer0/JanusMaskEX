@@ -1,0 +1,117 @@
+{
+  "tasks": [
+    {
+      "task_id": "ac-flags-reader",
+      "title": "Autocompiler fail-closed flag reader (autocompiler/flags.py)",
+      "meta_task_type": "config_schema",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "autocompiler/flags.py",
+        "autocompiler/__init__.py"
+      ],
+      "acceptance_criteria": [
+        "NEW whole-file module `autocompiler/flags.py` exists and is pure / stdlib-only (no harness, network, subprocess, or model imports).",
+        "Exposes `ac_enabled(key: str, state_dir=None) -> bool` with exactly that signature; `state_dir` is optional/injectable.",
+        "Reads the `autocompiler:` config subtree via plain filesystem reads rooted at the injected (or default) `state_dir` and resolves a dotted flag key to a boolean.",
+        "Fail-closed: returns `False` when the config file/subtree is absent, when the key is missing, when the value is present-but-non-bool, when the yaml is malformed, and on ANY internally raised exception; the function NEVER raises.",
+        "`tests/autocompiler/test_flags.py` is GREEN.",
+        "`tests/autocompiler/test_flags_wired.py` is GREEN, i.e. `check_wired(repo_root, 'autocompiler/flags.py').wired` is True (module dotted path resolves via the pre-registered `config/autocompiler.yaml` entry).",
+        "No file under `harness/**`, `config/**`, `scripts/**`, `services/**`, or any `_NEVER_AUTO_APPROVE` file is modified; the `autocompiler:` config subtree is NOT created (so `ac_enabled` is fail-closed False everywhere this run)."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/autocompiler/test_flags.py tests/autocompiler/test_flags_wired.py -q",
+      "spec": {
+        "objective": "Create the new whole-file module `autocompiler/flags.py` exposing a pure, stdlib-only, fail-closed flag reader `ac_enabled(key, state_dir=None) -> bool` that reads the (not-yet-existent) `autocompiler:` config subtree from the filesystem under an injected/optional `state_dir` and collapses every error path to `False`, satisfying the pre-committed RED oracles `tests/autocompiler/test_flags.py` and `tests/autocompiler/test_flags_wired.py`.",
+        "functional_requirements": [
+          "Expose a module-level callable `ac_enabled(key: str, state_dir=None) -> bool`, pure and stdlib-only (no harness/network/subprocess/model dependencies), importable as `autocompiler.flags.ac_enabled`.",
+          "Resolve the config location from the injected/optional `state_dir` (falling back to a deterministic default when `state_dir is None`) and read the `autocompiler:` config subtree via plain filesystem reads, then resolve the dotted `key` to a boolean value.",
+          "Return fail-closed `False` when the config file or the `autocompiler:` subtree is absent (config not yet created this run).",
+          "Return fail-closed `False` when the requested dotted key is missing within an otherwise-present subtree.",
+          "Return fail-closed `False` when the resolved value is present-but-non-bool, or when the yaml/config content is malformed and cannot be parsed.",
+          "Swallow ANY internally raised exception (mirroring the `_reap_spent_briefs_safe` try/except bridge and `_wire_up_gate_enabled` fail-closed idiom) and return `False`; `ac_enabled` must NEVER raise.",
+          "Register/resolve cleanly so the wiring oracle's `check_wired(repo_root, 'autocompiler/flags.py').wired` is True via the pre-registered `config/autocompiler.yaml` dotted-path entry (no edit to config/ required by this task)."
+        ],
+        "interfaces": "exposes `ac_enabled(key: str, state_dir=None) -> bool` (fail-closed False on any missing key / config error; never raises).",
+        "edge_cases": [
+          "(a) `autocompiler:` config subtree / config file absent => `False`.",
+          "(b) key present-but-non-bool value (e.g. string, int, list) => `False`.",
+          "(c) malformed / unparseable yaml config => `False`.",
+          "(d) any internal exception raised during read/parse/lookup is swallowed => `False` (never raises).",
+          "(e) config present but the requested dotted key is missing => `False`.",
+          "(f) `state_dir=None` (default) with no config present => `False` (still never raises)."
+        ],
+        "non_goals": [
+          "Does NOT flip any runtime flag or create the `autocompiler:` config subtree (so `ac_enabled` stays fail-closed False everywhere this run).",
+          "Does NOT touch any `harness/**`, `config/**`, `scripts/**`, `services/**`, or `_NEVER_AUTO_APPROVE` file.",
+          "Does NOT spawn any process, model, network call, or un-injected subprocess.",
+          "Does NOT author new tests (oracles are pre-committed at e567269); this task only makes them GREEN.",
+          "Does NOT reimplement the fail-closed idiom from scratch beyond cloning the established `harness/orchestrator.py` gate pattern."
+        ],
+        "implementation_notes": "Clone the fail-closed gate idiom from `harness/orchestrator.py::_wire_up_gate_enabled` (:2022) and the `_reap_spent_briefs_safe` try/except bridge (:45): wrap the entire read+parse+lookup body in a broad try/except that returns `False` on any exception. Follow the `harness/config.yaml` + `harness/config_loader.py` flag-tree home pattern for where/how the `autocompiler:` subtree is expected to live, but read it with plain stdlib filesystem reads rooted at `state_dir` (compute a deterministic default path when `state_dir is None`). Coerce only true Python booleans through; treat any non-bool value as `False` (do not truth-test strings/ints). Add `autocompiler/__init__.py` only if needed for package import. Keep the module import-light and side-effect-free so `check_wired` can resolve the dotted path against the pre-registered `config/autocompiler.yaml` entry.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/autocompiler/test_flags.py\n```python\n\"\"\"RED oracle \u2014 authoritative contract for autocompiler/flags.py (leaf ac-flags).\n\nContract: ``ac_enabled(key, state_dir=None, config=None) -> bool`` is the single\nfail-closed flag reader for the ``autocompiler:`` config subtree (clone of the\n``_wire_up_gate_enabled`` idiom). When ``config`` is None it loads via the\nmodule-level name ``load_config`` (imported from harness.config_loader so tests\ncan inject failures). It returns True ONLY when ``config['autocompiler']['enabled']``\nis truthy AND the (possibly dotted) ``key`` resolves truthy under the\n``autocompiler:`` subtree. ANY error, missing key, or missing subtree => False.\nIt must never raise.\n\"\"\"\nimport pytest\n\nfrom autocompiler.flags import ac_enabled\n\n\ndef test_no_subtree_is_false():\n    assert ac_enabled('population', config={}) is False\n\n\ndef test_master_off_gates_everything():\n    cfg = {'autocompiler': {'enabled': False, 'population': True}}\n    assert ac_enabled('population', config=cfg) is False\n\n\ndef test_enabled_key_true():\n    cfg = {'autocompiler': {'enabled': True, 'population': True}}\n    assert ac_enabled('population', config=cfg) is True\n\n\ndef test_missing_key_is_false():\n    cfg = {'autocompiler': {'enabled': True}}\n    assert ac_enabled('population', config=cfg) is False\n\n\ndef test_dotted_key_resolves_nested():\n    cfg = {'autocompiler': {'enabled': True, 'population': {'evolve': True, 'js': False}}}\n    assert ac_enabled('population.evolve', config=cfg) is True\n    assert ac_enabled('population.js', config=cfg) is False\n    assert ac_enabled('population.missing', config=cfg) is False\n\n\ndef test_loader_error_fail_closed(monkeypatch):\n    import autocompiler.flags as flags_mod\n\n    def _boom(*a, **k):\n        raise RuntimeError('config unreadable')\n    monkeypatch.setattr(flags_mod, 'load_config', _boom)\n    assert ac_enabled('population') is False\n\n\ndef test_garbage_inputs_never_raise():\n    assert ac_enabled(12345, config={'autocompiler': {'enabled': True}}) is False\n    assert ac_enabled('', config={'autocompiler': {'enabled': True}}) is False\n    assert ac_enabled('x', config='not-a-dict') is False\n    assert ac_enabled(None, config=None) in (True, False)\n\n```\n\n## tests/autocompiler/test_flags_wired.py\n```python\n\"\"\"RED wiring oracle for autocompiler/flags.py (leaf ac-flags wire proof).\n\nProves the module is WIRED per harness.wire_up.check_wired: present in the\ndiscovered module set AND reachable from a live root OR registered for dynamic\nwiring under config/** (config/autocompiler.yaml). RED while the module does\nnot exist; GREEN once the leaf lands alongside the committed registration.\n\"\"\"\nfrom pathlib import Path\n\nfrom harness.wire_up import check_wired\n\n\ndef test_flags_module_is_wired():\n    repo_root = Path(__file__).resolve().parents[2]\n    res = check_wired(repo_root, 'autocompiler/flags.py')\n    assert res.wired, res.reason\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_ac_enabled_signature_and_callable_pure_stdlib"
+          },
+          {
+            "name": "test_ac_enabled_subtree_absent_returns_false"
+          },
+          {
+            "name": "test_ac_enabled_missing_key_returns_false"
+          },
+          {
+            "name": "test_ac_enabled_non_bool_value_returns_false"
+          },
+          {
+            "name": "test_ac_enabled_malformed_yaml_returns_false"
+          },
+          {
+            "name": "test_ac_enabled_default_state_dir_no_config_returns_false"
+          },
+          {
+            "name": "test_ac_enabled_reads_under_injected_state_dir"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_flags_wired_check_wired_returns_wired_true_via_config"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_ac_enabled_never_raises_for_arbitrary_keys_and_state_dirs"
+          },
+          {
+            "name": "test_ac_enabled_always_returns_bool_property"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_internal_exception_swallowed_collapses_to_false"
+          },
+          {
+            "name": "test_present_but_non_bool_or_malformed_collapses_to_false"
+          }
+        ],
+        "minimum_test_count": 11,
+        "test_data_requirements": "The two pre-committed RED oracles (tests/autocompiler/test_flags.py, tests/autocompiler/test_flags_wired.py at e567269) are authoritative; the impl must not author or edit tests. Oracles exercise: absent subtree, missing key, non-bool value, malformed yaml, swallowed exceptions, and the `check_wired(repo_root, 'autocompiler/flags.py').wired` assertion backed by the pre-registered config/autocompiler.yaml dotted path. Tests use temp/injected `state_dir` fixtures; no network, subprocess, or real config subtree creation."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "Tests are pre-committed oracles (not authored by this task); the test_tokens budget covers reading/running the two oracle files to drive the impl GREEN. Implementation is a small whole-file stdlib module, so impl tokens stay low while the fail-closed contract verification dominates."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ac-flags.md",
+  "source_brief_sha256": "c990f8b5fd77103d86fe5c0517c7e4e17e1f287c51681e8472a105475328c416"
+}

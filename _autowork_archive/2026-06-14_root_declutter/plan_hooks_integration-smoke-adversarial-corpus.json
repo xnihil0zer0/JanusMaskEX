@@ -1,0 +1,114 @@
+{
+  "tasks": [
+    {
+      "task_id": "test_integration_smoke_adversarial",
+      "title": "Adversarial acceptance corpus (Layer 3, test-only)",
+      "meta_task_type": "test_authoring",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tests/harness/test_integration_smoke_adversarial.py"
+      ],
+      "acceptance_criteria": [
+        "Create the committed adversarial corpus tests/harness/test_integration_smoke_adversarial.py",
+        "Evasion 1 (import-OK/call-raises module with import-only oracle) is classified as REJECT",
+        "Evasion 2 (fake integration oracle that monkeypatches entrypoint or passes fake build_deps) is classified as HERMETIC and REJECT",
+        "Evasion 3 (boundary-only mock that calls real entrypoint, with subprocess.run/socket mocked) is classified as EXECUTING and PASS",
+        "False-positive guard (pure-logic module with only unit tests) is classified as NOT I/O-bound and PASS with no oracle required",
+        "Full I/O-signal coverage matrix (one fixture per signal: subprocess, socket, urllib, file write, os.system, shutil, __main__, tool-argv git/tar/rclone) is classified as I/O-bound",
+        "The drive_backup regression is covered: fixed hook_runner/archiver + executing oracles PASS, pre-fix adapter shape + hermetic-only oracle REJECT",
+        "Idempotency/purity checks assert classifiers are deep-copy-pure and deterministic across repeated calls"
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "pytest -v tests/harness/test_integration_smoke_adversarial.py",
+      "mutation_target": "harness.integration_smoke",
+      "spec": {
+        "objective": "Build the committed adversarial corpus tests/harness/test_integration_smoke_adversarial.py to concentrate attack/evasion fixtures the gate must get right, pinning true-positives and true-negatives against substrate classifiers.",
+        "functional_requirements": [
+          "Verify Evasion 1 (import-OK/call-raises module with import-only oracle) is rejected.",
+          "Verify Evasion 2 (fake integration oracle that monkeypatches entrypoint or fake build_deps) is classified as HERMETIC and rejected.",
+          "Verify Evasion 3 (boundary-only mock where real entrypoint is called and only lowest seams like subprocess/socket are mocked) is classified as EXECUTING and passed.",
+          "Verify False-positive guard (pure-logic module with only unit tests) is classified as NOT I/O-bound and passed without requiring an oracle.",
+          "Verify full I/O-signal matrix: one fixture per signal (subprocess, socket, urllib, file write, os.system, shutil, __main__, tool-argv git/tar/rclone) is classified as I/O-bound.",
+          "Verify the drive_backup regression: fixed hook_runner/archiver + executing oracles pass, pre-fix adapter + hermetic-only oracle are rejected.",
+          "Verify idempotency/purity of classifiers (is_io_bound and has_executing_integration_oracle) across repeated calls and verify they are deep-copy-pure."
+        ],
+        "interfaces": "Consumes is_io_bound(module_rel, module_src, *, signals=BOUNDARY_SIGNALS) -> IoBoundResult and has_executing_integration_oracle(module_rel, test_srcs, *, entrypoints=ENTRYPOINT_NAMES) -> SmokeOracleResult plus BOUNDARY_SIGNALS, ENTRYPOINT_NAMES, BOUNDARY_MOCK_ALLOWLIST from harness/integration_smoke.",
+        "edge_cases": [
+          "A module that looks I/O-bound via AST but actually has no I/O calls at runtime (the AST is conservative and must classify it as I/O-bound).",
+          "A test that uses monkeypatch on the entrypoint itself (Evasion 2) to bypass the integration execution check.",
+          "Ensuring that deep-copy-purity is asserted by modifying input structures after a call and verifying that classifiers behave deterministically on subsequent calls."
+        ],
+        "non_goals": [
+          "Do NOT modify production code.",
+          "Do NOT modify or re-fix tools/drive_backup/hook_runner.py, tools/drive_backup/archiver.py, or their tests.",
+          "Do NOT spawn processes or make network/model calls; fixtures are in-memory source strings.",
+          "Do NOT re-implement the classifiers -- import them.",
+          "Do NOT claim assertion-adequacy coverage the AST cannot deliver."
+        ],
+        "implementation_notes": "Use in-memory source string fixtures representing the different evasion and logic shapes. Import is_io_bound, has_executing_integration_oracle, and associated constants from harness.integration_smoke and assert their properties on the fixtures."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_evasion_1_import_ok_call_raises_rejected"
+          },
+          {
+            "name": "test_evasion_2_fake_oracle_monkeypatch_rejected"
+          },
+          {
+            "name": "test_evasion_3_boundary_only_mock_passed"
+          },
+          {
+            "name": "test_false_positive_guard_pure_logic_passed"
+          },
+          {
+            "name": "test_io_signal_matrix_subprocess"
+          },
+          {
+            "name": "test_io_signal_matrix_socket_and_urllib"
+          },
+          {
+            "name": "test_io_signal_matrix_file_write_and_system"
+          },
+          {
+            "name": "test_io_signal_matrix_shutil_main_and_argv"
+          },
+          {
+            "name": "test_classifiers_idempotency_and_purity"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_adversarial_fixtures_against_live_classifiers"
+          }
+        ],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_drive_backup_regression_fixed_shape_passed"
+          },
+          {
+            "name": "test_drive_backup_regression_prefix_shape_rejected"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "No external files needed; all fixture code templates are constructed as in-memory Python source strings."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 1500,
+        "note": "Since this is a test-only corpus file (test_authoring), the implementation tokens are 0, and all tokens are allocated for tests."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_integration-smoke-adversarial-corpus.md",
+  "source_brief_sha256": "55dc5ca644e99ffdaf54f03d676cb1f0f57618ea12db63db89eca35b2b15a62f"
+}

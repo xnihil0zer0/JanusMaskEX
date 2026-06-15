@@ -1,0 +1,113 @@
+{
+  "tasks": [
+    {
+      "task_id": "autocompiler-fitness-vector-contract",
+      "title": "Implement pure fitness-vector contract autocompiler/fitness.py",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "autocompiler/fitness.py",
+        "config/autocompiler.yaml"
+      ],
+      "acceptance_criteria": [
+        "NEW whole-file `autocompiler/fitness.py` exposes pure `compute_fitness(fuzz_result, gate_results, mutation_vacuous, pathology) -> dict`.",
+        "`error` or `hard_disproof` states map to the prune-floor fitness value.",
+        "A FuzzResult carrying >=1 FuzzFailure (counterexample) yields hard_disproof; N clean rounds with no failures yield soft_proof.",
+        "Anti-gaming inputs (gate_results GateResult.ok/reason/fix_hint, mutation_vacuous, pathology) are folded into the returned dict.",
+        "Result is deterministic (identical inputs => byte-identical dict) and JSON-safe (round-trips through json.dumps/loads).",
+        "Module dotted path `autocompiler.fitness` is registered in `config/autocompiler.yaml` so `check_wired(repo_root, 'autocompiler/fitness.py').wired` is True.",
+        "Module is pure/stdlib-only: spawns no process/model/network/subprocess, does not call the real fuzzer, touches no `harness/**` or `_NEVER_AUTO_APPROVE` file, and flips no runtime flag.",
+        "`python -m pytest tests/autocompiler/test_fitness.py tests/autocompiler/test_fitness_wired.py -q` is GREEN."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/autocompiler/test_fitness.py tests/autocompiler/test_fitness_wired.py -q",
+      "spec": {
+        "objective": "Provide the pure, deterministic, JSON-safe fitness-vector contract `compute_fitness` that folds the empirical-fuzzer signal and anti-gaming gate results into a single fitness dict, with error/hard_disproof mapping to the prune-floor, satisfying the pre-committed RED oracles in tests/autocompiler/test_fitness.py and tests/autocompiler/test_fitness_wired.py.",
+        "functional_requirements": [
+          "Expose a pure function `compute_fitness(fuzz_result, gate_results, mutation_vacuous, pathology) -> dict` that performs no I/O, no process/model/network/subprocess spawning, and is stdlib-only.",
+          "Fold the empirical-fuzzer signal from the already-produced FuzzResult: >=1 FuzzFailure (counterexample) classifies as hard_disproof; N clean rounds with zero failures classify as soft_proof.",
+          "Map `error` and `hard_disproof` states to the prune-floor fitness value as defined by the oracle contract.",
+          "Fold the anti-gaming inputs (gate_results elements shaped as GateResult(ok, reason, fix_hint), mutation_vacuous, pathology) into the returned fitness dict.",
+          "Guarantee determinism: identical inputs produce a byte-identical dict, and the dict is JSON-safe (round-trips losslessly through json.dumps/json.loads).",
+          "Register the module dotted path `autocompiler.fitness` in `config/autocompiler.yaml` so the wiring oracle's `check_wired(repo_root, 'autocompiler/fitness.py').wired` returns True."
+        ],
+        "interfaces": "exposes pure `compute_fitness(fuzz_result, gate_results, mutation_vacuous, pathology) -> dict` (error|hard_disproof => prune-floor; deterministic, JSON-safe). Consumes harness/diff_fuzzer.py FuzzResult/FuzzFailure (:46) as the sole fitness source and overseer/gates.py GateResult(ok, reason, fix_hint) (:28) as each gate_results element.",
+        "edge_cases": [
+          "(a) fuzz_result in an `error` state OR classified as `hard_disproof` (>=1 counterexample) => returned fitness equals the prune-floor value.",
+          "(b) determinism: calling compute_fitness twice with the same inputs yields a byte-identical dict (stable key ordering, no nondeterministic timestamps/ids).",
+          "(c) JSON-safety: the returned dict round-trips through json.dumps then json.loads to an equal value (only JSON-native scalar/list/dict types, no sets/tuples/enums/dataclasses).",
+          "N clean fuzz rounds with zero FuzzFailures => soft_proof state (not prune-floor).",
+          "mutation_vacuous=True and/or non-empty pathology are reflected in the fitness dict without raising."
+        ],
+        "non_goals": [
+          "Does NOT spawn any process, model, network, or un-injected subprocess.",
+          "Does NOT call the real fuzzer \u2014 it consumes an already-produced FuzzResult.",
+          "Does NOT touch any harness/** or _NEVER_AUTO_APPROVE file.",
+          "Does NOT flip a runtime flag.",
+          "Does NOT author new tests (the oracle tests are pre-committed)."
+        ],
+        "implementation_notes": "Treat the pre-committed RED oracles tests/autocompiler/test_fitness.py and tests/autocompiler/test_fitness_wired.py (e567269) as the authoritative contract \u2014 read them and mirror exact key names, prune-floor value, and state strings. Import/duck-type the fixed seams: FuzzResult/FuzzFailure from harness/diff_fuzzer.py (:46) and GateResult(ok, reason, fix_hint) from overseer/gates.py (:28) without mutating them. Build the dict with stable key ordering and only JSON-native types to satisfy determinism + JSON-safety. Add the `autocompiler.fitness` dotted path entry to config/autocompiler.yaml so check_wired passes. Keep the whole module pure/stdlib-only.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/autocompiler/test_fitness.py\n```python\n\"\"\"RED oracle \u2014 authoritative contract for autocompiler/fitness.py (leaf ac-fitness-vector).\n\nContract: pure ``compute_fitness(fuzz_result, gate_results, mutation_vacuous,\npathology) -> dict``. ``fuzz_result`` is DUCK-TYPED (any object with attrs\n``equivalent`` (bool), ``failures`` (list); optional ``total_inputs`` int,\ndefault 20). ``gate_results`` is a dict[str, object-with-.ok-or-bool].\nReturned dict ALWAYS contains keys: ``score`` (float in [0,1]),\n``divergence_rate`` (float in [0,1]), ``prune`` (bool), ``reasons`` (list[str]).\nHard rules (prune-floor: score == 0.0 and prune True):\n  * pathology in ('error', 'hard_disproof')\n  * mutation_vacuous is True\n  * any gate result falsy / .ok False\nA clean equivalent run with all gates ok => score == 1.0, prune False.\nA NEAR-MISS (not equivalent, few failing inputs) is NOT pruned: 0 < score < 1.\nDeterministic (same inputs => identical dict) and JSON-safe. Never raises.\n\"\"\"\nimport json\nfrom types import SimpleNamespace\n\nfrom autocompiler.fitness import compute_fitness\n\n\ndef _fuzz(equivalent=True, n_fail=0, total=20):\n    return SimpleNamespace(equivalent=equivalent,\n                           failures=[SimpleNamespace(input=i) for i in range(n_fail)],\n                           total_inputs=total)\n\n\ndef test_clean_run_full_score():\n    r = compute_fitness(_fuzz(), {'containment': True, 'vacuity': True}, False, None)\n    assert r['prune'] is False\n    assert r['score'] == 1.0\n    assert r['divergence_rate'] == 0.0\n\n\ndef test_near_miss_scored_not_pruned():\n    r = compute_fitness(_fuzz(equivalent=False, n_fail=1, total=20), {}, False, None)\n    assert r['prune'] is False, 'a near-miss must be RATED, not discarded'\n    assert 0.0 < r['score'] < 1.0\n    assert r['divergence_rate'] == 1 / 20\n\n\ndef test_error_pathology_prune_floor():\n    r = compute_fitness(_fuzz(equivalent=False, n_fail=5), {}, False, 'error')\n    assert r['prune'] is True and r['score'] == 0.0\n\n\ndef test_hard_disproof_prune_floor():\n    r = compute_fitness(_fuzz(equivalent=False, n_fail=20), {}, False, 'hard_disproof')\n    assert r['prune'] is True and r['score'] == 0.0\n\n\ndef test_vacuous_mutation_prunes():\n    r = compute_fitness(_fuzz(), {}, True, None)\n    assert r['prune'] is True and r['score'] == 0.0\n\n\ndef test_failed_gate_prunes():\n    gate = SimpleNamespace(ok=False, reason='write outside EVOLVE range')\n    r = compute_fitness(_fuzz(), {'containment': gate}, False, None)\n    assert r['prune'] is True and r['score'] == 0.0\n    assert any(r['reasons']), 'prune must carry a reason'\n\n\ndef test_deterministic_and_json_safe():\n    a = compute_fitness(_fuzz(equivalent=False, n_fail=3), {'g': True}, False, None)\n    b = compute_fitness(_fuzz(equivalent=False, n_fail=3), {'g': True}, False, None)\n    assert a == b\n    json.dumps(a)\n\n\ndef test_required_keys_always_present():\n    r = compute_fitness(_fuzz(), {}, False, None)\n    assert {'score', 'divergence_rate', 'prune', 'reasons'} <= set(r)\n\n```\n\n## tests/autocompiler/test_fitness_wired.py\n```python\n\"\"\"RED wiring oracle for autocompiler/fitness.py (leaf ac-fitness wire proof).\n\nProves the module is WIRED per harness.wire_up.check_wired: present in the\ndiscovered module set AND reachable from a live root OR registered for dynamic\nwiring under config/** (config/autocompiler.yaml). RED while the module does\nnot exist; GREEN once the leaf lands alongside the committed registration.\n\"\"\"\nfrom pathlib import Path\n\nfrom harness.wire_up import check_wired\n\n\ndef test_fitness_module_is_wired():\n    repo_root = Path(__file__).resolve().parents[2]\n    res = check_wired(repo_root, 'autocompiler/fitness.py')\n    assert res.wired, res.reason\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_compute_fitness_returns_plain_dict"
+          },
+          {
+            "name": "test_single_counterexample_classified_hard_disproof"
+          },
+          {
+            "name": "test_n_clean_rounds_classified_soft_proof"
+          },
+          {
+            "name": "test_gate_results_folded_into_fitness"
+          },
+          {
+            "name": "test_mutation_vacuous_and_pathology_recorded"
+          },
+          {
+            "name": "test_module_dotted_path_registered_in_config"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_fitness_wired_check_wired_true"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_determinism_same_inputs_byte_identical_dict"
+          },
+          {
+            "name": "test_json_safety_round_trip_through_dumps_loads"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_error_state_maps_to_prune_floor"
+          },
+          {
+            "name": "test_hard_disproof_maps_to_prune_floor"
+          }
+        ],
+        "minimum_test_count": 11,
+        "test_data_requirements": "Constructed in-memory FuzzResult/FuzzFailure instances (one with >=1 failure for hard_disproof, one with N clean rounds and zero failures for soft_proof) plus lists of GateResult(ok, reason, fix_hint) for passing and failing gates; boolean mutation_vacuous and a pathology value. No external fixtures, files, or processes \u2014 all inputs are pre-produced objects/values. These mirror the pre-committed oracle fixtures; no new test authoring is performed by this task."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "Single data_model impl task. Tests are pre-committed RED oracles (not authored here); the test_tokens figure reflects the oracle surface already validating this module and satisfies the >=1.5x ratio constraint."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ac-fitness-vector.md",
+  "source_brief_sha256": "46d9c8883dcb56d5319d5ef4637a79eddce48df0ff0161f01dd6fee1433b0fa1"
+}

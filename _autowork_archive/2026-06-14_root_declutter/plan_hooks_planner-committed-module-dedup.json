@@ -1,0 +1,124 @@
+{
+  "tasks": [
+    {
+      "task_id": "planner-committed-module-dedup-impl",
+      "title": "normalize_plan: drop impl tasks that clobber an already-committed module (+ paired oracle), keep same-brief fix-forward edits",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/planner/plan_normalizer.py"
+      ],
+      "acceptance_criteria": [
+        "tests/planner/test_committed_module_dedup.py is 5/5 green (was 2 failed / 3 passed RED).",
+        "A NEW top-level helper _drop_committed_module_impls(plan, repo_root) exists immediately BEFORE normalize_plan (R-ANCHOR), and is the ONLY new top-level symbol.",
+        "normalize_plan body gains exactly one new call line (normalized = _drop_committed_module_impls(normalized, repo_root)) placed AFTER tasks = _drop_redundant_precommitted_oracles(tasks, repo_root) / normalized['tasks'] = tasks; signature def normalize_plan(plan, repo_root=None) is UNCHANGED.",
+        "DROP scenario: an impl whose files_touched module EXISTS at HEAD (git cat-file -e HEAD:<rel>, rc==0, cwd=str(repo_root)) AND has a paired re-creating test_authoring oracle (whose _module_path(_mutation_target(oracle)) matches a HEAD-existing path) -> BOTH the impl and the oracle are removed and 'duplicate_module_skipped' appears in repr(out).",
+        "KEEP scenarios: genuinely-new module (not at HEAD) -> impl+oracle kept; same-brief fix-forward (module at HEAD but NO paired re-creating oracle) -> impl kept; neither surfaces the marker.",
+        "repo_root=None is a STRICT no-op: no git/filesystem access, returned plan byte-identical to prior behavior, clobber survives, no marker.",
+        "Dependents of a dropped clobber-impl are rewired exactly like the _dedupe_oracles drop_map loop: dropped ids removed from every other task's dependencies, de-duplicated, never a self-edge or dangling reference.",
+        "Pass is conservative and idempotent; KEEP on any TypeError/ValueError/OSError/subprocess.SubprocessError.",
+        "No other symbol in plan_normalizer.py and no other file is modified; _dedupe_oracles, _drop_redundant_precommitted_oracles and every other listed helper are untouched.",
+        "Single __JANUSMASK_PATCHES__ list: the new helper rides as an extra node placed BEFORE its anchor normalize_plan, plus a 'symbol' entry for normalize_plan reproduced byte-for-byte from the staged target with ONLY the one new call line added."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/planner/test_committed_module_dedup.py -q",
+      "mutation_target": null,
+      "spec": {
+        "objective": "Add ONE conservative repo_root-aware pass to harness/planner/plan_normalizer.py that DROPS an impl task whose module already EXISTS at HEAD in the resolved target root (a re-build clobber of a module a DIFFERENT brief already committed) together with its paired re-creating test_authoring oracle, surfacing the telemetry marker 'duplicate_module_skipped'; a legitimate same-brief fix-forward EDIT (impl with NO paired re-creating oracle in the same plan) is KEPT. Make the pre-committed RED oracle tests/planner/test_committed_module_dedup.py 5/5 green without authoring new tests.",
+        "functional_requirements": [
+          "Define a NEW top-level helper _drop_committed_module_impls(plan, repo_root) placed (R-ANCHOR) immediately BEFORE normalize_plan; it is the only new top-level symbol.",
+          "Return the plan unchanged when repo_root is None: a STRICT no-op with no git/filesystem access, yielding output byte-identical to prior behavior (matching every other repo_root-aware pass in this module).",
+          "For each impl (non-test_authoring) task, compute the subset of its files_touched rel paths that EXIST at HEAD by running subprocess git cat-file -e HEAD:<rel> with cwd=str(repo_root) and treating rc==0 as present (reuse the harness/orchestrator.py:2071 idiom: capture_output=True, text=True, timeout=30).",
+          "When an impl has at least one HEAD-existing path, search the SAME plan for a paired re-creating test_authoring oracle whose _module_path(_mutation_target(oracle)) equals one of those HEAD-existing paths; if found, mark BOTH the impl and that oracle for dropping and record marker 'duplicate_module_skipped' on a plan-level field (e.g. plan.setdefault('normalizer_telemetry', []).append('duplicate_module_skipped:<rel>')).",
+          "When the module is NOT at HEAD (genuinely-new) OR is at HEAD but has NO paired re-creating oracle (same-brief fix-forward), KEEP the impl and emit no marker; never gate the drop on mere touch of an existing file.",
+          "Drop the matched ids and rewire dependents using the SAME drop_map pattern as _dedupe_oracles: remove the dropped ids from every other task's dependencies, de-duplicated, never introducing a self-edge or a dangling reference; operate conservatively and idempotently; KEEP on any TypeError/ValueError/OSError/subprocess.SubprocessError.",
+          "Thread the new pass into normalize_plan as a single new call line (normalized = _drop_committed_module_impls(normalized, repo_root)) placed AFTER tasks = _drop_redundant_precommitted_oracles(tasks, repo_root) and normalized['tasks'] = tasks, WITHOUT changing normalize_plan's signature or any other symbol."
+        ],
+        "interfaces": "In-place EDIT of harness/planner/plan_normalizer.py. New helper signature _drop_committed_module_impls(plan, repo_root) returning the (possibly mutated) plan dict. normalize_plan(plan, repo_root=None) signature UNCHANGED; only one new body call line added. HEAD-membership probed with git cat-file -e HEAD:<rel> in the resolved target root (NOT working-tree is_file). Telemetry marker exact string 'duplicate_module_skipped' surfaced on a plan-level field so it appears in repr(plan). Reuses existing module helpers _module_path, _mutation_target, _is_test_authoring, _files_touched, _task_id and mirrors the _dedupe_oracles drop_map dependency-rewire loop.",
+        "edge_cases": [
+          "re-build clobber DROPPED: impl whose module exists at HEAD AND has a paired re-creating test_authoring oracle in the plan -> both dropped, 'duplicate_module_skipped' surfaced in repr(out).",
+          "genuinely-NEW module (files_touched not at HEAD) -> impl + oracle KEPT, no marker.",
+          "same-brief fix-forward EDIT (module at HEAD, NO paired re-creating oracle) -> impl KEPT, no marker.",
+          "conservative no-op: repo_root=None -> no git/filesystem access, plan byte-identical (clobber survives because the guard cannot run); idempotent; KEEP on any exception.",
+          "dependents of a dropped clobber-impl are rewired: dropped id removed from every other task's dependencies, with no dangling reference or self-edge."
+        ],
+        "non_goals": [
+          "End-to-end integration testing of the planner/daemon dispatch flow is OUT OF SCOPE (integration-test requirement EXCUSED; the pre-committed oracle file is the full contract).",
+          "Do NOT change _dedupe_oracles (the len(group) <= 1 guard stays) or _drop_redundant_precommitted_oracles; the impl-clobber drop is a SEPARATE conservative pass.",
+          "Do NOT block a same-brief fix-forward EDIT of an existing module (impl with no paired re-creating oracle is always KEPT); do NOT gate the drop on every touch of an existing file.",
+          "Do NOT change normalize_plan's signature (normalize_plan(plan, repo_root=None)); only its body gains one new call line.",
+          "Do NOT drop anything when repo_root is None (strict no-op, no git/filesystem access).",
+          "Do NOT touch _enforce_module_first, _strip_unresolvable_dependencies, _sanitize_impl_verification_commands, _inject_oracle_sources, _force_smoke_gated_leaf_impl, _canonicalize_oracle_paths, _correct_meta_task_type_by_target, _inject_credential_naming_constraint, or any file other than plan_normalizer.py.",
+          "Do NOT author new tests; the pre-committed oracle tests/planner/test_committed_module_dedup.py is authoritative."
+        ],
+        "implementation_notes": "partial_edit: a single __JANUSMASK_PATCHES__ list. Emit the NEW helper _drop_committed_module_impls as an extra node placed immediately BEFORE its anchor normalize_plan (R-ANCHOR), plus a 'symbol' entry for normalize_plan reproduced BYTE-FOR-BYTE from the staged target at inbox/targets/harness/planner/plan_normalizer.py with ONLY the one new call line added (normalized = _drop_committed_module_impls(normalized, repo_root)) after tasks = _drop_redundant_precommitted_oracles(tasks, repo_root) / normalized['tasks'] = tasks. Helper convention: either deep-copy before mutating (consistent with sibling repo_root-aware passes) or mutate the already-deep-copied normalized in place; the oracle only inspects the returned object, so pick whichever keeps the union green. HEAD probe: subprocess.run(['git','cat-file','-e', f'HEAD:{rel}'], cwd=str(repo_root), capture_output=True, text=True, timeout=30); rc==0 == present (the orchestrator.py:2071 idiom). Pairing: an oracle re-creates a module when _module_path(_mutation_target(oracle)) equals one of the impl's HEAD-existing files_touched paths (e.g. mutation_target 'pkg.mod' -> 'pkg/mod.py'). Marker string EXACTLY 'duplicate_module_skipped'. Dependency rewire: mirror the _dedupe_oracles drop_map loop (~lines 120-139). Wrap the whole pass so any TypeError/ValueError/OSError/subprocess.SubprocessError leaves the plan unchanged (KEEP). Operator decision file state/control/decisions/planner-committed-module-dedup-impl.json authorizes the commit; meta_task_type MUST stay harness_self_fix. SELF task: no per-task working_dir (brief working_dir is the JM repo root /home/xnihil0zer0/JanusMaskJR).\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/planner/test_committed_module_dedup.py\n```python\n\"\"\"RED oracle for the committed-module clobber guard in normalize_plan.\n\nPRIMARY clobber root cause: the planner decomposes each brief in isolation\nand only dedups test_authoring oracles -- never impl ``files_touched``.  It\ntherefore emits impl tasks targeting modules ALREADY COMMITTED in the\n(possibly external) target tree, silently overwriting them with NO oracle to\ncatch the regression (evidence: ``67dc8d0`` overwrote ``ngv2/workers/report.py``\nalready built by ``8c5198c``).\n\nThe fix adds a conservative repo_root-aware guard to ``normalize_plan``: for\neach impl task, for each rel path in ``files_touched``, if the module already\nEXISTS at HEAD in the resolved target root (``git cat-file -e HEAD:<rel>``\nsucceeds), the task is a RE-BUILD clobber and is DROPPED together with its\npaired test_authoring oracle, surfacing the telemetry marker\n``duplicate_module_skipped``.\n\nCRITICAL caveat pinned below: a legitimate fix-forward EDIT of an existing\nmodule -- one with NO paired (re-creating) test_authoring oracle in the same\nplan -- must STILL be allowed (KEEP).  The drop fires only on a whole-file /\nre-build impl (module-in-HEAD AND a paired test_authoring oracle re-creating\nthat same module in this plan), never on every touch of an existing file.\n\nThe seam is the real ``git cat-file -e HEAD:<rel>`` HEAD-existence check run\nin the resolved target root, so these tests build a REAL git repo under\n``tmp_path`` and commit (or omit) the module to exercise HEAD membership --\nworking-tree presence alone must NOT trigger the drop.\n\"\"\"\nimport subprocess\nimport pytest\nfrom harness.planner.plan_normalizer import normalize_plan\n\n\ndef _git(args, cwd):\n    subprocess.run(['git'] + args, cwd=str(cwd), check=True,\n                   capture_output=True, text=True)\n\n\n@pytest.fixture\ndef repo(tmp_path):\n    \"\"\"A real git repo with pkg/mod.py committed at HEAD (a DIFFERENT brief\n    already built this module). The working tree also contains pkg/other.py\n    UNCOMMITTED, so HEAD-membership (not working-tree presence) is exercised.\"\"\"\n    _git(['init', '-q'], tmp_path)\n    _git(['config', 'user.email', 't@t'], tmp_path)\n    _git(['config', 'user.name', 't'], tmp_path)\n    (tmp_path / 'pkg').mkdir()\n    (tmp_path / 'pkg' / 'mod.py').write_text('def f():\\n    return 1\\n')\n    _git(['add', 'pkg/mod.py'], tmp_path)\n    _git(['commit', '-q', '-m', 'prior brief built pkg/mod.py'], tmp_path)\n    return tmp_path\n\n\ndef _impl(task_id, relpath, vcmd, meta='io_adapter', deps=None):\n    return {\n        'task_id': task_id,\n        'title': 'impl ' + relpath,\n        'meta_task_type': meta,\n        'priority': 'high',\n        'dependencies': list(deps or []),\n        'files_touched': [relpath],\n        'verification_command': vcmd,\n    }\n\n\ndef _oracle(task_id, target, oracle_file, deps=None):\n    return {\n        'task_id': task_id,\n        'title': 'oracle for ' + target,\n        'meta_task_type': 'test_authoring',\n        'priority': 'high',\n        'dependencies': list(deps or []),\n        'mutation_target': target,\n        'files_touched': [oracle_file],\n        'verification_command': 'python -m pytest ' + oracle_file + ' -q',\n    }\n\n\n# ---------------------------------------------------------------------------\n# (a) DROP: impl re-creates a module ALREADY committed at HEAD (from a\n#     different brief), paired with a test_authoring oracle that re-builds the\n#     same module -> BOTH impl and its paired oracle are dropped, surfacing\n#     the duplicate_module_skipped marker.\n# ---------------------------------------------------------------------------\ndef test_committed_module_rebuild_impl_and_paired_oracle_dropped(repo):\n    plan = {\n        'plan_kind': 'implementation',\n        'tasks': [\n            _impl('REBUILD_IMPL', 'pkg/mod.py',\n                  'python -m pytest tests/pkg/test_mod_rebuild.py -q'),\n            _oracle('REBUILD_ORACLE', 'pkg.mod',\n                    'tests/pkg/test_mod_rebuild.py'),\n        ],\n    }\n    out = normalize_plan(plan, repo_root=repo)\n    ids = {t['task_id'] for t in out['tasks']}\n    # the impl that would clobber the already-committed module is dropped...\n    assert 'REBUILD_IMPL' not in ids, 'clobbering impl must be dropped'\n    # ...together with its paired (re-creating) oracle.\n    assert 'REBUILD_ORACLE' not in ids, 'paired oracle must be dropped too'\n    # telemetry marker surfaced somewhere on the plan.\n    blob = repr(out)\n    assert 'duplicate_module_skipped' in blob, \\\n        'duplicate_module_skipped marker must be surfaced'\n\n\n# ---------------------------------------------------------------------------\n# (b) KEEP: a genuinely-NEW module (not present at HEAD) -> impl + oracle KEPT.\n# ---------------------------------------------------------------------------\ndef test_new_module_not_in_head_is_kept(repo):\n    plan = {\n        'plan_kind': 'implementation',\n        'tasks': [\n            _impl('NEW_IMPL', 'pkg/brand_new.py',\n                  'python -m pytest tests/pkg/test_brand_new.py -q'),\n            _oracle('NEW_ORACLE', 'pkg.brand_new',\n                    'tests/pkg/test_brand_new.py'),\n        ],\n    }\n    out = normalize_plan(plan, repo_root=repo)\n    ids = {t['task_id'] for t in out['tasks']}\n    assert 'NEW_IMPL' in ids, 'new-module impl must be kept'\n    assert 'NEW_ORACLE' in ids, 'new-module oracle must be kept'\n    assert 'duplicate_module_skipped' not in repr(out)\n\n\n# ---------------------------------------------------------------------------\n# (c) KEEP (fix-forward): an EDIT of a module that exists at HEAD, with NO\n#     paired (re-creating) test_authoring oracle in the same plan, is a\n#     legitimate same-brief fix-forward and must be KEPT.\n# ---------------------------------------------------------------------------\ndef test_fix_forward_edit_of_existing_module_is_kept(repo):\n    plan = {\n        'plan_kind': 'implementation',\n        'tasks': [\n            _impl('FIXFWD_IMPL', 'pkg/mod.py',\n                  'python -m pytest tests/pkg/test_mod.py -q'),\n        ],\n    }\n    out = normalize_plan(plan, repo_root=repo)\n    ids = {t['task_id'] for t in out['tasks']}\n    assert 'FIXFWD_IMPL' in ids, \\\n        'fix-forward edit (no paired re-creating oracle) must be kept'\n    assert 'duplicate_module_skipped' not in repr(out)\n\n\n# ---------------------------------------------------------------------------\n# (d) conservative no-op: repo_root=None -> no filesystem/git access, the\n#     plan is returned byte-identical (the clobbering impl survives because the\n#     guard cannot run without a resolved root).\n# ---------------------------------------------------------------------------\ndef test_repo_root_none_is_strict_noop():\n    plan = {\n        'plan_kind': 'implementation',\n        'tasks': [\n            _impl('REBUILD_IMPL', 'pkg/mod.py',\n                  'python -m pytest tests/pkg/test_mod_rebuild.py -q'),\n            _oracle('REBUILD_ORACLE', 'pkg.mod',\n                    'tests/pkg/test_mod_rebuild.py'),\n        ],\n    }\n    out = normalize_plan(plan, repo_root=None)\n    ids = {t['task_id'] for t in out['tasks']}\n    assert 'REBUILD_IMPL' in ids\n    assert 'REBUILD_ORACLE' in ids\n    assert 'duplicate_module_skipped' not in repr(out)\n\n\n# ---------------------------------------------------------------------------\n# (e) dependents of a dropped clobber-impl are rewired -- no dangling\n#     dependency reference to the removed task is left behind.\n# ---------------------------------------------------------------------------\ndef test_dependents_of_dropped_clobber_rewired(repo):\n    plan = {\n        'plan_kind': 'implementation',\n        'tasks': [\n            _impl('REBUILD_IMPL', 'pkg/mod.py',\n                  'python -m pytest tests/pkg/test_mod_rebuild.py -q'),\n            _oracle('REBUILD_ORACLE', 'pkg.mod',\n                    'tests/pkg/test_mod_rebuild.py'),\n            # a downstream NEW-module impl that (wrongly) depended on the\n            # clobber-impl; after the drop it must carry no dangling ref.\n            _impl('DOWNSTREAM_IMPL', 'pkg/brand_new.py',\n                  'python -m pytest tests/pkg/test_brand_new.py -q',\n                  deps=['REBUILD_IMPL']),\n        ],\n    }\n    out = normalize_plan(plan, repo_root=repo)\n    by_id = {t['task_id']: t for t in out['tasks']}\n    assert 'DOWNSTREAM_IMPL' in by_id, 'downstream new-module impl must survive'\n    assert 'REBUILD_IMPL' not in by_id['DOWNSTREAM_IMPL'].get('dependencies', []), \\\n        'dropped clobber-impl id must be removed from dependents'\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_committed_module_rebuild_impl_and_paired_oracle_dropped"
+          },
+          {
+            "name": "test_new_module_not_in_head_is_kept"
+          },
+          {
+            "name": "test_fix_forward_edit_of_existing_module_is_kept"
+          },
+          {
+            "name": "test_repo_root_none_is_strict_noop"
+          },
+          {
+            "name": "test_dependents_of_dropped_clobber_rewired"
+          },
+          {
+            "name": "test_drop_committed_module_impls_keep_on_exception"
+          },
+          {
+            "name": "test_marker_absent_when_no_drop"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_drop_committed_module_impls_idempotent"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_committed_module_rebuild_impl_and_paired_oracle_dropped"
+          },
+          {
+            "name": "test_new_module_not_in_head_is_kept"
+          },
+          {
+            "name": "test_fix_forward_edit_of_existing_module_is_kept"
+          },
+          {
+            "name": "test_repo_root_none_is_strict_noop"
+          },
+          {
+            "name": "test_dependents_of_dropped_clobber_rewired"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "Authoritative pre-committed RED oracle tests/planner/test_committed_module_dedup.py builds a REAL git repo under tmp_path and COMMITS pkg/mod.py (a different brief already built it); working-tree-only pkg/other.py stays UNCOMMITTED so the guard must probe HEAD membership, not working-tree presence. Fixtures: REBUILD_IMPL (files_touched pkg/mod.py) + paired REBUILD_ORACLE (mutation_target pkg.mod, files_touched tests/pkg/test_mod_rebuild.py); NEW_IMPL (pkg/brand_new.py, not at HEAD) + NEW_ORACLE; FIXFWD_IMPL (pkg/mod.py, no paired oracle); DOWNSTREAM_IMPL depending on REBUILD_IMPL. Tests call normalize_plan(plan, repo_root=tmp_path) and normalize_plan(plan, repo_root=None). Do NOT author new tests; make the 5 committed assertions 5/5 green."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Tests are pre-committed (RED oracle); no test authoring. Test budget kept >= 1.5x impl per schema; impl is a minimal additive helper plus one call line in normalize_plan."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "brief_hooks_planner-committed-module-dedup.md",
+  "source_brief_sha256": "b83ffdfbffcf196d794156d0bfdb8d0e953ac50d17cb264caa2b808101032688",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR"
+}

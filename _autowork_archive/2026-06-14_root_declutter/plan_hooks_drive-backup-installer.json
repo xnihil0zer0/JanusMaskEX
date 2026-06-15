@@ -1,0 +1,186 @@
+{
+  "tasks": [
+    {
+      "task_id": "installer-oracle",
+      "title": "Oracle: mutation-gated tests for tools.drive_backup.install_hooks (shim shape, install branches, idempotency, foreign-hook chaining)",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "tools.drive_backup.install_hooks",
+      "priority": "high",
+      "dependencies": [
+        "installer-impl"
+      ],
+      "files_touched": [
+        "tests/drive_backup/test_install_hooks.py"
+      ],
+      "acceptance_criteria": [
+        "tests/drive_backup/test_install_hooks.py exercises render_shim shape (SENTINEL present, absolute janusmask_root, 'python -m tools.drive_backup.hook_runner', unconditional 'exit 0').",
+        "Covers install branches: created (no hook), updated (managed shim, idempotent), chained (foreign hook moved to pre-push.pre-janusmask), and dry_run ':dry' suffix.",
+        "Asserts executable bit (mode 0o755) is set via the injected fs seam.",
+        "All tests run against an injected fake fs seam with no real .git/hooks/pre-push writes, no git/push/hook execution.",
+        "The authored suite FAILS against the declared mutant of tools.drive_backup.install_hooks (non-vacuity) and passes GREEN against the correct impl.",
+        "GREEN under: python -m pytest tests/drive_backup/test_install_hooks.py -q"
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/drive_backup/test_install_hooks.py -q",
+      "spec": {
+        "objective": "Author the mutation-gated oracle tests/drive_backup/test_install_hooks.py that pins the install_hooks contract: shim text shape, install created/updated/chained/dry branches, idempotency, foreign-hook preservation+chaining, and executable-bit setting \u2014 all against an injected fake fs seam.",
+        "functional_requirements": [
+          "Assert DEFAULT_REPOS == ['/home/xnihil0zer0/JanusMaskJR', '/home/xnihil0zer0/NobleGreedv2'] and SENTINEL is defined.",
+          "Assert render_shim output shape: '#!/usr/bin/env bash', bounded by SENTINEL, absolute janusmask_root, 'python -m tools.drive_backup.hook_runner', unconditional 'exit 0', and chained_hook runs the original hook first.",
+          "Assert install branches created/updated/chained/dry via a fake fs seam, idempotency (sentinel never duplicated), foreign-hook move to pre-push.pre-janusmask, and mode 0o755 setting."
+        ],
+        "interfaces": "Imports tools.drive_backup.install_hooks (SENTINEL, DEFAULT_REPOS, render_shim, InstallResult, install, main). Provides an in-memory fake fs seam supporting exists/read/write/move/chmod.",
+        "edge_cases": [
+          "Re-running install on a managed shim yields action 'updated' with the sentinel present exactly once.",
+          "A foreign hook is moved to pre-push.pre-janusmask and chained, never destroyed.",
+          "dry_run=True produces ':dry' actions and performs no writes/chmods."
+        ],
+        "non_goals": [
+          "Does not write a real .git/hooks/pre-push, run git/push, or execute the hook; no archive/upload/credential or rclone logic.",
+          "Does not modify the impl module; authoritative only as the RED/GREEN oracle."
+        ],
+        "implementation_notes": "Use a fake filesystem object injected as fs= into install(...). The oracle is the wiring/contract proof for the paired impl; mutation_target tools.drive_backup.install_hooks resolves to tools/drive_backup/install_hooks.py (in installer-impl files_touched). Do not add a *_wired verification_command \u2014 wiring is proven by the static manifest config/drive_backup_modules.yaml."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_default_repos_and_sentinel_defined"
+          },
+          {
+            "name": "test_render_shim_shape_and_chained"
+          },
+          {
+            "name": "test_install_branches_created_updated_chained_dry"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_dry_run_makes_no_fs_writes"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_idempotent_managed_shim_no_duplicate_sentinel"
+          },
+          {
+            "name": "test_foreign_hook_preserved_and_chained"
+          }
+        ],
+        "minimum_test_count": 9,
+        "test_data_requirements": "In-memory fake fs seam plus fixtures for empty hooks dir, managed shim, and foreign hook; absolute janusmask_root."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 200,
+        "note": "Pure oracle authoring; all budget is the mutation-gated test suite."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "installer-impl",
+      "title": "Drive-backup installer: idempotent marker-guarded pre-push shim writer (render_shim + install + main)",
+      "meta_task_type": "cli_tooling",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tools/drive_backup/install_hooks.py"
+      ],
+      "acceptance_criteria": [
+        "tools/drive_backup/install_hooks.py is a NEW single-file, stdlib-only module.",
+        "DEFAULT_REPOS == ['/home/xnihil0zer0/JanusMaskJR', '/home/xnihil0zer0/NobleGreedv2'] and a SENTINEL marker constant is defined.",
+        "render_shim(janusmask_root) returns a '#!/usr/bin/env bash' shim bounded by SENTINEL, embedding the ABSOLUTE janusmask_root, 'python -m tools.drive_backup.hook_runner', and an unconditional 'exit 0'.",
+        "render_shim(..., chained_hook=...) emits a shim that runs the saved original hook with the same stdin/arguments before the backup step.",
+        "install(repo_roots, *, fs, janusmask_root, dry_run=False) returns list[InstallResult] and routes each repo's <repo>/.git/hooks/pre-push through the injected fs seam.",
+        "No hook -> action 'created'; SENTINEL-managed shim -> action 'updated' (idempotent, never duplicated); foreign hook -> moved to pre-push.pre-janusmask and action 'chained'; dry_run=True -> action suffixed ':dry' with no writes.",
+        "Written hook file is marked executable (mode 0o755) via the fs seam.",
+        "main(argv=None, *, fs=None) is a CLI shim (--dry-run, optional repo overrides) defaulting fs to a real filesystem adapter and returning 0 on success.",
+        "GREEN under: python -m pytest tests/drive_backup/test_install_hooks.py -q"
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -c \"import tools.drive_backup.install_hooks\"",
+      "spec": {
+        "objective": "Build a NEW single-file, whole-file, stdlib-only module tools/drive_backup/install_hooks.py that idempotently installs a thin, marker-guarded pre-push shim into BOTH repos' .git/hooks/pre-push (JanusMaskJR and NobleGreedv2). The shim execs 'python -m tools.drive_backup.hook_runner' and always exits 0 for the backup step, preserving any pre-existing non-managed pre-push hook by chaining to it. IMPL-only against the pre-committed RED oracle.",
+        "functional_requirements": [
+          "DEFAULT_REPOS == ['/home/xnihil0zer0/JanusMaskJR', '/home/xnihil0zer0/NobleGreedv2'] and a SENTINEL marker constant is defined at module scope.",
+          "render_shim(janusmask_root) returns a '#!/usr/bin/env bash' shim bounded by the SENTINEL marker, embedding the ABSOLUTE janusmask_root, 'python -m tools.drive_backup.hook_runner', and an unconditional 'exit 0' for the backup step.",
+          "render_shim(janusmask_root, chained_hook=...) emits a shim that first runs the saved original hook with the SAME stdin and arguments before the drive-backup step (the backup step never affects the exit code).",
+          "install writes the shim when no hook exists (action 'created') and marks the written file executable (mode 0o755) via the injected fs seam.",
+          "install rewrites in place when a SENTINEL-managed shim already exists (action 'updated', idempotent \u2014 the sentinel is never duplicated).",
+          "install moves a foreign non-managed hook to pre-push.pre-janusmask and writes a shim that chains to it (action 'chained'); dry_run=True computes the action/target without writing (action suffixed ':dry')."
+        ],
+        "interfaces": "tools/drive_backup/install_hooks.py: SENTINEL (str marker, e.g. '# >>> janusmask-drive-backup >>>'); DEFAULT_REPOS = ['/home/xnihil0zer0/JanusMaskJR', '/home/xnihil0zer0/NobleGreedv2']; render_shim(janusmask_root, *, chained_hook=None) -> str; InstallResult dataclass with fields (repo, hook_path, action, ok); install(repo_roots=DEFAULT_REPOS, *, fs, janusmask_root, dry_run=False) -> list[InstallResult]; main(argv=None, *, fs=None) -> int. The fs seam abstracts exists/read/write/move/chmod so all tested branches run against a fake filesystem.",
+        "edge_cases": [
+          "Re-running install on an already-managed (SENTINEL) shim is idempotent: action 'updated' and the sentinel marker is never duplicated in the rewritten file.",
+          "A pre-existing FOREIGN (non-managed) pre-push hook is preserved by moving it to pre-push.pre-janusmask and chaining to it (action 'chained'); the original content is never destroyed.",
+          "dry_run=True for any branch computes the action/target via the fs seam without performing any write or chmod (action suffixed ':dry')."
+        ],
+        "non_goals": [
+          "Live integration \u2014 actually writing .git/hooks/pre-push in either repo \u2014 is OUT OF SCOPE here; deferred to the user-run install step. The created/updated/chained/dry branches are exercised against an injected fake fs seam only.",
+          "No execution of git, push, or the hook itself; no archive/upload/credential logic; no rclone config or login (user-setup doc).",
+          "No edits to any existing tracked file in either repo \u2014 the only runtime write is .git/hooks/pre-push (untracked git infrastructure). No edits to any _NEVER_AUTO_APPROVE file.",
+          "No third-party imports (stdlib only). Does NOT author its own oracle \u2014 tests/drive_backup/test_install_hooks.py is the hand-authored RED precondition and is authoritative if a pinned name differs."
+        ],
+        "implementation_notes": "Embed janusmask_root as an ABSOLUTE path so the hook installed in NobleGreedv2 still locates the JanusMask module. The shim reads pushed refs from stdin into a temp var; if chained_hook is set, run the saved original hook with the same stdin/arguments first (preserving ITS exit code as the gate), then cd to janusmask_root and pipe stdin into 'python -m tools.drive_backup.hook_runner \"$@\"' and 'exit 0' unconditionally. Route every filesystem operation through the injected fs seam (exists/read/write/move/chmod) so tests run against a fake fs. main() defaults fs to a real filesystem adapter at runtime. Treat tests/drive_backup/test_install_hooks.py (8 tests) as authoritative for pinned names."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_default_repos_and_sentinel_defined"
+          },
+          {
+            "name": "test_render_shim_shape_absolute_root_hookrunner_exit0"
+          },
+          {
+            "name": "test_render_shim_chained_runs_original_hook_first"
+          },
+          {
+            "name": "test_install_created_writes_shim_and_sets_mode_0o755"
+          },
+          {
+            "name": "test_install_updated_in_place_for_managed_shim"
+          },
+          {
+            "name": "test_install_chained_moves_foreign_hook_and_dry_run_suffix"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_dry_run_never_writes_or_chmods_via_fs_seam"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_idempotent_managed_shim_sentinel_not_duplicated"
+          },
+          {
+            "name": "test_foreign_hook_preserved_and_chained_never_destroyed"
+          }
+        ],
+        "minimum_test_count": 9,
+        "test_data_requirements": "A fake fs seam (in-memory) exposing exists/read/write/move/chmod over <repo>/.git/hooks/pre-push and pre-push.pre-janusmask; fixtures for: empty hooks dir (created), a SENTINEL-managed shim (updated/idempotent), and a foreign non-managed hook (chained). An absolute janusmask_root string."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 160,
+        "note": "New stdlib-only single-file module with a small surface; the bulk of effort is the 6-requirement, branch-heavy oracle (created/updated/chained/dry, idempotency, foreign-hook preservation, executable bit) so test tokens exceed 1.5x impl."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "brief_hooks_drive-backup-installer.md",
+  "source_brief_sha256": "6a2177d18fb7647c77258ca37dd3109be64adad55e1db3fed83f27c5fc3c09e0"
+}

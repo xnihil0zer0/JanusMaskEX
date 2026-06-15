@@ -1,0 +1,120 @@
+{
+  "tasks": [
+    {
+      "task_id": "autocompiler_loop_impl",
+      "title": "Implement Autocompiler Pure Evolutionary Loop Step",
+      "meta_task_type": "orchestration",
+      "priority": "high",
+      "dependencies": [
+        "ac_flags",
+        "ac_population_db",
+        "ac_fitness_vector",
+        "ac_elo",
+        "ac_selection",
+        "ac_crossover",
+        "ac_containment",
+        "ac_vacuity"
+      ],
+      "files_touched": [
+        "autocompiler/loop.py"
+      ],
+      "acceptance_criteria": [
+        "Create the new module autocompiler/loop.py.",
+        "Expose pure function step(db, seams) -> PopulationDB.",
+        "Perform the orchestration: select (P-UCB) -> operate (crossover/operate seam) -> run_seam (test run) -> compute fitness -> insert into population -> rate (Elo).",
+        "If population database is empty, return it unchanged immediately without invoking any seams.",
+        "All database operations, model ratings, git operations, and test runs must go through injected seams or properties; no real process, network, or model is spawned.",
+        "Existing tests in tests/autocompiler/test_loop.py and tests/autocompiler/test_loop_wired.py pass successfully."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/autocompiler/test_loop.py tests/autocompiler/test_loop_wired.py -q",
+      "spec": {
+        "objective": "Build the new module autocompiler/loop.py providing the pure orchestration step(db, seams) -> db'.",
+        "functional_requirements": [
+          "Return the population database unchanged if it is empty, without invoking any seams.",
+          "Select a parent candidate from the population using P-UCB selection (p_ucb) and increment its n_selected attribute.",
+          "Generate a new child candidate using the injected seams['operate'](parent) function and set its parent_ids to [parent.id].",
+          "Execute the child candidate using the injected seams['run'](child) function to obtain a duck-typed test/fuzz result.",
+          "Evaluate the child's fitness vector using compute_fitness, passing the run result, any gate results, and checking for pathology/vacuity.",
+          "If the child's fitness specifies it is not pruned, update Elo ratings using standard Elo math and the injected seams['rate'](child, parent) function, insert the child into the database, and save the database via db.save()."
+        ],
+        "interfaces": "exposes pure `step(db, seams) -> db'` (select->operate->run_seam->fitness->insert->rate; never spawns a process/model). Consumes: `Candidate`/`PopulationDB.add/get/save/load` (ac_population_db), `p_ucb(cands, c, total_n)` (ac_selection), `ast_crossover(a, b)`/`file_crossover(...)` (ac_crossover), `compute_fitness(fuzz_result, gate_results, mutation_vacuous, pathology) -> dict` (ac_fitness_vector), `expected_score`/`update_elo`/`tournament_round(pairs, rater_seam)` (ac_elo), `check_write_containment(parent, cand, ranges) -> GateResult` (ac_containment), `check_vacuity_stub`/`check_complexity_floor(min_by_type)`/`check_no_exception_swallow -> GateResult` (ac_vacuity), `ac_enabled(key, state_dir=None) -> bool` (ac_flags)",
+        "edge_cases": [
+          "An empty database returns immediately with no seams called and no errors raised.",
+          "A pruned candidate (e.g. from check_write_containment or pathology='error') is kept out of the population database but its parent's visit count is still incremented.",
+          "A near-miss candidate (e.g. failures > 0 but not pruned) is rated, has its Elo updated, and is retained in the population.",
+          "All operations and tests flow strictly through injected seams; no real process, network, or external model is spawned."
+        ],
+        "non_goals": [
+          "Does NOT spawn any real process, model, network, or un-injected subprocess \u2014 every spawn/test-run/git op flows through an injected seam.",
+          "Does NOT bypass the verifier \u2014 the empirical fuzzer/test gate still decides truth.",
+          "Does NOT touch any harness/** or _NEVER_AUTO_APPROVE file or wire itself into the worker.",
+          "Does NOT flip a runtime flag or author new tests."
+        ],
+        "implementation_notes": "Implement using standard python libraries. Orchestrate selection (p_ucb), operation (operate seam), testing (run seam), fitness vector computation (compute_fitness), candidate addition, and Elo rating updates (update_elo). Perform filesystem operations only under the injected state_dir (or db.state_dir) using the PopulationDB interface. If state_dir is present and db supports save(), call db.save() at the end.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/autocompiler/test_loop.py\n```python\n\"\"\"RED oracle \u2014 authoritative contract for autocompiler/loop.py (leaf ac-loop).\n\nContract: pure ``step(db, seams) -> PopulationDB`` \u2014 ONE select\u2192operate\u2192run\u2192\nfitness\u2192insert\u2192rate transition over a PopulationDB (autocompiler.population).\n``seams`` is a dict of INJECTED callables; step performs NO other I/O (no\nsubprocess, no model spawn, no network):\n\n* ``seams['operate'](parent: Candidate) -> Candidate`` \u2014 produce a child\n  candidate from the P-UCB-selected parent (selection per\n  autocompiler.selection.p_ucb; the chosen parent's ``n_selected`` increments).\n* ``seams['run'](child: Candidate) -> fuzz-result-like`` \u2014 duck-typed result\n  (attrs ``equivalent``, ``failures``; optional ``pathology``).\n* ``seams['rate'](child: Candidate, parent: Candidate) -> float`` \u2014 pairwise\n  score for the child (1.0/0.5/0.0), driving an Elo update for both.\n\nBehaviour pinned here: the child's ``fitness`` comes from\nautocompiler.fitness.compute_fitness over the run result; ``parent_ids`` of\nthe inserted child == [parent.id]; a PRUNED child (fitness['prune'] True, e.g.\npathology='error') is NOT inserted; an EMPTY db is returned unchanged with NO\nseam called.\n\"\"\"\nfrom types import SimpleNamespace\n\nfrom autocompiler.population import Candidate, PopulationDB\nfrom autocompiler.loop import step\n\n\ndef _seed(tmp_path, cid='seed'):\n    db = PopulationDB(tmp_path)\n    db.add(Candidate(id=cid, code='x = 1\\n', files={'m.py': 'x = 1\\n'},\n                     fitness={'score': 1.0, 'prune': False}, elo=1200.0,\n                     n_selected=0, parent_ids=[]))\n    return db\n\n\ndef _child(parent):\n    return Candidate(id=parent.id + '-child', code='x = 2\\n', files={'m.py': 'x = 2\\n'},\n                     fitness={}, elo=1200.0, n_selected=0, parent_ids=[])\n\n\ndef test_empty_db_noop_no_seams_called(tmp_path):\n    calls = []\n    seams = {'operate': lambda p: calls.append('operate'),\n             'run': lambda c: calls.append('run'),\n             'rate': lambda c, p: calls.append('rate')}\n    db = PopulationDB(tmp_path)\n    out = step(db, seams)\n    assert len(out) == 0\n    assert calls == []\n\n\ndef test_step_inserts_rated_child(tmp_path):\n    db = _seed(tmp_path)\n    calls = {'operate': 0, 'run': 0, 'rate': 0}\n\n    def operate(parent):\n        calls['operate'] += 1\n        assert parent.id == 'seed'\n        return _child(parent)\n\n    def run(child):\n        calls['run'] += 1\n        return SimpleNamespace(equivalent=True, failures=[], total_inputs=20)\n\n    def rate(child, parent):\n        calls['rate'] += 1\n        return 1.0\n    out = step(db, seams={'operate': operate, 'run': run, 'rate': rate})\n    assert calls == {'operate': 1, 'run': 1, 'rate': 1}\n    assert len(out) == 2\n    child = out.get('seed-child')\n    assert child is not None\n    assert child.parent_ids == ['seed']\n    assert child.fitness.get('prune') is False\n    assert child.fitness.get('score') == 1.0\n    assert out.get('seed').n_selected == 1\n    assert child.elo > out.get('seed').elo, 'winning child must gain Elo over the parent'\n\n\ndef test_pruned_child_not_inserted(tmp_path):\n    db = _seed(tmp_path)\n\n    def run(child):\n        return SimpleNamespace(equivalent=False, failures=[1, 2, 3], total_inputs=20,\n                               pathology='error')\n    out = step(db, seams={'operate': _child, 'run': run, 'rate': lambda c, p: 0.0})\n    assert len(out) == 1, 'a prune-floored child must be kept OUT of the population'\n    assert out.get('seed-child') is None\n\n\ndef test_near_miss_child_is_kept(tmp_path):\n    db = _seed(tmp_path)\n\n    def run(child): \n        return SimpleNamespace(equivalent=False, failures=[1], total_inputs=20)\n    out = step(db, seams={'operate': _child, 'run': run, 'rate': lambda c, p: 0.0})\n    assert len(out) == 2, 'a near-miss is RATED and retained, not discarded'\n    kept = out.get('seed-child')\n    assert 0.0 < kept.fitness['score'] < 1.0\n```\n\n## tests/autocompiler/test_loop_wired.py\n```python\n\"\"\"RED wiring oracle for autocompiler/loop.py (leaf ac-loop wire proof).\n\nProves the module is WIRED per harness.wire_up.check_wired: present in the\ndiscovered module set AND reachable from a live root OR registered for dynamic\nwiring under config/** (config/autocompiler.yaml). RED while the module does\nnot exist; GREEN once the leaf lands alongside the committed registration.\n\"\"\"\nfrom pathlib import Path\n\nfrom harness.wire_up import check_wired\n\n\ndef test_loop_module_is_wired():\n    repo_root = Path(__file__).resolve().parents[2]\n    res = check_wired(repo_root, 'autocompiler/loop.py')\n    assert res.wired, res.reason\n```"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_empty_db_noop_no_seams_called"
+          },
+          {
+            "name": "test_step_inserts_rated_child"
+          },
+          {
+            "name": "test_pruned_child_not_inserted"
+          },
+          {
+            "name": "test_near_miss_child_is_kept"
+          },
+          {
+            "name": "test_p_ucb_parent_selection_integration"
+          },
+          {
+            "name": "test_elo_update_on_winning_child"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_loop_module_is_wired"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_loop_property_no_real_io_spawned"
+          },
+          {
+            "name": "test_loop_property_parent_selection_p_ucb"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_loop_regression_pruned_child_excluded"
+          },
+          {
+            "name": "test_loop_regression_near_miss_retained"
+          },
+          {
+            "name": "test_loop_regression_elo_update"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "PopulationDB with populated or empty Candidate records; mocked/injected seams for operate, run, and rate."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Orchestrates sibling modules. Verified using committed red-to-green test suite."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ac-loop.md",
+  "source_brief_sha256": "06bc2eefc1e806a80edc9e9ce615ed04e2dd6b68786dce6f5cfd698a818940a4"
+}

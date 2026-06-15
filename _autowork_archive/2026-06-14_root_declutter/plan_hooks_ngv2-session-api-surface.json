@@ -1,0 +1,113 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2_session_api_surface_impl",
+      "title": "Extend SessionApi and MCP surface to expose new phases, read/advance operations, and human-approval gate",
+      "meta_task_type": "validation",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/session_api.py",
+        "ngv2/session_mcp.py"
+      ],
+      "acceptance_criteria": [
+        "ngv2.session_api.SessionApi is additively extended to support new lifecycle phases ('source' -> ... -> 'done') and 'manual_review' state.",
+        "SessionApi exposes get_current_phase(session_id) returning the phase string.",
+        "SessionApi exposes get_parked_package(session_id) returning the parked submission package dict or None.",
+        "SessionApi exposes get_readiness_reason(session_id) returning the missing artifact reason string or None.",
+        "SessionApi exposes advance(session_id, approval_decision=None) to drive autonomous transitions, gating the awaiting_submission -> submitted transition.",
+        "The transition from awaiting_submission to submitted requires an operator approval decision that approves the submission.",
+        "session_mcp.py is updated to export get_current_phase, get_parked_package, get_readiness_reason, and advance as tools.",
+        "All extensions are pure, deterministic, and perform no network, wall-clock, randomness, or subprocess calls."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -c \"from ngv2.session_api import SessionApi; from ngv2.session_mcp import build_tools; print('Imports and tool builders are valid!')\"",
+      "spec": {
+        "objective": "Additively extend SessionApi and its MCP surface to expose the new phases and read/advance operations while gating the awaiting_submission -> submitted step behind the injected human-approval seam.",
+        "functional_requirements": [
+          "Extend SessionApi to support all phases in source -> hunt -> triage -> verify -> poc -> detonate -> novelty -> report -> awaiting_submission -> submitted -> done, plus manual_review.",
+          "Implement get_current_phase(session_id) to retrieve the current phase from the session pipeline data.",
+          "Implement get_parked_package(session_id) to return the parked turn-in-ready package dict if present in the session.",
+          "Implement get_readiness_reason(session_id) using ngv2.submission_readiness_gate.readiness to return the missing artifact reason or None.",
+          "Implement advance(session_id, approval_decision=None) to run autonomous transitions in a loop until halting at awaiting_submission or done, or failing a gate.",
+          "Gate the transition from awaiting_submission to submitted behind an approval_decision check using ngv2.human_approval_gate.",
+          "Expose the four new operations (get_current_phase, get_parked_package, get_readiness_reason, advance) as tools in session_mcp.py build_tools.",
+          "Ensure the entire implementation is pure, deterministic, and free of I/O, network, or subprocesses, importing only stdlib and ngv2 modules."
+        ],
+        "interfaces": "Exposes get_current_phase(session_id) -> str, get_parked_package(session_id) -> dict|None, get_readiness_reason(session_id) -> str|None, advance(session_id, approval_decision=None) -> dict. Update build_tools(api: SessionApi) -> Dict[str, Callable].",
+        "edge_cases": [
+          "A session without any artifacts returns a valid readiness reason indicating 'confidence' or another appropriate initial missing artifact.",
+          "An invalid or non-existent session_id returns a 404 dict for all read and advance operations.",
+          "Calling advance on a session parked in awaiting_submission without a valid approval decision returns a dict indicating that it remains parked.",
+          "Simultaneous failures are resolved via the readiness gate precedence."
+        ],
+        "non_goals": [
+          "Do not define or modify FSM transition rules or gate logic (consume ngv2_lifecycle_fsm_wiring).",
+          "Do not implement a live platform turn-in adapter or UI components.",
+          "Do not perform wall-clock or random queries."
+        ],
+        "implementation_notes": "Load the session data, retrieve the artifacts, call the corresponding pure gate functions from state_machine, session_gate, submission_readiness_gate, and human_approval_gate. When transitioning to report or awaiting_submission, build and store the submission package in the session data JSON. In session_mcp.py, expand the returned dict from build_tools to include the new tool handlers.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_impl_get_current_phase"
+          },
+          {
+            "name": "test_impl_get_parked_package"
+          },
+          {
+            "name": "test_impl_get_readiness_reason"
+          },
+          {
+            "name": "test_impl_advance_until_halt"
+          },
+          {
+            "name": "test_impl_advance_approval"
+          },
+          {
+            "name": "test_impl_transition_gating"
+          },
+          {
+            "name": "test_impl_mcp_tools_registration"
+          },
+          {
+            "name": "test_impl_invalid_session_handling"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_impl_integration_with_state_machine"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_impl_determinism_and_purity"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_impl_backwards_compatibility"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "Uses the real SessionDB, state_machine, session_gate, contracts, and sibling gates from NobleGreedv2."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 1000,
+        "test_tokens": 1500,
+        "note": "Balanced implementation and test budget to cover the new methods and MCP tool integrations."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2-session-api-surface.md",
+  "source_brief_sha256": "f4a5d72ae56883ab26d80bb7a99577d96f8aca3094af3da54cacee3070ca6eb9",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

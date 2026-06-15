@@ -1,0 +1,101 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2-fix-persist-submission-sessiondb",
+      "title": "ngv2/human_checkpoint_gate.py \u2014 teach _insert_ledger_row the real SessionDB.save_session write path so persist_submission persists its stamped turn-in ledger row over a real, un-subclassed SessionDB",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "working_dir": "/home/xnihil0zer0/NobleGreedv2",
+      "files_touched": [
+        "ngv2/human_checkpoint_gate.py"
+      ],
+      "acceptance_criteria": [
+        "_insert_ledger_row keeps its existing _INSERT_METHODS probe loop byte-identical and FIRST, preserving the committed bind-reconciliation oracle's _FakeDB.insert_ledger_row path.",
+        "After the probe loop, before the terminal raise, a save_session fallback derives the deterministic ledger key 'submission:%s:%s' % (row.get('target'), row.get('timestamp')), copies the row into payload = dict(row) without mutating the caller's row, sets payload['session_id'] = ledger_key, and calls saver(ledger_key, payload).",
+        "The terminal raise AttributeError('SessionDB exposes no recognised ledger insert method') is preserved as the last resort for stores exposing neither surface.",
+        "No other symbol, constant, import, or module is changed; 'save_session' is NOT added to _INSERT_METHODS; ngv2/session_db.py is not modified.",
+        "python -m pytest tests/ngv2/test_persist_submission_sessiondb_wired.py -q is GREEN."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/ngv2/test_persist_submission_sessiondb_wired.py -q",
+      "spec": {
+        "objective": "Rewrite EXACTLY ONE top-level function, _insert_ledger_row, in ngv2/human_checkpoint_gate.py so that \u2014 after its existing _INSERT_METHODS probe loop falls through \u2014 it falls back to the REAL SessionDB.save_session write path (the existing session_pipeline table landed in NGv2 044740a), so persist_submission(record, now_fn) persists its stamped turn-in ledger row through a real, un-subclassed SessionDB instead of raising AttributeError, completing the bounty-FSM submitted -> done turn-in edge.",
+        "functional_requirements": [
+          "Keep the existing `for method_name in _INSERT_METHODS:` probe loop byte-identical and FIRST, calling `method(row)` with one argument and returning on the first callable match (preserves the committed bind-reconciliation oracle's _FakeDB.insert_ledger_row path).",
+          "After the probe loop falls through, resolve `saver = getattr(db, 'save_session', None)` and, when callable, derive the deterministic ledger key `'submission:%s:%s' % (row.get('target'), row.get('timestamp'))`.",
+          "Copy the row with `payload = dict(row)` (never mutate the caller's row), set `payload['session_id'] = ledger_key`, then call `saver(ledger_key, payload)` and return \u2014 carrying every record field plus the session_id bookkeeping key into the durable session_pipeline write path.",
+          "Preserve the terminal `raise AttributeError('SessionDB exposes no recognised ledger insert method')` as the last resort for stores exposing neither surface."
+        ],
+        "interfaces": "Edits ngv2/human_checkpoint_gate.py only. The replaced symbol is the 1-part top-level function `_insert_ledger_row(db: Any, row: Dict[str, Any]) -> None`. It reuses module-level names that already exist (_INSERT_METHODS, Any, Dict); no new symbol, no new import. It calls the read-only SessionDB.save_session(session_id, data) accessor (ngv2/session_db.py, landed NGv2 044740a) which keys rows by json_extract(data, '$.session_id') and writes into the session_pipeline table via _write's BEGIN IMMEDIATE discipline. persist_submission, _make_session_db, check_human_approval, the constants and imports are untouched.",
+        "edge_cases": [
+          "A REAL, un-subclassed SessionDB (none of the _INSERT_METHODS names present) must persist the stamped row through save_session into session_pipeline \u2014 covered by test_persist_submission_writes_through_a_real_sessiondb.",
+          "The stamped row (every carried field PLUS timestamp == 'T-FIXED-0') must survive after the DB is CLOSED and the sqlite FILE re-opened fresh \u2014 real on-disk persistence, not :memory: \u2014 covered by test_stamped_row_survives_fresh_reopen.",
+          "A store exposing insert_ledger_row (the _FakeDB) must still win via the unchanged probe loop FIRST \u2014 covered by test_record_seam_stamps_injected_clock_and_persists in the committed bind-reconciliation oracle.",
+          "The caller's input record/row must NOT be mutated (payload = dict(row) before adding session_id).",
+          "A store exposing NEITHER a recognised _INSERT_METHODS name NOR save_session must still raise AttributeError loudly (terminal raise preserved)."
+        ],
+        "non_goals": [
+          "Integration/e2e testing is OUT OF SCOPE: do NOT add integration or e2e tests; this fix is verified solely by the committed unit oracle tests/ngv2/test_persist_submission_sessiondb_wired.py.",
+          "Do NOT author or modify any test \u2014 the oracle tests/ngv2/test_persist_submission_sessiondb_wired.py (NGv2 87dd54a) is committed and authoritative.",
+          "Do NOT modify ngv2/session_db.py \u2014 SessionDB already has the save_session write path (NGv2 044740a); do NOT implement the alternative variant (adding insert_ledger_row / a new ledger table / changing schema/DDL/pragmas).",
+          "Do NOT change persist_submission, _make_session_db, check_human_approval, _token_approval, _approval_from_json, _approval_from_text, the module constants (_APPROVE_TOKENS, _REJECT_MARKERS, _APPROVE_MARKERS, _DECISION_FIELDS, _LEDGER_FIELDS, _INSERT_METHODS), the imports, or the module docstring \u2014 rewrite _insert_ledger_row ONLY.",
+          "Do NOT add 'save_session' to _INSERT_METHODS (the probe loop calls method(row) with ONE arg and save_session(session_id, data) takes two \u2014 that would TypeError).",
+          "Do NOT reorder the fallback ahead of the _INSERT_METHODS probe loop, and do NOT remove the terminal raise AttributeError(...).",
+          "Do NOT mutate the caller's row (copy before adding session_id). Do NOT touch ngv2/session_gate.py, ngv2/session_api.py, ngv2/contracts.py, or any other module. No new imports, no network, no wall-clock, no randomness, no third-party dependencies."
+        ],
+        "implementation_notes": "Read the read-only current module layout first (the brief reproduces the exact current defective source and the byte-for-byte corrected target). Keep the function pure/deterministic over its inputs (no clock, randomness, network, subprocess; stdlib only \u2014 the timestamp already comes from persist_submission's injected now_fn). EXACT corrected target to reproduce VERBATIM:\n\n    def _insert_ledger_row(db: Any, row: Dict[str, Any]) -> None:\n        \"\"\"Insert ``row`` via the first recognised SessionDB ledger method,\n        falling back to the real ``SessionDB.save_session`` write path (the\n        ``session_pipeline`` table) when none of the conventional names exists.\n        \"\"\"\n        for method_name in _INSERT_METHODS:\n            method = getattr(db, method_name, None)\n            if callable(method):\n                method(row)\n                return\n        saver = getattr(db, 'save_session', None)\n        if callable(saver):\n            ledger_key = 'submission:%s:%s' % (row.get('target'), row.get('timestamp'))\n            payload = dict(row)\n            payload['session_id'] = ledger_key\n            saver(ledger_key, payload)\n            return\n        raise AttributeError('SessionDB exposes no recognised ledger insert method')\n\nDISPATCH DIRECTIVE \u2014 PATCH FORMAT (single whole-symbol patch on an EXISTING 1-part top-level function \u2014 the canonical safe shape): emit a single top-level `__JANUSMASK_PATCHES__` list with EXACTLY ONE entry:\n\n    __JANUSMASK_PATCHES__ = [\n        {'file': 'ngv2/human_checkpoint_gate.py', 'kind': 'symbol', 'name': '_insert_ledger_row',\n         'code': r'''def _insert_ledger_row(db: Any, row: Dict[str, Any]) -> None:\n    ... the corrected function, byte-for-byte per the Scope target ...\n'''},\n    ]\n\nThe `name` MUST be the 1-part TOP-LEVEL name `'_insert_ledger_row'` \u2014 never a dotted qualname, never a manifest, never a whole-file rewrite, never any extra top-level node (the fix needs NO new symbol: `_INSERT_METHODS`, `Any`, `Dict` already exist at module level). POST-EMIT SELF-CHECK (mandatory): your emitted `code` must START with `def _insert_ledger_row(db: Any, row: Dict[str, Any]) -> None:` at column 0, contain the unchanged `for method_name in _INSERT_METHODS:` probe loop, the `save_session` fallback, and END with the original `raise AttributeError('SessionDB exposes no recognised ledger insert method')` line; it must contain exactly ONE top-level `def` and no `class `/`import ` statements.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/ngv2/test_persist_submission_sessiondb_wired.py\n```python\n\"\"\"RED oracle \u2014 persist_submission must persist to a real SessionDB.\n\nDEFECT (verified live): ``ngv2.human_checkpoint_gate.persist_submission``\nstamps the record with the injected ``now_fn`` and hands the row to\n``_insert_ledger_row``, which only probes the conventional insert-method names\nin ``_INSERT_METHODS`` (``'insert_ledger_row'`` ... ``'log'``).  The REAL\n``ngv2.session_db.SessionDB`` exposes NONE of those names \u2014 its actual write\nsurface is ``insert_finding`` / ``insert_poc`` / ``insert_report`` /\n``append_phase_validation_log`` / ``save_session`` / ``_write`` \u2014 so\n``persist_submission`` raises ``AttributeError: SessionDB exposes no\nrecognised ledger insert method`` over ANY real SessionDB and the\n``submitted -> done`` turn-in ledger write is unreachable end-to-end.  The\ncommitted bind-reconciliation oracle\n(tests/ngv2/test_session_gate_bind_reconciliation_wired.py) masks this by\ninjecting a ``_FakeDB`` that fabricates ``insert_ledger_row``; this oracle\ninjects the REAL, un-subclassed ``SessionDB`` on a temp sqlite file through\nthe gate's own ``session_db`` seam, exactly as a live run would see it.\n\nAcceptance (variant-agnostic on storage location): ``persist_submission``\ncompletes without AttributeError, does not mutate its input record, and the\nstamped row \u2014 every carried field plus ``timestamp`` from the injected\n``now_fn`` \u2014 is found in the sqlite file after closing the DB and re-opening\nit fresh (real on-disk persistence, not in-memory).\n\"\"\"\nfrom __future__ import annotations\n\nimport json\nimport sqlite3\nimport types\n\nimport pytest\n\nimport ngv2.human_checkpoint_gate as hcg\nfrom ngv2.session_db import SessionDB\n\nRECORD = {\n    \"target\": \"pkg-x\",\n    \"cwe\": \"CWE-78\",\n    \"severity\": \"high\",\n    \"payout_estimate\": 500,\n    \"novelty\": \"NOVEL\",\n    \"evidence\": \"poc-evidence-sentinel-7741\",\n    \"approval\": True,\n}\n\n\ndef _persist_over_real_sessiondb(tmp_path, monkeypatch):\n    \"\"\"Run persist_submission with the gate's session_db seam pointed at a\n    REAL, un-subclassed SessionDB on a temp sqlite file.  Returns\n    (db_path, record_before).\"\"\"\n    db_path = str(tmp_path / \"session.db\")\n    real_db = SessionDB(db_path)\n    assert type(real_db) is SessionDB  # REAL, un-subclassed\n    monkeypatch.setattr(\n        hcg, \"session_db\", types.SimpleNamespace(SessionDB=lambda: real_db)\n    )\n    record = dict(RECORD)\n    before = dict(record)\n    try:\n        hcg.persist_submission(record, lambda: \"T-FIXED-0\")\n    except AttributeError as exc:\n        pytest.fail(\n            \"persist_submission cannot write through a REAL SessionDB \"\n            \"(its _INSERT_METHODS probe list matches no real SessionDB \"\n            \"method): %s\" % (exc,)\n        )\n    assert record == before, \"persist_submission must not mutate its input\"\n    real_db.close()\n    return db_path, before\n\n\ndef _find_persisted_row(db_path):\n    \"\"\"Scan every table of the sqlite file for a JSON cell carrying the\n    sentinel evidence value; storage-location agnostic by design.\"\"\"\n    con = sqlite3.connect(db_path)\n    try:\n        tables = [\n            row[0]\n            for row in con.execute(\n                \"SELECT name FROM sqlite_master WHERE type='table'\"\n            )\n        ]\n        for table in tables:\n            for row in con.execute('SELECT * FROM \"%s\"' % table):\n                for cell in row:\n                    if not isinstance(cell, str):\n                        continue\n                    try:\n                        parsed = json.loads(cell)\n                    except (ValueError, TypeError):\n                        continue\n                    if (\n                        isinstance(parsed, dict)\n                        and parsed.get(\"evidence\") == RECORD[\"evidence\"]\n                    ):\n                        return parsed\n        return None\n    finally:\n        con.close()\n\n\ndef test_persist_submission_writes_through_a_real_sessiondb(\n    tmp_path, monkeypatch\n):\n    db_path, _ = _persist_over_real_sessiondb(tmp_path, monkeypatch)\n    assert _find_persisted_row(db_path) is not None, (\n        \"persist_submission returned without error but no ledger row \"\n        \"reached the sqlite file at %s\" % (db_path,)\n    )\n\n\ndef test_stamped_row_survives_fresh_reopen(tmp_path, monkeypatch):\n    db_path, before = _persist_over_real_sessiondb(tmp_path, monkeypatch)\n    persisted = _find_persisted_row(db_path)\n    assert persisted is not None, (\n        \"no persisted ledger row found after closing the SessionDB and \"\n        \"re-opening the sqlite file fresh \u2014 the write did not survive\"\n    )\n    assert persisted.get(\"timestamp\") == \"T-FIXED-0\", (\n        \"timestamp must come from the injected now_fn, never the wall clock\"\n    )\n    for key, value in before.items():\n        assert persisted.get(key) == value, (\n            \"persisted ledger row lost field %r\" % (key,)\n        )\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_persist_submission_writes_through_a_real_sessiondb"
+          },
+          {
+            "name": "test_stamped_row_survives_fresh_reopen"
+          },
+          {
+            "name": "test_persist_submission_does_not_mutate_input_record"
+          },
+          {
+            "name": "test_no_recognised_surface_still_raises_attributeerror"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_insert_ledger_row_is_deterministic_over_inputs"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_persist_submission_writes_through_a_real_sessiondb"
+          },
+          {
+            "name": "test_stamped_row_survives_fresh_reopen"
+          },
+          {
+            "name": "test_record_seam_stamps_injected_clock_and_persists"
+          }
+        ],
+        "minimum_test_count": 6,
+        "test_data_requirements": "All acceptance is via the committed oracle tests/ngv2/test_persist_submission_sessiondb_wired.py (NGv2 87dd54a): a REAL un-subclassed SessionDB(tmp_sqlite) bound to the gate's session_db seam, the canonical record schema (target/cwe/severity/payout_estimate/novelty/evidence/approval), persist_submission(record, lambda: 'T-FIXED-0'), then close-and-reopen the sqlite file scanning every table for a JSON cell round-tripping the row (incl. timestamp == 'T-FIXED-0'). No new test data, no new tests authored."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Tiny single-function whole-symbol replacement; no tests authored (committed oracle is authoritative), so test budget covers reading/running the oracle only."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2_fix_persist_submission_sessiondb.md",
+  "source_brief_sha256": "30c3ae72e68cfa53c9615ebcdc39a1fbb7b82f1b500098b1cc350b08c8beea57",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

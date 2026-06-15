@@ -1,0 +1,120 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2-stage-command-map-impl",
+      "title": "Implement deterministic phase\u2192command-spec mapper ngv2/stage_command_map.py",
+      "meta_task_type": "validation",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/stage_command_map.py"
+      ],
+      "acceptance_criteria": [
+        "NEW whole-file module ngv2/stage_command_map.py exposes exactly command_for_phase(phase: str, session_ctx: dict) -> dict.",
+        "The seven agent-driven phases {hunt, triage, verify, poc, detonate, novelty, report} with valid ctx return {\"runnable\": True, \"phase\": phase, \"argv\": list[str], \"output_path\": str, \"env\": dict}.",
+        "For an agent phase with valid ctx, argv == [\"python\", \"-m\", \"ngv2.workers.\" + phase, \"--session-id\", session_id, \"--repo\", repo, \"--target\", target_path, \"--out\", output_path] and output_path == f\"{output_dir}/{phase}.json\".",
+        "env == {\"NGV2_SESSION_ID\": session_id} merged over a COPY of session_ctx.get('env', {}) (or empty dict); the returned env is a distinct object and session_ctx is never mutated.",
+        "Non-agent/terminal phases {awaiting_submission, submitted, done} and any unknown phase return {\"runnable\": False, \"phase\": phase, \"reason\": str}.",
+        "Missing/empty session_id or output_dir for an otherwise-agent phase returns {\"runnable\": False, \"phase\": phase, \"reason\": str} (fail-closed) with a non-empty reason.",
+        "Module is pure/stdlib-only and deterministic: no spawn/fork/exec/subprocess, no filesystem/network/clock/randomness I/O, no eval/exec.",
+        "tests/ngv2/test_stage_command_map_wired.py imports command_for_phase from ngv2.stage_command_map and passes GREEN."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/ngv2/test_stage_command_map_wired.py -q",
+      "spec": {
+        "objective": "Build the NEW whole-file module ngv2/stage_command_map.py exposing the pure, stdlib-only function command_for_phase(phase, session_ctx) that deterministically maps a NobleGreed phase to the COMMAND SPEC used to spawn that phase's agent worker, so no agent decides which driver to launch. It only BUILDS the spec; it never spawns, forks, execs, reads, writes, sleeps, or touches the network/clock/randomness, and never mutates session_ctx.",
+        "functional_requirements": [
+          "Expose exactly one public function command_for_phase(phase: str, session_ctx: dict) -> dict in ngv2/stage_command_map.py.",
+          "Recognize the seven agent-driven phases {hunt, triage, verify, poc, detonate, novelty, report} as runnable when ctx is valid.",
+          "For a valid agent phase, build argv = [\"python\", \"-m\", \"ngv2.workers.\" + phase, \"--session-id\", session_id, \"--repo\", repo, \"--target\", target_path, \"--out\", output_path] with output_path = f\"{output_dir}/{phase}.json\".",
+          "For a valid agent phase, build env = {\"NGV2_SESSION_ID\": session_id} merged over a COPY of session_ctx.get('env', {}) (or empty dict), and return {\"runnable\": True, \"phase\": phase, \"argv\": argv, \"output_path\": output_path, \"env\": env}.",
+          "Return {\"runnable\": False, \"phase\": phase, \"reason\": str} for the non-agent/terminal phases {awaiting_submission, submitted, done} and for any unknown phase.",
+          "Fail-closed: return {\"runnable\": False, \"phase\": phase, \"reason\": str} with a non-empty reason when session_id or output_dir is missing or empty for an otherwise-agent phase.",
+          "Never mutate the input session_ctx: env must be built on a copy so the returned env is a distinct object and a deep-equality of session_ctx holds before and after the call."
+        ],
+        "interfaces": "command_for_phase(phase: str, session_ctx: dict) -> dict. session_ctx carries session_id (str), repo (str), target_path (str), output_dir (str), optional model (str), optional env (dict). Returns runnable spec {runnable: True, phase, argv, output_path, env} for valid agent phases; fail-closed {runnable: False, phase, reason} otherwise. Pure/deterministic, no subprocess/I/O.",
+        "edge_cases": [
+          "(a) phase=\"poc\" with full ctx -> runnable is True; output_path endswith \"poc.json\"; argv contains \"--session-id\" and the literal session_id value; argv contains \"-m\" and \"ngv2.workers.poc\".",
+          "(b) phase=\"awaiting_submission\" -> runnable is False (human/terminal phase, no agent) with a reason.",
+          "(c) unknown phase=\"foo\" -> runnable is False with a reason.",
+          "(d) ctx missing session_id (e.g. {\"repo\":..., \"target_path\":..., \"output_dir\":...}) -> runnable is False with a non-empty reason.",
+          "(e) input session_ctx is NOT mutated by the call: deep-equality before/after holds, and the returned env is a distinct object containing NGV2_SESSION_ID.",
+          "Empty-string session_id or empty-string output_dir for an agent phase -> fail-closed runnable is False.",
+          "Agent phase with no 'env' key in session_ctx -> env defaults to {\"NGV2_SESSION_ID\": session_id} only; session_ctx still not mutated.",
+          "Terminal phases 'submitted' and 'done' -> runnable is False with a reason."
+        ],
+        "non_goals": [
+          "Does NOT spawn, fork, exec, or subprocess anything; only builds the spec.",
+          "Does NOT perform any filesystem, network, clock, or randomness I/O, and contains no eval/exec.",
+          "Does NOT mutate the input session_ctx (env is built on a copy).",
+          "Does NOT author new tests (the oracle tests/ngv2/test_stage_command_map_wired.py is pre-committed).",
+          "Does NOT touch any harness/**, config/**, scripts/**, services/**, or _NEVER_AUTO_APPROVE file.",
+          "No integration / end-to-end conductor spawn-loop test is in scope for this pure single-file validation leaf."
+        ],
+        "implementation_notes": "Define a module-level frozenset/tuple of the seven agent phases {hunt, triage, verify, poc, detonate, novelty, report} and treat everything else (including the terminal/non-agent {awaiting_submission, submitted, done} and unknown phases) as not-runnable. Order the checks fail-closed: if phase not in agent set -> {runnable: False, phase, reason}; else read session_id, repo, target_path, output_dir from session_ctx and if session_id or output_dir is missing/empty -> {runnable: False, phase, reason}; else compute output_path = f\"{output_dir}/{phase}.json\", build the fixed argv list, build env = {**dict(session_ctx.get('env') or {}), 'NGV2_SESSION_ID': session_id} (a fresh dict so session_ctx is untouched and NGV2_SESSION_ID wins), and return the runnable spec. Use only the standard library; no imports that perform I/O. The reachability/wiring is provided by the pre-committed oracle which imports command_for_phase from the live ngv2.stage_command_map; do not author or modify tests.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/ngv2/test_stage_command_map_wired.py\n```python\n\"\"\"RED oracle for ngv2.stage_command_map -- the deterministic phase->command-spec\nmapper that NobleGreed's bug-hunt state machine uses to decide which agent-worker\ndriver to spawn for a given phase. It is PURE and stdlib-only: it BUILDS a command\nspec; it NEVER spawns, forks, execs, subprocesses, reads/writes disk, touches the\nnetwork, the clock, or randomness.\n\ncommand_for_phase(phase, session_ctx) returns, for an agent-driven phase\n{hunt, triage, verify, poc, detonate, novelty, report} with a valid ctx:\n  {\"runnable\": True, \"phase\": phase, \"argv\": list[str], \"output_path\": str, \"env\": dict}\nand for a non-agent/terminal phase {awaiting_submission, submitted, done}, an\nunknown phase, or a ctx missing session_id/output_dir:\n  {\"runnable\": False, \"phase\": phase, \"reason\": str}.\nThe input session_ctx is NEVER mutated (env is built on a copy).\n\nThis oracle is the *_wired reachability proof: importing command_for_phase from the\nlive ngv2.stage_command_map module is the wiring contract (the conductor spawn path\ncalls exactly this to decide which driver to launch per phase).\n\"\"\"\nimport copy\n\nfrom ngv2.stage_command_map import command_for_phase\n\nAGENT_PHASES = [\"hunt\", \"triage\", \"verify\", \"poc\", \"detonate\", \"novelty\", \"report\"]\nTERMINAL_PHASES = [\"awaiting_submission\", \"submitted\", \"done\"]\n\n\ndef _full_ctx():\n    return {\n        \"session_id\": \"sess-abc123\",\n        \"repo\": \"owner/target-repo\",\n        \"target_path\": \"/work/target-repo\",\n        \"output_dir\": \"/work/out\",\n        \"model\": \"opus\",\n    }\n\n\n# --- wiring / contract: callable importable from the live module ------------\ndef test_wired_command_for_phase_is_importable_and_callable():\n    res = command_for_phase(\"poc\", _full_ctx())\n    assert isinstance(res, dict)\n    assert \"runnable\" in res\n    assert res[\"phase\"] == \"poc\"\n\n\n# --- (a) agent phase \"poc\" with full ctx -> runnable spec -------------------\ndef test_poc_full_ctx_is_runnable_spec():\n    ctx = _full_ctx()\n    res = command_for_phase(\"poc\", ctx)\n    assert res[\"runnable\"] is True\n    assert res[\"phase\"] == \"poc\"\n    assert isinstance(res[\"argv\"], list)\n    assert all(isinstance(a, str) for a in res[\"argv\"])\n    assert res[\"output_path\"].endswith(\"poc.json\")\n    assert res[\"output_path\"] == \"/work/out/poc.json\"\n    # argv carries the session-id flag AND the literal session_id value\n    assert \"--session-id\" in res[\"argv\"]\n    assert \"sess-abc123\" in res[\"argv\"]\n    # argv launches the per-phase worker module\n    assert \"-m\" in res[\"argv\"]\n    assert \"ngv2.workers.poc\" in res[\"argv\"]\n    # env carries the session id, on its own dict\n    assert isinstance(res[\"env\"], dict)\n    assert res[\"env\"][\"NGV2_SESSION_ID\"] == \"sess-abc123\"\n\n\ndef test_all_agent_phases_runnable_and_output_path_matches_phase():\n    for phase in AGENT_PHASES:\n        res = command_for_phase(phase, _full_ctx())\n        assert res[\"runnable\"] is True, phase\n        assert res[\"phase\"] == phase\n        assert res[\"output_path\"] == f\"/work/out/{phase}.json\"\n        assert f\"ngv2.workers.{phase}\" in res[\"argv\"]\n\n\n# --- (b) terminal/non-agent phase -> not runnable ---------------------------\ndef test_awaiting_submission_is_not_runnable():\n    res = command_for_phase(\"awaiting_submission\", _full_ctx())\n    assert res[\"runnable\"] is False\n    assert res[\"phase\"] == \"awaiting_submission\"\n    assert isinstance(res.get(\"reason\"), str) and res[\"reason\"]\n\n\ndef test_all_terminal_phases_are_not_runnable():\n    for phase in TERMINAL_PHASES:\n        res = command_for_phase(phase, _full_ctx())\n        assert res[\"runnable\"] is False, phase\n        assert isinstance(res.get(\"reason\"), str) and res[\"reason\"]\n\n\n# --- (c) unknown phase -> not runnable --------------------------------------\ndef test_unknown_phase_foo_is_not_runnable():\n    res = command_for_phase(\"foo\", _full_ctx())\n    assert res[\"runnable\"] is False\n    assert res[\"phase\"] == \"foo\"\n    assert isinstance(res.get(\"reason\"), str) and res[\"reason\"]\n\n\n# --- (d) missing session_id -> not runnable, with reason --------------------\ndef test_missing_session_id_is_not_runnable_with_reason():\n    ctx = {\n        \"repo\": \"owner/target-repo\",\n        \"target_path\": \"/work/target-repo\",\n        \"output_dir\": \"/work/out\",\n    }\n    res = command_for_phase(\"poc\", ctx)\n    assert res[\"runnable\"] is False\n    assert res[\"phase\"] == \"poc\"\n    assert isinstance(res.get(\"reason\"), str) and res[\"reason\"]\n\n\ndef test_missing_output_dir_is_not_runnable_with_reason():\n    ctx = {\n        \"session_id\": \"sess-abc123\",\n        \"repo\": \"owner/target-repo\",\n        \"target_path\": \"/work/target-repo\",\n    }\n    res = command_for_phase(\"poc\", ctx)\n    assert res[\"runnable\"] is False\n    assert isinstance(res.get(\"reason\"), str) and res[\"reason\"]\n\n\n# --- (e) input session_ctx is NOT mutated -----------------------------------\ndef test_session_ctx_not_mutated():\n    ctx = _full_ctx()\n    ctx[\"env\"] = {\"PRE_EXISTING\": \"keep\"}\n    before = copy.deepcopy(ctx)\n    res = command_for_phase(\"hunt\", ctx)\n    assert ctx == before, \"command_for_phase must not mutate session_ctx\"\n    # env was built on a copy: distinct object, carries the session id,\n    # and preserves the caller's pre-existing env entries.\n    assert res[\"env\"] is not ctx[\"env\"]\n    assert res[\"env\"][\"NGV2_SESSION_ID\"] == \"sess-abc123\"\n    assert res[\"env\"][\"PRE_EXISTING\"] == \"keep\"\n\n\n# --- determinism ------------------------------------------------------------\ndef test_output_is_deterministic():\n    a = command_for_phase(\"verify\", _full_ctx())\n    b = command_for_phase(\"verify\", _full_ctx())\n    assert a == b\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_poc_full_ctx_runnable_and_argv_shape (edge a)"
+          },
+          {
+            "name": "test_awaiting_submission_not_runnable_with_reason (edge b)"
+          },
+          {
+            "name": "test_unknown_phase_foo_not_runnable_with_reason (edge c)"
+          },
+          {
+            "name": "test_missing_session_id_fail_closed_nonempty_reason (edge d)"
+          },
+          {
+            "name": "test_session_ctx_not_mutated_and_env_distinct_object (edge e)"
+          },
+          {
+            "name": "test_output_path_is_output_dir_slash_phase_json"
+          },
+          {
+            "name": "test_env_merges_over_copy_of_session_ctx_env"
+          },
+          {
+            "name": "test_missing_or_empty_output_dir_fail_closed"
+          },
+          {
+            "name": "test_terminal_phases_submitted_and_done_not_runnable"
+          },
+          {
+            "name": "test_all_seven_agent_phases_runnable_with_valid_ctx"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_idempotent_session_ctx_invariant_across_arbitrary_phases"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_wired_oracle_green_imports_command_for_phase_from_live_module"
+          }
+        ],
+        "minimum_test_count": 11,
+        "test_data_requirements": "A full valid session_ctx fixture {session_id, repo, target_path, output_dir, optional env}; a ctx variant missing session_id; a ctx variant with empty output_dir; the canonical phase vocabulary source\u2192hunt\u2192triage\u2192verify\u2192poc\u2192detonate\u2192novelty\u2192report\u2192awaiting_submission\u2192submitted\u2192done; an unknown phase string \"foo\". All assertions are exercised by the pre-committed tests/ngv2/test_stage_command_map_wired.py oracle."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Tests are pre-committed (RED oracle tests/ngv2/test_stage_command_map_wired.py); the implementation is a small deterministic stdlib-only spec builder, so the test-to-impl weighting reflects the verification-heavy validation contract."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2_stage_command_map.md",
+  "source_brief_sha256": "8ea3b64bb629a8f65081bf7f75c66b275c693e58ca8107690b54ae90d64098da",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

@@ -1,0 +1,119 @@
+{
+  "tasks": [
+    {
+      "task_id": "files-touched-sensitive-guard",
+      "title": "Validator guard: non-harness_self_fix task may not list a sensitive-glob path in files_touched",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/planner/plan_validator.py"
+      ],
+      "acceptance_criteria": [
+        "A new module-level helper `_sensitive_glob_violations(task: dict, path_prefix: str) -> list[PlanViolation]` exists in harness/planner/plan_validator.py.",
+        "When the task's meta_task_type is `harness_self_fix`, the helper returns `[]` regardless of files_touched contents.",
+        "For a non-harness_self_fix task, each str files_touched entry matching any glob in _SENSITIVE_APPLY_GLOBS (harness/**, config/**, scripts/**, services/**) via fnmatch.fnmatch (after \\\\->/ normalization) yields one PlanViolation with code EXACTLY `sensitive_files_touched`, field `{path_prefix}.files_touched`, and a message naming the offending path.",
+        "The glob tuple is resolved inside the helper via `try: from harness.git_integration import _SENSITIVE_APPLY_GLOBS as _GLOBS except Exception: _GLOBS = ('harness/**', 'config/**', 'scripts/**', 'services/**')`.",
+        "Missing/None/non-list files_touched and non-str entries are tolerated (skipped, never raise).",
+        "validate_plan's per-task loop calls the helper and extends the violations list with its result.",
+        "Plans with no sensitive paths produce byte-identical behaviour to before.",
+        "`python -m pytest tests/planner/test_files_touched_sensitive_guard.py tests/planner/test_files_touched_sensitive_guard_wired.py -q` passes with zero regressions in the planner suite."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/planner/test_files_touched_sensitive_guard.py tests/planner/test_files_touched_sensitive_guard_wired.py -q",
+      "spec": {
+        "objective": "Close the planning-time gap (HANDOFF \u00a72, observed on ac-selection / ac-fitness-vector) where the planner copies a sensitive registration file such as config/autocompiler.yaml into a non-harness_self_fix task's files_touched. At accept, _enforce_apply_scope refuses the sensitive-glob write -> auto_commit_failed and the task retries to exhaustion. Such a task can NEVER commit a path under _SENSITIVE_APPLY_GLOBS, so the plan must be rejected at planning time with a clear, path-naming message. Add ONE module-level helper to harness/planner/plan_validator.py and wire it into validate_plan's per-task loop.",
+        "functional_requirements": [
+          "Add a new module-level helper `_sensitive_glob_violations(task: dict, path_prefix: str) -> list[PlanViolation]` to harness/planner/plan_validator.py, adjacent to the existing per-task check helpers (e.g. check_missing_fields).",
+          "If `task.get('meta_task_type') == 'harness_self_fix'`, the helper returns `[]` immediately (such tasks are legitimately allowed to touch sensitive globs).",
+          "For any other meta_task_type, iterate the str entries of files_touched and, for each entry matching ANY sensitive glob via fnmatch.fnmatch after normalizing backslashes to forward slashes, emit a PlanViolation(code='sensitive_files_touched', field=f'{path_prefix}.files_touched', message=...) whose message names the offending path and explains a non-harness_self_fix task can never commit it.",
+          "Resolve the sensitive glob tuple INSIDE the helper using the worker's proven try-import idiom: `try: from harness.git_integration import _SENSITIVE_APPLY_GLOBS as _GLOBS except Exception: _GLOBS = ('harness/**', 'config/**', 'scripts/**', 'services/**')`.",
+          "Tolerate missing/None/non-list files_touched and non-str entries: skip gracefully and never raise (no entries -> return []).",
+          "Call `_sensitive_glob_violations(task, path_prefix)` from validate_plan's per-task loop and extend the accumulated violations list with its result, matching how sibling helpers contribute violations."
+        ],
+        "interfaces": "_sensitive_glob_violations(task: dict, path_prefix: str) -> list[PlanViolation] \u2014 emits a sensitive_files_touched violation for each _SENSITIVE_APPLY_GLOBS path listed by a non-harness_self_fix task; returns [] for harness_self_fix tasks or when files_touched is missing/empty/non-list; called from validate_plan's per-task loop.",
+        "edge_cases": [
+          "Each of the four globs is independently caught: a data_model task listing harness/x.py, config/autocompiler.yaml, scripts/y.sh, or services/z.py each produces exactly one sensitive_files_touched violation naming that path.",
+          "A harness_self_fix task that lists a sensitive path (e.g. harness/planner/plan_validator.py) produces NO violation \u2014 the helper returns [].",
+          "Free paths and tests/** entries (e.g. src/foo.py, tests/planner/test_x.py) produce no violation for any meta_task_type.",
+          "files_touched that is missing, None, or a non-list (e.g. a str) is tolerated and yields [] without raising; non-str entries inside a list are skipped.",
+          "Windows-style backslash paths (e.g. config\\\\autocompiler.yaml) are normalized to forward slashes before fnmatch so they still match config/**."
+        ],
+        "non_goals": [
+          "No integration test \u2014 the helper is exercised by the existing planner pipeline and the two pre-committed oracle files; the missing_integration_test check is excused on that basis.",
+          "Do NOT edit harness/git_integration.py, harness/orchestrator_worker.py, or any _NEVER_AUTO_APPROVE file.",
+          "Do NOT strip or mutate files_touched (that is the normalizer's job); this leaf REJECTS with a violation instead.",
+          "Do NOT exempt any non-harness_self_fix meta type.",
+          "Do NOT touch _is_module_creating, _is_wiring_oracle, or any other existing symbol's logic; behaviour for plans with no sensitive paths must be byte-identical.",
+          "Do NOT author or modify tests \u2014 both oracles are pre-committed and RED.",
+          "Do NOT list any files_touched path other than harness/planner/plan_validator.py \u2014 doing so is itself the trap this leaf fixes."
+        ],
+        "implementation_notes": "PlanViolation is defined in the same file (~:64). The per-task loop lives in validate_plan (~:112+) and already appends from helpers like check_missing_fields \u2014 add the `violations.extend(_sensitive_glob_violations(task, path_prefix))` call there using the same path_prefix the sibling helpers receive. The canonical glob source is harness/git_integration.py:16 (_SENSITIVE_APPLY_GLOBS, read-only). Mirror the try-import fallback idiom at harness/orchestrator_worker.py:940-961 (import INSIDE the helper, not at module top). EMISSION: symbol patches only \u2014 the NEW top-level helper _sensitive_glob_violations rides as an R-ANCHORED trailing node of the validate_plan symbol patch (documented new-top-level-symbol recipe), plus the call edit inside validate_plan's per-task loop. Do NOT emit whole-file or __JANUSMASK_MANIFEST__ for this EDIT. The oracle contract fixes the violation code EXACTLY as `sensitive_files_touched`.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/planner/test_files_touched_sensitive_guard.py\n```python\n\"\"\"RED oracle: validate_plan must reject a non-harness_self_fix task that lists a\n_SENSITIVE_APPLY_GLOBS path in files_touched (HANDOFF \u00a72).\n\nContract for the files-touched-sensitive-guard leaf: such a task can NEVER commit\nthat path (_enforce_apply_scope refuses it at accept), so the plan must be rejected\nat planning time with a clear `sensitive_files_touched` violation instead of\ndead-ending at accept with auto_commit_failed retries. A `harness_self_fix` task\nlisting a sensitive path is untouched (it commits via the decision file). The\nsensitive globs are harness/**, config/**, scripts/**, services/**.\n\nWe assert specifically on the presence/absence of the `sensitive_files_touched` code\nso the test is robust to any other unrelated violations the plan may carry.\n\"\"\"\nfrom harness.planner.plan_validator import validate_plan\n\n\ndef _task(*, files, mtt=\"data_model\"):\n    return {\n        \"task_id\": \"SFT_GUARD_1\",\n        \"title\": \"a task listing a sensitive path\",\n        \"meta_task_type\": mtt,\n        \"priority\": 1,\n        \"dependencies\": [],\n        \"files_touched\": files,\n        \"acceptance_criteria\": [\"lands\"],\n        \"spec_author\": \"test\",\n        \"estimated_complexity\": \"S\",\n        \"verification_command\": \"python -m pytest tests/autocompiler/test_foo.py -q\",\n    }\n\n\ndef _codes(task):\n    return {v.code for v in validate_plan({\"plan_kind\": \"implementation\", \"tasks\": [task]})}\n\n\ndef test_data_model_task_listing_config_path_is_rejected():\n    # The observed ac-selection / ac-fitness-vector trap: planner copied a\n    # registration-only config path into files_touched.\n    assert \"sensitive_files_touched\" in _codes(\n        _task(files=[\"autocompiler/selection.py\", \"config/autocompiler.yaml\"]))\n\n\ndef test_each_sensitive_glob_is_caught():\n    for path in (\"harness/foo.py\", \"config/foo.yaml\", \"scripts/foo.sh\", \"services/foo.py\"):\n        assert \"sensitive_files_touched\" in _codes(_task(files=[path])), path\n\n\ndef test_harness_self_fix_task_with_sensitive_path_is_untouched():\n    assert \"sensitive_files_touched\" not in _codes(\n        _task(files=[\"harness/planner/plan_validator.py\"], mtt=\"harness_self_fix\"))\n\n\ndef test_free_paths_are_untouched():\n    assert \"sensitive_files_touched\" not in _codes(\n        _task(files=[\"autocompiler/selection.py\", \"tests/autocompiler/test_foo.py\"]))\n\n```\n\n## tests/planner/test_files_touched_sensitive_guard_wired.py\n```python\n\"\"\"Wiring oracle for the files-touched-sensitive-guard leaf (*_wired requirement).\n\nThe edit target harness/planner/plan_validator.py is an existing module reached from\nthe live planner entrypoint; this asserts it stays wired and that the new guard is\nreachable as a module-level symbol invoked by validate_plan.\n\"\"\"\nimport inspect\nfrom pathlib import Path\n\nfrom harness.wire_up import check_wired\n\n\ndef test_plan_validator_is_wired():\n    repo_root = Path(__file__).resolve().parents[2]\n    res = check_wired(repo_root, 'harness/planner/plan_validator.py')\n    assert res.wired, res.reason\n\n\ndef test_guard_invoked_by_validate_plan():\n    from harness.planner.plan_validator import validate_plan, _sensitive_glob_violations\n    assert callable(_sensitive_glob_violations)\n    assert '_sensitive_glob_violations(' in inspect.getsource(validate_plan), (\n        'validate_plan must call the new guard (wiring-asserting oracle)')\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_harness_glob_path_in_data_model_task_is_flagged"
+          },
+          {
+            "name": "test_config_glob_path_in_data_model_task_is_flagged"
+          },
+          {
+            "name": "test_scripts_glob_path_in_data_model_task_is_flagged"
+          },
+          {
+            "name": "test_services_glob_path_in_data_model_task_is_flagged"
+          },
+          {
+            "name": "test_violation_code_is_exactly_sensitive_files_touched"
+          },
+          {
+            "name": "test_harness_self_fix_task_with_sensitive_path_is_untouched"
+          },
+          {
+            "name": "test_free_and_tests_paths_produce_no_violation"
+          },
+          {
+            "name": "test_backslash_path_is_normalized_before_match"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_property_no_sensitive_path_yields_byte_identical_no_violations"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_none_files_touched_tolerated_without_raising"
+          },
+          {
+            "name": "test_non_list_files_touched_tolerated_without_raising"
+          },
+          {
+            "name": "test_non_str_entries_are_skipped"
+          },
+          {
+            "name": "test_validate_plan_invokes_helper_and_extends_violations_wired"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Synthetic plan/task dicts only: (a) a data_model task whose files_touched lists one path per sensitive glob (harness/**, config/**, scripts/**, services/**) plus a backslash variant; (b) a harness_self_fix task listing a sensitive path; (c) tasks with free paths and tests/** paths; (d) tasks with files_touched set to None, a non-list, and a list containing non-str entries. Both pre-committed oracle files (tests/planner/test_files_touched_sensitive_guard.py and tests/planner/test_files_touched_sensitive_guard_wired.py) are the authoritative contract; no new test files are authored."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Tests are pre-committed and RED; this leaf only edits the implementation. Test budget reflects the existing oracle surface (regression + wiring) that must stay green; implementation is a single small helper plus a one-line call in validate_plan."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_files-touched-sensitive-guard.md",
+  "source_brief_sha256": "b95c7153a5a186d8fdb36ce9811a3a618d96f42e69151a4b04664f20242e3da3"
+}

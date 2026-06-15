@@ -1,0 +1,112 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2-verdict-reweight-prioritizer",
+      "title": "ngv2/verdict_reweight.py \u2014 NEW Phase-7.2b consumer turning huntr verdicts into a {repo: weight} multiplier map",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/verdict_reweight.py"
+      ],
+      "acceptance_criteria": [
+        "ngv2/verdict_reweight.py is created BYTE-FOR-BYTE from the brief's Deliverables block (no edits to existing modules).",
+        "Module exposes verdict_weight_delta(verdict) -> float and reweight_from_verdicts(verdicts) -> Dict[str, float].",
+        "Accepted verdicts return > 1.0, strictly higher when payout > 0; rejected/duplicate return < 1.0; any other state returns exactly 1.0; all per-verdict deltas clamped to [0.1, 3.0].",
+        "reweight_from_verdicts keys each verdict by repo (mapping 'repo' or nested raw['repo']), ignores keyless verdicts, compounds multiple verdicts for one key multiplicatively, then clamps to [0.1, 3.0].",
+        "Stdlib-only (no ngv2 sibling import, no third-party, no LLM); no clock, network, or randomness.",
+        "ngv2/prioritize.py and ngv2/selection_ranker.py remain UNTOUCHED (anti-seesaw: new consumer module only).",
+        "Verification passes: .venv/bin/python -m pytest tests/test_verdict_reweight_wired.py -q"
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": ".venv/bin/python -m pytest tests/test_verdict_reweight_wired.py -q",
+      "spec": {
+        "objective": "Create the NEW single-file data_model module ngv2/verdict_reweight.py that converts huntr SubmissionVerdicts into a deterministic {repo_key: float} prior-reweight multiplier map for the Phase-1 prioritizer, without touching any existing scoring symbol.",
+        "functional_requirements": [
+          "Define the weight constants exactly: ACCEPT_BONUS=0.25, PAYOUT_BONUS=0.25, REJECT_PENALTY=0.30, NEUTRAL=1.0, and clamp bounds _MIN, _MAX = 0.1, 3.0.",
+          "Provide _state(v) and _payout(v) helpers that read state/payout from either a Mapping (dict) or an object exposing .state/.payout attributes, normalizing state to a stripped lowercase string and payout to a float (0.0 on failure).",
+          "verdict_weight_delta(verdict) returns NEUTRAL plus ACCEPT_BONUS for 'accepted' (plus PAYOUT_BONUS when payout > 0), minus REJECT_PENALTY for 'rejected' or 'duplicate', and exactly 1.0 for any other state \u2014 clamped to [0.1, 3.0].",
+          "Provide _key(v) that resolves the repo key from a Mapping 'repo' or nested raw['repo'] (or from object .raw['repo']), returning '' when unresolvable.",
+          "reweight_from_verdicts(verdicts) aggregates an iterable into a {repo_key: float} map, skipping keyless verdicts and compounding multiple verdicts per key multiplicatively before clamping each result to [0.1, 3.0].",
+          "Use only stdlib imports (from __future__ import annotations; typing Any, Dict, Iterable, Mapping) with no clock, network, randomness, LLM, or ngv2 sibling import."
+        ],
+        "interfaces": "NEW data_model module ngv2/verdict_reweight.py exposing verdict_weight_delta(verdict: Any) -> float (per-verdict multiplier around 1.0, clamped [0.1,3.0]) and reweight_from_verdicts(verdicts: Iterable[Any]) -> Dict[str, float]; a deterministic prior-reweight signal that LEAVES ngv2.prioritize / ngv2.selection_ranker untouched (anti-seesaw new consumer).",
+        "edge_cases": [
+          "Verdict given as a plain dict {state, payout, repo, ...} vs. an object exposing .state/.payout/.raw (SubmissionVerdict-shaped via parse_verdict_response with repo surviving in raw).",
+          "payout that is None, missing, or a non-numeric string -> treated as 0.0 (no PAYOUT_BONUS).",
+          "Unknown/empty/None state -> exactly 1.0 NEUTRAL.",
+          "Verdict with no resolvable repo key (neither 'repo' nor raw['repo']) -> ignored by reweight_from_verdicts.",
+          "Multiple verdicts for the same repo key compound multiplicatively and the cumulative product is clamped to [0.1, 3.0].",
+          "State strings with surrounding whitespace or mixed case are normalized (strip + lower)."
+        ],
+        "non_goals": [
+          "Do NOT edit ngv2/prioritize.py, ngv2/selection_ranker.py, or any module other than the one new file.",
+          "Do NOT wire the multiplier map into any ranker \u2014 integration is out of scope.",
+          "Do NOT author or modify tests; tests/test_verdict_reweight_wired.py is committed and authoritative.",
+          "Do NOT add integration/e2e tests.",
+          "No network, clock, randomness, LLM, or third-party imports."
+        ],
+        "implementation_notes": "Emit ngv2/verdict_reweight.py reproducing the brief's Deliverables content BYTE-FOR-BYTE as a single whole-file deliverable. Do NOT emit a __JANUSMASK_PATCHES__ list (this is a new file, not a symbol patch). Stdlib-only imports; no ngv2 sibling import needed. The committed oracle tests/test_verdict_reweight_wired.py is the sole acceptance contract.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_verdict_reweight_wired.py\n```python\n\"\"\"Wired RED oracle for ngv2/verdict_reweight.py (Phase 7.2b: verdicts reweight\nthe Phase-1 prioritizer).\n\nPinned contract:\n\n- ``verdict_weight_delta(verdict)`` returns a per-verdict multiplicative weight\n  around the neutral 1.0, clamped to [0.1, 3.0]:\n    * accepted  -> > 1.0 (and strictly higher when payout > 0)\n    * rejected / duplicate -> < 1.0\n    * any other state (triage/submitted) -> exactly 1.0\n  Accepts a dict or any obj exposing ``.state`` / ``.payout``.\n- ``reweight_from_verdicts(verdicts)`` aggregates an iterable of verdicts into a\n  ``{repo_key: weight}`` multiplier map keyed off each verdict's repo (read from\n  the verdict mapping or its ``raw`` dict); multiple verdicts for one key compound\n  multiplicatively then clamp; keyless verdicts are ignored. The map is meant to\n  be multiplied into the Phase-1 prioritizer's expected_payout \u2014 the existing\n  ngv2.prioritize / ngv2.selection_ranker symbols are left UNTOUCHED.\n- Pure stdlib: no clock/network/randomness.\n\"\"\"\nimport pytest\n\nfrom ngv2.verdict_reweight import verdict_weight_delta, reweight_from_verdicts\nfrom ngv2.submission_verdict import parse_verdict_response\n\n\ndef test_accepted_raises_weight_paid_raises_more():\n    plain = verdict_weight_delta({\"state\": \"accepted\", \"payout\": 0})\n    paid = verdict_weight_delta({\"state\": \"accepted\", \"payout\": 500})\n    assert plain > 1.0\n    assert paid > plain\n\n\ndef test_rejection_lowers_weight():\n    assert verdict_weight_delta({\"state\": \"rejected\"}) < 1.0\n    assert verdict_weight_delta({\"state\": \"duplicate\"}) < 1.0\n\n\ndef test_neutral_states_are_unity():\n    assert verdict_weight_delta({\"state\": \"triage\"}) == 1.0\n    assert verdict_weight_delta({\"state\": \"submitted\"}) == 1.0\n\n\ndef test_weight_is_clamped():\n    w = verdict_weight_delta({\"state\": \"accepted\", \"payout\": 999999})\n    assert 0.1 <= w <= 3.0\n\n\ndef test_reweight_map_keys_on_repo():\n    v = parse_verdict_response(\"s1\", {\"state\": \"accepted\", \"payout\": 100,\n                                      \"repo\": \"acme/x\"})\n    m = reweight_from_verdicts([v])\n    assert m.get(\"acme/x\", 1.0) > 1.0\n\n\ndef test_reweight_compounds_same_key_and_clamps():\n    vs = [\n        {\"state\": \"accepted\", \"payout\": 100, \"repo\": \"acme/x\"},\n        {\"state\": \"accepted\", \"payout\": 100, \"repo\": \"acme/x\"},\n        {\"state\": \"accepted\", \"payout\": 100, \"repo\": \"acme/x\"},\n        {\"state\": \"accepted\", \"payout\": 100, \"repo\": \"acme/x\"},\n        {\"state\": \"accepted\", \"payout\": 100, \"repo\": \"acme/x\"},\n    ]\n    m = reweight_from_verdicts(vs)\n    assert m[\"acme/x\"] <= 3.0\n    assert m[\"acme/x\"] > 1.0\n\n\ndef test_keyless_verdicts_are_ignored():\n    assert reweight_from_verdicts([{\"state\": \"accepted\", \"payout\": 100}]) == {}\n\n\ndef test_reject_lowers_below_one_in_map():\n    m = reweight_from_verdicts([{\"state\": \"rejected\", \"repo\": \"acme/y\"}])\n    assert m[\"acme/y\"] < 1.0\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_constants_match_brief_values"
+          },
+          {
+            "name": "test_state_and_payout_helpers_handle_dict_and_object"
+          },
+          {
+            "name": "test_accepted_raises_weight_paid_raises_more"
+          },
+          {
+            "name": "test_key_resolves_repo_and_nested_raw_repo"
+          },
+          {
+            "name": "test_reweight_compounds_same_key_and_clamps"
+          },
+          {
+            "name": "test_stdlib_only_no_sibling_or_third_party_import"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_all_deltas_within_clamp_bounds"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_accepted_raises_weight_paid_raises_more"
+          },
+          {
+            "name": "test_reweight_map_keys_on_repo"
+          },
+          {
+            "name": "test_rejection_lowers_weight"
+          },
+          {
+            "name": "test_reweight_compounds_same_key_and_clamps"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Plain dict verdicts ({state, payout, repo}) and SubmissionVerdict-shaped objects (via parse_verdict_response with a repo field surviving in raw). Cover accepted/accepted-paid/rejected/duplicate/unknown states, None/missing/non-numeric payout, and keyless verdicts. All assertions are exercised by the committed oracle tests/test_verdict_reweight_wired.py; descriptors above reference that oracle and do NOT authorize authoring new tests."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Tests are committed and authoritative (tests/test_verdict_reweight_wired.py); no new tests are authored. Implementation is a single byte-for-byte whole-file emit, so the test/verification weight dominates."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2_p72b_verdict_reweight.md",
+  "source_brief_sha256": "1bba7b5ae7ce135c9de44840b681eb34e0c21f89d8be76f1f3dfc508de191a0a",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

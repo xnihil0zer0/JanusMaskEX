@@ -1,0 +1,141 @@
+{
+  "plan_kind": "epic",
+  "epic": true,
+  "child_briefs": [
+    {
+      "slug": "ac-containment",
+      "title": "Autocompiler EVOLVE-BLOCK write-containment gate (autocompiler/containment.py)",
+      "scope": "Build the NEW whole-file module `autocompiler/containment.py` providing `extract_evolve_ranges(src)` \u2014 a comment-tokenizer (mirroring the `# JANUSMASK_DELETE:` precedent `harness/git_integration.py:840-857`) that returns the EVOLVE-BLOCK line ranges and yields `[]` on malformed markers \u2014 plus `check_write_containment(parent, cand, ranges) -> GateResult` which fails (`ok=False`) when the candidate edits any AST node outside the permitted ranges. This makes the fitness signal un-gameable by containing where evolution may write. meta_task_type=`validation`. verification_command: `python -m pytest tests/autocompiler/test_containment.py tests/autocompiler/test_containment_wired.py -q`. # Required plan shape: ONE impl task; meta_task_type=validation; >=2 edge_cases mirrored in regression/property tests (e.g. (a) malformed/unbalanced EVOLVE markers => extract returns [], (b) edit fully inside range => ok=True, (c) any node changed outside range => ok=False). Module dotted path pre-registered in `config/autocompiler.yaml`.",
+      "non_goals": "Does NOT spawn any process, model, network, or un-injected subprocess. Does NOT enforce containment by prompt \u2014 only by the pure gate function. Does NOT touch any `harness/**` or `_NEVER_AUTO_APPROVE` file. Does NOT flip a runtime flag. Does NOT author new tests. Pure/stdlib-only.",
+      "inputs": "Fixed seams: the `# JANUSMASK_DELETE:` comment-tokenizer precedent (`harness/git_integration.py:840-857`); `overseer/gates.py::GateResult(ok, reason, fix_hint)` (`:28`) as the return type. Pre-committed RED oracles `tests/autocompiler/test_containment.py` + `tests/autocompiler/test_containment_wired.py` (e567269) ARE the contract; wiring oracle asserts `check_wired(repo_root, 'autocompiler/containment.py').wired`.",
+      "deliverables": "NEW whole-file `autocompiler/containment.py`. Exposes `extract_evolve_ranges(src)` (tokenizer; malformed => `[]`) and `check_write_containment(parent, cand, ranges) -> GateResult` (node outside range => ok=False). Turns `tests/autocompiler/test_containment.py` and `tests/autocompiler/test_containment_wired.py` GREEN.",
+      "dependencies": [],
+      "interfaces": "exposes `extract_evolve_ranges(src)` (tokenizer; malformed => `[]`) and `check_write_containment(parent, cand, ranges) -> GateResult` (node outside range => ok=False)"
+    },
+    {
+      "slug": "ac-crossover",
+      "title": "Autocompiler AST/file crossover over injected git seam (autocompiler/crossover.py)",
+      "scope": "Build the NEW whole-file module `autocompiler/crossover.py` providing `ast_crossover(a, b)` which composes the non-overlapping top-level symbols of two `Candidate`s by delegating to the INJECTED `_ast_merge` seam (the additive by-name top-level merge `harness/git_integration.py::_ast_merge` `:103`), plus `file_crossover` which picks per-file winners. No real git or worktree is touched \u2014 staging/merge flow strictly through the injected `git_seam`. This recombines partial successes. meta_task_type=`harness_plumbing`. verification_command: `python -m pytest tests/autocompiler/test_crossover.py tests/autocompiler/test_crossover_wired.py -q`. # Required plan shape: ONE impl task; meta_task_type=harness_plumbing; >=2 edge_cases mirrored in regression/property tests (e.g. (a) non-overlapping symbols from a+b both appear in the merged result via the injected seam, (b) overlapping/colliding symbol resolved by the additive merge rule, (c) file_crossover picks the per-file winner; no real git invoked). Module dotted path pre-registered in `config/autocompiler.yaml`.",
+      "non_goals": "Does NOT call real git, create real staging worktrees, or invoke the real `_ast_merge` directly \u2014 all flows through the injected `git_seam`/`_ast_merge` seam. Does NOT spawn any process, model, network, or un-injected subprocess. Does NOT touch any `harness/**` or `_NEVER_AUTO_APPROVE` file. Does NOT flip a runtime flag. Does NOT author new tests. Pure/stdlib-only.",
+      "inputs": "Consumes from `ac_population_db`: `Candidate` (JSON-serializable record with id, source/files, parent lineage, `fitness: dict`, `elo: float`, visit-count). Fixed seam: `harness/git_integration.py::_ast_merge` (`:103`) is injected, not called directly. Pre-committed RED oracles `tests/autocompiler/test_crossover.py` + `tests/autocompiler/test_crossover_wired.py` (e567269) ARE the contract; wiring oracle asserts `check_wired(repo_root, 'autocompiler/crossover.py').wired`.",
+      "deliverables": "NEW whole-file `autocompiler/crossover.py`. Exposes `ast_crossover(a, b)` composing non-overlapping symbols via the injected `_ast_merge` seam, and `file_crossover` picking per-file winners; no real git. Turns `tests/autocompiler/test_crossover.py` and `tests/autocompiler/test_crossover_wired.py` GREEN.",
+      "dependencies": [
+        "ac_population_db"
+      ],
+      "interfaces": "exposes `ast_crossover(a, b)` (composes non-overlapping symbols via injected `_ast_merge` seam) and `file_crossover(...)` (picks per-file winners; no real git)"
+    },
+    {
+      "slug": "ac-elo",
+      "title": "Autocompiler Elo rating math (autocompiler/elo.py)",
+      "scope": "Build the NEW whole-file module `autocompiler/elo.py` providing the pairwise Elo math: `expected_score` and `update_elo` matching the standard K-factor formula, plus `tournament_round(pairs, rater_seam)` which runs a pairwise Flash-rater tournament strictly through the INJECTED `rater_seam` (no real model spawn). This is the smooth fitness landscape that lets near-misses accumulate retained rating. meta_task_type=`data_model`. verification_command: `python -m pytest tests/autocompiler/test_elo.py tests/autocompiler/test_elo_wired.py -q`. # Required plan shape: ONE impl task; meta_task_type=data_model; >=2 edge_cases mirrored in regression/property tests (e.g. (a) expected_score symmetry / equal-ratings => 0.5, (b) update_elo conserves total under the K-factor, (c) tournament_round consults ONLY the injected rater_seam, never a real model). Module dotted path pre-registered in `config/autocompiler.yaml`.",
+      "non_goals": "Does NOT spawn any real model, process, network, or un-injected subprocess \u2014 the rater is always the injected `rater_seam`. Does NOT touch any `harness/**` or `_NEVER_AUTO_APPROVE` file. Does NOT flip a runtime flag. Does NOT author new tests. Pure/stdlib-only.",
+      "inputs": "Fixed seams: the `model_seam` (rater-spawn) injection discipline; `overseer/gates.py` pure-function discipline. Pre-committed RED oracles `tests/autocompiler/test_elo.py` + `tests/autocompiler/test_elo_wired.py` (e567269) ARE the contract; wiring oracle asserts `check_wired(repo_root, 'autocompiler/elo.py').wired`.",
+      "deliverables": "NEW whole-file `autocompiler/elo.py`. Exposes `expected_score`/`update_elo` matching the K-factor formula and `tournament_round(pairs, rater_seam)` that uses the injected rater only. Turns `tests/autocompiler/test_elo.py` and `tests/autocompiler/test_elo_wired.py` GREEN.",
+      "dependencies": [],
+      "interfaces": "exposes `expected_score(...)`/`update_elo(...)` (standard K-factor formula) and `tournament_round(pairs, rater_seam)` (uses the injected rater only; never spawns a real model)"
+    },
+    {
+      "slug": "ac-fitness-vector",
+      "title": "Autocompiler fitness-vector contract (autocompiler/fitness.py)",
+      "scope": "Build the NEW whole-file module `autocompiler/fitness.py` providing the pure fitness-vector contract `compute_fitness(fuzz_result, gate_results, mutation_vacuous, pathology) -> dict`. It folds the empirical-fuzzer signal (1 counterexample = hard disproof; N clean rounds = soft proof) plus the anti-gaming gate results into a deterministic, JSON-safe fitness dict. `error` or `hard_disproof` states map to the prune-floor. meta_task_type=`data_model`. verification_command: `python -m pytest tests/autocompiler/test_fitness.py tests/autocompiler/test_fitness_wired.py -q`. # Required plan shape: ONE impl task; meta_task_type=data_model; >=2 edge_cases mirrored in regression/property tests (e.g. (a) error|hard_disproof => prune-floor value, (b) determinism: same inputs => byte-identical dict, (c) JSON-safety: result round-trips through json.dumps/loads). Module dotted path pre-registered in `config/autocompiler.yaml`.",
+      "non_goals": "Does NOT spawn any process, model, network, or un-injected subprocess. Does NOT call the real fuzzer \u2014 it consumes an already-produced `FuzzResult`. Does NOT touch any `harness/**` or `_NEVER_AUTO_APPROVE` file. Does NOT flip a runtime flag. Does NOT author new tests. Pure/stdlib-only.",
+      "inputs": "Fixed seams: `harness/diff_fuzzer.py` `FuzzResult`/`FuzzFailure` (`:46`) shape as the only fitness source; `overseer/gates.py::GateResult(ok, reason, fix_hint)` (`:28`) as the `gate_results` element shape. Pre-committed RED oracles `tests/autocompiler/test_fitness.py` + `tests/autocompiler/test_fitness_wired.py` (e567269) ARE the contract; wiring oracle asserts `check_wired(repo_root, 'autocompiler/fitness.py').wired`.",
+      "deliverables": "NEW whole-file `autocompiler/fitness.py`. Exposes pure `compute_fitness(fuzz_result, gate_results, mutation_vacuous, pathology) -> dict`; `error|hard_disproof` => prune-floor; deterministic and JSON-safe. Turns `tests/autocompiler/test_fitness.py` and `tests/autocompiler/test_fitness_wired.py` GREEN.",
+      "dependencies": [],
+      "interfaces": "exposes pure `compute_fitness(fuzz_result, gate_results, mutation_vacuous, pathology) -> dict` (error|hard_disproof => prune-floor; deterministic, JSON-safe)"
+    },
+    {
+      "slug": "ac-flags",
+      "title": "Autocompiler fail-closed flag reader (autocompiler/flags.py)",
+      "scope": "Build the NEW whole-file module `autocompiler/flags.py` exposing the pure, stdlib-only flag reader `ac_enabled(key, state_dir=None) -> bool`. It reads the (not-yet-existent) `autocompiler:` config subtree via plain filesystem reads under an injected/optional `state_dir`, returning a boolean for a dotted flag key. It is the fail-closed gate idiom cloned from `harness/orchestrator.py::_wire_up_gate_enabled` (`:2022`) and `_reap_spent_briefs_safe` (`:45`), so EVERY error path (missing config file, missing key, malformed yaml, any raised exception) collapses to `False`. meta_task_type=`config_schema`. verification_command: `python -m pytest tests/autocompiler/test_flags.py tests/autocompiler/test_flags_wired.py -q`. # Required plan shape: ONE impl task; meta_task_type=config_schema; >=2 edge_cases mirrored in regression/property tests (e.g. (a) config subtree absent => False, (b) key present-but-non-bool / malformed yaml => False, (c) any internal exception swallowed => False). Module dotted path is pre-registered in `config/autocompiler.yaml` so the ON `wire_up_gate` returns wired=True(config).",
+      "non_goals": "Does NOT flip any runtime flag or create the `autocompiler:` config subtree (so `ac_enabled` is fail-closed False everywhere this run). Does NOT touch any `harness/**`, `config/**`, `scripts/**`, `services/**`, or `_NEVER_AUTO_APPROVE` file. Does NOT spawn any process, model, network, or un-injected subprocess. Does NOT author new tests (oracles pre-committed at e567269). Pure/stdlib-only.",
+      "inputs": "Fixed seams (reuse, do not reimplement): the fail-closed flag idiom `harness/orchestrator.py::_wire_up_gate_enabled` (`:2022`) + the `_reap_spent_briefs_safe` try/except bridge (`:45`); `harness/config.yaml` + `harness/config_loader.py` as the flag-tree home pattern. Pre-committed RED oracles `tests/autocompiler/test_flags.py` + `tests/autocompiler/test_flags_wired.py` (e567269) ARE the authoritative contract; the wiring oracle asserts `check_wired(repo_root, 'autocompiler/flags.py').wired`.",
+      "deliverables": "NEW whole-file `autocompiler/flags.py`. Exposes `ac_enabled(key: str, state_dir=None) -> bool` \u2014 fail-closed `False` on any missing key, missing/malformed config, or internal error; never raises. Turns `tests/autocompiler/test_flags.py` and `tests/autocompiler/test_flags_wired.py` GREEN.",
+      "dependencies": [],
+      "interfaces": "exposes `ac_enabled(key: str, state_dir=None) -> bool` (fail-closed False on any missing key / config error; never raises)"
+    },
+    {
+      "slug": "ac-loop",
+      "title": "Autocompiler pure evolutionary step (autocompiler/loop.py)",
+      "scope": "Build the NEW whole-file module `autocompiler/loop.py` providing the pure orchestration `step(db, seams) -> db'`: select (P-UCB) -> operate (crossover) -> run_seam (test run) -> compute fitness -> insert into population -> rate (Elo). It composes the sibling Phase-A pure modules over INJECTED seams (`model_seam`, `run_seam`, `git_seam`, and the injected `state_dir`) and NEVER spawns a real process or model. This is the population loop the worker's post-synthesis region will later route through (Phase C), accepting the population winner via the UNCHANGED `_auto_commit_accepted` gate. meta_task_type=`orchestration`. verification_command: `python -m pytest tests/autocompiler/test_loop.py tests/autocompiler/test_loop_wired.py -q`. # Required plan shape: ONE impl task; meta_task_type=orchestration; >=2 edge_cases mirrored in regression/property tests (e.g. (a) one step grows the population by the operated candidate and updates Elo via the injected rater, (b) a hard_disproof candidate is scored to the prune-floor (kept as memory, not crashed on), (c) all I/O routes through injected seams \u2014 no real process/model spawned). Module dotted path pre-registered in `config/autocompiler.yaml`.",
+      "non_goals": "Does NOT spawn any real process, model, network, or un-injected subprocess \u2014 every spawn/test-run/git op flows through an injected seam. Does NOT bypass the verifier \u2014 the empirical fuzzer/test gate still decides truth. Does NOT touch any `harness/**` or `_NEVER_AUTO_APPROVE` file or wire itself into the worker (that is Phase C). Does NOT flip a runtime flag. Does NOT author new tests. Pure/stdlib-only.",
+      "inputs": "Consumes from siblings: `ac_population_db` (`Candidate`; `PopulationDB.add/get/save/load` under injected `state_dir`), `ac_selection` (`p_ucb(cands, c, total_n)`), `ac_crossover` (`ast_crossover(a, b)` via injected `_ast_merge` seam; `file_crossover`), `ac_fitness_vector` (`compute_fitness(fuzz_result, gate_results, mutation_vacuous, pathology) -> dict`), `ac_elo` (`expected_score`/`update_elo`; `tournament_round(pairs, rater_seam)`), `ac_containment` (`check_write_containment(parent, cand, ranges) -> GateResult`), `ac_vacuity` (`check_vacuity_stub`/`check_complexity_floor`/`check_no_exception_swallow -> GateResult`), and `ac_flags` (`ac_enabled(key, state_dir=None) -> bool`). Fixed seams: `harness/diff_fuzzer.py::differential_fuzz` (`:641`) shape behind `run_seam`; `harness/orchestrator.py::_auto_commit_accepted` (`:2407`) as the unchanged terminal accept (referenced, not called this run). Pre-committed RED oracles `tests/autocompiler/test_loop.py` + `tests/autocompiler/test_loop_wired.py` (e567269) ARE the contract; wiring oracle asserts `check_wired(repo_root, 'autocompiler/loop.py').wired`.",
+      "deliverables": "NEW whole-file `autocompiler/loop.py`. Exposes pure `step(db, seams) -> db'` performing select->operate->run_seam->fitness->insert->rate; never spawns a process/model. Turns `tests/autocompiler/test_loop.py` and `tests/autocompiler/test_loop_wired.py` GREEN.",
+      "dependencies": [
+        "ac_flags",
+        "ac_population_db",
+        "ac_fitness_vector",
+        "ac_elo",
+        "ac_selection",
+        "ac_crossover",
+        "ac_containment",
+        "ac_vacuity"
+      ],
+      "interfaces": "exposes pure `step(db, seams) -> db'` (select->operate->run_seam->fitness->insert->rate; never spawns a process/model). Consumes: `Candidate`/`PopulationDB.add/get/save/load` (ac_population_db), `p_ucb(cands, c, total_n)` (ac_selection), `ast_crossover(a, b)`/`file_crossover(...)` (ac_crossover), `compute_fitness(fuzz_result, gate_results, mutation_vacuous, pathology) -> dict` (ac_fitness_vector), `expected_score`/`update_elo`/`tournament_round(pairs, rater_seam)` (ac_elo), `check_write_containment(parent, cand, ranges) -> GateResult` (ac_containment), `check_vacuity_stub`/`check_complexity_floor(min_by_type)`/`check_no_exception_swallow -> GateResult` (ac_vacuity), `ac_enabled(key, state_dir=None) -> bool` (ac_flags)"
+    },
+    {
+      "slug": "ac-population-db",
+      "title": "Autocompiler persistent population DB (autocompiler/population.py)",
+      "scope": "Build the NEW whole-file module `autocompiler/population.py` providing the durable candidate store: a JSON-serializable `Candidate` record and a `PopulationDB` with `add`/`get`/`save`/`load` that round-trips `Candidate` JSON under an injected `state_dir` (the durable-JSON-state pattern mirrored from `overseer/procedure_state.py`). Loading an unknown/absent DB yields an empty population (never raises). This is the cross-attempt memory that replaces `main()`'s local `valid_cache`. meta_task_type=`data_model`. verification_command: `python -m pytest tests/autocompiler/test_population.py tests/autocompiler/test_population_wired.py -q`. # Required plan shape: ONE impl task; meta_task_type=data_model; >=2 edge_cases mirrored in regression/property tests (e.g. (a) add->save->load round-trip preserves Candidate fields incl. fitness/elo/visit-count, (b) unknown/absent DB path => empty population not raise, (c) corrupt JSON => empty not raise). Module dotted path pre-registered in `config/autocompiler.yaml`.",
+      "non_goals": "Does NOT spawn any process, model, network, or un-injected subprocess (all FS I/O under the injected `state_dir`). Does NOT touch any `harness/**` or `_NEVER_AUTO_APPROVE` file. Does NOT flip a runtime flag. Does NOT author new tests. Pure/stdlib-only.",
+      "inputs": "Fixed seams: `overseer/procedure_state.py` durable-JSON-state pattern; the injected `state_dir` discipline. Pre-committed RED oracles `tests/autocompiler/test_population.py` + `tests/autocompiler/test_population_wired.py` (e567269) ARE the contract; wiring oracle asserts `check_wired(repo_root, 'autocompiler/population.py').wired`.",
+      "deliverables": "NEW whole-file `autocompiler/population.py`. Exposes a JSON-serializable `Candidate` record (carrying at minimum an id, source/files, parent lineage, a `fitness` dict, an `elo` float, and a visit-count) and `PopulationDB.add/get/save/load` round-tripping `Candidate` JSON under an injected `state_dir`; unknown DB => empty, not raise. Turns `tests/autocompiler/test_population.py` and `tests/autocompiler/test_population_wired.py` GREEN.",
+      "dependencies": [],
+      "interfaces": "exposes `Candidate` (JSON-serializable record with id, source/files, parent lineage, `fitness: dict`, `elo: float`, visit-count) and `PopulationDB.add/get/save/load` (round-trips Candidate JSON under injected `state_dir`; unknown DB => empty, not raise)"
+    },
+    {
+      "slug": "ac-selection",
+      "title": "Autocompiler P-UCB selection (autocompiler/selection.py)",
+      "scope": "Build the NEW whole-file module `autocompiler/selection.py` providing `p_ucb(cands, c, total_n)` = argmax over candidates of `Elo + c*sqrt(ln N / n_i)`, where each candidate carries an Elo and a visit count `n_i` (the `Candidate` shape from `autocompiler/population.py`). Unseen candidates (n=0) are forced to explore; ties resolve deterministically. This steers the generation budget toward the promising lineage. meta_task_type=`planner_tooling`. verification_command: `python -m pytest tests/autocompiler/test_selection.py tests/autocompiler/test_selection_wired.py -q`. # Required plan shape: ONE impl task; meta_task_type=planner_tooling; >=2 edge_cases mirrored in regression/property tests (e.g. (a) an unseen n=0 candidate is selected (infinite exploration term), (b) equal-score ties broken deterministically (stable order), (c) higher-Elo wins when visit counts equal). Module dotted path pre-registered in `config/autocompiler.yaml`.",
+      "non_goals": "Does NOT spawn any process, model, network, or un-injected subprocess. Does NOT mutate the population DB or re-rate candidates (selection is read-only over the candidate list). Does NOT touch any `harness/**` or `_NEVER_AUTO_APPROVE` file. Does NOT flip a runtime flag. Does NOT author new tests. Pure/stdlib-only.",
+      "inputs": "Consumes from `ac_population_db`: `Candidate` (JSON-serializable record with id, source/files, parent lineage, `fitness: dict`, `elo: float`, visit-count). Pre-committed RED oracles `tests/autocompiler/test_selection.py` + `tests/autocompiler/test_selection_wired.py` (e567269) ARE the contract; wiring oracle asserts `check_wired(repo_root, 'autocompiler/selection.py').wired`.",
+      "deliverables": "NEW whole-file `autocompiler/selection.py`. Exposes `p_ucb(cands, c, total_n)` = argmax `Elo + c*sqrt(ln N / n_i)`; unseen (n=0) explores; ties deterministic. Turns `tests/autocompiler/test_selection.py` and `tests/autocompiler/test_selection_wired.py` GREEN.",
+      "dependencies": [
+        "ac_population_db"
+      ],
+      "interfaces": "exposes `p_ucb(cands, c, total_n)` = argmax `Elo + c*sqrt(ln N / n_i)` over `Candidate`s (unseen n=0 explores; ties deterministic)"
+    },
+    {
+      "slug": "ac-vacuity",
+      "title": "Autocompiler anti-gaming vacuity/complexity gates (autocompiler/vacuity.py)",
+      "scope": "Build the NEW whole-file module `autocompiler/vacuity.py` providing the net-new AST anti-gaming gates absent from `ast_enforcer._ValidationVisitor` (`:25`): `check_vacuity_stub`, `check_complexity_floor(min_by_type)`, and `check_no_exception_swallow`, each returning a `GateResult`. It reuses `should_run_embedded_tests` to dodge the `test_*`-API false positive (legitimate test scaffolding must not trip the stub gate). These keep the fitness signal trustworthy. meta_task_type=`validation`. verification_command: `python -m pytest tests/autocompiler/test_vacuity.py tests/autocompiler/test_vacuity_wired.py -q`. # Required plan shape: ONE impl task; meta_task_type=validation; >=2 edge_cases mirrored in regression/property tests (e.g. (a) `pass`/`...`/`raise NotImplementedError` stub body => ok=False, (b) below complexity floor for the node type => ok=False, (c) bare `except: pass` exception-swallow => ok=False, while a real `test_*` body via should_run_embedded_tests => ok=True). Module dotted path pre-registered in `config/autocompiler.yaml`.",
+      "non_goals": "Does NOT spawn any process, model, network, or un-injected subprocess. Does NOT modify `ast_enforcer` or any `harness/**`/`_NEVER_AUTO_APPROVE` file. Does NOT enforce by prompt \u2014 only by pure gate functions. Does NOT flip a runtime flag. Does NOT author new tests. Pure/stdlib-only.",
+      "inputs": "Fixed seams: `overseer/gates.py::GateResult(ok, reason, fix_hint)` (`:28`) as the return type; the existing `should_run_embedded_tests` helper (reused to avoid the `test_*`-API false positive); `ast_enforcer._ValidationVisitor` (`:25`) as the prior-art reference only. Pre-committed RED oracles `tests/autocompiler/test_vacuity.py` + `tests/autocompiler/test_vacuity_wired.py` (e567269) ARE the contract; wiring oracle asserts `check_wired(repo_root, 'autocompiler/vacuity.py').wired`.",
+      "deliverables": "NEW whole-file `autocompiler/vacuity.py`. Exposes `check_vacuity_stub` / `check_complexity_floor(min_by_type)` / `check_no_exception_swallow` -> `GateResult`; reuses `should_run_embedded_tests` to dodge the `test_*`-API false positive. Turns `tests/autocompiler/test_vacuity.py` and `tests/autocompiler/test_vacuity_wired.py` GREEN.",
+      "dependencies": [],
+      "interfaces": "exposes `check_vacuity_stub(...)` / `check_complexity_floor(min_by_type)` / `check_no_exception_swallow(...)` -> `GateResult` (reuses `should_run_embedded_tests` to dodge the `test_*`-API false positive)"
+    }
+  ],
+  "child_slugs": [
+    "ac-containment",
+    "ac-crossover",
+    "ac-elo",
+    "ac-fitness-vector",
+    "ac-flags",
+    "ac-loop",
+    "ac-population-db",
+    "ac-selection",
+    "ac-vacuity",
+    "ac-determinism",
+    "ac-decode-validator",
+    "ac-js-node-version",
+    "ac-js-codec",
+    "ac-js-fork-policy",
+    "ac-js-runner",
+    "ac-js-sandbox-seam",
+    "ac-determinism-runnersafe",
+    "ac-config-tree",
+    "ac-wire-determinism",
+    "ac-wire-decode",
+    "ac-wire-fuzzer-hooks"
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_autocompiler.md",
+  "source_brief_sha256": "a31822b223ffc99fa662c93aa9b005291e90a50abe421409d51f93483b07cec5",
+  "epic_slug": "autocompiler",
+  "phase_record": {
+    "A": "built 2026-06-09 (9 leaves)",
+    "B": "built 2026-06-10 (7 leaves + runner-safety correction)",
+    "C": "built 2026-06-10 (4 harness_self_fix leaves, decision-file gated, all default-OFF)",
+    "D": "owner hand-edit 986f8d4 (ac-js-jail-mount, irreducible tier)"
+  }
+}

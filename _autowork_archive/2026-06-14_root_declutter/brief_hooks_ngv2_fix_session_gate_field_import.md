@@ -1,0 +1,24 @@
+---
+interfaces: "edits ngv2/session_gate.py to import dataclasses.field before its first use at module load (GateResult.payload field), fixing the NameError that makes the module un-importable"
+working_dir: "/home/xnihil0zer0/NobleGreedv2"
+---
+
+# Title
+
+ngv2/session_gate.py — fix the import ordering so `dataclasses.field` is bound BEFORE its first use at module load, making the FSM integration hub importable again
+
+# Scope
+
+EDIT the EXISTING module ngv2/session_gate.py in the external NobleGreedv2 repo (working_dir /home/xnihil0zer0/NobleGreedv2). The module is currently UN-IMPORTABLE: at module load the top import (~line 30) reads `from dataclasses import dataclass` (it does NOT import `field`); the `@dataclass class GateResult` (~lines 39-51) declares `payload: Dict[str, Any] = field(default_factory=dict)` at ~line 51, which evaluates `field` at class-body execution time (i.e. at import); but `from dataclasses import field` only appears far BELOW (~line 151), appended after the class that uses it. So `import ngv2.session_gate` raises `NameError: name 'field' is not defined` at line 51 before the module finishes loading. This breaks the FSM integration hub (session_gate binds qualify / compute_confidence / classify_novelty / build_submission_package via its `_bind` mechanism) and reds any test that imports the hub. The SINGLE behavioral change is to make `field` resolvable BEFORE its first use at ~line 51 — e.g. change the top import to `from dataclasses import dataclass, field`, and/or remove the now-redundant late duplicate `from dataclasses import field` at ~line 151. Read ngv2/session_gate.py FIRST to scope the exact minimal edit. Do NOT change any logic, any function/method signature, the `_bind` wiring, the gate handler tables (`_TRANSITIONS` / `_HANDLERS`), or any other module. Keep it pure/deterministic (no clock, randomness, network, subprocess). Verify GREEN with `python -m pytest tests/ngv2/test_session_gate_import_and_bind_wired.py -q`; working_dir is /home/xnihil0zer0/NobleGreedv2.
+
+# Non-Goals
+
+This is an EDIT and integration is out of scope: do NOT add integration/e2e tests — this is purely an import-ordering fix verified by a unit IMPORT test (tests/ngv2/test_session_gate_import_and_bind_wired.py). Do NOT author or modify any test — that oracle is committed and authoritative. Do NOT change the behavior, logic, signatures, or return values of any function (gate_transition, the `_gate_*` handlers, semantic_verdict, `_bind`, `_call`, `_decision`, `_is_go`, `_confidence_band`, etc.) or of the GateResult dataclass fields beyond making `field` importable. Do NOT alter the `_bind('qualify', ...)` / `compute_confidence` / `classify_novelty` / `build_submission_package` module-level binding lines, nor the `_TRANSITIONS` / `_HANDLERS` dispatch tables. Do NOT touch ngv2/grounding_confidence_gate.py, ngv2/novelty_gate.py, ngv2/contracts.py, ngv2/state_machine.py, or any other module — edit ngv2/session_gate.py ONLY. Do NOT add any new module-level symbol beyond the `field` import; no network, no wall-clock, no randomness, no third-party imports.
+
+# Inputs
+
+The committed authoritative oracle at tests/ngv2/test_session_gate_import_and_bind_wired.py (imports `ngv2.session_gate` at TEST RUNTIME via importlib.reload so the NameError surfaces as a test failure; asserts the import succeeds, that `GateResult(ok=True).payload` defaults to an independent empty `dict` — exercising the `field(default_factory=dict)` line that triggers the bug — that the FSM seam names `qualify`/`compute_confidence`/`classify_novelty`/`build_submission_package` exist as module attributes, and — for the gate modules actually present in the tree — that `compute_confidence({'id':'F1'}, [{'tool':'codeql','result':'proof','kind':'formal_path'}]) == 'CONFIRMED'` and `classify_novelty({'title':'x','cwe':'CWE-78','file':'a.py'}, []) == 'NOVEL'`). The current ngv2/session_gate.py (read it for the exact top import line ~30, the GateResult dataclass ~39-51 whose `payload` field uses `field(default_factory=dict)` at ~51, and the late duplicate `from dataclasses import field` at ~151 — these are the only lines in play). ngv2/grounding_confidence_gate.py and ngv2/novelty_gate.py (read-only references for the wired-seam return values; do NOT modify). stdlib + ngv2 only.
+
+# Deliverables
+
+Edited ngv2/session_gate.py in which `dataclasses.field` is imported BEFORE its first use at module load (the `GateResult.payload` field at ~line 51), so `import ngv2.session_gate` no longer raises `NameError: name 'field' is not defined` and the FSM integration hub is importable and wired, with NO change to any logic, signature, `_bind` wiring, dispatch table, or other module. Verified GREEN by `python -m pytest tests/ngv2/test_session_gate_import_and_bind_wired.py -q`.

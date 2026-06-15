@@ -1,0 +1,116 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2_artifact_harvester",
+      "title": "ngv2/artifact_harvester.py -- deterministic stage-output parser (pure core + thin I/O wrapper)",
+      "meta_task_type": "validation",
+      "priority": "high",
+      "dependencies": [],
+      "working_dir": "/home/xnihil0zer0/NobleGreedv2",
+      "files_touched": [
+        "ngv2/artifact_harvester.py"
+      ],
+      "acceptance_criteria": [
+        "NEW file ngv2/artifact_harvester.py exists and is importable as `from ngv2.artifact_harvester import parse_stage_artifact, harvest_stage_artifacts`.",
+        "parse_stage_artifact has the EXACT signature parse_stage_artifact(filename: str, content: str, phase: str) -> dict | None and classifies one file purely from filename suffix + content (no disk, network, clock, randomness).",
+        "Rule order is preserved: `_poc.py` -> python poc; `_poc.js` -> javascript poc; `_submission.md` -> markdown report; `_report.json` OR filename == 'detonation_report.json' -> JSON report (verdict=parsed.get('verdict'), data=parsed) with fail-closed None on json.JSONDecodeError; otherwise None.",
+        "phase is accepted but does NOT change classification.",
+        "harvest_stage_artifacts(phase: str, output_dir: str) -> list[dict] is the ONLY filesystem-touching code: it lists files directly in output_dir, reads each file's text, delegates to parse_stage_artifact, and collects non-None results -- with NO classification logic of its own.",
+        "Only stdlib json, os, and typing are imported; no third-party packages, no sibling ngv2/** leaf, no network/clock/randomness/subprocess/logging.",
+        "No eval/exec/__import__/os.system/subprocess call and no decorators (AST enforcer clean).",
+        "Edge cases (a)-(f) from the brief all hold exactly as specified.",
+        "verification: `python3 -m pytest -q tests/ngv2/test_artifact_harvester_wired.py` is GREEN; the committed oracle is NOT modified."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python3 -m pytest -q tests/ngv2/test_artifact_harvester_wired.py",
+      "spec": {
+        "objective": "Create the NEW single-file module ngv2/artifact_harvester.py exposing a PURE deterministic classifier parse_stage_artifact(filename, content, phase) -> dict|None that turns one stage-output file into a contract-shaped artifact dict (kinds: poc | report), plus a THIN I/O wrapper harvest_stage_artifacts(phase, output_dir) -> list[dict] that sweeps a directory and collects non-None results, so the conductor can ingest stage output with zero hand-copying.",
+        "functional_requirements": [
+          "POC classification: when filename ends with '_poc.py' return {'kind': 'poc', 'language': 'python', 'source': content, 'filename': filename}; when it ends with '_poc.js' return the same shape with 'language': 'javascript'.",
+          "Markdown report classification: when filename ends with '_submission.md' return {'kind': 'report', 'format': 'markdown', 'markdown': content, 'filename': filename}.",
+          "JSON report classification (fail-closed): when filename ends with '_report.json' OR filename == 'detonation_report.json', parse content via json.loads; on success return {'kind': 'report', 'verdict': parsed.get('verdict'), 'data': parsed, 'filename': filename}; on json.JSONDecodeError return None and never emit a malformed report.",
+          "Default + determinism: any other filename returns None; rules are evaluated in the order poc.py -> poc.js -> submission.md -> report.json -> default; the phase argument is accepted as context only and never alters classification; the core performs zero I/O.",
+          "Thin wrapper harvest_stage_artifacts(phase, output_dir) lists files directly in output_dir, reads each file's text, calls parse_stage_artifact(filename, content, phase), and collects every non-None result into a list -- containing no classification logic and being the only filesystem-touching code."
+        ],
+        "interfaces": "parse_stage_artifact(filename: str, content: str, phase: str) -> dict | None  ;  harvest_stage_artifacts(phase: str, output_dir: str) -> list[dict]. Importable as `from ngv2.artifact_harvester import parse_stage_artifact, harvest_stage_artifacts`. Output dict shapes feed downstream ngv2/contracts.py PoC (finding_id/language/code/entrypoint) and LiveTestReport (poc_finding_id/verdict/exit_code/stdout/stderr/duration_ms) -- those contracts are a fixed reference and are NOT modified.",
+        "edge_cases": [
+          "(a) parse_stage_artifact('x_poc.py', '<python source>', phase) -> {'kind':'poc','language':'python','source':'<python source>','filename':'x_poc.py'}.",
+          "(b) parse_stage_artifact('x_poc.js', '<js source>', phase) -> kind=='poc', language=='javascript'.",
+          "(c) parse_stage_artifact('huntr_x_submission.md', '<markdown>', phase) -> kind=='report', format=='markdown', markdown=='<markdown>'.",
+          "(d) parse_stage_artifact('detonation_report.json', '{\"verdict\": \"confirmed\"}', phase) -> kind=='report', verdict=='confirmed', data=={'verdict':'confirmed'}.",
+          "(e) parse_stage_artifact('notes.txt', 'anything', phase) -> None.",
+          "(f) parse_stage_artifact('x_report.json', '{not valid json', phase) -> None (FAIL-CLOSED on invalid JSON).",
+          "A '_report.json' whose content parses to JSON lacking a 'verdict' key yields verdict == None (parsed.get('verdict')) while still emitting the report dict.",
+          "phase varying across all calls (empty string, arbitrary stage name) never changes the returned shape."
+        ],
+        "non_goals": [
+          "Do NOT execute, import, or detonate harvested PoC source -- this module only PARSES file text into dicts.",
+          "Do NOT wire this harvester into the live conductor, SessionDB, or package step; conductor/SessionDB integration is a separate downstream EDIT leaf and is OUT OF SCOPE. The integration-test requirement is excused because this is a self-contained parser with no live call site.",
+          "Do NOT author or modify any test other than the committed oracle tests/ngv2/test_artifact_harvester_wired.py.",
+          "Do NOT add network, clock, randomness, subprocess, or logging; the only I/O is the wrapper's directory listing + file reads.",
+          "Do NOT import any third-party package or any sibling ngv2/** leaf (only json, os, typing from stdlib); no eval/exec/__import__/os.system/subprocess call and no decorators."
+        ],
+        "implementation_notes": "Single whole-file emission. Imports: only json, os, typing. parse_stage_artifact is pure: use str.endswith checks in the exact rule order, wrap json.loads in try/except json.JSONDecodeError returning None. harvest_stage_artifacts uses os.listdir(output_dir), os.path.join + os.path.isfile to keep to files directly in the directory, opens each with a text read, calls the pure core, and appends non-None results. Keep the wrapper free of any classification branching. The committed oracle is the authoritative acceptance contract and reachability (*_wired) proof -- make it GREEN without touching it.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/ngv2/test_artifact_harvester_wired.py\n```python\n\"\"\"RED oracle for ngv2.artifact_harvester -- the deterministic stage-output parser\nthat turns one pipeline-stage output FILE into a contract-shaped artifact dict\n(a PoC artifact or a report artifact) ready for SessionDB insertion, so the\nconductor ingests stage output with zero hand-copying between output dirs.\n\nThe PURE core parse_stage_artifact(filename, content, phase) -> dict | None\nclassifies a file deterministically by filename suffix + content ONLY (no disk,\nno network, no clock, no randomness): \"_poc.py\"/\"_poc.js\" -> poc artifact;\n\"_submission.md\" -> markdown report; \"_report.json\"/\"detonation_report.json\" ->\nJSON report (fail-closed to None on invalid JSON); anything else -> None.\n\nThis oracle is the *_wired reachability proof: importing parse_stage_artifact\nAND harvest_stage_artifacts from the live ngv2.artifact_harvester module is the\nwiring contract.\n\"\"\"\nimport json\n\nfrom ngv2.artifact_harvester import parse_stage_artifact, harvest_stage_artifacts\n\n\n# --- wiredness / contract: both functions importable, callable, right types ---\ndef test_wiredness_both_functions_importable_and_callable():\n    # the pure core is importable and callable...\n    assert callable(parse_stage_artifact)\n    # ...and the thin I/O wrapper is exported alongside it (ingest-path contract)\n    assert callable(harvest_stage_artifacts)\n    # a non-matching file deterministically yields None\n    assert parse_stage_artifact(\"notes.txt\", \"anything\", \"package\") is None\n\n\n# --- (a) \"x_poc.py\" + python source -> kind=\"poc\", language=\"python\" ----------\ndef test_python_poc_artifact_shape():\n    src = \"import target_pkg\\ntarget_pkg.run()\\n\"\n    res = parse_stage_artifact(\"x_poc.py\", src, \"confirm\")\n    assert res == {\n        \"kind\": \"poc\",\n        \"language\": \"python\",\n        \"source\": src,\n        \"filename\": \"x_poc.py\",\n    }\n\n\n# --- (b) \"x_poc.js\" -> language=\"javascript\" ----------------------------------\ndef test_javascript_poc_artifact_shape():\n    src = \"const x = require('target');\\n\"\n    res = parse_stage_artifact(\"x_poc.js\", src, \"confirm\")\n    assert res[\"kind\"] == \"poc\"\n    assert res[\"language\"] == \"javascript\"\n    assert res[\"source\"] == src\n    assert res[\"filename\"] == \"x_poc.js\"\n\n\n# --- (c) \"huntr_x_submission.md\" -> kind=\"report\", format=\"markdown\" ----------\ndef test_markdown_submission_report_shape():\n    md = \"# Title\\n\\nA huntr submission body.\\n\"\n    res = parse_stage_artifact(\"huntr_x_submission.md\", md, \"submit\")\n    assert res[\"kind\"] == \"report\"\n    assert res[\"format\"] == \"markdown\"\n    assert res[\"markdown\"] == md\n    assert res[\"filename\"] == \"huntr_x_submission.md\"\n\n\n# --- (d) \"detonation_report.json\" '{\"verdict\":\"confirmed\"}' -> verdict carried -\ndef test_detonation_report_json_verdict_extracted():\n    content = '{\"verdict\": \"confirmed\"}'\n    res = parse_stage_artifact(\"detonation_report.json\", content, \"detonate\")\n    assert res[\"kind\"] == \"report\"\n    assert res[\"verdict\"] == \"confirmed\"\n    assert res[\"data\"] == {\"verdict\": \"confirmed\"}\n    assert res[\"filename\"] == \"detonation_report.json\"\n\n\ndef test_generic_report_json_suffix_also_parsed():\n    content = '{\"verdict\": \"refuted\", \"exit_code\": 1}'\n    res = parse_stage_artifact(\"foo_report.json\", content, \"detonate\")\n    assert res[\"kind\"] == \"report\"\n    assert res[\"verdict\"] == \"refuted\"\n    assert res[\"data\"][\"exit_code\"] == 1\n\n\n# --- (e) \"notes.txt\" -> None --------------------------------------------------\ndef test_unrecognized_filename_returns_none():\n    assert parse_stage_artifact(\"notes.txt\", \"anything\", \"package\") is None\n    assert parse_stage_artifact(\"README\", \"x\", \"package\") is None\n\n\n# --- (f) \"_report.json\" with invalid JSON -> None (fail-closed) ---------------\ndef test_invalid_json_report_fails_closed_to_none():\n    assert parse_stage_artifact(\"x_report.json\", \"{not valid json\", \"detonate\") is None\n    assert parse_stage_artifact(\"detonation_report.json\", \"\", \"detonate\") is None\n\n\n# --- determinism --------------------------------------------------------------\ndef test_output_is_deterministic():\n    a = parse_stage_artifact(\"x_poc.py\", \"x = 1\\n\", \"confirm\")\n    b = parse_stage_artifact(\"x_poc.py\", \"x = 1\\n\", \"confirm\")\n    assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_poc_python_suffix_returns_python_poc_dict (edge case a)"
+          },
+          {
+            "name": "test_poc_js_suffix_returns_javascript_poc_dict (edge case b)"
+          },
+          {
+            "name": "test_submission_md_returns_markdown_report_dict (edge case c)"
+          },
+          {
+            "name": "test_detonation_report_json_returns_report_with_verdict_and_data (edge case d)"
+          },
+          {
+            "name": "test_unknown_filename_returns_none (edge case e)"
+          },
+          {
+            "name": "test_report_json_missing_verdict_key_yields_verdict_none"
+          },
+          {
+            "name": "test_harvest_wrapper_lists_reads_and_collects_nonnull_results_from_output_dir"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_phase_argument_never_changes_classification_for_any_phase_string"
+          },
+          {
+            "name": "test_rule_order_and_purity_no_io_for_arbitrary_filename_content_pairs"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "oracle_case_d_detonation_report_json_confirmed_verdict (committed-oracle case d)"
+          },
+          {
+            "name": "oracle_case_f_invalid_json_report_fails_closed_to_none (committed-oracle case f)"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Pure-core cases need only inline (filename, content, phase) string tuples mirroring brief edge cases (a)-(f). Wrapper test needs a temporary directory populated with a small mix of files (e.g. x_poc.py, x_poc.js, huntr_x_submission.md, detonation_report.json with valid JSON, x_report.json with invalid JSON, notes.txt) to assert only valid artifacts are collected. No network, clock, or randomness."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Pure core is the fuzzed contract and primary deliverable; wrapper is thin I/O glue. Test/oracle surface (per-kind dict shapes, fail-closed JSON, purity/property checks) dominates, so test tokens exceed 1.5x implementation."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2_artifact_harvester.md",
+  "source_brief_sha256": "a14b9b244fa788fc7327bae0037a478bb8590a102505049eccbee9a0ed07984e",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

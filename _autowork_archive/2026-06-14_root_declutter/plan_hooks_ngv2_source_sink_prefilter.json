@@ -1,0 +1,107 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2_source_sink_prefilter",
+      "title": "ngv2/source_sink_prefilter.py \u2014 NEW Stage-1 cheap source\u00d7sink gate (keep iff public entrypoint AND dangerous sink; cascade mode web>mff>cli folding in G6 MFF)",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/source_sink_prefilter.py"
+      ],
+      "acceptance_criteria": [
+        "NEW single-file module ngv2/source_sink_prefilter.py is emitted BYTE-FOR-BYTE exactly as pinned in the DISPATCH DIRECTIVE (whole-file emission; never a __JANUSMASK_PATCHES__ symbol patch, never a manifest, never a dotted qualname).",
+        "Module imports check_deserialization, scan_directory, and scan_entrypoints at top level (live path that un-orphans ngv2.deser_detect; ngv2.web_framework_detect is revived transitively via entrypoint_scan).",
+        "prefilter(clone_path, rules_path=None) returns {keep, mode, boundaries, entrypoints, sinks} with keep exactly bool(entrypoints) and bool(sinks); a non-directory path yields keep=False with empty lists and mode='none'.",
+        "collect_sinks aggregates deser CWE-502 usage sinks (bare *_import modules excluded) plus pattern_scanner findings, deterministically sorted.",
+        "mode reports the strongest attacker boundary via cascade web>mff>cli (network->web, model_file->mff, cli->cli; else none), making the G6 MFF mode explicit.",
+        "Pure, stdlib-only, deterministic: no network, clock, randomness, subprocess, or logging import.",
+        "The committed RED oracle tests/ngv2/test_source_sink_prefilter_wired.py is GREEN (7 passed); no new tests authored; deser_detect, web_framework_detect, pattern_scanner, entrypoint_scan are NOT modified."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python3 -m pytest -q tests/ngv2/test_source_sink_prefilter_wired.py",
+      "spec": {
+        "objective": "CREATE the NEW single-file module ngv2/source_sink_prefilter.py: a Stage-1 cheap necessary-condition gate that keeps a repo for the expensive CodeQL stage ONLY if it has BOTH a public attacker entry point AND a dangerous sink class. It revives deser_detect (and transitively web_framework_detect) on a live import path and reports a cascade mode (web>mff>cli) folding in Gap G6 (MFF model-load boundary + deser sink -> keep). Make the committed RED oracle GREEN by emitting the pinned file verbatim.",
+        "functional_requirements": [
+          "Expose prefilter(clone_path, rules_path=None)->dict returning {keep, mode, boundaries, entrypoints, sinks}; keep is EXACTLY bool(entrypoints) and bool(sinks); entrypoints come from ngv2.entrypoint_scan.scan_entrypoints(clone_path, rules_path); a non-directory clone_path returns {keep:False, mode:'none', boundaries:[], entrypoints:[], sinks:[]}.",
+          "Import check_deserialization, scan_directory, and scan_entrypoints at top level so prefilter executes on a LIVE path that un-orphans ngv2.deser_detect (and transitively revives ngv2.web_framework_detect via entrypoint_scan); both must appear in sys.modules after prefilter runs.",
+          "collect_sinks(clone_path)->list aggregates dangerous sinks as {sink_class,cwe,file,line} dicts: deser CWE-502 USAGE sinks (records whose module ends with '_import' are EXCLUDED) plus ngv2.pattern_scanner.scan_directory findings (CWE-78/89/94/327), sorted deterministically by (str(file), line or 0, str(sink_class)).",
+          "mode names the strongest attacker boundary present via the cascade web>mff>cli using _BOUNDARY_TO_MODE ((network->web),(model_file->mff),(cli->cli)) and 'none' when no boundary present, so the G6 MFF mode (model_file boundary + deser sink) is explicit; boundaries is the sorted set of e['attacker_boundary'] over entrypoints.",
+          "Emit the file BYTE-FOR-BYTE exactly as pinned in the DISPATCH DIRECTIVE: pure, stdlib-only (os, typing), deterministic, with NO network, clock, randomness, subprocess, or logging import; do not touch any other module."
+        ],
+        "interfaces": "creates NEW ngv2/source_sink_prefilter.py exposing prefilter(clone_path, rules_path=None)->Dict[str,Any] and collect_sinks(clone_path)->List[Dict[str,Any]]; module-level imports: from ngv2.deser_detect import check_deserialization; from ngv2.pattern_scanner import scan_directory; from ngv2.entrypoint_scan import scan_entrypoints. __all__ = ['prefilter', 'collect_sinks'].",
+        "edge_cases": [
+          "test_keep_false_route_but_no_sink: a public web route present but no dangerous sink -> keep=False.",
+          "test_keep_false_sink_but_no_entrypoint: a dangerous sink present but no public entry point -> keep=False.",
+          "test_live_path_revives_deser_and_web_framework_detect: after prefilter runs, both ngv2.deser_detect and ngv2.web_framework_detect are present in sys.modules (integration-style live-path revival).",
+          "non-directory clone_path -> {keep:False, mode:'none', boundaries:[], entrypoints:[], sinks:[]} (no crash).",
+          "collect_sinks excludes bare deser imports (records whose module endswith '_import')."
+        ],
+        "non_goals": [
+          "Do NOT add the interprocedural forward trace (that is CodeQL Stage 2 \u2014 this is only the cheap necessary-condition gate).",
+          "Do NOT touch deser_detect, web_framework_detect, pattern_scanner, or entrypoint_scan.",
+          "Do NOT add network, clock, randomness, subprocess, or logging.",
+          "Driver INTEGRATION (feeding kept repos to CodeQL) is a separate downstream leaf \u2014 not in scope.",
+          "Do NOT author new tests; the committed oracle is the authoritative acceptance contract."
+        ],
+        "implementation_notes": "DISPATCH DIRECTIVE \u2014 PATCH FORMAT (MANDATORY \u2014 WHOLE-FILE): this is a NEW single-file module, so emit the COMPLETE file for `ngv2/source_sink_prefilter.py` (whole-file emission \u2014 NEVER a `__JANUSMASK_PATCHES__` symbol patch, never a manifest, never a dotted qualname). Reproduce it BYTE-FOR-BYTE exactly as follows:\n\n```python\n\"\"\"ngv2.source_sink_prefilter -- Stage-1 cheap necessary-condition gate.\n\nKeep a repo for the expensive CodeQL stage only if it has BOTH a public attacker\nentry point AND a dangerous sink class -- a sound, cheap *necessary* condition\nthat avoids building a CodeQL database (minutes, ~GB) for repos that cannot match.\n\nIt revives two orphaned scanners on a live path:\n\n* ``ngv2.entrypoint_scan.scan_entrypoints`` -> public sources (web routes, CLIs,\n  and -- Gap G6 -- MFF model-load boundaries), which in turn drives the revived\n  ``ngv2.web_framework_detect``;\n* ``ngv2.deser_detect.check_deserialization`` -> the CWE-502 sink class the legacy\n  engine never scanned, plus ``ngv2.pattern_scanner`` for CWE-78/89/94/327.\n\nPure, stdlib-only, deterministic. No network, clock, randomness, or subprocess.\n\"\"\"\nfrom __future__ import annotations\nimport os\nfrom typing import Any, Dict, List, Optional\n\nfrom ngv2.deser_detect import check_deserialization\nfrom ngv2.pattern_scanner import scan_directory\nfrom ngv2.entrypoint_scan import scan_entrypoints\n\n__all__ = ['prefilter', 'collect_sinks']\n\n# Boundary precedence -> the cascade \"mode\" reported for the kept repo.\n_BOUNDARY_TO_MODE = (('network', 'web'), ('model_file', 'mff'), ('cli', 'cli'))\n\n\ndef collect_sinks(clone_path: str) -> List[Dict[str, Any]]:\n    \"\"\"Aggregate dangerous sinks (deser CWE-502 + pattern_scanner) for a clone.\n\n    Returns a deterministic list of ``{sink_class, cwe, file, line}`` dicts.\n    Bare deser *imports* are excluded -- only usage sinks count.\n    \"\"\"\n    sinks: List[Dict[str, Any]] = []\n    deser = check_deserialization(clone_path)\n    for rec in deser.get('patterns') or []:\n        module = rec.get('module', '')\n        if module.endswith('_import'):\n            continue\n        sinks.append({'sink_class': 'deserialization', 'cwe': 'CWE-502',\n                      'file': rec.get('file'), 'line': rec.get('line')})\n    report = scan_directory(clone_path)\n    for finding in report.get('findings') or []:\n        sinks.append({'sink_class': finding.get('id'), 'cwe': finding.get('cwe'),\n                      'file': finding.get('file'), 'line': finding.get('line')})\n    sinks.sort(key=lambda s: (str(s['file']), s['line'] or 0, str(s['sink_class'])))\n    return sinks\n\n\ndef _mode_for(boundaries: set) -> str:\n    for boundary, mode in _BOUNDARY_TO_MODE:\n        if boundary in boundaries:\n            return mode\n    return 'none'\n\n\ndef prefilter(clone_path: str, rules_path: Optional[str] = None) -> Dict[str, Any]:\n    \"\"\"Decide whether ``clone_path`` is worth a CodeQL build.\n\n    Returns ``{keep, mode, boundaries, entrypoints, sinks}`` where\n    ``keep = bool(entrypoints) and bool(sinks)``. ``mode`` names the strongest\n    attacker boundary present (``web`` > ``mff`` > ``cli``); a non-directory path\n    yields ``keep=False`` with empty lists.\n    \"\"\"\n    if not os.path.isdir(clone_path):\n        return {'keep': False, 'mode': 'none', 'boundaries': [],\n                'entrypoints': [], 'sinks': []}\n    entrypoints = scan_entrypoints(clone_path, rules_path)\n    sinks = collect_sinks(clone_path)\n    boundaries = {e.get('attacker_boundary') for e in entrypoints if e.get('attacker_boundary')}\n    keep = bool(entrypoints) and bool(sinks)\n    return {'keep': keep, 'mode': _mode_for(boundaries),\n            'boundaries': sorted(boundaries), 'entrypoints': entrypoints,\n            'sinks': sinks}\n```\n\nPOST-EMIT SELF-CHECK (mandatory): the module imports check_deserialization, scan_directory, and scan_entrypoints at top level; `keep` is exactly `bool(entrypoints) and bool(sinks)`; bare deser imports are excluded from sinks; no network/clock/subprocess import.\n\nWORKER GUIDANCE: working_dir is /home/xnihil0zer0/NobleGreedv2. files_touched is ONLY ngv2/source_sink_prefilter.py. Verify with `python3 -m pytest -q tests/ngv2/test_source_sink_prefilter_wired.py` (CWD-relative, NO cd) \u2014 expect 7 passed. The oracle is RED only because the module is absent; emitting the pinned file verbatim makes it GREEN. Do NOT modify the oracle, deser_detect, web_framework_detect, pattern_scanner, or entrypoint_scan.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/ngv2/test_source_sink_prefilter_wired.py\n```python\n\"\"\"RED oracle for ngv2.source_sink_prefilter -- the Stage-1 source x sink gate.\n\nKeep a repo iff it has BOTH a public entry point AND a dangerous sink class.\nLive-path (anti-orphan) assertions prove deser_detect AND web_framework_detect\nare exercised on this module's path. Covers the G6 MFF mode (model-file boundary\n+ deser sink -> keep even with no web route).\n\"\"\"\nimport os\nimport sys\n\nfrom ngv2.source_sink_prefilter import prefilter, collect_sinks\n\n\ndef _write(root, rel, text):\n    p = os.path.join(root, rel)\n    os.makedirs(os.path.dirname(p), exist_ok=True)\n    with open(p, 'w') as f:\n        f.write(text)\n\n\ndef test_keep_true_for_web_route_plus_pickle_sink(tmp_path):\n    repo = str(tmp_path)\n    _write(repo, 'app/api.py',\n           'from fastapi import FastAPI\\n'\n           'import pickle\\n'\n           'app = FastAPI()\\n'\n           '@app.post(\"/load\")\\n'\n           'def load(body):\\n'\n           '    return pickle.loads(body)\\n')\n    res = prefilter(repo)\n    assert res['keep'] is True\n    assert res['mode'] == 'web'\n    assert res['entrypoints'] and res['sinks']\n    assert any(s['cwe'] == 'CWE-502' for s in res['sinks'])\n\n\ndef test_keep_false_route_but_no_sink(tmp_path):\n    repo = str(tmp_path)\n    _write(repo, 'app/api.py',\n           'from fastapi import FastAPI\\n'\n           'app = FastAPI()\\n'\n           '@app.get(\"/ping\")\\n'\n           'def ping(): return \"ok\"\\n')\n    res = prefilter(repo)\n    assert res['keep'] is False\n    assert res['entrypoints']\n    assert res['sinks'] == []\n\n\ndef test_keep_false_sink_but_no_entrypoint(tmp_path):\n    repo = str(tmp_path)\n    _write(repo, 'lib/util.py',\n           'import pickle\\n'\n           'def f(b): return pickle.loads(b)\\n')\n    # pickle.loads is a sink but is ALSO an MFF-irrelevant call; there is no\n    # registered entrypoint regex for bare pickle.loads, only pickle.load.\n    res = prefilter(repo)\n    assert res['sinks']\n    assert res['entrypoints'] == []\n    assert res['keep'] is False\n\n\ndef test_g6_mff_mode_model_load_plus_deser(tmp_path):\n    repo = str(tmp_path)\n    _write(repo, 'models/loader.py',\n           'import torch\\n'\n           'def load_model(path):\\n'\n           '    return torch.load(path)\\n')\n    res = prefilter(repo)\n    assert res['keep'] is True\n    assert res['mode'] == 'mff'\n    assert 'model_file' in res['boundaries']\n\n\ndef test_nondir_is_safe(tmp_path):\n    res = prefilter(str(tmp_path / 'missing'))\n    assert res['keep'] is False\n    assert res['entrypoints'] == [] and res['sinks'] == []\n\n\ndef test_collect_sinks_excludes_bare_imports(tmp_path):\n    repo = str(tmp_path)\n    _write(repo, 'm.py', 'import pickle\\n')  # import only, no usage\n    sinks = collect_sinks(repo)\n    assert all(s['sink_class'] != 'deserialization' for s in sinks)\n\n\ndef test_live_path_revives_deser_and_web_framework_detect(tmp_path):\n    repo = str(tmp_path)\n    _write(repo, 'app/api.py',\n           'from flask import Flask\\n'\n           'import pickle\\n'\n           'app = Flask(__name__)\\n'\n           '@app.route(\"/x\")\\n'\n           'def x(): return pickle.loads(b\"\")\\n')\n    prefilter(repo)\n    assert 'ngv2.deser_detect' in sys.modules\n    assert 'ngv2.web_framework_detect' in sys.modules\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_keep_true_for_web_route_plus_pickle_sink"
+          },
+          {
+            "name": "test_keep_false_route_but_no_sink"
+          },
+          {
+            "name": "test_keep_false_sink_but_no_entrypoint"
+          },
+          {
+            "name": "test_g6_mff_mode_model_load_plus_deser"
+          },
+          {
+            "name": "test_non_dir_safe_returns_keep_false_empty_lists"
+          },
+          {
+            "name": "test_collect_sinks_excludes_bare_deser_imports"
+          },
+          {
+            "name": "test_live_path_revives_deser_and_web_framework_detect"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_live_path_revives_deser_and_web_framework_detect"
+          }
+        ],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_keep_true_for_web_route_plus_pickle_sink"
+          },
+          {
+            "name": "test_g6_mff_mode_model_load_plus_deser"
+          }
+        ],
+        "minimum_test_count": 8,
+        "test_data_requirements": "Use the committed RED oracle tests/ngv2/test_source_sink_prefilter_wired.py verbatim as the authoritative acceptance contract (7 tests). It constructs fixture clones pinning: web route + pickle sink -> keep=True, mode='web', a CWE-502 sink present; route but no sink -> keep=False; sink but no entry point -> keep=False; the G6 MFF case (torch.load model-load + deser -> keep=True, mode='mff', model_file boundary); non-dir safe; collect_sinks excludes bare imports; and the live-path case asserting both ngv2.deser_detect and ngv2.web_framework_detect are in sys.modules after prefilter. Do NOT author new tests."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation is a verbatim whole-file emission of the pinned module; the bulk of the effort/verification is asserting the committed oracle (7 tests) goes GREEN, so test budget dominates."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2_source_sink_prefilter.md",
+  "source_brief_sha256": "d0eecd7e9e4bb79ec19a0469fdd149077df5f1c557d4541a7a0f5b099f081fe6",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

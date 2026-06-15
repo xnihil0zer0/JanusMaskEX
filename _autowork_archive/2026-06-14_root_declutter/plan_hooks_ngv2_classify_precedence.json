@@ -1,0 +1,101 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2-classify-precedence",
+      "title": "ngv2/session_api.py \u2014 reorder SessionApi._classify to explicit->structural->phase so artifacts self-classify by SHAPE",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/session_api.py"
+      ],
+      "acceptance_criteria": [
+        "SessionApi._classify resolves in order explicit -> structural -> phase (was explicit -> phase -> structural).",
+        "_structural_kind is authoritative for dict payloads; _phase_to_kind(phase) is the last-resort fallback (fires only for non-dict payloads).",
+        "An explicit artifact_type still wins: the _explicit_kind check is unchanged and remains first.",
+        "A PoC-shaped dict ({language, entrypoint, code}, no explicit artifact_type) submitted at phase 'detonate' classifies as 'poc' by its shape, not 'report'.",
+        "A report-shaped dict ({poc_finding_id, verdict}) still classifies as 'report' (regression guard).",
+        "No change to _structural_kind, _phase_to_kind, _explicit_kind, _classify's signature, or any other symbol/file.",
+        "Emission is a single __JANUSMASK_PATCHES__ list with EXACTLY ONE 'symbol' entry on SessionApi._classify \u2014 never a manifest dict, never a whole-file.",
+        "python -m pytest tests/ngv2/test_classify_structural_precedence_wired.py -q is GREEN (all 4 precedence cases)."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/ngv2/test_classify_structural_precedence_wired.py -q",
+      "spec": {
+        "objective": "Reorder the resolution order inside the existing SessionApi._classify method in ngv2/session_api.py from explicit->phase->structural to explicit->structural->phase, so an artifact's KIND is decided by its SHAPE (structural) rather than by the lifecycle phase it was submitted at. This fixes the live defect where a PoC-shaped dict submitted at phase 'detonate' mis-classifies as 'report' because _phase_to_kind('detonate') == 'report' fires before _structural_kind ever inspects the PoC shape.",
+        "functional_requirements": [
+          "Reorder SessionApi._classify so resolution is explicit -> structural -> phase: call self._explicit_kind(data) first (return if not None), then self._structural_kind(data) (return if not None), then fall through to return self._phase_to_kind(phase). Reproduce the corrected body verbatim from the brief.",
+          "Preserve the explicit-artifact_type-wins precedence: the self._explicit_kind(data) check is unchanged and remains the first branch.",
+          "Do not change _classify's signature (self, data, phase), add/remove/rename parameters, or touch any other symbol; emit ONLY the single 'symbol' __JANUSMASK_PATCHES__ entry on SessionApi._classify."
+        ],
+        "interfaces": "Edits ONLY the body of the existing method SessionApi._classify(self, data, phase) in ngv2/session_api.py. Signature is unchanged. Relies on the unchanged helpers self._explicit_kind(data), self._structural_kind(data) (authoritative: {'poc_finding_id','verdict'}->'report', {'language','entrypoint','code'}->'poc', dict default 'finding'), and self._phase_to_kind(phase) (last-resort fallback for non-dict payloads).",
+        "edge_cases": [
+          "test_report_shaped_dict_at_detonate_classifies_report: a LiveTestReport-shaped dict (poc_finding_id+verdict, no explicit artifact_type) at phase 'detonate' -> 'report' (regression guard; GREEN today).",
+          "test_poc_shaped_dict_at_detonate_classifies_poc: a PoC-shaped dict (language+entrypoint+code, no artifact_type) at phase 'detonate' -> 'poc' (THE BUG CASE; RED today, currently returns 'report').",
+          "test_explicit_artifact_type_wins: an explicit artifact_type always wins regardless of shape or phase (GREEN today).",
+          "test_shapeless_dict_at_hunt_falls_through_to_finding: a shapeless dict at phase 'hunt' -> 'finding' (GREEN today; identical value via structural default or phase fallback)."
+        ],
+        "non_goals": [
+          "Integration testing is OUT OF SCOPE: do NOT add integration/e2e tests; this change is verified solely by the committed unit oracle tests/ngv2/test_classify_structural_precedence_wired.py.",
+          "Do NOT author or modify any test \u2014 that oracle is committed and authoritative.",
+          "Do NOT touch any other method, function, or symbol in session_api.py \u2014 ONLY _classify.",
+          "Do NOT touch _structural_kind, _phase_to_kind, or _explicit_kind (correct as-is; the reorder relies on their current behavior).",
+          "Do NOT touch any gate handler (session_gate.py), the FSM transition logic (state_machine.py), or the e2e drivers (_e2e_run/).",
+          "Do NOT change _classify's signature or add new parameters.",
+          "PATCH-SHAPE: do NOT emit a __JANUSMASK_MANIFEST__ dict and do NOT emit a whole-file \u2014 the edit rides ONLY as the single 'symbol' __JANUSMASK_PATCHES__ entry on SessionApi._classify.",
+          "No network, no wall-clock, no randomness, no new dependencies."
+        ],
+        "implementation_notes": "DISPATCH DIRECTIVE \u2014 PARTIAL-EDIT (__JANUSMASK_PATCHES__) symbol patch: ngv2/session_api.py is a LARGE file (700+ lines). DO NOT reproduce the whole file. Read its CURRENT on-disk content (read-only) from `/home/xnihil0zer0/JanusMaskJR_agentwork/claude/claude-r1-notask-60f9aea8/inbox/targets/ngv2/session_api.py`. Emit a single top-level Python list assigned to `__JANUSMASK_PATCHES__` with EXACTLY ONE 'symbol' entry that replaces the method `SessionApi._classify` (dotted Outer.method name). The submission file MUST contain ONLY this `__JANUSMASK_PATCHES__` assignment at top level (no other statements, imports, or decorators). Exact shape:\n\n    __JANUSMASK_PATCHES__ = [\n        {'file': 'ngv2/session_api.py', 'kind': 'symbol', 'name': 'SessionApi._classify',\n         'code': r'''    def _classify(self, data, phase):\n        explicit = self._explicit_kind(data)\n        if explicit is not None:\n            return explicit\n        structural = self._structural_kind(data)\n        if structural is not None:\n            return structural\n        return self._phase_to_kind(phase)\n'''},\n    ]\n\nRules: `code` MUST be exactly ONE method `def` whose name matches the leaf (`_classify`), reproduced with its real indentation as it sits inside the class (4-space method indent as shown). Use a raw triple-quoted string. Replace ONLY this one method \u2014 every other byte of session_api.py is preserved by the harness. Do NOT rename, add, or remove parameters; the signature `_classify(self, data, phase)` is unchanged. Do NOT emit a whole-file manifest. POST-EMIT SELF-CHECK: your replacement body must call `self._explicit_kind` first (return if not None), then `self._structural_kind` (return if not None), then fall through to `self._phase_to_kind(phase)` \u2014 exactly that order.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/ngv2/test_classify_structural_precedence_wired.py\n```python\n\"\"\"Wired oracle: SessionApi._classify resolves artifacts by SHAPE, not phase.\n\nPins the precedence contract for ``SessionApi._classify`` exhaustively, one\ncase per resolution branch:\n\n    explicit discriminator  ->  structural shape  ->  phase fallback\n\n``_classify`` must consult the *structural* kind (the dict's shape) BEFORE\nfalling back to the submission ``phase``.  ``_structural_kind`` already detects\n``{'poc_finding_id','verdict'} -> 'report'`` and\n``{'language','entrypoint','code'} -> 'poc'``; phase is only a last-resort\nfallback for shapeless payloads.\n\nTHE BUG CASE: a PoC-shaped dict submitted at phase ``detonate`` must classify\nas ``'poc'``.  Under the current (explicit -> phase -> structural) ordering the\nphase ``detonate`` maps to ``'report'`` and wins, so the PoC is misclassified\nas a report.  That case is RED today.\n\nExercises the unmodified production ``SessionApi`` over a real ``SessionDB``;\n``_classify`` is storage-independent (it only consults sibling pure helpers).\n\"\"\"\nimport pytest\n\nfrom ngv2.session_db import SessionDB\nfrom ngv2.session_api import SessionApi, _PHASE_KIND\n\n\n@pytest.fixture()\ndef api(tmp_path):\n    db = SessionDB(str(tmp_path / \"s.db\"))\n    try:\n        yield SessionApi(db)\n    finally:\n        db.close()\n\n\ndef test_report_shaped_dict_at_detonate_classifies_report(api):\n    \"\"\"LiveTestReport shape (poc_finding_id+verdict), no explicit type -> report.\"\"\"\n    data = {\"poc_finding_id\": \"F-1\", \"verdict\": \"confirmed\"}\n    assert api._classify(data, \"detonate\") == \"report\"\n\n\ndef test_poc_shaped_dict_at_detonate_classifies_poc(api):\n    \"\"\"PoC shape (language+entrypoint+code), no explicit type -> poc.\n\n    THE BUG: phase 'detonate' currently maps to 'report' and wins over the\n    structural PoC shape.  Structural must be authoritative; phase is fallback.\n    \"\"\"\n    data = {\"language\": \"python\", \"entrypoint\": \"main\", \"code\": \"print(1)\"}\n    assert api._classify(data, \"detonate\") == \"poc\"\n\n\ndef test_explicit_artifact_type_always_wins(api):\n    \"\"\"An explicit discriminator overrides a conflicting structural shape.\"\"\"\n    data = {\n        \"artifact_type\": \"report\",\n        \"language\": \"python\",\n        \"entrypoint\": \"main\",\n        \"code\": \"print(1)\",\n    }\n    assert api._classify(data, \"detonate\") == \"report\"\n\n\ndef test_shapeless_dict_falls_through_to_phase_fallback(api):\n    \"\"\"No explicit type, no structural signal -> phase fallback (_phase_to_kind).\"\"\"\n    expected = _PHASE_KIND[\"hunt\"]\n    assert expected == \"finding\"  # pin the mapping the fallback resolves to\n    data = {\"note\": \"interesting endpoint\"}\n    assert api._classify(data, \"hunt\") == expected\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_poc_shaped_dict_at_detonate_classifies_poc"
+          },
+          {
+            "name": "test_report_shaped_dict_at_detonate_classifies_report"
+          },
+          {
+            "name": "test_explicit_artifact_type_wins"
+          },
+          {
+            "name": "test_shapeless_dict_at_hunt_falls_through_to_finding"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_report_shaped_dict_at_detonate_classifies_report"
+          },
+          {
+            "name": "test_explicit_artifact_type_wins"
+          },
+          {
+            "name": "test_shapeless_dict_at_hunt_falls_through_to_finding"
+          },
+          {
+            "name": "test_poc_shaped_dict_at_detonate_classifies_poc"
+          }
+        ],
+        "minimum_test_count": 5,
+        "test_data_requirements": "No new test data and no new tests. Verification rides entirely on the committed authoritative oracle tests/ngv2/test_classify_structural_precedence_wired.py (currently RED: 1 failed / 3 passed), which constructs a SessionApi and asserts precedence exhaustively across the four named cases. The single RED case (test_poc_shaped_dict_at_detonate_classifies_poc) flips GREEN once the reorder lands; the other three are regression guards that must stay GREEN."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Tiny single-method in-place reordering; no test authoring (committed oracle is authoritative). Test budget kept at the >=1.5x floor purely to satisfy the ratio constraint."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2_classify_precedence.md",
+  "source_brief_sha256": "9b976328f9b4bdfa3d9552180be40a46d377c1abd5fc0602e563d5a8415e4168",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

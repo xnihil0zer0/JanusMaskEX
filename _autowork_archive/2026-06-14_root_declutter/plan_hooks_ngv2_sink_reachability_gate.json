@@ -1,0 +1,125 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2_sink_reachability_gate",
+      "title": "ngv2/sink_reachability_gate.py -- NEW deterministic constant-vs-external sink-argument reachability gate",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "working_dir": "/home/xnihil0zer0/NobleGreedv2",
+      "files_touched": [
+        "ngv2/sink_reachability_gate.py"
+      ],
+      "acceptance_criteria": [
+        "NEW file ngv2/sink_reachability_gate.py exposes assess_sink_reachability(sink_name: str, call_sites: list[str]) -> dict.",
+        "Returned dict has EXACTLY these keys: reachable (bool), external_input_sites (list[str]), all_constant (bool), status ('reachable'|'constant_only'), may_confirm (bool); status=='reachable' iff reachable else 'constant_only'; may_confirm==reachable; all_constant==(not reachable).",
+        "Edge (a): assess_sink_reachability('os.system', ['os.system(\"ls\")']) -> all_constant=True, reachable=False, may_confirm=False, external_input_sites==[].",
+        "Edge (b): assess_sink_reachability('os.system', ['os.system(cmd)']) -> reachable=True, all_constant=False, status='reachable', may_confirm=True, site in external_input_sites.",
+        "Edge (c): assess_sink_reachability('os.system', ['os.system(f\"ls {path}\")']) -> reachable=True, may_confirm=True.",
+        "Edge (d): assess_sink_reachability('os.system', []) -> reachable=False, all_constant=True, status='constant_only', may_confirm=False, external_input_sites==[].",
+        "Module is PURE and stdlib-only (ast, typing): no network, clock, randomness, uuid, subprocess, MCP, third-party import, or import of any sibling ngv2/** leaf; no eval/exec/__import__/os.system/subprocess CALL and no decorator (AST enforcer bans them).",
+        "Deterministic / differential-fuzzable: identical inputs produce a byte-identical output dict.",
+        "GREEN: python3 -m pytest -q tests/ngv2/test_sink_reachability_gate_wired.py passes."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python3 -m pytest -q tests/ngv2/test_sink_reachability_gate_wired.py",
+      "spec": {
+        "objective": "Create the NEW pure, stdlib-only single-file module ngv2/sink_reachability_gate.py providing assess_sink_reachability(sink_name, call_sites), the deterministic gate that separates 'the sink fires' from 'attacker input reaches the sink'. Given a sink name and the source snippets of every call site, it AST-classifies each call argument as literal-constant vs externally-influenced and returns whether the sink is attacker-reachable -- so a NobleGreed finding whose dangerous sink is only ever invoked with HARDCODED constant arguments (e.g. the zilliztech/gptcache command-injection) is reported constant_only / may_confirm=False rather than allowed to confirm.",
+        "functional_requirements": [
+          "Expose assess_sink_reachability(sink_name: str, call_sites: list[str]) -> dict returning EXACTLY {reachable: bool, external_input_sites: list[str], all_constant: bool, status: 'reachable'|'constant_only', may_confirm: bool}, with the derived invariants status=='reachable' iff reachable else 'constant_only', may_confirm==reachable, and all_constant==(not reachable).",
+          "For each snippet, ast.parse it and walk for ast.Call nodes whose callee bare-name (ast.Name) OR dotted-attribute tail (ast.Attribute.attr) equals sink_name; a dotted sink_name like 'subprocess.run' matches both the dotted form and the bare tail, and only matched calls are inspected.",
+          "Classify each positional and keyword argument of a matched call: CONSTANT = ast.Constant (str/num/bytes/bool/None), a tuple/list/dict whose elements are all constant, or a pure constant string concatenation ('a' + 'b' with all operands constant); EXTERNAL = ast.Name, ast.Attribute, ast.Subscript, ast.Call, an ast.JoinedStr (f-string) embedding a FormattedValue/name, or a .format(...)/%-format expression embedding a name.",
+          "Aggregate across all sites: if ANY matched call at ANY site has at least one external argument, append that site's source string to external_input_sites in input order de-duplicated and set reachable=True; if every matched call at every site passes only literal constants (or no arguments), set all_constant=True and reachable=False; a snippet that fails to parse, contains no call to sink_name, or whose matched calls take no args contributes no external-input site and does not by itself make the sink reachable; an empty call_sites list yields reachable=False/all_constant=True.",
+          "Be PURE, stdlib-only (ast, typing) and deterministic: no network/clock/randomness/uuid/subprocess/MCP/filesystem/logging, no third-party or sibling ngv2/** import, no eval/exec/__import__/os.system/subprocess CALL and no decorator (sink names are processed ONLY as ast data, never executed); identical inputs produce a byte-identical output dict."
+        ],
+        "interfaces": "ngv2/sink_reachability_gate.py exposing assess_sink_reachability(sink_name: str, call_sites: list[str]) -> dict with the fixed 5-key return shape {reachable: bool, external_input_sites: list[str], all_constant: bool, status: 'reachable'|'constant_only', may_confirm: bool}. Pure function; inputs are plain strings; no side effects.",
+        "edge_cases": [
+          "All sites pass only string literals (os.system(\"ls\"), os.system(\"echo hi\")) -> all_constant=True, reachable=False, status='constant_only', may_confirm=False, external_input_sites==[].",
+          "One site passes a variable/parameter (os.system(cmd)) -> reachable=True, all_constant=False, status='reachable', may_confirm=True, and that site appears in external_input_sites.",
+          "F-string with embedded name (os.system(f\"ls {path}\")) -> reachable=True, may_confirm=True (embedded path is external).",
+          "Empty call_sites [] -> reachable=False, all_constant=True, status='constant_only', may_confirm=False, external_input_sites==[].",
+          "Mixed: one constant-only site plus one variable-arg site -> reachable=True and ONLY the variable site in external_input_sites.",
+          "Subscript / attribute / nested-call argument (os.system(d[\"k\"]), os.system(obj.attr), os.system(build())) -> external.",
+          "Pure constant concatenation os.system(\"a\" + \"b\") -> constant, NOT reachable.",
+          "Dotted sink name matches both subprocess.run(arg)-style dotted calls and the bare tail.",
+          "Unparseable snippet contributes no external site and does not make the sink reachable.",
+          "Determinism: same inputs -> byte-identical output dict (de-dup preserves input order)."
+        ],
+        "non_goals": [
+          "Do NOT touch ngv2/verdict.py, ngv2/confidence_signals.py, ngv2/detonation.py, ngv2/session_gate.py, ngv2/gadget_auditor.py, or any other existing module.",
+          "Do NOT implement the downstream INTEGRATION wiring (making the live verdict path call assess_sink_reachability and demote/refuse a constant_only confirmed verdict) -- that is a SEPARATE downstream edit leaf and is out of scope; this is a pure-module leaf so no integration test is required.",
+          "Do NOT add real dataflow/SSA/taint/symbolic execution, inter-procedural call resolution, network, filesystem reads, wall-clock, randomness, subprocess, or logging.",
+          "Do NOT import any third-party package or any sibling ngv2/** leaf.",
+          "Do NOT introduce any eval/exec/__import__/os.system/subprocess CALL or any decorator; sink names are processed ONLY as ast data, never executed.",
+          "Do NOT author or modify any test -- the committed oracle tests/ngv2/test_sink_reachability_gate_wired.py is authoritative."
+        ],
+        "implementation_notes": "WHOLE-FILE single-file emission of a NEW file (never a __JANUSMASK_PATCHES__ symbol patch, never a manifest, never a dotted qualname). Use only `import ast` and `typing`. Define a helper that returns the sink tail name for matching: for ast.Call, callee may be ast.Name (compare .id) or ast.Attribute (compare .attr to the tail of sink_name); if sink_name is dotted, the comparison tail is sink_name.split('.')[-1] and a bare callee name equal to that tail also matches. Define _is_constant(node) recursively: True for ast.Constant; for ast.Tuple/ast.List all elts constant; for ast.Dict all keys+values constant; for ast.BinOp with op ast.Add where both operands are constant (covers 'a' + 'b'); otherwise False. Treat as EXTERNAL: ast.Name, ast.Attribute, ast.Subscript, ast.Call, ast.JoinedStr containing any ast.FormattedValue, and a .format(...) call or %-BinOp whose operands embed a Name/Attribute/Subscript/Call. Iterate call_sites in order; wrap ast.parse in try/except (SyntaxError/ValueError) and skip unparseable snippets. For each matched ast.Call, inspect node.args and [kw.value for kw in node.keywords]; if any arg is not _is_constant, mark the site external (append site string once, preserving input order). After all sites: reachable = bool(external_input_sites); all_constant = not reachable; status = 'reachable' if reachable else 'constant_only'; may_confirm = reachable. Return a freshly built dict with the keys in fixed order to guarantee byte-stable output.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/ngv2/test_sink_reachability_gate_wired.py\n```python\n\"\"\"RED oracle for ngv2.sink_reachability_gate -- the deterministic constant-vs-\nexternal sink-argument reachability gate. Separates \"the sink fires\" from\n\"attacker input reaches the sink\": if a dangerous sink is only ever called with\nHARDCODED constant arguments, no attacker input can reach it and the finding MUST\nNOT be allowed to confirm.\n\nA PURE, stdlib-only (ast) tool: assess_sink_reachability(sink_name, call_sites)\n-> {reachable, external_input_sites, all_constant, status, may_confirm}. For each\nsnippet it AST-parses and finds Call nodes whose bare-name or dotted tail equals\nsink_name, then classifies each argument as constant (Constant / const\ntuple/list/dict / pure const concat) or external (Name/Attribute/Subscript/Call/\nf-string-with-name/.format/%-format with a name). Byte-stable determinism.\n\nThis oracle is the *_wired reachability proof: importing assess_sink_reachability\nfrom the live ngv2.sink_reachability_gate module is the wiring contract.\n\"\"\"\nimport json\n\nfrom ngv2.sink_reachability_gate import assess_sink_reachability\n\nRESULT_KEYS = {'reachable', 'external_input_sites', 'all_constant', 'status',\n               'may_confirm'}\n\n\n# --- contract: fixed-shape dict + invariants -------------------------------\ndef test_return_shape_contract():\n    res = assess_sink_reachability('os.system', ['os.system(\"ls\")'])\n    assert set(res) == RESULT_KEYS\n    assert isinstance(res['reachable'], bool)\n    assert isinstance(res['external_input_sites'], list)\n    assert isinstance(res['all_constant'], bool)\n    assert res['status'] in ('reachable', 'constant_only')\n    assert isinstance(res['may_confirm'], bool)\n\n\ndef test_status_allconstant_mayconfirm_invariants():\n    for sites in (['os.system(\"ls\")'], ['os.system(cmd)'], []):\n        res = assess_sink_reachability('os.system', sites)\n        assert res['status'] == ('reachable' if res['reachable'] else 'constant_only')\n        assert res['may_confirm'] == res['reachable']\n        assert res['all_constant'] == (not res['reachable'])\n\n\n# --- (a) all sites pass only string literals -> constant_only --------------\ndef test_all_constant_string_args_is_constant_only():\n    res = assess_sink_reachability('os.system', ['os.system(\"ls\")', 'os.system(\"echo hi\")'])\n    assert res['all_constant'] is True\n    assert res['reachable'] is False\n    assert res['status'] == 'constant_only'\n    assert res['may_confirm'] is False\n    assert res['external_input_sites'] == []\n\n\n# --- (b) a site passes a variable -> reachable -----------------------------\ndef test_variable_arg_is_reachable():\n    res = assess_sink_reachability('os.system', ['os.system(cmd)'])\n    assert res['reachable'] is True\n    assert res['all_constant'] is False\n    assert res['status'] == 'reachable'\n    assert res['may_confirm'] is True\n    assert 'os.system(cmd)' in res['external_input_sites']\n\n\n# --- (c) f-string with embedded name -> reachable --------------------------\ndef test_fstring_with_name_is_reachable():\n    res = assess_sink_reachability('os.system', ['os.system(f\"ls {path}\")'])\n    assert res['reachable'] is True\n    assert res['may_confirm'] is True\n\n\n# --- (d) empty call_sites -> constant_only ---------------------------------\ndef test_empty_call_sites_is_constant_only():\n    res = assess_sink_reachability('os.system', [])\n    assert res['reachable'] is False\n    assert res['all_constant'] is True\n    assert res['status'] == 'constant_only'\n    assert res['may_confirm'] is False\n    assert res['external_input_sites'] == []\n\n\n# --- mixed: only the variable site is recorded -----------------------------\ndef test_mixed_sites_records_only_external_site():\n    sites = ['os.system(\"ls\")', 'os.system(user_cmd)']\n    res = assess_sink_reachability('os.system', sites)\n    assert res['reachable'] is True\n    assert res['external_input_sites'] == ['os.system(user_cmd)']\n\n\n# --- subscript / attribute / nested-call args are external -----------------\ndef test_subscript_attribute_and_call_args_are_external():\n    for site in ('os.system(d[\"k\"])', 'os.system(obj.attr)', 'os.system(build())'):\n        res = assess_sink_reachability('os.system', [site])\n        assert res['reachable'] is True, site\n\n\n# --- pure constant concatenation is constant -------------------------------\ndef test_constant_string_concat_is_constant():\n    res = assess_sink_reachability('os.system', ['os.system(\"a\" + \"b\")'])\n    assert res['reachable'] is False\n    assert res['all_constant'] is True\n\n\n# --- dotted sink name matches dotted call and bare tail --------------------\ndef test_dotted_sink_name_matches_dotted_and_tail():\n    res = assess_sink_reachability('subprocess.run', ['subprocess.run(arg)'])\n    assert res['reachable'] is True\n    res2 = assess_sink_reachability('subprocess.run', ['run(arg)'])\n    assert res2['reachable'] is True\n\n\n# --- unparseable snippet contributes no external site ----------------------\ndef test_unparseable_snippet_contributes_nothing():\n    res = assess_sink_reachability('os.system', ['os.system($$$ not python'])\n    assert res['reachable'] is False\n    assert res['external_input_sites'] == []\n\n\n# --- determinism -----------------------------------------------------------\ndef test_output_is_byte_stable_deterministic():\n    sites = ['os.system(\"ls\")', 'os.system(cmd)', 'os.system(f\"x {y}\")']\n    a = json.dumps(assess_sink_reachability('os.system', sites), sort_keys=True)\n    b = json.dumps(assess_sink_reachability('os.system', sites), sort_keys=True)\n    assert a == b\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_all_constant_string_literal_sites_constant_only (oracle: every site os.system(\"ls\")/os.system(\"echo hi\") -> all_constant=True, reachable=False, status='constant_only', may_confirm=False, external_input_sites==[])"
+          },
+          {
+            "name": "test_variable_arg_site_reachable (oracle: os.system(cmd) -> reachable=True, all_constant=False, status='reachable', may_confirm=True, site in external_input_sites)"
+          },
+          {
+            "name": "test_fstring_embedded_name_reachable (oracle: os.system(f\"ls {path}\") -> reachable=True, may_confirm=True)"
+          },
+          {
+            "name": "test_empty_call_sites_constant_only (oracle: [] -> reachable=False, all_constant=True, status='constant_only', may_confirm=False, external_input_sites==[])"
+          },
+          {
+            "name": "test_mixed_constant_and_variable_only_variable_in_external_sites (oracle: one const site + one var site -> reachable=True and only var site listed)"
+          },
+          {
+            "name": "test_subscript_attribute_nested_call_args_external (oracle: os.system(d[\"k\"]), os.system(obj.attr), os.system(build()) -> reachable=True)"
+          },
+          {
+            "name": "test_pure_constant_concatenation_not_reachable (oracle: os.system(\"a\" + \"b\") -> constant, reachable=False)"
+          },
+          {
+            "name": "test_dotted_sink_matches_dotted_and_bare_tail (oracle: subprocess.run(arg)-style and bare tail both match)"
+          },
+          {
+            "name": "test_unparseable_snippet_contributes_no_external_site (oracle: malformed source skipped, does not make reachable)"
+          },
+          {
+            "name": "test_return_dict_has_exact_five_keys_and_derived_invariants (oracle: keys reachable/external_input_sites/all_constant/status/may_confirm with status/may_confirm/all_constant derived from reachable)"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_determinism_byte_stable_same_inputs_same_dict (oracle: identical inputs -> identical output dict)"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_all_constant_string_literal_sites_constant_only (committed-oracle edge case (a) -- constant_only honest demotion, e.g. zilliztech/gptcache hardcoded sink)"
+          },
+          {
+            "name": "test_empty_call_sites_constant_only (committed-oracle edge case (d) -- empty call_sites stays constant_only)"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Inline Python source snippet strings exercising each argument class against sink_name 'os.system' (and a dotted-sink variant such as 'subprocess.run'): constant string literals, a bare variable name, an f-string embedding a name, subscript/attribute/nested-call args, a pure constant concatenation, a mixed const+variable batch, an empty list, and a deliberately unparseable snippet. No fixtures, files, network, or clock -- all inputs are literal strings supplied to assess_sink_reachability. The committed oracle tests/ngv2/test_sink_reachability_gate_wired.py supplies the authoritative data; no test is authored or modified here."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Single pure stdlib-only AST module; the committed oracle is authoritative and not modified, so test-side budget covers reading/understanding the oracle contract and verifying GREEN rather than authoring tests."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2_sink_reachability_gate.md",
+  "source_brief_sha256": "6b35ad64d1f8785c2455f9944c8cb1922ee2edf538fce6f59730ec266715e682",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

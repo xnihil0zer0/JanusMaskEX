@@ -1,0 +1,265 @@
+{
+  "tasks": [
+    {
+      "task_id": "uploader-impl",
+      "title": "Drive-backup uploader: copy tar.zst archive + .diff to gdrive rclone remote, queue-on-failure (never raises)",
+      "meta_task_type": "io_adapter",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tools/drive_backup/uploader.py"
+      ],
+      "acceptance_criteria": [
+        "tools/drive_backup/uploader.py is a NEW single-file, whole-file, stdlib-only module (no third-party imports).",
+        "uploader.DEFAULT_REMOTE == \"gdrive:\".",
+        "uploader.remote_dir_for(repo, *, remote=DEFAULT_REMOTE) returns \"<remote>repo-push-backups/<repo>/\".",
+        "uploader.upload(archive_result, *, remote=DEFAULT_REMOTE, runner, queue_dir, now) invokes `rclone copyto <src> <remote_path>/<name>` through the injected runner for BOTH the archive and the diff with the asserted argv shape.",
+        "On runner success upload returns UploadResult(uploaded=True, queued=False, remote_path=..., error=None).",
+        "On ANY failure (nonzero rc, runner raising, rclone-not-found) upload copies BOTH artifacts into queue_dir/<name>, writes a <name>.queued.json sidecar (intended remote_path + error + now()), returns UploadResult(uploaded=False, queued=True, remote_path=..., error=<structured str>), and NEVER raises.",
+        "uploader.drive_backup_drain(queue_dir, *, remote=DEFAULT_REMOTE, runner) re-attempts queued uploads via the runner, clears local copy + sidecar on success, leaves failures queued, is idempotent (absent name = no-op), and never raises; returns list[UploadResult].",
+        "queue_dir and every write path are caller-supplied seams; no default write path is `.`, os.getcwd(), or __file__'s dir; scratch (if any) uses tempfile under the system temp dir.",
+        "Every file handle is closed deterministically (context managers / try-finally); no nested .git/, no real subprocess/network in any tested path; staging worktree stays removable by `git worktree remove -f`.",
+        "GREEN: `python -m pytest tests/drive_backup/test_uploader.py -q` passes."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -c \"import tools.drive_backup.uploader\"",
+      "spec": {
+        "objective": "Build a NEW single-file, whole-file, stdlib-only module tools/drive_backup/uploader.py that copies the drive-backup tar.zst archive and its .diff to a Google-Drive rclone remote (gdrive:repo-push-backups/<repo>/) via an injected runner seam, failing LOUDLY but NON-BLOCKING: on any rclone error it queues the artifacts locally with a sidecar and returns a queued result, never raising; a drain function retries the queue idempotently. IMPL-only against the pre-committed RED oracle tests/drive_backup/test_uploader.py.",
+        "functional_requirements": [
+          "DEFAULT_REMOTE == \"gdrive:\" \u2014 the module-level constant naming the configured Google-Drive rclone remote (no credentials in the repo; the conf lives at ~/.config/rclone/rclone.conf outside both repos).",
+          "remote_dir_for(repo, *, remote=DEFAULT_REMOTE) is a pure path helper returning \"<remote>repo-push-backups/<repo>/\".",
+          "upload(archive_result, *, remote=DEFAULT_REMOTE, runner, queue_dir, now) invokes `rclone copyto <archive_path> <remote_path>/<name>` through the injected runner seam for BOTH the archive and the diff, with the argv shape asserted by the oracle; no real rclone is run.",
+          "On runner success, upload returns UploadResult(uploaded=True, queued=False, remote_path=<resolved remote dir>, error=None).",
+          "On ANY failure (nonzero rc, runner raising, rclone-not-found), upload copies BOTH artifacts into queue_dir/<name> via stdlib shutil, writes a small <name>.queued.json sidecar recording the intended remote_path + error + now(), returns UploadResult(uploaded=False, queued=True, remote_path=..., error=<structured str>), and NEVER raises.",
+          "drive_backup_drain(queue_dir, *, remote=DEFAULT_REMOTE, runner) scans queue_dir for queued artifacts, re-attempts `rclone copyto` per artifact via the runner, removes the local copy + sidecar on success (idempotent: an absent name is a no-op), leaves failures queued, never raises, and returns list[UploadResult]."
+        ],
+        "interfaces": "tools/drive_backup/uploader.py: DEFAULT_REMOTE = \"gdrive:\"; remote_dir_for(repo, *, remote=DEFAULT_REMOTE) -> str; UploadResult dataclass with fields (uploaded: bool, queued: bool, remote_path, error); upload(archive_result, *, remote=DEFAULT_REMOTE, runner, queue_dir, now) -> UploadResult (never raises; success->uploaded, failure->queued); drive_backup_drain(queue_dir, *, remote=DEFAULT_REMOTE, runner) -> list[UploadResult] (idempotent retry). Consumes archiver.ArchiveResult (fields archive_path, diff_path, base_sha, manifest). All rclone calls go through the injected runner; now() is the injected clock.",
+        "edge_cases": [
+          "On an rclone failure (nonzero rc, runner raising, or rclone-not-found) upload NEVER raises and queues BOTH artifacts into queue_dir/<name> plus a <name>.queued.json sidecar, returning UploadResult(uploaded=False, queued=True).",
+          "drive_backup_drain is IDEMPOTENT: an empty queue_dir is a no-op, a name already absent is skipped, and artifacts whose retry fails again STAY queued; the drain never raises."
+        ],
+        "non_goals": [
+          "Integration wiring into the pre-push hook orchestration is OUT OF SCOPE here \u2014 deferred to the dependent drive-backup-hook-runner and drive-backup-installer leaves; this leaf only builds the uploader seam (its integration_tests are intentionally empty for this reason).",
+          "No real rclone invocation, no network, no Google-Drive API, no `rclone config`/login performed by code (that is the user-setup doc).",
+          "No credential reading/writing in any tested path \u2014 runner is the injected seam; no secrets in the repo (the credential lives in ~/.config/rclone/rclone.conf outside both repos; this module references only the remote NAME).",
+          "No archive building (consumes an ArchiveResult from drive-backup-archiver).",
+          "No edits to any existing file (the module is NEW); no edits to any _NEVER_AUTO_APPROVE file; no third-party imports (stdlib only).",
+          "Does NOT author its own oracle \u2014 tests/drive_backup/test_uploader.py is the hand-authored RED precondition and is authoritative if a pinned name differs."
+        ],
+        "implementation_notes": "Stdlib only (dataclasses, json, shutil, pathlib/os, tempfile). RESOURCE HYGIENE is BUILD-BLOCKING (sibling archiver-impl died auto_commit_failed_r1): NEVER default queue_dir or any write path inside the repo/working tree \u2014 it is a caller-supplied seam; default destinations MUST NOT be `.`, os.getcwd(), or __file__'s dir; any scratch uses tempfile under the system temp dir. Close EVERY file handle deterministically (context managers / try-finally) \u2014 leave no open handles, no .lock/-wal/-shm sidecars, no temp dirs inside the repo, so `git worktree remove -f` exits 0. NEVER create a nested .git/ and NEVER spawn a real subprocess/network call in any tested path (rclone is the injected runner seam only). Build remote paths with simple string joins on remote_dir_for (which already ends in `/`). The structured error string should capture the failure kind (rc / exception / not-found). check_wired is satisfied orphan-by-design via the committed static manifest config/drive_backup_modules.yaml \u2014 do NOT add a *_wired command."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_default_remote_is_gdrive_colon"
+          },
+          {
+            "name": "test_remote_dir_for_builds_repo_push_backups_path"
+          },
+          {
+            "name": "test_upload_invokes_rclone_copyto_for_archive_and_diff_argv_shape"
+          },
+          {
+            "name": "test_upload_success_returns_uploaded_true_queued_false_error_none"
+          },
+          {
+            "name": "test_upload_failure_queues_both_artifacts_and_sidecar_returns_queued"
+          },
+          {
+            "name": "test_drive_backup_drain_retries_clears_on_success_returns_list"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_drain_idempotent_empty_queue_noop_and_absent_name_skipped"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_upload_never_raises_on_rclone_failure_and_queues_both"
+          },
+          {
+            "name": "test_drain_repeated_failure_artifacts_stay_queued"
+          }
+        ],
+        "minimum_test_count": 9,
+        "test_data_requirements": "A fake injected runner (records argv; returns success rc=0 / nonzero rc / raises / simulates rclone-not-found per test), a fixed injected now() clock, a tmp_path-based queue_dir (NEVER inside the repo), and a minimal stub ArchiveResult with archive_path and diff_path pointing at small tmp files. No real rclone, no network, no credentials."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 160,
+        "note": "Test tokens >= 1.5x implementation tokens: the contract is dominated by argv-shape assertions, success/queued branch coverage, never-raise verification across failure modes, and drain idempotency."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    },
+    {
+      "task_id": "uploader-oracle",
+      "title": "Auto-authored mutation-gated oracle for tools/drive_backup/uploader.py",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "tools.drive_backup.uploader",
+      "priority": "high",
+      "dependencies": [
+        "uploader-impl"
+      ],
+      "files_touched": [
+        "tests/drive_backup/test_uploader.py"
+      ],
+      "acceptance_criteria": [
+        "tests/drive_backup/test_uploader.py exercises DEFAULT_REMOTE, remote_dir_for, upload (success and queued branches), the never-raise contract, and drive_backup_drain idempotency.",
+        "The authored tests FAIL against the declared mutant of tools.drive_backup.uploader (non-vacuity) and PASS against the correct implementation.",
+        "No real rclone/network/credentials are touched; the runner and now() are injected; queue_dir is a tmp dir outside the repo.",
+        "`python -m pytest tests/drive_backup/test_uploader.py -q` passes against the GREEN impl."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/drive_backup/test_uploader.py -q",
+      "spec": {
+        "objective": "Provide the paired, mutation-gated oracle proving the uploader contract for tools.drive_backup.uploader. This auto-authored oracle is the wiring/contract proof for the impl-first DAG; the committed RED oracle tests/drive_backup/test_uploader.py (8 tests) is authoritative if a pinned name differs.",
+        "functional_requirements": [
+          "Assert DEFAULT_REMOTE == \"gdrive:\" and that remote_dir_for(repo, remote=...) returns \"<remote>repo-push-backups/<repo>/\".",
+          "Assert upload invokes `rclone copyto` through the injected runner for BOTH archive and diff with the exact argv shape, and that success yields UploadResult(uploaded=True, queued=False, error=None).",
+          "Assert that on ANY rclone failure upload NEVER raises, queues both artifacts into queue_dir/<name> with a <name>.queued.json sidecar, and returns UploadResult(uploaded=False, queued=True); and that drive_backup_drain retries idempotently (empty/absent no-op, repeated failures stay queued, success clears copy+sidecar) returning list[UploadResult]."
+        ],
+        "interfaces": "Targets the frozen surface of tools.drive_backup.uploader: DEFAULT_REMOTE, remote_dir_for, UploadResult, upload, drive_backup_drain. Uses an injected fake runner seam, an injected now() clock, and a tmp queue_dir outside the repo.",
+        "edge_cases": [
+          "Mutant that flips DEFAULT_REMOTE, mangles the remote-path construction, swallows the failure into uploaded=True, or makes drain non-idempotent must be caught by the authored tests."
+        ],
+        "non_goals": [
+          "No real rclone, no network, no Google-Drive API, no credential access; the oracle exercises only the injected seams.",
+          "Does not edit the impl module or any existing/_NEVER_AUTO_APPROVE file; stdlib + pytest only."
+        ],
+        "implementation_notes": "mutation_target is the BARE DOTTED module name tools.drive_backup.uploader (resolves to tools/drive_backup/uploader.py in uploader-impl's files_touched), satisfying the paired-auto-oracle wiring exemption. Keep all writes (queue_dir, sidecars) under tmp_path so the staging worktree stays removable; close handles deterministically; never spawn a real subprocess. Do NOT add a *_wired command \u2014 wiring is proven by the manifest config/drive_backup_modules.yaml plus the dependent hook-runner/installer leaves."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_oracle_pins_default_remote_and_remote_dir_for"
+          },
+          {
+            "name": "test_oracle_pins_copyto_argv_shape_and_upload_success"
+          },
+          {
+            "name": "test_oracle_pins_failure_queues_and_drain_idempotency"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_oracle_fails_against_declared_mutant_non_vacuity"
+          }
+        ],
+        "minimum_test_count": 5,
+        "test_data_requirements": "Fake injected runner (success / nonzero rc / raising / rclone-not-found), fixed now() clock, tmp_path queue_dir outside the repo, stub ArchiveResult with archive_path + diff_path. No real rclone, no network, no credentials."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 160,
+        "note": "Oracle is test code; test tokens dominate and exceed 1.5x the nominal implementation budget."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    },
+    {
+      "task_id": "installer-impl",
+      "title": "Implement git pre-push hook installer module",
+      "meta_task_type": "cli_tooling",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tools/drive_backup/install_hooks.py"
+      ],
+      "acceptance_criteria": [
+        "Create tools/drive_backup/install_hooks.py module containing SENTINEL, DEFAULT_REPOS, render_shim, InstallResult, install, and main.",
+        "Ensure the module is stdlib-only and passes pytest tests/drive_backup/test_install_hooks.py -q."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/drive_backup/test_install_hooks.py -q",
+      "spec": {
+        "objective": "Build the new, single-file, whole-file, stdlib-only module tools/drive_backup/install_hooks.py that can render and install the pre-push hook shim.",
+        "functional_requirements": [
+          "DEFAULT_REPOS == ['/home/xnihil0zer0/JanusMaskJR', '/home/xnihil0zer0/NobleGreedv2'] and SENTINEL marker is defined",
+          "render_shim(janusmask_root) returns a #!/usr/bin/env bash shim bounded by SENTINEL, embedding the ABSOLUTE janusmask_root, python -m tools.drive_backup.hook_runner, and an unconditional exit 0",
+          "render_shim(..., chained_hook=...) runs the saved original hook with the same stdin before the backup step",
+          "install writes the shim when no hook exists (action created) and sets mode 0o755 via the fs seam",
+          "install rewrites in place when a SENTINEL-managed shim exists (action updated, idempotent \u2014 never duplicated)",
+          "install moves a foreign non-managed hook to pre-push.pre-janusmask and chains to it (action chained), and dry_run=True computes the action/target without writing (action suffixed :dry)"
+        ],
+        "interfaces": "tools/drive_backup/install_hooks.py: SENTINEL ('# >>> janusmask-drive-backup >>>'); JANUSMASK_ROOT default; DEFAULT_REPOS (['/home/xnihil0zer0/JanusMaskJR', '/home/xnihil0zer0/NobleGreedv2']); render_shim(janusmask_root, *, chained_hook=None) -> str; InstallResult dataclass{repo, hook_path, action, ok}; install(repo_roots=DEFAULT_REPOS, *, fs, janusmask_root=JANUSMASK_ROOT, dry_run=False) -> list[InstallResult]; main(argv=None, *, fs=None) -> int.",
+        "edge_cases": [
+          "re-running install on a managed shim is IDEMPOTENT (action updated, sentinel never duplicated)",
+          "a pre-existing FOREIGN hook is PRESERVED (moved to pre-push.pre-janusmask) and chained, never destroyed"
+        ],
+        "non_goals": [
+          "Live integration \u2014 actually writing .git/hooks/pre-push in either repo \u2014 is OUT OF SCOPE here; deferred to the user-run install step. The created/updated/chained/dry branches are exercised against an injected fake fs seam only.",
+          "No execution of git, push, or the hook itself.",
+          "No archive/upload/credential logic.",
+          "No rclone config / login.",
+          "No edits to any existing tracked file in either repo.",
+          "No edits to any _NEVER_AUTO_APPROVE file.",
+          "No third-party imports (stdlib only)."
+        ],
+        "implementation_notes": "Write the installer-impl module without third-party dependencies, adhering to the standard library module design. Embed absolute janusmask_root in NobleGreedv2 shim so it finds tools.drive_backup.hook_runner correctly.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/drive_backup/test_install_hooks.py\n```python\n\"\"\"RED oracle for leaf `drive-backup-installer`.\n\nPins `tools/drive_backup/install_hooks.py`:\nSENTINEL ('# >>> janusmask-drive-backup >>>'), DEFAULT_REPOS\n(['/home/xnihil0zer0/JanusMaskJR', '/home/xnihil0zer0/NobleGreedv2']),\nrender_shim(janusmask_root, *, chained_hook=None) -> str,\nInstallResult{repo, hook_path, action, ok},\ninstall(repo_roots=DEFAULT_REPOS, *, fs, janusmask_root=JANUSMASK_ROOT,\ndry_run=False) -> list[InstallResult], main(argv=None, *, fs=None) -> int.\n\nHermetic: the `fs` seam is a fake in-memory filesystem; NO real\n.git/hooks writes, no git/push/hook execution. Tests assert shim text\nshape, the created/updated/chained/dry branches, idempotency, foreign-\nhook preservation, and the executable-bit set.\n\"\"\"\nimport pytest\n\nfrom tools.drive_backup import install_hooks\nfrom tools.drive_backup.install_hooks import (\n    DEFAULT_REPOS,\n    SENTINEL,\n    InstallResult,\n    install,\n    render_shim,\n)\n\n\nJM_ROOT = \"/home/xnihil0zer0/JanusMaskJR\"\n\n\nclass FakeFS:\n    \"\"\"In-memory filesystem seam: exists/read/write/move/chmod.\"\"\"\n\n    def __init__(self):\n        self.files = {}        # path -> text\n        self.modes = {}        # path -> int\n        self.dirs = set()\n\n    def exists(self, path):\n        return path in self.files\n\n    def read_text(self, path):\n        return self.files[path]\n\n    def write_text(self, path, text):\n        self.files[path] = text\n\n    def move(self, src, dst):\n        self.files[dst] = self.files.pop(src)\n        if src in self.modes:\n            self.modes[dst] = self.modes.pop(src)\n\n    def chmod(self, path, mode):\n        self.modes[path] = mode\n\n    def makedirs(self, path, exist_ok=True):\n        self.dirs.add(path)\n\n\n# ---- constants & shim text ----------------------------------------------\n\ndef test_default_repos_and_sentinel():\n    assert DEFAULT_REPOS == [\n        \"/home/xnihil0zer0/JanusMaskJR\",\n        \"/home/xnihil0zer0/NobleGreedv2\",\n    ]\n    assert SENTINEL == \"# >>> janusmask-drive-backup >>>\"\n\n\ndef test_render_shim_shape():\n    shim = render_shim(JM_ROOT)\n    assert shim.startswith(\"#!/usr/bin/env bash\")\n    assert SENTINEL in shim\n    # Absolute JanusMask root embedded so NobleGreedv2's hook finds the module.\n    assert JM_ROOT in shim\n    assert \"python -m tools.drive_backup.hook_runner\" in shim\n    # The backup step must always exit 0 (never blocks a push).\n    assert \"exit 0\" in shim\n\n\ndef test_render_shim_chains_to_original_when_given():\n    chained = \"/home/xnihil0zer0/JanusMaskJR/.git/hooks/pre-push.pre-janusmask\"\n    shim = render_shim(JM_ROOT, chained_hook=chained)\n    assert chained in shim\n    # Still exits 0 for the backup step and references the module.\n    assert \"exit 0\" in shim\n    assert \"python -m tools.drive_backup.hook_runner\" in shim\n\n\n# ---- install branches ----------------------------------------------------\n\ndef test_install_creates_when_no_hook_exists():\n    fs = FakeFS()\n    results = install([JM_ROOT], fs=fs, janusmask_root=JM_ROOT)\n    assert len(results) == 1\n    r = results[0]\n    assert isinstance(r, InstallResult)\n    assert r.repo == JM_ROOT\n    assert r.hook_path.endswith(\"/.git/hooks/pre-push\")\n    assert r.action == \"created\"\n    assert r.ok is True\n    # Shim written with sentinel and made executable (0o755).\n    assert SENTINEL in fs.read_text(r.hook_path)\n    assert fs.modes.get(r.hook_path) == 0o755\n\n\ndef test_install_updates_managed_shim_idempotently():\n    fs = FakeFS()\n    hook = f\"{JM_ROOT}/.git/hooks/pre-push\"\n    # Pre-seed an EXISTING managed shim (contains the sentinel).\n    fs.write_text(hook, render_shim(JM_ROOT))\n    results = install([JM_ROOT], fs=fs, janusmask_root=JM_ROOT)\n    r = results[0]\n    assert r.action == \"updated\"\n    assert r.ok is True\n    # Idempotent: sentinel appears exactly once (not duplicated/stacked).\n    assert fs.read_text(hook).count(SENTINEL) == 1\n\n\ndef test_install_chains_foreign_hook_and_preserves_it():\n    fs = FakeFS()\n    hook = f\"{JM_ROOT}/.git/hooks/pre-push\"\n    foreign = \"#!/bin/sh\\necho legacy-lint-gate\\nexit 1\\n\"\n    fs.write_text(hook, foreign)\n    results = install([JM_ROOT], fs=fs, janusmask_root=JM_ROOT)\n    r = results[0]\n    assert r.action == \"chained\"\n    assert r.ok is True\n    # Original foreign hook preserved at the .pre-janusmask sidecar.\n    saved = f\"{hook}.pre-janusmask\"\n    assert fs.exists(saved)\n    assert fs.read_text(saved) == foreign\n    # New managed shim chains to the saved original.\n    new_shim = fs.read_text(hook)\n    assert SENTINEL in new_shim\n    assert saved in new_shim\n\n\ndef test_install_dry_run_does_not_write():\n    fs = FakeFS()\n    results = install([JM_ROOT], fs=fs, janusmask_root=JM_ROOT, dry_run=True)\n    r = results[0]\n    assert r.action.endswith(\":dry\")\n    # No real write occurred under dry_run.\n    assert not fs.exists(r.hook_path)\n    assert fs.modes == {}\n\n\ndef test_install_targets_both_default_repos():\n    fs = FakeFS()\n    results = install(DEFAULT_REPOS, fs=fs, janusmask_root=JM_ROOT)\n    repos = {r.repo for r in results}\n    assert repos == set(DEFAULT_REPOS)\n    for r in results:\n        assert r.hook_path == f\"{r.repo}/.git/hooks/pre-push\"\n        assert SENTINEL in fs.read_text(r.hook_path)\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_default_repos_and_sentinel"
+          },
+          {
+            "name": "test_render_shim_basic"
+          },
+          {
+            "name": "test_render_shim_chained"
+          },
+          {
+            "name": "test_install_created"
+          },
+          {
+            "name": "test_install_updated"
+          },
+          {
+            "name": "test_install_chained"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_install_idempotency_managed_shim"
+          },
+          {
+            "name": "test_pre_existing_foreign_hook_preserved"
+          }
+        ],
+        "minimum_test_count": 9,
+        "test_data_requirements": "Fake filesystem fs injection seam."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Test tokens budget ratio is 2.0, satisfying >= 1.5 * implementation_tokens."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "brief_hooks_drive-backup-uploader.md",
+  "source_brief_sha256": "b1f502ff97ebfdac03a2a592a2b81da3556ea299f8aa1c0a350c9675da31a7f3"
+}

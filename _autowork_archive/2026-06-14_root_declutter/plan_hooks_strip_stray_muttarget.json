@@ -1,0 +1,97 @@
+{
+  "tasks": [
+    {
+      "task_id": "strip-stray-mutation-target",
+      "title": "Strip stray mutation_target from non-test_authoring tasks in normalize_plan",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/planner/plan_normalizer.py"
+      ],
+      "acceptance_criteria": [
+        "A new pure module-level helper `_strip_stray_mutation_targets(tasks)` is added to `harness/planner/plan_normalizer.py`, placed after the other small `_helpers`, that deletes the scalar `mutation_target` key in place from every task whose final meta_task_type is NOT `test_authoring`.",
+        "The helper reuses the existing `_is_test_authoring(task)` (does NOT reimplement it) and guards each entry with `isinstance(t, dict)` and `'mutation_target' in t`.",
+        "`normalize_plan` calls `_strip_stray_mutation_targets(normalized['tasks'])` as its FINAL pass \u2014 after `normalized = _inject_oracle_sources(normalized, repo_root)` and immediately before `return normalized` \u2014 guarded by `isinstance(normalized.get('tasks'), list)`.",
+        "The pre-committed RED oracle `tests/planner/test_strip_stray_mutation_target.py` is GREEN and no existing planner test regresses under `python -m pytest tests/planner/ -q`.",
+        "No new imports are added (`List`, `Dict`, `Any` are already imported); no I/O, network, clock, or randomness is introduced; `mutations[]` handling is untouched; only the scalar `mutation_target` key is affected.",
+        "Only `harness/planner/plan_normalizer.py` is modified; the patch is a `__JANUSMASK_PATCHES__` symbol patch that modifies `normalize_plan` and carries the new top-level `_strip_stray_mutation_targets` as an extra-node symbol, without rewriting unrelated functions."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/planner/ -q",
+      "spec": {
+        "objective": "Enforce the planner-schema invariant 'Omit mutation_target for all non-test_authoring tasks' deterministically inside `normalize_plan` by adding a single new pure pass `_strip_stray_mutation_targets` that drops a stray scalar `mutation_target` from every non-test_authoring task, while preserving it on genuine `test_authoring` oracles. This closes a real defect: the blind planner reflexively attaches `mutation_target = \"<module>.<function>\"` to NEW-FILE implementation/data_model tasks; downstream the orchestrator non-vacuity mutation gate triggers on that stray field, maps the dotted value to a path via `value.replace('.', '/') + '.py'` (e.g. `ngv2/source_localize/localize_source.py`, which does not exist \u2014 the real module is `ngv2/source_localize.py` and `localize_source` is a function inside it), and fail-closes the task with `mutation_gate_error`.",
+        "functional_requirements": [
+          "Add a top-level pure helper `def _strip_stray_mutation_targets(tasks: List[Dict[str, Any]]) -> None` that iterates `tasks` and, for each `t` where `isinstance(t, dict)` and `not _is_test_authoring(t)` and `'mutation_target' in t`, executes `del t['mutation_target']`, mutating the list in place and returning None.",
+          "Wire the helper as the FINAL pass of `normalize_plan`: after `normalized = _inject_oracle_sources(normalized, repo_root)`, add `if isinstance(normalized.get('tasks'), list): _strip_stray_mutation_targets(normalized['tasks'])` immediately before `return normalized`, so the strip runs on the FINAL meta_task_type (after `_correct_meta_task_type_by_target`).",
+          "Preserve `mutation_target` verbatim on tasks whose final meta_task_type is `test_authoring`, since the non-vacuity gate legitimately needs it there.",
+          "Remain pure and deterministic: rely on the existing top-level `normalized = copy.deepcopy(plan)` so the caller's input is never mutated; add no new imports, no I/O, no network, no clock, no randomness; touch only the scalar `mutation_target` key and not `mutations[]`."
+        ],
+        "interfaces": "harness/planner/plan_normalizer.py: add `_strip_stray_mutation_targets(tasks: List[Dict[str, Any]]) -> None` (in-place over the tasks list, reusing `_is_test_authoring`) and call it as the last pass inside `normalize_plan(plan, repo_root=None)` right before `return normalized`, guarded by `isinstance(normalized.get('tasks'), list)`.",
+        "edge_cases": [
+          "Stray `mutation_target` on an `implementation` task is stripped.",
+          "Stray `mutation_target` on a `data_model` task is stripped.",
+          "A genuine `test_authoring` task retains its `mutation_target`.",
+          "`normalize_plan` does not mutate its input and the strip is idempotent (double-apply yields an equal result).",
+          "Non-dict entries in the tasks list and tasks lacking a `mutation_target` key are left untouched (no KeyError, no crash)."
+        ],
+        "non_goals": [
+          "integration is out of scope: do not add any wiring beyond the single call inside `normalize_plan`.",
+          "Do not author tests \u2014 the RED oracle is pre-committed at JM `db7a9ca`.",
+          "Do not change the orchestrator mutation gate, the plan_validator, the blind_draft prompt, or any normalizer pass other than adding the one new helper and its single call site.",
+          "Do not touch any file other than `harness/planner/plan_normalizer.py`, and do not touch `mutations[]` handling \u2014 only the scalar `mutation_target` key."
+        ],
+        "implementation_notes": "Insert the helper after the other small `_helpers` (e.g. near `_is_test_authoring` around line 46). Use the exact body from the brief: `for t in tasks: if isinstance(t, dict) and (not _is_test_authoring(t)) and ('mutation_target' in t): del t['mutation_target']`. The wiring goes after `normalized = _inject_oracle_sources(normalized, repo_root)` (around line 1025) and before `return normalized` (line 1026). `normalize_plan` already deep-copies at the top, so in-place mutation of `normalized['tasks']` keeps the no-mutation/idempotency oracle green. Emit a `__JANUSMASK_PATCHES__` symbol patch that modifies `normalize_plan` and carries `_strip_stray_mutation_targets` as an additional extra-node symbol; do not rewrite unrelated functions."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_strips_mutation_target_from_implementation_task"
+          },
+          {
+            "name": "test_strips_mutation_target_from_data_model_task"
+          },
+          {
+            "name": "test_keeps_mutation_target_on_test_authoring_task"
+          },
+          {
+            "name": "test_input_not_mutated_and_idempotent"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_strips_mutation_target_from_implementation_task"
+          },
+          {
+            "name": "test_strips_mutation_target_from_data_model_task"
+          },
+          {
+            "name": "test_keeps_mutation_target_on_test_authoring_task"
+          },
+          {
+            "name": "test_input_not_mutated_and_idempotent"
+          }
+        ],
+        "minimum_test_count": 6,
+        "test_data_requirements": "No new tests to author \u2014 the pre-committed oracle `tests/planner/test_strip_stray_mutation_target.py` (JM master `db7a9ca`) is the source of truth. It supplies: a plan with one `implementation` task carrying stray `mutation_target='ngv2.foo.bar'`; the same fixture flipped to `data_model`; a `test_authoring` task with `mutation_target='harness.planner.x'` that must be preserved; and a deep-copied fixture asserting input is unchanged and a second `normalize_plan` application is equal (idempotent). The whole `tests/planner/` suite must stay green to prove no regression."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Tiny single-helper edit plus one call site; the oracle is pre-committed so no test authoring is needed, but test_tokens is kept >= 1.5x impl to satisfy the budget invariant and cover running/triaging the full planner suite."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_strip_stray_muttarget.md",
+  "source_brief_sha256": "add946a9a0224f45441ff66e4355200fbe56746aa93416f1859245ab79e0122c",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR"
+}

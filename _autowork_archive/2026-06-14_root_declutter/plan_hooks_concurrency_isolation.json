@@ -1,0 +1,116 @@
+{
+  "tasks": [
+    {
+      "task_id": "concurrency_isolation",
+      "title": "harness/autowork_parallelism.py \u2014 add external-project isolation to can_run_parallel (exact resolved-path membership in _ISOLATED_EXTERNAL_DIRS serializes same-root external tasks; JM self-tasks stay parallel)",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/autowork_parallelism.py"
+      ],
+      "acceptance_criteria": [
+        "harness/autowork_parallelism.py is emitted as a WHOLE-FILE replacement byte-for-byte matching the DISPATCH DIRECTIVE pinned content.",
+        "Module-level constant _ISOLATED_EXTERNAL_DIRS = frozenset({'/home/xnihil0zer0/NobleGreedv2'}) is present.",
+        "import pathlib appears at the top of the module (not mid-file).",
+        "Top-level helper _get_project_dir(task) is present with the exact pinned body (resolves working_dir; maps a working_dir resolving inside this repo, or an absent working_dir, to the repo root).",
+        "can_run_parallel inserts the external-isolation check immediately after the same-task-id check and before the files_touched logic, with the exact line: if proj_a == proj_b and proj_a in _ISOLATED_EXTERNAL_DIRS:",
+        "There is NO occurrence of the substring test '\"NobleGreedv2\" not in' and no 'wd_a or wd_b' precondition.",
+        "_files_overlap, transitive_deps, _normalize_path and all other can_run_parallel checks (same-task-id, conservative missing files, file overlap, transitive dependency edges) remain byte-identical.",
+        "python3 -m pytest -q tests/test_autowork_parallelism.py passes \u2014 9 tests GREEN \u2014 including test_project_isolation and test_project_isolation_exact_path which are RED on the staged baseline.",
+        "No edits to any file other than harness/autowork_parallelism.py; no new tests authored."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python3 -m pytest -q tests/test_autowork_parallelism.py",
+      "spec": {
+        "objective": "Rewrite harness/autowork_parallelism.py so can_run_parallel serializes two tasks whose resolved working_dir lands in the SAME isolated external root (exact resolved-path membership in a new module-level _ISOLATED_EXTERNAL_DIRS, via a new top-level helper _get_project_dir) while JM self-tasks (no working_dir, or a working_dir resolving inside this repo) remain fully parallelizable \u2014 making the committed oracle tests/test_autowork_parallelism.py GREEN (9 passed). The file MUST be emitted byte-for-byte as pinned in the DISPATCH DIRECTIVE.",
+        "functional_requirements": [
+          "Add module-level constant _ISOLATED_EXTERNAL_DIRS = frozenset({'/home/xnihil0zer0/NobleGreedv2'}) \u2014 the set of external roots whose tasks must serialize, decided by EXACT resolved-path comparison, never a substring test.",
+          "Move 'import pathlib' to the module top (the staged baseline has it mid-file); keep 'from __future__ import annotations' as the first statement.",
+          "Provide top-level helper _get_project_dir(task) with the exact pinned body: returns the resolved repo root when working_dir is absent or resolves inside this repo (equal to, ancestor of, or descendant of the repo root), otherwise returns the resolved external working_dir; on any exception returns the repo root.",
+          "Insert the external-isolation check in can_run_parallel immediately AFTER the same-task-id check and BEFORE the files_touched logic: compute proj_a/proj_b via _get_project_dir and return False only when 'proj_a == proj_b and proj_a in _ISOLATED_EXTERNAL_DIRS'.",
+          "Leave _files_overlap, transitive_deps, _normalize_path and every other can_run_parallel admission rule (conservative missing files, file overlap, transitive dependency edges) byte-identical; do NOT change any signature.",
+          "Emit the COMPLETE replacement file (whole-file emission) exactly as pinned \u2014 never a __JANUSMASK_PATCHES__ symbol patch, never a manifest, never a dotted qualname; contains exactly five top-level defs and the constant, with no '\"NobleGreedv2\" not in' substring test."
+        ],
+        "interfaces": "Public/internal symbols unchanged in signature: _files_overlap(a_files, b_files) -> bool; transitive_deps(task_id, all_tasks) -> set[str]; _normalize_path(p) -> tuple[str, bool]; can_run_parallel(task_a, task_b, all_tasks=None, *, conservative_missing_files=True) -> bool. NEW top-level helper _get_project_dir(task) -> str and NEW module-level constant _ISOLATED_EXTERNAL_DIRS: frozenset[str].",
+        "edge_cases": [
+          "test_project_isolation: two tasks with working_dir '/home/xnihil0zer0/NobleGreedv2' and disjoint files \u21d2 can_run_parallel False; both-working_dir-absent disjoint files \u21d2 True; one external + one bare self-task \u21d2 True; JM-repo-root working_dir on both \u21d2 True.",
+          "test_project_isolation_exact_path: two tasks sharing working_dir '/home/xnihil0zer0/JanusMaskJR/fixtures/NobleGreedv2-samples' \u21d2 True, and two tasks sharing '/home/xnihil0zer0/NobleGreedv2-other' \u21d2 True \u2014 substring-containing paths are NOT isolated (exact resolved-path membership only).",
+          "test_transitive_deps_cycle: transitive dependency resolution terminates on cyclic dependency graphs (visited-set guard) and the dependency-edge admission rule remains intact."
+        ],
+        "non_goals": [
+          "Do NOT touch harness/config.yaml (parallel_cap stays 5; JM self-task serialization was REJECTED by the owner).",
+          "Do NOT touch harness/autowork_daemon.py, harness/orchestrator.py, harness/git_integration.py, or any other module.",
+          "Do NOT author or modify any test \u2014 the committed oracle tests/test_autowork_parallelism.py is authoritative.",
+          "Do NOT implement general same-project serialization \u2014 only exact membership in _ISOLATED_EXTERNAL_DIRS isolates.",
+          "Do NOT use substring matching on paths; do NOT preserve the staged baseline's 'if \"NobleGreedv2\" not in proj_a' logic or its 'wd_a or wd_b' precondition.",
+          "Do NOT add new dependencies, network, wall-clock, randomness, or logging; do NOT change any signature; integration/e2e testing is out of scope."
+        ],
+        "implementation_notes": "DISPATCH DIRECTIVE \u2014 PATCH FORMAT (MANDATORY \u2014 WHOLE-FILE): this change adds a NEW top-level symbol (_get_project_dir) plus a module-level constant, and new-symbol + symbol-patch is a known auto_commit_failed shape. Emit the COMPLETE replacement file for harness/autowork_parallelism.py (whole-file emission \u2014 NEVER a __JANUSMASK_PATCHES__ symbol patch, never a manifest, never a dotted qualname). The file is 92 lines \u2014 reproduce it BYTE-FOR-BYTE exactly as follows:\n\n    from __future__ import annotations\n\n    import pathlib\n\n    # External roots whose tasks must serialize: tasks resolving to the SAME root in\n    # this set share one mutable repo whose EXTERNAL_DIRTY_GATE reads shared state.\n    # Membership is EXACT resolved-path comparison \u2014 never a substring test.\n    _ISOLATED_EXTERNAL_DIRS = frozenset({'/home/xnihil0zer0/NobleGreedv2'})\n\n    def _files_overlap(a_files: list[str], b_files: list[str]) -> bool:\n        a_norm = [_normalize_path(p) for p in a_files]\n        b_norm = [_normalize_path(p) for p in b_files]\n        for ai, ai_is_dir in a_norm:\n            for bj, bj_is_dir in b_norm:\n                if ai == bj:\n                    return True\n                if ai_is_dir and bj.startswith(ai):\n                    return True\n                if bj_is_dir and ai.startswith(bj):\n                    return True\n        return False\n\n    def transitive_deps(task_id: str, all_tasks: list[dict]) -> set[str]:\n        idx = {t['task_id']: t for t in all_tasks if isinstance(t.get('task_id'), str)}\n        if task_id not in idx:\n            return set()\n        visited: set[str] = {task_id}\n        result: set[str] = set()\n        queue: list[str] = list(idx[task_id].get('dependencies') or [])\n        while queue:\n            dep = queue.pop(0)\n            if dep in visited:\n                continue\n            visited.add(dep)\n            result.add(dep)\n            if dep in idx:\n                for next_dep in idx[dep].get('dependencies') or []:\n                    if next_dep not in visited:\n                        queue.append(next_dep)\n        return result\n\n    def _get_project_dir(task: dict) -> str:\n        wd = task.get('working_dir')\n        repo_root = pathlib.Path(__file__).resolve().parent.parent\n        if not wd:\n            return str(repo_root.resolve())\n        try:\n            resolved = pathlib.Path(wd).resolve()\n            repo_root_resolved = repo_root.resolve()\n            if resolved == repo_root_resolved or repo_root_resolved in resolved.parents or resolved in repo_root_resolved.parents:\n                return str(repo_root_resolved)\n            return str(resolved)\n        except Exception:\n            return str(repo_root.resolve())\n\n    def can_run_parallel(task_a: dict, task_b: dict, all_tasks: list[dict] | None=None, *, conservative_missing_files: bool=True) -> bool:\n        if task_a.get('task_id') == task_b.get('task_id'):\n            return False\n\n        # External-project isolation: two tasks resolving to the SAME isolated\n        # external root serialize. JM self-tasks (no working_dir, or a working_dir\n        # resolving inside this repo) are exempt \u2014 they are worktree-isolated.\n        proj_a = _get_project_dir(task_a)\n        proj_b = _get_project_dir(task_b)\n        if proj_a == proj_b and proj_a in _ISOLATED_EXTERNAL_DIRS:\n            return False\n\n        a_files = task_a.get('files_touched')\n        b_files = task_b.get('files_touched')\n        if conservative_missing_files:\n            if not isinstance(a_files, list) or not a_files or (not isinstance(b_files, list)) or (not b_files):\n                return False\n        if isinstance(a_files, list) and isinstance(b_files, list):\n            if _files_overlap(a_files, b_files):\n                return False\n        if all_tasks is not None:\n            a_id = task_a.get('task_id')\n            b_id = task_b.get('task_id')\n            if a_id in transitive_deps(b_id, all_tasks):\n                return False\n            if b_id in transitive_deps(a_id, all_tasks):\n                return False\n        return True\n\n    def _normalize_path(p: str) -> tuple[str, bool]:\n        is_dir = p.endswith('/')\n        stripped = p.rstrip('/') if is_dir else p\n        canonical = str(pathlib.Path(stripped).resolve())\n        return (canonical + '/', True) if is_dir else (canonical, False)\n\nPOST-EMIT SELF-CHECK (mandatory): your emitted file must contain exactly FOUR top-level defs (_files_overlap, transitive_deps, _get_project_dir, can_run_parallel, plus _normalize_path \u2014 five total), ONE module-level constant _ISOLATED_EXTERNAL_DIRS, import pathlib at the top, NO occurrence of the substring test \"NobleGreedv2\" not in, and the exact line: if proj_a == proj_b and proj_a in _ISOLATED_EXTERNAL_DIRS:. The staged baseline at inbox/targets/harness/autowork_parallelism.py is an INVERTED draft (it serializes same-project tasks generally and exempts paths CONTAINING the substring \"NobleGreedv2\") \u2014 REPLACE it entirely with the pinned content above; do not preserve its 'if \"NobleGreedv2\" not in proj_a' logic or its 'wd_a or wd_b' precondition.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_autowork_parallelism.py\n```python\nfrom __future__ import annotations\nfrom harness.autowork_parallelism import can_run_parallel, transitive_deps\n\ndef test_disjoint_files_returns_true():\n    a = {'task_id': 'A', 'files_touched': ['foo.py']}\n    b = {'task_id': 'B', 'files_touched': ['bar.py']}\n    assert can_run_parallel(a, b) is True\n\ndef test_overlapping_files_returns_false():\n    a = {'task_id': 'A', 'files_touched': ['foo.py', 'shared.py']}\n    b = {'task_id': 'B', 'files_touched': ['shared.py']}\n    assert can_run_parallel(a, b) is False\n\ndef test_dep_edge_returns_false():\n    a = {'task_id': 'A', 'files_touched': ['a.py'], 'dependencies': ['B']}\n    b = {'task_id': 'B', 'files_touched': ['b.py'], 'dependencies': []}\n    all_tasks = [a, b]\n    assert can_run_parallel(a, b, all_tasks=all_tasks) is False\n\ndef test_missing_files_touched_returns_false_when_conservative():\n    a = {'task_id': 'A', 'files_touched': []}\n    b = {'task_id': 'B', 'files_touched': ['b.py']}\n    assert can_run_parallel(a, b) is False\n\ndef test_missing_files_touched_returns_true_when_non_conservative():\n    a = {'task_id': 'A', 'files_touched': []}\n    b = {'task_id': 'B', 'files_touched': ['b.py']}\n    assert can_run_parallel(a, b, conservative_missing_files=False) is True\n\ndef test_transitive_deps_bfs():\n    a = {'task_id': 'A', 'dependencies': ['B']}\n    b = {'task_id': 'B', 'dependencies': ['C']}\n    c = {'task_id': 'C', 'dependencies': []}\n    assert transitive_deps('A', [a, b, c]) == {'B', 'C'}\n\ndef test_transitive_deps_cycle():\n    a = {'task_id': 'A', 'dependencies': ['B']}\n    b = {'task_id': 'B', 'dependencies': ['A']}\n    result = transitive_deps('A', [a, b])\n    assert result == {'B'}\n\ndef test_project_isolation():\n    ext = '/home/xnihil0zer0/NobleGreedv2'\n\n    # (i) Two tasks resolving to the SAME isolated external root -> serialize.\n    # They share one mutable repo root whose EXTERNAL_DIRTY_GATE reads shared state.\n    a = {'task_id': 'A', 'files_touched': ['foo.py'], 'working_dir': ext}\n    b = {'task_id': 'B', 'files_touched': ['bar.py'], 'working_dir': ext}\n    assert can_run_parallel(a, b) is False\n\n    # (ii) Both working_dir absent => both JM self-tasks => parallelize\n    # (self-tasks are fully worktree-isolated already).\n    a = {'task_id': 'A', 'files_touched': ['foo.py']}\n    b = {'task_id': 'B', 'files_touched': ['bar.py']}\n    assert can_run_parallel(a, b) is True\n\n    # (iii) One external + one bare self-task => different projects => parallelize.\n    a = {'task_id': 'A', 'files_touched': ['foo.py'], 'working_dir': ext}\n    b = {'task_id': 'B', 'files_touched': ['bar.py']}\n    assert can_run_parallel(a, b) is True\n\n    # JM self-tasks with an explicit repo-root working_dir are likewise exempt.\n    a = {'task_id': 'A', 'files_touched': ['foo.py'], 'working_dir': '/home/xnihil0zer0/JanusMaskJR'}\n    b = {'task_id': 'B', 'files_touched': ['bar.py'], 'working_dir': '/home/xnihil0zer0/JanusMaskJR'}\n    assert can_run_parallel(a, b) is True\n\ndef test_project_isolation_exact_path():\n    # Isolation membership is EXACT resolved-path comparison against\n    # _ISOLATED_EXTERNAL_DIRS, never a substring test: a path merely\n    # CONTAINING \"NobleGreedv2\" is not isolated.\n    fixtures = '/home/xnihil0zer0/JanusMaskJR/fixtures/NobleGreedv2-samples'\n    a = {'task_id': 'A', 'files_touched': ['foo.py'], 'working_dir': fixtures}\n    b = {'task_id': 'B', 'files_touched': ['bar.py'], 'working_dir': fixtures}\n    assert can_run_parallel(a, b) is True\n\n    sibling = '/home/xnihil0zer0/NobleGreedv2-other'\n    a = {'task_id': 'A', 'files_touched': ['foo.py'], 'working_dir': sibling}\n    b = {'task_id': 'B', 'files_touched': ['bar.py'], 'working_dir': sibling}\n    assert can_run_parallel(a, b) is True\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_project_isolation"
+          },
+          {
+            "name": "test_project_isolation_exact_path"
+          },
+          {
+            "name": "test_transitive_deps_cycle"
+          },
+          {
+            "name": "test_same_task_id_not_parallel"
+          },
+          {
+            "name": "test_file_overlap_not_parallel"
+          },
+          {
+            "name": "test_directory_prefix_overlap"
+          },
+          {
+            "name": "test_conservative_missing_files"
+          },
+          {
+            "name": "test_disjoint_files_parallel"
+          },
+          {
+            "name": "test_dependency_edge_not_parallel"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_project_isolation"
+          },
+          {
+            "name": "test_project_isolation_exact_path"
+          },
+          {
+            "name": "test_transitive_deps_cycle"
+          },
+          {
+            "name": "test_conservative_missing_files"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "No new test data or fixtures. The committed RED oracle tests/test_autowork_parallelism.py (JM commit d574679) is the sole authoritative acceptance contract; the regression_tests entries are descriptors naming EXISTING committed oracle cases and do NOT authorize authoring new tests. Success = `python3 -m pytest -q tests/test_autowork_parallelism.py` reports 9 passed."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation is a deterministic byte-for-byte whole-file emission of pinned content; verification is dominated by reading/running the committed oracle and confirming all 9 tests GREEN, so test budget weighted higher."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_concurrency_isolation.md",
+  "source_brief_sha256": "cc76dddf93775faecb5159b5169792d776a67c60bb626057dbc178109e21d117"
+}

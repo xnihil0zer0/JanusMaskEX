@@ -1,0 +1,155 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2_session_gate_reachability_triage",
+      "title": "ngv2/session_gate.py \u2014 wire Stage-3 reachability triage band into the (triage->verify) FSM gate",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/session_gate.py"
+      ],
+      "acceptance_criteria": [
+        "A new top-level helper `_reachability_triage_band(ev)` is added to ngv2/session_gate.py immediately before `_gate_triage_to_verify`.",
+        "`_reachability_triage_band` returns None (skips triage) when ev is not a dict or carries no LLM seam (neither `llm_complete` nor `llm_client`), so legacy callers are unaffected.",
+        "When an LLM seam is present, the helper lazily imports `ngv2.reachability_triage.judge`, calls it over the proven taint path (finding, path, snippets, client, complete), and returns its `band` ('ADMIT'/'MANUAL'/'DROP'); any error fail-safes to 'MANUAL'.",
+        "`_gate_triage_to_verify` consults the helper FIRST: a 'DROP' band short-circuits to GateResult(ok=False, error='out_of_scope'), a 'MANUAL' band to error='manual_review_scope'.",
+        "'ADMIT' or None falls through UNCHANGED to the existing confidence-signal path (resolve_signals -> compute_confidence -> route_confidence -> _confidence_band).",
+        "The ('triage','verify') edge remains registered in `_HANDLERS`; the `_HANDLERS` table is NOT modified.",
+        "Only the two named functions change; no other handler, `semantic_verdict`, `_confidence_band`, reachability_triage, or confidence_signals is touched.",
+        "Verification command is GREEN."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python3 -m pytest -q tests/ngv2/test_session_gate_reachability_triage_wired.py tests/ngv2/test_session_gate_wired.py tests/ngv2/test_state_machine_gate_wired.py tests/test_triage_verify_signals_wired.py",
+      "spec": {
+        "objective": "EDIT the existing ngv2/session_gate.py to insert the Stage-3 LLM scope/auth triage into the live (triage->verify) lifecycle gate: add the top-level helper `_reachability_triage_band(ev)` and make `_gate_triage_to_verify` consult it before the confidence gate (DROP->out_of_scope, MANUAL->manual_review_scope, ADMIT/absent->existing confidence path), leaving seam-free legacy callers byte-identical.",
+        "functional_requirements": [
+          "Add a NEW top-level helper `_reachability_triage_band(ev) -> Optional[str]` that returns None when `ev` is not a dict or carries no LLM seam (`ev['llm_complete']` and `ev['llm_client']` both None), so legacy callers are untouched.",
+          "When a seam is present, `_reachability_triage_band` resolves finding via `_first(ev, ('finding','findings'), {})`, path via `ev.get('taint_path') or ev.get('path')`, snippets via `ev.get('snippets')`, lazily imports `from ngv2.reachability_triage import judge`, and returns `judge(finding, path, snippets, client=client, complete=complete).get('band')`; any exception fail-safes to 'MANUAL' (never a silent ADMIT/DROP).",
+          "Modify `_gate_triage_to_verify` to call `_reachability_triage_band(ev)` first; a 'DROP' band returns GateResult(ok=False, error='out_of_scope', payload={'triage':'DROP'}) and a 'MANUAL' band returns GateResult(ok=False, error='manual_review_scope', payload={'triage':'MANUAL'}).",
+          "On 'ADMIT' or None, `_gate_triage_to_verify` falls through UNCHANGED to the existing confidence path (resolve_signals -> compute_confidence -> route_confidence -> _confidence_band with ADMIT/MANUAL/DROP/unrouted GateResults).",
+          "Leave the `_HANDLERS` table, the ('triage','verify') edge registration, every other gate handler, `semantic_verdict`, and `_confidence_band` unchanged; do not add network/clock/subprocess; the reachability_triage import stays lazy inside the helper."
+        ],
+        "interfaces": "EDITS ngv2/session_gate.py. New top-level symbol `_reachability_triage_band(ev: Any) -> Optional[str]`. Modified existing function `_gate_triage_to_verify(pf: str, pt: str, ev: Any) -> GateResult`. Consumes `ngv2.reachability_triage.judge(finding, path, snippets, client=, complete=) -> dict` (reads its 'band'). Returns existing `GateResult` dataclass. The ('triage','verify') edge in `_HANDLERS` dispatches to `_gate_triage_to_verify` via the FSM `gate_transition`.",
+        "edge_cases": [
+          "ev is not a dict -> helper returns None -> confidence path unchanged.",
+          "ev is a dict but has neither `llm_complete` nor `llm_client` -> helper returns None -> seam-free legacy behavior byte-identical to before.",
+          "judge raises / reachability_triage import fails -> helper returns 'MANUAL' -> gate routes error='manual_review_scope' (fail-safe, never silent ADMIT/DROP).",
+          "judge returns a dict without 'band' -> .get('band') yields None -> treated as fall-through to confidence path.",
+          "Seam present and band=='ADMIT' -> falls through to confidence path (NOT out_of_scope/manual_review_scope)."
+        ],
+        "non_goals": [
+          "Do NOT modify the `_HANDLERS` table or the ('triage','verify') edge registration.",
+          "Do NOT change any other gate handler, `semantic_verdict`, or `_confidence_band` logic.",
+          "Do NOT run triage when no LLM seam is supplied (legacy callers MUST be unaffected).",
+          "Do NOT touch ngv2/reachability_triage or ngv2/confidence_signals.",
+          "Do NOT add network/clock/subprocess; do NOT whole-file re-emit the 438-line module; do NOT patch a class method.",
+          "Do NOT wire the live-hunt driver (`_e2e_run/drive_reachability.py`) here \u2014 that is a separate integration leaf."
+        ],
+        "implementation_notes": "R-ANCHORED PARTIAL EDIT (MANDATORY): do NOT whole-file re-emit this 438-line module; do NOT patch any class method or the `_HANDLERS` dict. `_reachability_triage_band` is a NEW top-level symbol that must ride as a node anchored on the existing `_gate_triage_to_verify` patch. Re-emit the modified existing function `_gate_triage_to_verify` VERBATIM and include the NEW `_reachability_triage_band` immediately before it, BYTE-FOR-BYTE as follows (both functions, in this order):\n\ndef _reachability_triage_band(ev: Any) -> Optional[str]:\n    \"\"\"Consult the Stage-3 LLM scope/auth triage when an LLM seam is supplied.\n\n    Returns 'ADMIT'/'MANUAL'/'DROP', or None to skip triage (no seam present, so\n    legacy callers are unaffected). Any error fail-safes to 'MANUAL'.\n    \"\"\"\n    if not isinstance(ev, dict):\n        return None\n    complete = ev.get('llm_complete')\n    client = ev.get('llm_client')\n    if complete is None and client is None:\n        return None\n    finding = _first(ev, ('finding', 'findings'), {})\n    path = ev.get('taint_path') or ev.get('path')\n    snippets = ev.get('snippets')\n    try:\n        from ngv2.reachability_triage import judge\n        return judge(finding, path, snippets, client=client, complete=complete).get('band')\n    except Exception:\n        return 'MANUAL'\n\ndef _gate_triage_to_verify(pf: str, pt: str, ev: Any) -> GateResult:\n    finding = _first(ev, ('finding', 'findings'), ev)\n    triage_band = _reachability_triage_band(ev)\n    if triage_band == 'DROP':\n        return GateResult(ok=False, phase_from=pf, phase_to=pt, error='out_of_scope', payload={'triage': 'DROP'})\n    if triage_band == 'MANUAL':\n        return GateResult(ok=False, phase_from=pf, phase_to=pt, error='manual_review_scope', payload={'triage': 'MANUAL'})\n    try:\n        from ngv2.confidence_signals import resolve_signals\n        signals = resolve_signals(ev, finding)\n    except Exception:\n        signals = None\n    confidence = _call(compute_confidence, finding, signals)\n    route = _call(route_confidence, confidence)\n    if route is None:\n        route = confidence\n    band = _confidence_band(route)\n    if band == 'ADMIT':\n        return GateResult(ok=True, phase_from=pf, phase_to=pt, payload={'confidence': confidence, 'route': route})\n    if band == 'MANUAL':\n        return GateResult(ok=False, phase_from=pf, phase_to=pt, error='manual_review', payload={'confidence': confidence, 'route': route})\n    if band == 'DROP':\n        return GateResult(ok=False, phase_from=pf, phase_to=pt, error='dropped', payload={'confidence': confidence, 'route': route})\n    return GateResult(ok=False, phase_from=pf, phase_to=pt, error='unrouted', payload={'confidence': confidence, 'route': route})\n\nPOST-EMIT SELF-CHECK (mandatory): with NO `llm_complete`/`llm_client` in `ev`, `_gate_triage_to_verify` behaves byte-identically to before (triage skipped, confidence path); `('triage','verify')` is still in `_HANDLERS`; only these two functions changed; the import of `reachability_triage` is lazy inside the helper; any judge error -> MANUAL (never a silent ADMIT/DROP). ANTI-SEESAW: keep the entire session_gate + triage_verify oracle UNION green (test_session_gate_wired, test_state_machine_gate_wired, test_lifecycle_fsm_wiring_wired, test_session_gate_done_wired, test_session_gate_import_and_bind_wired, test_session_gate_bind_reconciliation_wired, test_source_hunt_qualify_arity_wired, test_gate_result_fields_wired, test_submission_readiness_ready_path_wired, test_session_api_wired, test_session_api_persistence_wired, test_session_api_audit_now_fn_wired, test_persist_submission_sessiondb_wired, test_triage_verify_signals_wired).\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/ngv2/test_session_gate_reachability_triage_wired.py\n```python\n\"\"\"RED oracle for the session_gate reachability-triage sub-gate (EDIT leaf C3).\n\nThe (triage -> verify) gate consults ngv2.reachability_triage when an LLM seam is\nsupplied in evidence: DROP -> ok=False error='out_of_scope'; MANUAL -> ok=False\nerror='manual_review_scope'; ADMIT/absent -> falls through to the existing\nconfidence path. Legacy callers (no seam) are unaffected. Live-path: the edge is\nregistered in _HANDLERS and reachable via gate_transition.\n\"\"\"\nfrom ngv2.session_gate import gate_transition, _HANDLERS\n\n\ndef _seam(classification):\n    def complete(messages, **kwargs):\n        return '{\"classification\": \"%s\", \"justification\": \"x\"}' % classification\n    return complete\n\n\ndef test_triage_verify_edge_registered():\n    assert ('triage', 'verify') in _HANDLERS\n\n\ndef test_out_of_scope_drops_at_gate():\n    ev = {'finding': {'cwe': 'CWE-502', 'file': 'r.py', 'line': 9},\n          'taint_path': ['s.py:1 \u2014 src', 'r.py:9 \u2014 pickle.loads'],\n          'llm_complete': _seam('internal_only')}\n    res = gate_transition('triage', 'verify', ev)\n    assert res.ok is False\n    assert res.error == 'out_of_scope'\n\n\ndef test_auth_gated_routes_manual_at_gate():\n    ev = {'finding': {'cwe': 'CWE-918', 'file': 'r.py', 'line': 3},\n          'taint_path': ['a:1', 'r.py:3'],\n          'llm_complete': _seam('auth_gated')}\n    res = gate_transition('triage', 'verify', ev)\n    assert res.ok is False\n    assert res.error == 'manual_review_scope'\n\n\ndef test_admit_falls_through_to_confidence_path():\n    # ADMIT triage does NOT short-circuit; it proceeds to the confidence gate,\n    # which (with no confidence signals wired) yields a non-out_of_scope result.\n    ev = {'finding': {'cwe': 'CWE-502', 'file': 'r.py', 'line': 9},\n          'taint_path': ['s.py:1', 'r.py:9'],\n          'llm_complete': _seam('reachable_unauth')}\n    res = gate_transition('triage', 'verify', ev)\n    assert res.error not in ('out_of_scope', 'manual_review_scope')\n\n\ndef test_legacy_no_seam_unaffected():\n    # no llm seam -> triage skipped, behaves exactly as before (confidence path)\n    res = gate_transition('triage', 'verify', {'finding': {'cwe': 'CWE-94'}})\n    assert res.error not in ('out_of_scope', 'manual_review_scope')\n\n```\n\n## tests/ngv2/test_session_gate_wired.py\n```python\n\"\"\"RED oracle for ngv2/session_gate.py (Agentic Spine Epic B, LEAF B1).\n\nPure transition-gate validators. NO database access in this module; the gate\noperates over an injected, deserialized artifact set (\"rows\").\n\nPinned contract (the blind worker MUST build to this):\n\n- ``gate_transition(rows, from_phase, to_phase) -> GateResult`` where\n  ``GateResult`` exposes ``.ok`` (bool) and ``.error`` (str | None; None or ''\n  when ok, a specific non-empty diagnostic when not ok).\n\n- ``rows`` is a dict keyed by artifact type. Each value is a list of artifact\n  *dicts* (the ``to_dict()`` forms of the contract dataclasses), which the gate\n  deserializes via the contracts' ``from_dict`` and validates with each\n  artifact's ``validate()``. Chosen shape::\n\n      {\n          'findings': [Finding.to_dict(), ...],\n          'pocs':     [PoC.to_dict(), ...],\n          'reports':  [LiveTestReport.to_dict(), ...],\n      }\n\n  Missing keys are treated as empty lists.\n\nGate rules (the four pipeline edges):\n\n- ``hunt -> triage``   : ok iff there is >= 1 valid ``Finding``.\n- ``triage -> poc``    : ok iff the findings are deduped (no duplicate\n                          ``Finding.id``) and >= 1 finding exists.\n- ``poc -> detonate``  : ok iff every ``PoC.finding_id`` maps to a registered\n                          finding id (no orphan PoC).\n- ``detonate -> report``: ok iff every PoC has a matching ``LiveTestReport``\n                          (i.e. some report.poc_finding_id == poc.finding_id).\n\"\"\"\nimport pytest\n\nfrom ngv2.contracts import Finding, PoC, LiveTestReport\nfrom ngv2.session_gate import gate_transition, GateResult\n\n\ndef _finding(fid=\"F1\", severity=\"high\"):\n    return Finding(\n        id=fid,\n        target=\"svc.example\",\n        category=\"injection\",\n        severity=severity,\n        title=\"title-\" + fid,\n        description=\"desc-\" + fid,\n        evidence=[],\n    ).to_dict()\n\n\ndef _poc(finding_id=\"F1\"):\n    return PoC(\n        finding_id=finding_id,\n        language=\"python\",\n        code=\"print('x')\",\n        entrypoint=\"main\",\n    ).to_dict()\n\n\ndef _report(poc_finding_id=\"F1\", verdict=\"confirmed\"):\n    return LiveTestReport(\n        poc_finding_id=poc_finding_id,\n        verdict=verdict,\n        exit_code=0,\n        stdout=\"\",\n        stderr=\"\",\n        duration_ms=5,\n    ).to_dict()\n\n\ndef test_gateresult_shape():\n    res = gate_transition({\"findings\": [_finding()]}, \"hunt\", \"triage\")\n    # Duck-typed on purpose: tests/ngv2/test_session_gate_import_and_bind_wired.py\n    # legitimately importlib.reload()s ngv2.session_gate at test runtime, which\n    # recreates the GateResult class object inside the live module. An\n    # isinstance() against this module's import-time GateResult reference then\n    # fails on CLASS IDENTITY (not behaviour) whenever that file runs first.\n    # Pin the contract by name + field shape instead of object identity.\n    assert type(res).__name__ == \"GateResult\"\n    assert hasattr(res, \"ok\") and hasattr(res, \"error\")\n    assert isinstance(res.ok, bool)\n    assert res.error is None or isinstance(res.error, str)\n\n\n# --- hunt -> triage --------------------------------------------------------\n\ndef test_hunt_to_triage_passes_with_valid_finding():\n    res = gate_transition({\"findings\": [_finding()]}, \"hunt\", \"triage\")\n    assert res.ok is True\n\n\ndef test_hunt_to_triage_fails_with_zero_findings():\n    res = gate_transition({\"findings\": []}, \"hunt\", \"triage\")\n    assert res.ok is False\n    assert res.error  # specific, non-empty diagnostic\n\n\ndef test_hunt_to_triage_fails_with_missing_findings_key():\n    # Edge case: absent key is treated as empty -> fail.\n    res = gate_transition({}, \"hunt\", \"triage\")\n    assert res.ok is False\n    assert res.error\n\n\n# --- triage -> poc ---------------------------------------------------------\n\ndef test_triage_to_poc_passes_with_deduped_findings():\n    res = gate_transition(\n        {\"findings\": [_finding(\"F1\"), _finding(\"F2\")]}, \"triage\", \"poc\"\n    )\n    assert res.ok is True\n\n\ndef test_triage_to_poc_fails_on_duplicate_finding_ids():\n    # Edge case: duplicate ids are not deduped -> fail.\n    res = gate_transition(\n        {\"findings\": [_finding(\"F1\"), _finding(\"F1\")]}, \"triage\", \"poc\"\n    )\n    assert res.ok is False\n    assert res.error\n\n\n# --- poc -> detonate -------------------------------------------------------\n\ndef test_poc_to_detonate_passes_when_every_poc_maps_to_finding():\n    rows = {\n        \"findings\": [_finding(\"F1\"), _finding(\"F2\")],\n        \"pocs\": [_poc(\"F1\"), _poc(\"F2\")],\n    }\n    res = gate_transition(rows, \"poc\", \"detonate\")\n    assert res.ok is True\n\n\ndef test_poc_to_detonate_fails_on_orphan_poc():\n    rows = {\n        \"findings\": [_finding(\"F1\")],\n        \"pocs\": [_poc(\"F1\"), _poc(\"ORPHAN\")],\n    }\n    res = gate_transition(rows, \"poc\", \"detonate\")\n    assert res.ok is False\n    assert res.error\n\n\n# --- detonate -> report ----------------------------------------------------\n\ndef test_detonate_to_report_passes_when_every_poc_has_report():\n    rows = {\n        \"findings\": [_finding(\"F1\"), _finding(\"F2\")],\n        \"pocs\": [_poc(\"F1\"), _poc(\"F2\")],\n        \"reports\": [_report(\"F1\"), _report(\"F2\")],\n    }\n    res = gate_transition(rows, \"detonate\", \"report\")\n    assert res.ok is True\n\n\ndef test_detonate_to_report_fails_when_a_poc_lacks_report():\n    rows = {\n        \"findings\": [_finding(\"F1\"), _finding(\"F2\")],\n        \"pocs\": [_poc(\"F1\"), _poc(\"F2\")],\n        \"reports\": [_report(\"F1\")],  # F2 has no report\n    }\n    res = gate_transition(rows, \"detonate\", \"report\")\n    assert res.ok is False\n    assert res.error\n\n```\n\n## tests/ngv2/test_state_machine_gate_wired.py\n```python\n\"\"\"RED oracle for ngv2/state_machine.py additions (Epic B, LEAF B4).\n\nEDIT, additive: a new ``transition_with_gate`` wrapper is added while EVERY\nexisting symbol is preserved and continues to behave identically.\n\nPinned contract (the blind worker MUST build to this):\n\n- ``transition_with_gate(machine, to, gate_result)`` -- performs\n  ``machine.transition(to)`` ONLY when ``gate_result.ok`` is truthy AND the\n  transition is structurally allowed; otherwise it refuses by raising\n  ``ValueError`` (the failing gate's ``.error`` SHOULD appear in the message)\n  and leaves ``machine.state.phase`` unchanged. Returns ``None`` on success.\n\n  ``gate_result`` is any object exposing ``.ok`` (bool) and ``.error``\n  (str | None) -- e.g. a ``session_gate.GateResult``. The state_machine module\n  must NOT import session_gate (no new cross-module dep); it duck-types ``.ok``.\n\nExisting-symbol preservation asserted: ``PHASES``, ``ALLOWED_TRANSITIONS``,\n``HuntStateMachine.can_transition`` / ``transition`` are unchanged.\n\nEdge cases: gate-fail refuses + preserves phase; passing gate on a\nstructurally-disallowed edge still raises (gate ok does not bypass the graph).\n\"\"\"\nfrom dataclasses import dataclass\n\nimport pytest\n\nfrom ngv2.state_machine import (\n    PHASES,\n    ALLOWED_TRANSITIONS,\n    HuntStateMachine,\n    transition_with_gate,\n)\n\n\n@dataclass\nclass _FakeGate:\n    __test__ = False  # not a pytest test class\n    ok: bool\n    error: str | None = None\n\n\ndef test_existing_phases_preserved():\n    assert PHASES == (\"hunt\", \"triage\", \"poc\", \"detonate\", \"report\", \"done\")\n\n\ndef test_existing_allowed_transitions_preserved():\n    assert ALLOWED_TRANSITIONS == {\n        \"hunt\": (\"triage\", \"done\"),\n        \"triage\": (\"poc\", \"done\"),\n        \"poc\": (\"detonate\", \"done\"),\n        \"detonate\": (\"report\", \"done\"),\n        \"report\": (\"done\",),\n        \"done\": (),\n    }\n\n\ndef test_existing_can_transition_and_transition_still_work():\n    m = HuntStateMachine()\n    assert m.can_transition(\"triage\") is True\n    assert m.can_transition(\"poc\") is False\n    m.transition(\"triage\")\n    assert m.state.phase == \"triage\"\n    with pytest.raises(ValueError):\n        m.transition(\"report\")  # not allowed from triage\n\n\ndef test_transition_with_gate_allows_on_passing_gate():\n    m = HuntStateMachine()\n    transition_with_gate(m, \"triage\", _FakeGate(ok=True))\n    assert m.state.phase == \"triage\"\n\n\ndef test_transition_with_gate_refuses_on_failing_gate():\n    m = HuntStateMachine()\n    with pytest.raises(ValueError):\n        transition_with_gate(m, \"triage\", _FakeGate(ok=False, error=\"no findings\"))\n    # Edge case: phase must be unchanged after a refused transition.\n    assert m.state.phase == \"hunt\"\n\n\ndef test_transition_with_gate_respects_graph_even_when_gate_passes():\n    # Edge case: a passing gate does NOT override the structural transition graph.\n    m = HuntStateMachine()\n    with pytest.raises(ValueError):\n        transition_with_gate(m, \"report\", _FakeGate(ok=True))  # hunt->report illegal\n    assert m.state.phase == \"hunt\"\n\n```\n\n## tests/test_triage_verify_signals_wired.py\n```python\n\"\"\"RED wiring oracle: the live ``triage -> verify`` FSM gate now feeds REAL\nconfidence signals to ``compute_confidence`` (Phase 3 wiring).\n\nBefore this wiring, ``ngv2.session_gate._gate_triage_to_verify`` called\n``compute_confidence(finding)`` with no signals (the gate's confidence was\nalways ``None`` -> band '' -> ``unrouted``), and ``_e2e_run/drive_one.py``\nbypassed the gate with a hand-faked signal literal. This oracle drives the REAL\n``gate_transition('triage', 'verify', evidence)`` dispatch and asserts that:\n\n  * a real execution-sink ``source`` runs the structural verifier and the\n    resulting taint-flow proof routes the gate to ADMIT (ok=True, CONFIRMED);\n  * a real ``confirmed`` live-detonation report alone routes to ADMIT;\n  * an ``unconfirmed`` detonation with no structural proof does NOT admit\n    (marker-spoofing cannot pass the gate);\n  * pre-computed ``signals`` in evidence are honored verbatim.\n\nThis is the \"reachable on the live hunt path\" proof for Phase 3 -- the analyzer\nsignal must reach ``compute_confidence`` THROUGH the real gate dispatch, not\nmerely be unit-green in isolation.\n\nHermetic: the stdlib AST verifier runs over inline source; no network /\nsubprocess / clock.\n\"\"\"\nfrom __future__ import annotations\nimport ngv2.session_gate as sg\n\nCMDI_SOURCE = (\n    \"import os\\n\"\n    \"def lookup_host(host):\\n\"\n    \"    return os.system('getent hosts ' + host)\\n\"\n)\nCMDI_FINDING = {\n    'id': 'command_injection', 'category': 'command_injection',\n    'cwe': 'CWE-78', 'evidence': ['svc.py:3'],\n}\nEVAL_FINDING = {'id': 'eval_usage', 'category': 'eval_usage', 'cwe': 'CWE-95'}\n\n\ndef test_real_exec_source_routes_gate_to_admit_via_live_verifier():\n    \"\"\"gate_transition('triage','verify', {finding, source}) must run the\n    structural verifier live and ADMIT on the taint-flow proof.\"\"\"\n    ev = {'finding': CMDI_FINDING, 'source': CMDI_SOURCE, 'language': 'python'}\n    result = sg.gate_transition('triage', 'verify', ev)\n    assert result.ok is True, f'gate did not admit: {result}'\n    assert result.phase_from == 'triage' and result.phase_to == 'verify'\n    conf = result.payload.get('confidence')\n    assert conf == 'CONFIRMED', f'confidence not CONFIRMED through gate: {conf}'\n\n\ndef test_confirmed_live_report_routes_gate_to_admit():\n    \"\"\"A real confirmed detonation report alone (live_poc proof) admits.\"\"\"\n    ev = {'finding': EVAL_FINDING,\n          'live_report': {'verdict': 'confirmed'}}\n    result = sg.gate_transition('triage', 'verify', ev)\n    assert result.ok is True, f'confirmed detonation did not admit: {result}'\n    assert result.payload.get('confidence') == 'CONFIRMED'\n\n\ndef test_unconfirmed_detonation_no_proof_does_not_admit():\n    \"\"\"An unconfirmed detonation with no structural proof must NOT admit.\"\"\"\n    ev = {'finding': EVAL_FINDING,\n          'live_report': {'verdict': 'unconfirmed'}}\n    result = sg.gate_transition('triage', 'verify', ev)\n    assert result.ok is False, f'marker-spoof unexpectedly admitted: {result}'\n    assert result.payload.get('confidence') != 'CONFIRMED'\n\n\ndef test_precomputed_signals_are_honored():\n    \"\"\"Explicit signals in evidence are passed verbatim to compute_confidence.\"\"\"\n    ev = {'finding': EVAL_FINDING, 'signals': [\n        {'tool': 'poc_runner', 'kind': 'live_poc', 'result': 'proof'}]}\n    result = sg.gate_transition('triage', 'verify', ev)\n    assert result.ok is True\n    assert result.payload.get('confidence') == 'CONFIRMED'\n\n\ndef test_no_signals_no_source_does_not_crash():\n    \"\"\"Bare evidence (no source / report / signals) fails closed, not raises.\"\"\"\n    result = sg.gate_transition('triage', 'verify', {'finding': EVAL_FINDING})\n    assert result.ok is False\n    assert result.error is not None\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_out_of_scope_drops_at_gate"
+          },
+          {
+            "name": "test_admit_falls_through_to_confidence_path"
+          },
+          {
+            "name": "test_auth_gated_routes_manual_at_gate"
+          },
+          {
+            "name": "test_legacy_no_seam_unaffected"
+          },
+          {
+            "name": "test_judge_error_fail_safes_to_manual"
+          },
+          {
+            "name": "test_helper_returns_none_when_ev_not_dict"
+          },
+          {
+            "name": "test_helper_returns_none_without_seam"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_triage_verify_edge_registered"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_seam_free_ev_behaves_identically_across_inputs"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_out_of_scope_drops_at_gate"
+          },
+          {
+            "name": "test_admit_falls_through_to_confidence_path"
+          },
+          {
+            "name": "tests/ngv2/test_session_gate_wired.py"
+          },
+          {
+            "name": "tests/ngv2/test_state_machine_gate_wired.py"
+          },
+          {
+            "name": "tests/ngv2/test_lifecycle_fsm_wiring_wired.py"
+          },
+          {
+            "name": "tests/ngv2/test_session_gate_done_wired.py"
+          },
+          {
+            "name": "tests/ngv2/test_session_gate_import_and_bind_wired.py"
+          },
+          {
+            "name": "tests/ngv2/test_session_gate_bind_reconciliation_wired.py"
+          },
+          {
+            "name": "tests/ngv2/test_source_hunt_qualify_arity_wired.py"
+          },
+          {
+            "name": "tests/ngv2/test_gate_result_fields_wired.py"
+          },
+          {
+            "name": "tests/ngv2/test_submission_readiness_ready_path_wired.py"
+          },
+          {
+            "name": "tests/ngv2/test_session_api_wired.py"
+          },
+          {
+            "name": "tests/ngv2/test_session_api_persistence_wired.py"
+          },
+          {
+            "name": "tests/ngv2/test_session_api_audit_now_fn_wired.py"
+          },
+          {
+            "name": "tests/ngv2/test_persist_submission_sessiondb_wired.py"
+          },
+          {
+            "name": "tests/test_triage_verify_signals_wired.py"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Fixtures supplying an evidence dict `ev` with an LLM seam (`llm_complete` callable and/or `llm_client`), a proven `taint_path`, a `finding`, and optional `snippets`; a stubbed/monkeypatched `ngv2.reachability_triage.judge` returning verdict bands 'ADMIT' (reachable_unauth), 'DROP' (internal_only), and 'MANUAL' (auth_gated), plus an error-raising variant; and a seam-free legacy `ev` to assert byte-identical confidence-path behavior. The ('triage','verify') edge is exercised via the live `_HANDLERS`/`gate_transition` path."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation is a tightly-specified two-function R-anchored partial edit (verbatim block supplied); the bulk of effort is verifying the RED oracle goes green and the large anti-seesaw UNION of session_gate/triage_verify oracles stays green, so test budget dominates."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2_session_gate_reachability_triage.md",
+  "source_brief_sha256": "479b1fe8f5699965174797920654b98c9554c54ca3f84fe19d0fa94510d0684d",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

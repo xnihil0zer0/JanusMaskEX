@@ -1,0 +1,203 @@
+{
+  "tasks": [
+    {
+      "task_id": "hunt-worker-impl",
+      "title": "Implement ngv2/workers/hunt.py run_stage hunt-phase worker",
+      "meta_task_type": "orchestration",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/workers/hunt.py"
+      ],
+      "acceptance_criteria": [
+        "ngv2/workers/hunt.py exposes run_stage(context, seams) -> list[dict].",
+        "run_stage reads phase/target/prior_findings/parked_package from the context produced by session_get_task.get_task without mutating it.",
+        "run_stage calls the injected llm-client seam to surface candidate leads and applies the injected hunt-phase may_confirm gate to each candidate.",
+        "Only gate-confirmed candidates are returned; each returned dict is parseable by artifact_harvester.parse_stage_artifact(filename, content, phase) and shaped for the contracts.Finding dataclass.",
+        "An empty / no-lead llm-client response yields an empty list (no crash).",
+        "No existing committed module (llm_client.py, contracts.py, gate modules, artifact_harvester.py, session_get_task.py, base_worker) is edited in place; seams are consumed only via injection.",
+        "build_default_seams, the conductor loop, gated_advance, the StageWorker base runner, and triage/verify/late-phase workers are NOT introduced here."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -c \"import ngv2.workers.hunt\"",
+      "spec": {
+        "objective": "Provide the hunt-phase stage worker that composes the injected llm-client seam with the hunt-phase may_confirm gate to surface candidate findings as artifact dicts, leaving seam assembly and conductor orchestration to other modules.",
+        "functional_requirements": [
+          "Expose run_stage(context, seams) -> list[dict] in ngv2/workers/hunt.py.",
+          "Resolve task fields (phase, target, prior_findings, parked_package) from the context shape returned by session_get_task.get_task(session_row) without mutating context or seams.",
+          "Invoke the injected llm-client seam (per ngv2/llm_client.py signature) to obtain candidate hunt leads for the target.",
+          "Apply the injected hunt-phase may_confirm gate to each candidate and drop candidates the gate rejects.",
+          "Shape each confirmed candidate into an artifact dict that is parseable by artifact_harvester.parse_stage_artifact(filename, content, phase) and whose payload aligns with the contracts.Finding dataclass fields.",
+          "Return an empty list when the llm-client seam yields no lead or all candidates are rejected, without raising."
+        ],
+        "interfaces": "run_stage(context, seams) -> list[dict]",
+        "edge_cases": [
+          "llm-client seam returns an empty / no-lead response -> run_stage returns [].",
+          "Gate rejects a candidate -> that candidate is excluded from the result list.",
+          "Mixed batch: some candidates confirmed, some rejected -> only confirmed ones surface.",
+          "Malformed or partial candidate from the seam is skipped rather than crashing the stage."
+        ],
+        "non_goals": [
+          "Do not build build_default_seams, the conductor loop, gated_advance, or the StageWorker base runner.",
+          "Do not build triage.py, verify.py, or any late-phase worker (poc.py, detonate.py, novelty.py, report.py).",
+          "Do not edit llm_client.py, contracts.py, the gate modules, artifact_harvester.py, session_get_task.py, or base_worker in place."
+        ],
+        "implementation_notes": "Consume the llm-client, may_confirm gate, and write seams strictly via the injected seams argument so the worker stays testable with stubs. Treat parse_stage_artifact(filename, content, phase) as the shape contract for returned dicts and contracts.Finding as the payload contract. Keep the module pure of network/process side effects; StageWorker(task, get_task_fn, stage_fn, write_fn) from base_worker is the intended consumer of stage_fn=run_stage but is not constructed here.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_run_stage_signature_returns_list"
+          },
+          {
+            "name": "test_reads_context_fields_without_mutation"
+          },
+          {
+            "name": "test_calls_injected_llm_client_seam_for_candidates"
+          },
+          {
+            "name": "test_gate_rejected_candidate_excluded"
+          },
+          {
+            "name": "test_confirmed_candidate_shaped_for_finding_and_parseable"
+          },
+          {
+            "name": "test_no_lead_response_returns_empty_list"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_returned_dicts_parse_via_parse_stage_artifact"
+          },
+          {
+            "name": "test_mixed_confirm_reject_batch_surfaces_only_confirmed"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_result_count_never_exceeds_confirmed_candidate_count"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_does_not_import_or_mutate_committed_seam_modules"
+          }
+        ],
+        "minimum_test_count": 9,
+        "test_data_requirements": "Stub llm-client returning (a) no lead, (b) one confirmable candidate, (c) a mixed batch; stub may_confirm gate that confirms/rejects deterministically; a sample context dict matching get_task output and a contracts.Finding-shaped reference payload."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "Worker logic is thin composition glue; test surface (stubs + shape assertions) is proportionally larger."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "hunt-worker-test-authoring",
+      "title": "Author mutation-gated test sibling for ngv2/workers/hunt.py",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "ngv2.workers.hunt",
+      "priority": "high",
+      "dependencies": [
+        "hunt-worker-impl"
+      ],
+      "files_touched": [
+        "ngv2/workers/test_hunt.py"
+      ],
+      "acceptance_criteria": [
+        "test_hunt.py is the test_authoring sibling whose mutation_target is ngv2.workers.hunt.",
+        "verification_command names the authored oracle (ngv2/workers/test_hunt.py).",
+        "Tests are driven entirely by a stub llm-client and stub seams; no real network, model, or filesystem side effects.",
+        "Covers at least the edge case of an empty/no-lead llm-client response and the edge case of a gate that rejects a candidate.",
+        "Asserts confirmed candidates produce artifact dicts parseable by artifact_harvester.parse_stage_artifact and shaped for contracts.Finding.",
+        "The suite fails against the declared mutant of ngv2.workers.hunt (non-vacuous)."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest ngv2/workers/test_hunt.py -q",
+      "spec": {
+        "objective": "Provide a non-vacuous oracle for ngv2/workers/hunt.py run_stage, exercising the hunt-phase composition of the llm-client seam and may_confirm gate through stubs, including the empty-lead and gate-rejection edge cases required by the brief.",
+        "functional_requirements": [
+          "Drive run_stage(context, seams) using a stub llm-client seam and stub gate/write seams with no real side effects.",
+          "Edge case: stub llm-client returns no lead -> assert run_stage returns an empty list.",
+          "Edge case: stub gate rejects a candidate -> assert the rejected candidate does not appear in the result.",
+          "Happy path: a confirmed candidate yields an artifact dict that parse_stage_artifact accepts and that maps onto contracts.Finding fields.",
+          "Provide a verification_command that names the authored oracle file and run cleanly under it."
+        ],
+        "interfaces": "pytest module ngv2/workers/test_hunt.py targeting run_stage(context, seams) -> list[dict]",
+        "edge_cases": [
+          "Empty / no-lead llm-client response.",
+          "Gate rejects one of several candidates.",
+          "All candidates rejected -> empty list.",
+          "Stub gate confirms all -> every candidate surfaces and parses."
+        ],
+        "non_goals": [
+          "Do not test build_default_seams, the conductor loop, gated_advance, or the StageWorker base runner.",
+          "Do not test triage/verify/late-phase workers.",
+          "Do not modify ngv2/workers/hunt.py or any committed seam module from the test."
+        ],
+        "implementation_notes": "Build lightweight stub seams: a stub llm-client object/callable returning scripted candidate batches, and a stub may_confirm gate with deterministic confirm/reject behavior. Use a context dict matching session_get_task.get_task output. Assert via artifact_harvester.parse_stage_artifact and against contracts.Finding to lock the shape. Tests must kill the declared mutant of ngv2.workers.hunt."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_no_lead_response_yields_empty_list"
+          },
+          {
+            "name": "test_gate_rejects_candidate_excluded_from_result"
+          },
+          {
+            "name": "test_confirmed_candidate_parses_via_parse_stage_artifact"
+          },
+          {
+            "name": "test_confirmed_candidate_matches_finding_shape"
+          },
+          {
+            "name": "test_stub_seams_only_no_real_side_effects"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_mixed_batch_only_confirmed_surface_through_stubs"
+          },
+          {
+            "name": "test_verification_command_oracle_runs"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_results_subset_of_confirmed_candidates_for_random_stub_batches"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_suite_fails_against_declared_hunt_mutant"
+          }
+        ],
+        "minimum_test_count": 8,
+        "test_data_requirements": "Stub llm-client seam scripts: empty/no-lead, single confirmable candidate, mixed/rejected batches; stub may_confirm gate with deterministic confirm and reject branches; get_task-shaped context fixture; expected contracts.Finding-shaped artifact reference for shape assertions."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Authoring task; the deliverable is the test oracle itself, so test tokens dominate the budget."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_hunt-worker.md",
+  "source_brief_sha256": "02a345c9ef1b2540f6ffed2a9dd4ff54e2dfd8e47b34740ae44296b977c3f797",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

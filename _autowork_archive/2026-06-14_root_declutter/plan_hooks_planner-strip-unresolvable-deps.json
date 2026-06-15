@@ -1,0 +1,98 @@
+{
+  "tasks": [
+    {
+      "task_id": "strip_unresolvable_deps_impl",
+      "title": "Normalizer pass: strip in-plan-unresolvable task dependencies",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/planner/plan_normalizer.py"
+      ],
+      "acceptance_criteria": [
+        "New top-level helper `_strip_unresolvable_dependencies(tasks: list[dict]) -> None` exists in harness/planner/plan_normalizer.py and mutates in place, returning None.",
+        "The helper builds the set of in-plan `task_id`s and, for each task, filters its `dependencies` to keep only entries that are str AND members of that set, preserving original order.",
+        "Missing/None/non-list `dependencies` and non-str dep entries are tolerated without raising.",
+        "`normalize_plan` calls the helper AFTER `_enforce_module_first(tasks)` and before the later passes, operating on the same `tasks` list.",
+        "Plans whose deps are all already in-plan are a byte-identical idempotent no-op; resolvable intra-plan deps are preserved and task order is unchanged.",
+        "`python -m pytest tests/planner/test_strip_unresolvable_deps.py tests/planner/test_strip_unresolvable_deps_wired.py -q` is GREEN with zero regressions in the existing planner suite."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/planner/test_strip_unresolvable_deps.py tests/planner/test_strip_unresolvable_deps_wired.py -q",
+      "spec": {
+        "objective": "Fix the dependency-slug-drift defect found 2026-06-09: when an epic child brief carrying frontmatter `dependencies:` naming SIBLING brief SLUGS is planned in isolation as a leaf, those slug strings land in the generated task's `dependencies`. The autowork daemon dispatch gate (collect_dispatchable_tasks, harness/autowork_daemon.py:~246) requires each dependency string to be a real ACCEPTED `task_id`, so a slug matching no task_id in the same plan is unsatisfiable by construction and permanently wedges the task. Add a single in-place normalizer pass that strips intra-plan task `dependencies` which do not name a sibling task of the same plan.",
+        "functional_requirements": [
+          "Add a new top-level helper `_strip_unresolvable_dependencies(tasks: list[dict]) -> None` to harness/planner/plan_normalizer.py that builds the set of all in-plan `task_id`s and, for each task, replaces its `dependencies` with only those entries that are str AND members of that set, preserving original order, mutating each task dict in place and returning None.",
+          "The helper tolerates tasks whose `dependencies` key is missing, None, or a non-list value, and tolerates non-str entries within a list, without raising.",
+          "Call `_strip_unresolvable_dependencies(tasks)` from `normalize_plan` (:538) AFTER `_enforce_module_first(tasks)` and before the later passes, operating on the same `tasks` list.",
+          "Resolvable intra-plan dependencies are preserved verbatim, task ordering is never changed, and a plan whose dependencies are already all in-plan is a byte-identical idempotent no-op."
+        ],
+        "interfaces": "_strip_unresolvable_dependencies(tasks: list[dict]) -> None \u2014 drop each task dependency that is not a task_id of another task in the same plan; called from normalize_plan after _enforce_module_first(tasks).",
+        "edge_cases": [
+          "A real intra-plan dependency (a dep string equal to a sibling task's task_id) is preserved.",
+          "A plan whose every dependency is already in-plan is an idempotent, byte-identical no-op (strict no-op on an already-clean plan).",
+          "A task with missing/None/non-list `dependencies`, or a list containing non-str entries (ints, None, dicts), is tolerated without raising; non-str entries are dropped.",
+          "An unresolvable slug-dep (e.g. `ac_flags`, `ac_population_db`) naming no task_id in the plan is stripped while sibling resolvable deps in the same list are kept in original order."
+        ],
+        "non_goals": [
+          "No integration test \u2014 exercised by the existing planner pipeline; integration with the daemon dispatch loop is not re-tested here.",
+          "Do NOT edit harness/autowork_daemon.py or any _NEVER_AUTO_APPROVE file.",
+          "Do NOT attempt to MAP slug-deps to sibling task_ids (they are unknowable when a child is planned in isolation) \u2014 STRIP the unresolvable entries, do not remap.",
+          "Do NOT remove resolvable intra-plan deps or reorder tasks.",
+          "Do NOT touch cycle detection in plan_validator.py.",
+          "Do NOT author or modify tests \u2014 both oracles are pre-committed and RED."
+        ],
+        "implementation_notes": "Mirror the existing in-place pure-pass idiom `_enforce_module_first(tasks) -> None` (:142). EMISSION: symbol patches only \u2014 the NEW top-level helper `_strip_unresolvable_dependencies` rides as an R-ANCHORED trailing node of the `normalize_plan` symbol patch (the documented new-top-level-symbol recipe), plus the one-line call inside `normalize_plan`. Do NOT emit whole-file or `__JANUSMASK_MANIFEST__` for this EDIT. The pre-committed RED oracles tests/planner/test_strip_unresolvable_deps.py and tests/planner/test_strip_unresolvable_deps_wired.py are the authoritative contract \u2014 their docstrings/assertions define behaviour; do not author tests. meta_task_type=harness_self_fix (sensitive harness/planner/**; operator decision file provided).\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/planner/test_strip_unresolvable_deps.py\n```python\n\"\"\"RED oracle \u2014 strip in-plan-unresolvable task dependencies (planner-strip-unresolvable-deps).\n\nDEFECT (2026-06-09, autocompiler Phase A): an epic child brief carries\nfrontmatter ``dependencies:`` listing SIBLING brief SLUGS (e.g. ``ac_flags``,\n``ac_population_db``). When that child is planned in isolation as a leaf, the\nslug strings land in the generated task's ``dependencies`` \u2014 but the autowork\ndaemon gates dispatch on dependency strings being real, ACCEPTED ``task_id``s\n(``autowork_daemon.py`` collect_dispatchable_tasks ~:246). A slug that matches\nno task_id in the SAME plan is unsatisfiable by construction, so the task is\npermanently undispatchable (observed: ``autocompiler_loop_impl`` wedged on\n8 sibling slug-deps after all 8 modules were already built+committed).\n\nCross-brief / cross-epic sequencing is a BRIEF-level concern (held briefs,\nallowlist, epic child ordering) \u2014 intra-plan task ``dependencies`` may only name\nsibling tasks in the same plan. Therefore: a normalizer pass\n``_strip_unresolvable_dependencies(tasks) -> None`` (mutates in place) drops, from\neach task's ``dependencies``, every entry that is not the ``task_id`` of another\ntask in the same plan. ``normalize_plan`` runs this pass; legit intra-plan deps\nand all other fields are preserved byte-for-byte; the pass is idempotent and a\nstrict no-op for already-clean plans.\n\"\"\"\nimport copy\n\nfrom harness.planner.plan_normalizer import (normalize_plan,\n                                             _strip_unresolvable_dependencies)\n\n\ndef _task(tid, deps=None, **extra):\n    t = {'task_id': tid, 'meta_task_type': 'data_model', 'files_touched': [f'{tid}.py'],\n         'dependencies': list(deps or [])}\n    t.update(extra)\n    return t\n\n\ndef test_drops_dep_not_in_plan():\n    tasks = [_task('loop_impl', deps=['ac_flags', 'ac_population_db'])]\n    _strip_unresolvable_dependencies(tasks)\n    assert tasks[0]['dependencies'] == []\n\n\ndef test_keeps_real_intra_plan_dep():\n    tasks = [_task('a'), _task('b', deps=['a'])]\n    _strip_unresolvable_dependencies(tasks)\n    assert tasks[1]['dependencies'] == ['a']\n\n\ndef test_mixed_keeps_only_resolvable_preserving_order():\n    tasks = [_task('a'), _task('c', deps=['a', 'ac_flags', 'a_missing'])]\n    _strip_unresolvable_dependencies(tasks)\n    assert tasks[1]['dependencies'] == ['a']\n\n\ndef test_inplace_returns_none():\n    tasks = [_task('b', deps=['nope'])]\n    assert _strip_unresolvable_dependencies(tasks) is None\n\n\ndef test_idempotent_noop_on_clean_plan():\n    tasks = [_task('a'), _task('b', deps=['a'])]\n    before = copy.deepcopy(tasks)\n    _strip_unresolvable_dependencies(tasks)\n    _strip_unresolvable_dependencies(tasks)\n    assert tasks == before\n\n\ndef test_malformed_deps_tolerated():\n    tasks = [_task('a', deps=None), {'task_id': 'b'}, _task('c', deps=['a', 123, None])]\n    _strip_unresolvable_dependencies(tasks)\n    assert tasks[2]['dependencies'] == ['a']\n\n\ndef test_normalize_plan_runs_the_pass():\n    plan = {'tasks': [\n        {'task_id': 'loop_impl', 'meta_task_type': 'orchestration',\n         'files_touched': ['autocompiler/loop.py'], 'dependencies': ['ac_flags', 'ac_elo']},\n    ]}\n    out = normalize_plan(plan)\n    assert out['tasks'][0]['dependencies'] == []\n\n\ndef test_normalize_plan_preserves_resolvable_dep():\n    plan = {'tasks': [\n        {'task_id': 'mod_a', 'meta_task_type': 'data_model', 'files_touched': ['a.py'], 'dependencies': []},\n        {'task_id': 'mod_b', 'meta_task_type': 'data_model', 'files_touched': ['b.py'], 'dependencies': ['mod_a']},\n    ]}\n    out = normalize_plan(plan)\n    deps = {t['task_id']: t['dependencies'] for t in out['tasks']}\n    assert deps['mod_b'] == ['mod_a']\n\n```\n\n## tests/planner/test_strip_unresolvable_deps_wired.py\n```python\n\"\"\"Wiring oracle for the planner-strip-unresolvable-deps leaf (*_wired requirement).\n\nThe edit target harness/planner/plan_normalizer.py is an existing module reached\nfrom the live planner entrypoint; this asserts it stays wired and that the new\npass is reachable as a module-level symbol invoked by normalize_plan.\n\"\"\"\nimport inspect\nfrom pathlib import Path\n\nfrom harness.wire_up import check_wired\n\n\ndef test_plan_normalizer_is_wired():\n    repo_root = Path(__file__).resolve().parents[2]\n    res = check_wired(repo_root, 'harness/planner/plan_normalizer.py')\n    assert res.wired, res.reason\n\n\ndef test_strip_pass_invoked_by_normalize_plan():\n    from harness.planner.plan_normalizer import normalize_plan, _strip_unresolvable_dependencies\n    assert callable(_strip_unresolvable_dependencies)\n    assert '_strip_unresolvable_dependencies(' in inspect.getsource(normalize_plan), (\n        'normalize_plan must call the new pass (wiring-asserting oracle)')\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_strips_unresolvable_slug_dep_keeps_resolvable_sibling_in_order"
+          },
+          {
+            "name": "test_resolvable_intra_plan_dep_preserved"
+          },
+          {
+            "name": "test_tolerates_missing_none_and_non_list_dependencies"
+          },
+          {
+            "name": "test_tolerates_non_str_dep_entries_without_raising"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_property_no_dep_outside_in_plan_task_id_set_survives"
+          },
+          {
+            "name": "test_property_task_order_and_count_invariant"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_already_clean_plan_is_byte_identical_idempotent_no_op"
+          },
+          {
+            "name": "test_wired_called_from_normalize_plan_after_enforce_module_first"
+          }
+        ],
+        "minimum_test_count": 7,
+        "test_data_requirements": "Pre-committed RED oracles tests/planner/test_strip_unresolvable_deps.py and tests/planner/test_strip_unresolvable_deps_wired.py supply the plan/task fixtures (in-plan task_id sets, slug-deps, mixed resolvable/unresolvable dep lists, and malformed dependency values). No new test data is authored."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation is a small in-place helper plus a one-line call; tests are pre-committed oracles, so no test-authoring tokens are spent \u2014 the ratio reflects the schema floor only."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_planner-strip-unresolvable-deps.md",
+  "source_brief_sha256": "9a20574fc68eb3b2f9fccce8fb377dfee4ee2e3398958a32013a46c6a474e374"
+}

@@ -1,0 +1,278 @@
+{
+  "tasks": [
+    {
+      "task_id": "cfix-mcp-main",
+      "title": "GAP 2: resolve_db_path + __main__ uses SessionDB(resolve_db_path()) (ngv2/session_mcp.py)",
+      "meta_task_type": "validation",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/session_mcp.py"
+      ],
+      "acceptance_criteria": [
+        "New module-level resolve_db_path(argv=None, env=None) -> str with precedence argv[1] (when argv has >=2 elements) > env['NGV2_SESSION_DB'] (when set) > default 'ngv2_session.db'",
+        "argv is None falls back to sys.argv; env is None falls back to os.environ",
+        "__main__ block constructs SessionDB(resolve_db_path()); the bare text `SessionDB()` appears NOWHERE in the file",
+        "Module top imports ONLY stdlib + SessionApi; no `mcp` import at top; FastMCP import and server.run() stay ONLY inside __main__; 'mcp' not in sys.modules after import",
+        "build_tools surface and the module docstring are byte-for-byte unchanged",
+        "Oracle tests/ngv2/test_session_mcp_main_wired.py is GREEN; tests/ngv2/test_session_mcp_wired.py and the full tests/ngv2 suite stay GREEN"
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/ngv2/test_session_mcp_main_wired.py -q",
+      "spec": {
+        "objective": "Fix the TypeError at server launch caused by `SessionApi(SessionDB())` (SessionDB.__init__ requires db_path, no default) by adding a module-level resolve_db_path helper and constructing SessionDB(resolve_db_path()) inside __main__, while preserving import purity (no mcp at module top, FastMCP+run only inside __main__).",
+        "functional_requirements": [
+          "Add top-level resolve_db_path(argv=None, env=None) -> str: argv is None -> sys.argv; env is None -> os.environ; return argv[1] when len(argv) >= 2; else env['NGV2_SESSION_DB'] when set/truthy; else 'ngv2_session.db'. Uses stdlib only (os, sys), zero side effects.",
+          "Change ONLY the __main__ block to construct SessionDB(resolve_db_path()); ensure the bare text `SessionDB()` does not appear anywhere in the file.",
+          "Reproduce the module docstring, from __future__/typing/SessionApi imports, and build_tools byte-for-byte; keep FastMCP import + server.run() exclusively inside __main__ so importing the module never pulls mcp into sys.modules."
+        ],
+        "interfaces": "ngv2/session_mcp.py: NEW resolve_db_path(argv=None, env=None) -> str; existing build_tools(api: SessionApi) -> Dict[str, Callable] unchanged; __main__ uses SessionApi(SessionDB(resolve_db_path())).",
+        "edge_cases": [
+          "argv[1] BEATS the env var when both are supplied: resolve_db_path(['prog','/from/argv.db'], {'NGV2_SESSION_DB':'/from/env.db'}) == '/from/argv.db'.",
+          "env=None falls back to os.environ: with os.environ['NGV2_SESSION_DB'] set and argv lacking a positional, resolve_db_path(['prog'], None) returns the os.environ value."
+        ],
+        "non_goals": [
+          "No integration, transport, network, subprocess, or server-start code beyond the existing __main__ wiring.",
+          "No new module; no schema change to ngv2/session_db.py; no change to the build_tools surface or the module docstring.",
+          "No `mcp` import at module top; FastMCP/run stay inside __main__ only.",
+          "No time/random/uuid usage; do not touch the committed oracles."
+        ],
+        "implementation_notes": "WHOLE-FILE emission (NOT a symbol patch) because the gap is in module-level __main__ code plus a NEW top-level function. Emit the COMPLETE replacement file:\n\n\"\"\"Thin stdio MCP transport shim for session phase control.\n\nThis module is a pure transport over :class:`ngv2.session_api.SessionApi`.\nIt registers exactly three tools -- ``create_session``, ``submit_artifacts``\nand ``transition`` -- each delegating straight through to the matching\n``SessionApi`` method and returning that method's dict result unchanged.\n\nImport purity is load-bearing here: at module top-level we import ONLY the\nstandard library and ``SessionApi``. The MCP SDK (``FastMCP``) is imported\nlazily inside the ``if __name__ == \"__main__\":`` guard, so importing this\nmodule never pulls ``mcp`` into ``sys.modules`` and has zero side effects --\nno FastMCP construction, no bound socket, no server ``.run()``.\n\"\"\"\nfrom __future__ import annotations\nimport os\nimport sys\nfrom typing import Callable, Dict\nfrom ngv2.session_api import SessionApi\n\ndef build_tools(api: SessionApi) -> Dict[str, Callable]:\n    \"\"\"Build the session-control tool table over ``api``.\n\n    Returns a mapping with EXACTLY the keys\n    ``{'create_session', 'submit_artifacts', 'transition'}``. Each value is a\n    thin closure that forwards its arguments to the matching ``SessionApi``\n    method and returns that method's identical dict result -- no wrapping,\n    no mutation.\n    \"\"\"\n    return {'create_session': lambda session_id, target_spec: api.create_session(session_id, target_spec), 'submit_artifacts': lambda session_id, phase, artifacts: api.submit_artifacts(session_id, phase, artifacts), 'transition': lambda session_id, to_phase: api.transition(session_id, to_phase)}\n\ndef resolve_db_path(argv=None, env=None) -> str:\n    if argv is None:\n        argv = sys.argv\n    if env is None:\n        env = os.environ\n    if argv is not None and len(argv) >= 2:\n        return argv[1]\n    value = env.get('NGV2_SESSION_DB')\n    if value:\n        return value\n    return 'ngv2_session.db'\nif __name__ == '__main__':\n    try:\n        from mcp.server.fastmcp import FastMCP\n    except ImportError:\n        FastMCP = None\n    if FastMCP is None:\n        raise SystemExit(\"The 'mcp' SDK is required to run the session MCP server. Install it to launch the stdio transport.\")\n    from ngv2.session_db import SessionDB\n    server = FastMCP('session_mcp')\n    api = SessionApi(SessionDB(resolve_db_path()))\n    for tool_name, handler in build_tools(api).items():\n        server.tool(name=tool_name)(handler)\n    server.run()\n\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/ngv2/test_session_mcp_main_wired.py\n```python\n\"\"\"RED oracle for the GAP-2 fix in ngv2/session_mcp.py (Epic C gap sweep).\n\nGAP: the ``if __name__ == '__main__':`` block does ``SessionApi(SessionDB())``\nbut ``SessionDB.__init__`` REQUIRES ``db_path`` (no default) -> TypeError at\nlaunch; the stdio MCP server can never start.\n\nPINNED CONTRACT (the fix MUST satisfy exactly):\n\n- NEW module-level helper ``resolve_db_path(argv=None, env=None) -> str``:\n    * ``argv`` is a sys.argv-shaped sequence (argv[0] = program name). When\n      ``argv is None`` the implementation falls back to ``sys.argv``.\n    * ``env`` is a mapping. When ``env is None`` the implementation falls back\n      to ``os.environ``.\n    * Precedence: ``argv[1]`` (when present) > ``env['NGV2_SESSION_DB']``\n      (when set) > the default ``'ngv2_session.db'``.\n- The ``__main__`` block constructs ``SessionDB(resolve_db_path())`` -- the\n  bare ``SessionDB()`` call is gone.\n- Import purity is PRESERVED: no ``mcp`` import at module top; FastMCP and\n  ``.run()`` stay ONLY inside the ``__main__`` guard; ``build_tools(api)``\n  keeps its exact surface (re-asserted by the existing C2 oracle\n  tests/ngv2/test_session_mcp_wired.py, which must keep passing).\n\nEdge cases covered (mirrored as assertions):\n  * argv path BEATS the env var when both are supplied (precedence).\n  * ``env=None`` falls back to the real process environment (os.environ),\n    exercised hermetically via monkeypatch.setenv.\n  * the resolved path actually constructs a working SessionDB (no TypeError).\n  * import purity does not regress ('mcp' absent from sys.modules after a\n    fresh import).\n\"\"\"\nimport importlib\nimport inspect\nimport sys\n\nfrom ngv2.session_db import SessionDB\n\n\ndef _import_fresh():\n    sys.modules.pop(\"ngv2.session_mcp\", None)\n    return importlib.import_module(\"ngv2.session_mcp\")\n\n\n_import_fresh.__test__ = False\n\n\n# --- resolve_db_path: pinned precedence -------------------------------------\n\ndef test_resolve_db_path_uses_argv1_when_given():\n    mod = _import_fresh()\n    assert mod.resolve_db_path(argv=[\"prog\", \"/x/y.db\"]) == \"/x/y.db\"\n\n\ndef test_resolve_db_path_falls_back_to_env_var():\n    mod = _import_fresh()\n    assert (\n        mod.resolve_db_path(argv=[\"prog\"], env={\"NGV2_SESSION_DB\": \"/e.db\"})\n        == \"/e.db\"\n    )\n\n\ndef test_resolve_db_path_default_is_nonempty_str():\n    mod = _import_fresh()\n    out = mod.resolve_db_path(argv=[\"prog\"], env={})\n    assert isinstance(out, str)\n    assert out  # non-empty default (e.g. 'ngv2_session.db')\n\n\ndef test_resolve_db_path_argv_beats_env():\n    \"\"\"Edge case: when BOTH argv[1] and the env var are present, argv wins.\"\"\"\n    mod = _import_fresh()\n    assert (\n        mod.resolve_db_path(argv=[\"prog\", \"/a.db\"], env={\"NGV2_SESSION_DB\": \"/e.db\"})\n        == \"/a.db\"\n    )\n\n\ndef test_resolve_db_path_env_none_reads_os_environ(monkeypatch, tmp_path):\n    \"\"\"Edge case: env=None falls back to the real process environment.\"\"\"\n    mod = _import_fresh()\n    p = str(tmp_path / \"from-environ.db\")\n    monkeypatch.setenv(\"NGV2_SESSION_DB\", p)\n    assert mod.resolve_db_path(argv=[\"prog\"]) == p\n\n\n# --- the resolved path must construct a real SessionDB ----------------------\n\ndef test_resolved_path_constructs_sessiondb(tmp_path):\n    mod = _import_fresh()\n    p = str(tmp_path / \"s.db\")\n    db = SessionDB(mod.resolve_db_path(argv=[\"prog\"], env={\"NGV2_SESSION_DB\": p}))\n    try:\n        assert db.db_path == p\n    finally:\n        db.close()\n\n\n# --- the __main__ block actually uses the helper (source-level wiring) ------\n\ndef test_main_block_wires_resolve_db_path_into_sessiondb():\n    mod = _import_fresh()\n    src = inspect.getsource(mod)\n    assert \"SessionDB(resolve_db_path(\" in src, (\n        \"__main__ must construct SessionDB(resolve_db_path(...))\"\n    )\n    assert \"SessionDB()\" not in src, (\n        \"the crashing bare SessionDB() call must be gone\"\n    )\n\n\n# --- import purity must not regress ------------------------------------------\n\ndef test_import_purity_no_mcp_in_sys_modules():\n    sys.modules.pop(\"ngv2.session_mcp\", None)\n    importlib.import_module(\"ngv2.session_mcp\")\n    assert \"mcp\" not in sys.modules, \"session_mcp must keep the FastMCP import guarded\"\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_argv1_wins_over_env"
+          },
+          {
+            "name": "test_env_fallback_when_argv_lacks_positional"
+          },
+          {
+            "name": "test_default_is_nonempty_ngv2_session_db"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_resolved_path_constructs_real_sessiondb"
+          }
+        ],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_regression_argv_beats_env_when_both_supplied"
+          },
+          {
+            "name": "test_regression_env_none_reads_os_environ_ngv2_session_db"
+          },
+          {
+            "name": "test_regression_source_contains_SessionDB_resolve_db_path_and_no_bare_SessionDB"
+          },
+          {
+            "name": "test_regression_mcp_not_in_sys_modules_after_import"
+          },
+          {
+            "name": "test_regression_full_ngv2_suite_green"
+          }
+        ],
+        "minimum_test_count": 6,
+        "test_data_requirements": "Synthetic argv lists ([prog], [prog, path]) and env mappings ({'NGV2_SESSION_DB': path}); monkeypatched os.environ for the env=None case; import-purity check on sys.modules. No time/random."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Validation task: whole-file emission reproducing fixed surfaces verbatim; oracle-pinned helper + __main__ wiring."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "cfix-gate-done",
+      "title": "GAP 1: gate_transition allows *->done via first-statement early-return (ngv2/session_gate.py)",
+      "meta_task_type": "validation",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/session_gate.py"
+      ],
+      "acceptance_criteria": [
+        "gate_transition({}, 'detonate', 'done').ok is True (early-return precedes the `if not rows:` guard)",
+        "Every phase -> done returns GateResult(ok=True, error=None) regardless of artifact contents",
+        "rows that FAIL another gate (e.g. duplicate finding ids failing triage->poc) are still ok for triage->done",
+        "The four existing gate rules (hunt->triage, triage->poc, poc->detonate, detonate->report) are byte-for-byte unchanged",
+        "The unknown-transition diagnostic for non-done targets is unchanged",
+        "Oracle tests/ngv2/test_session_gate_done_wired.py is GREEN; tests/ngv2/test_session_gate_wired.py and the full tests/ngv2 suite (102 tests) stay GREEN"
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/ngv2/test_session_gate_done_wired.py -q",
+      "spec": {
+        "objective": "Make gate_transition return GateResult(ok=True, error=None) for ANY transition whose to_phase == 'done', as the FIRST statement of the function body (before the existing `if not rows:` guard), so sessions can close. ALLOWED_TRANSITIONS already permits *->done but gate_transition had no rule for it, producing a spurious 'Unknown transition' / 'No artifacts found' result and a 422 from session_api.transition.",
+        "functional_requirements": [
+          "Insert `if to_phase == 'done': return GateResult(ok=True, error=None)` immediately AFTER the closing docstring quotes and BEFORE `if not rows:` as the first executable statements of gate_transition.",
+          "Preserve byte-for-byte the existing body: the `if not rows:` guard, the `_TRANSITIONS.get((from_phase, to_phase))` lookup, the unknown-transition diagnostic string, and the `return handler(rows)` call.",
+          "Leave the four existing gate rules (hunt->triage, triage->poc, poc->detonate, detonate->report) and GateResult semantics entirely unchanged."
+        ],
+        "interfaces": "Module-level function ngv2/session_gate.py::gate_transition(rows: Dict[str, List[dict]], from_phase: str, to_phase: str) -> GateResult. No signature change.",
+        "edge_cases": [
+          "rows == {} with to_phase='done' -> ok=True (the done early-return precedes the `if not rows` guard, so an empty/falsy rows mapping does NOT short-circuit to 'No artifacts found').",
+          "Artifact rows that FAIL another gate (duplicate finding ids, which fail triage->poc) are still ok=True for triage->done because the done early-return fires before any handler lookup."
+        ],
+        "non_goals": [
+          "No integration, transport, network, subprocess, or server-start code.",
+          "No edit to ngv2/state_machine.py, ngv2/contracts.py, or ngv2/phase_runner.py.",
+          "No change to the four existing gate rules or the unknown-transition diagnostic.",
+          "No new module; no time/random/uuid usage; do not touch the committed oracles."
+        ],
+        "implementation_notes": "Emit a single __JANUSMASK_PATCHES__ with EXACTLY ONE entry, kind 'symbol', name 'gate_transition'. Reproduce the function BYTE-FOR-BYTE and add ONLY the two-line early-return immediately after the closing docstring quotes. Resulting code:\n\ndef gate_transition(rows: Dict[str, List[dict]], from_phase: str, to_phase: str) -> GateResult:\n    \"\"\"Validate a pipeline phase transition over a pure artifact set.\n\n    Parameters\n    ----------\n    rows:\n        Dict keyed by artifact type (``'findings'``, ``'pocs'``, ``'reports'``);\n        each value is a list of artifact dicts.  Missing keys are treated as\n        empty lists.\n    from_phase, to_phase:\n        The source and destination pipeline phases.\n\n    Returns\n    -------\n    GateResult\n        ``ok=True`` (with ``error=None``) when the transition is permitted,\n        otherwise ``ok=False`` with a specific diagnostic in ``error``.\n    \"\"\"\n    if to_phase == 'done':\n        return GateResult(ok=True, error=None)\n    if not rows:\n        return GateResult(ok=False, error='No artifacts found')\n    handler = _TRANSITIONS.get((from_phase, to_phase))\n    if handler is None:\n        return GateResult(ok=False, error='Unknown transition: ' + str(from_phase) + ' -> ' + str(to_phase))\n    return handler(rows)\n\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/ngv2/test_session_gate_done_wired.py\n```python\n\"\"\"RED oracle for the GAP-1 fix in ngv2/session_gate.py (Epic C gap sweep).\n\nGAP: ``state_machine.ALLOWED_TRANSITIONS`` permits ``* -> done`` (every phase\nlists 'done'), but ``session_gate.gate_transition`` has no rule for\n``to_phase == 'done'`` so it returns ok=False (\"Unknown transition\") and\n``session_api.transition(sid, 'done')`` 422s -- sessions can never close.\n\nPINNED CONTRACT (the fix MUST satisfy exactly):\n\n- ``gate_transition(rows, from_phase, 'done')`` returns\n  ``GateResult(ok=True, error=None)`` for ANY ``from_phase`` -- closing or\n  aborting a session needs no artifact gate. The early-return fires BEFORE the\n  empty-``rows`` check and BEFORE any artifact deserialization, so even\n  ``rows == {}`` or artifact sets that would fail other gates are ok for\n  ``done``.\n- The four existing gate rules (hunt->triage, triage->poc, poc->detonate,\n  detonate->report) are byte-for-byte UNCHANGED in behavior.\n- Unknown NON-done transitions still fail with a non-empty diagnostic.\n\nEdge cases covered (mirrored as assertions):\n  * ``rows == {}`` (falsy) with to_phase='done' -> ok=True (the done\n    early-return precedes the existing ``if not rows`` guard).\n  * artifact rows that would FAIL another gate (duplicate finding ids, which\n    fail triage->poc) are still ok for triage->done (no artifact gate on\n    close).\n  * every phase in the allow-map ('hunt','triage','poc','detonate','report')\n    -> 'done' is ok.\n  * regression: hunt->triage with zero findings still fails; triage->poc with\n    duplicate ids still fails; an unknown non-done edge (hunt->report) still\n    fails.\n\"\"\"\nfrom ngv2.contracts import Finding\nfrom ngv2.session_gate import gate_transition, GateResult\n\n_EMPTY_ROWS = {\"findings\": [], \"pocs\": [], \"reports\": []}\n\n\ndef _finding(fid=\"F1\", severity=\"high\"):\n    return Finding(\n        id=fid,\n        target=\"svc.example\",\n        category=\"injection\",\n        severity=severity,\n        title=\"title-\" + fid,\n        description=\"desc-\" + fid,\n        evidence=[],\n    ).to_dict()\n\n\n_finding.__test__ = False\n\n\n# --- the GAP: * -> done must be permitted with no artifact gate -------------\n\ndef test_hunt_to_done_is_allowed_with_zero_artifacts():\n    res = gate_transition(dict(_EMPTY_ROWS), \"hunt\", \"done\")\n    assert isinstance(res, GateResult)\n    assert res.ok is True\n    assert not res.error  # error must be falsy (None) when ok\n\n\ndef test_report_to_done_is_allowed():\n    res = gate_transition(dict(_EMPTY_ROWS), \"report\", \"done\")\n    assert res.ok is True\n    assert not res.error\n\n\ndef test_every_phase_to_done_is_allowed():\n    for from_phase in (\"hunt\", \"triage\", \"poc\", \"detonate\", \"report\"):\n        res = gate_transition(dict(_EMPTY_ROWS), from_phase, \"done\")\n        assert res.ok is True, from_phase\n        assert not res.error, from_phase\n\n\ndef test_done_with_empty_rows_dict_is_allowed():\n    \"\"\"Edge case: rows == {} is falsy; done must short-circuit the rows guard.\"\"\"\n    res = gate_transition({}, \"detonate\", \"done\")\n    assert res.ok is True\n    assert not res.error\n\n\ndef test_done_skips_artifact_gating_entirely():\n    \"\"\"Edge case: duplicate finding ids fail triage->poc, but closing the\n    session (triage->done) needs no artifact gate and must still pass.\"\"\"\n    rows = {\"findings\": [_finding(\"F1\"), _finding(\"F1\")]}\n    assert gate_transition(rows, \"triage\", \"poc\").ok is False  # sanity: dupes fail the real gate\n    res = gate_transition(rows, \"triage\", \"done\")\n    assert res.ok is True\n    assert not res.error\n\n\n# --- regression: the four existing gate rules are unchanged -----------------\n\ndef test_regression_hunt_to_triage_still_fails_with_zero_findings():\n    res = gate_transition({\"findings\": []}, \"hunt\", \"triage\")\n    assert res.ok is False\n    assert res.error  # specific, non-empty diagnostic\n\n\ndef test_regression_hunt_to_triage_still_passes_with_valid_finding():\n    res = gate_transition({\"findings\": [_finding()]}, \"hunt\", \"triage\")\n    assert res.ok is True\n\n\ndef test_regression_triage_to_poc_still_fails_on_duplicate_ids():\n    res = gate_transition(\n        {\"findings\": [_finding(\"F1\"), _finding(\"F1\")]}, \"triage\", \"poc\"\n    )\n    assert res.ok is False\n    assert res.error\n\n\ndef test_regression_unknown_non_done_transition_still_fails():\n    res = gate_transition({\"findings\": [_finding()]}, \"hunt\", \"report\")\n    assert res.ok is False\n    assert res.error\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_detonate_to_done_ok_with_empty_dict_rows"
+          },
+          {
+            "name": "test_every_phase_to_done_returns_ok_true_error_none"
+          },
+          {
+            "name": "test_done_early_return_precedes_not_rows_guard"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_session_api_transition_to_done_closes_session"
+          }
+        ],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_regression_rows_eq_empty_dict_done_is_ok_true"
+          },
+          {
+            "name": "test_regression_duplicate_finding_ids_still_ok_for_triage_to_done"
+          },
+          {
+            "name": "test_regression_four_existing_gate_rules_unchanged"
+          },
+          {
+            "name": "test_regression_unknown_transition_diagnostic_unchanged_for_non_done"
+          },
+          {
+            "name": "test_regression_full_ngv2_suite_102_green"
+          }
+        ],
+        "minimum_test_count": 6,
+        "test_data_requirements": "Pure dict artifact sets (findings/pocs/reports); a rows={} case; a rows with duplicate finding ids that fail triage->poc. No I/O, no time/random."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Validation task: tiny surgical patch, oracle-pinned; test/verification weight dominates."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "cfix-api-dup",
+      "title": "GAP 3: submit_artifacts converts IntegrityError/ValueError persist failures to rejected entries (ngv2/session_api.py)",
+      "meta_task_type": "validation",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/session_api.py"
+      ],
+      "acceptance_criteria": [
+        "Resubmitting an artifact whose id already exists returns a rejected entry instead of raising sqlite3.IntegrityError",
+        "A duplicate finding id within one batch: first accepted, second rejected at its input index, no exception",
+        "A duplicate does not block a later valid item in the same batch",
+        "The original persisted row survives a rejected duplicate resubmission",
+        "A ValueError raised by the store's insert helper is also converted to a rejected entry (never raised)",
+        "Function-local `import sqlite3` is added as the first statement after the docstring (no module-level import added); existing accept/reject validation behavior unchanged",
+        "Oracle tests/ngv2/test_session_api_dup_wired.py is GREEN; tests/ngv2/test_session_api_wired.py and the full tests/ngv2 suite stay GREEN"
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/ngv2/test_session_api_dup_wired.py -q",
+      "spec": {
+        "objective": "Honor the 'return a rejected entry, never raise' handler contract: wrap the _persist_artifact call in submit_artifacts in try/except (sqlite3.IntegrityError, ValueError) and convert failures into rejected entries carrying the input index, continuing to process remaining items.",
+        "functional_requirements": [
+          "Add `import sqlite3` as the first statement after the method docstring (function-local; the module top has no sqlite3 import and a symbol patch must not add a module-level import).",
+          "Wrap ONLY `self._persist_artifact(kind, raw, obj)` in try/except (sqlite3.IntegrityError, ValueError) as exc: on catch append {'index': index, 'error': str(exc) or 'persist failed'} to rejected and continue WITHOUT incrementing accepted; the accepted += 1 stays on the success path only.",
+          "Leave _persist_artifact, _validate_artifact, _commit, and all surrounding accept/reject validation behavior byte-for-byte unchanged."
+        ],
+        "interfaces": "Indented method ngv2/session_api.py::SessionApi.submit_artifacts(self, session_id, phase, artifacts) -> Dict[str, Any]. No signature change.",
+        "edge_cases": [
+          "The SAME finding id duplicated WITHIN one batch -> first accepted, second rejected at its input index, no exception raised; processing continues for later items.",
+          "A ValueError raised by the store's insert helper is also converted to a rejected entry (never raised)."
+        ],
+        "non_goals": [
+          "No integration, transport, network, subprocess, or server-start code.",
+          "No schema change to ngv2/session_db.py; no module-level import added; no edit to _persist_artifact or any other symbol.",
+          "No change to existing accept/reject validation behavior.",
+          "No time/random/uuid usage; do not touch the committed oracles."
+        ],
+        "implementation_notes": "Emit a single __JANUSMASK_PATCHES__ with EXACTLY ONE entry, kind 'symbol', name 'SessionApi.submit_artifacts' (an INDENTED METHOD; reproduce at its original one-level indentation; the harness dedent path handles indented-method symbol patches). Reproduce BYTE-FOR-BYTE except (i) add function-local `import sqlite3` after the docstring and (ii) wrap only the persist call. Resulting method:\n\n    def submit_artifacts(self, session_id: Any, phase: Any, artifacts: Any) -> Dict[str, Any]:\n        \"\"\"Rebuild + validate each artifact BEFORE writing.\n\n        Invalid artifacts are never persisted; valid ones are stored through\n        the real ``SessionDB`` insert helpers.  Supports partial accept and\n        reports each rejection carrying its input index.\n        \"\"\"\n        import sqlite3\n        accepted = 0\n        rejected: List[Dict[str, Any]] = []\n        items = list(artifacts or [])\n        for index, raw in enumerate(items):\n            ok, error, kind, obj = self._validate_artifact(raw, phase)\n            if not ok:\n                rejected.append({'index': index, 'error': error})\n                continue\n            try:\n                self._persist_artifact(kind, raw, obj)\n            except (sqlite3.IntegrityError, ValueError) as exc:\n                rejected.append({'index': index, 'error': str(exc) or 'persist failed'})\n                continue\n            accepted += 1\n        self._commit()\n        return {'ok': True, 'accepted': accepted, 'rejected': rejected}\n\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/ngv2/test_session_api_dup_wired.py\n```python\n\"\"\"RED oracle for the GAP-3 fix in ngv2/session_api.py (Epic C gap sweep).\n\nGAP: ``SessionApi.submit_artifacts`` persists via ``_persist_artifact``, whose\nretry loop only catches ``TypeError``. Re-submitting an artifact whose id\nalready exists in the SessionDB raises an uncaught ``sqlite3.IntegrityError``\n(findings.id is a PRIMARY KEY) straight out of ``submit_artifacts`` --\nviolating the \"return a rejected entry, never raise\" handler contract.\n\nPINNED CONTRACT (the fix MUST satisfy exactly):\n\n- ``submit_artifacts`` NEVER raises for a duplicate/constraint persist\n  failure: a ``sqlite3.IntegrityError`` or ``ValueError`` escaping the persist\n  path for input item ``i`` becomes one entry\n  ``{'index': i, 'error': <non-empty str>}`` in the returned dict's\n  ``rejected`` list, the item is NOT counted in ``accepted``, and processing\n  continues with the remaining items.\n- Existing accept/reject behavior (contract validation before write, partial\n  accept, in-order rejected entries) is UNCHANGED -- the C1 oracle\n  tests/ngv2/test_session_api_wired.py must keep passing.\n\nEdge cases covered (mirrored as assertions):\n  * the SAME id duplicated WITHIN one batch -> first accepted, second rejected\n    at its input index, no exception.\n  * a duplicate does NOT block a NEW valid artifact later in the same batch\n    (processing continues past the rejection).\n  * the originally-persisted row survives the duplicate attempt intact.\n  * a ``ValueError`` raised by the store's insert helper is also converted to\n    a rejected entry (never raises).\n  * regression: a contract-invalid artifact is still rejected exactly as\n    before.\n\"\"\"\nimport pytest\n\nfrom ngv2.contracts import Finding\nfrom ngv2.session_db import SessionDB\nfrom ngv2.session_api import SessionApi\n\n\ndef _valid_finding_dict(fid=\"F1\", severity=\"high\"):\n    return Finding(\n        id=fid,\n        target=\"svc.example\",\n        category=\"injection\",\n        severity=severity,\n        title=\"t-\" + fid,\n        description=\"d-\" + fid,\n        evidence=[],\n    ).to_dict()\n\n\n_valid_finding_dict.__test__ = False\n\n\nclass _ValueErrorInsertDB:\n    \"\"\"Wrapper over a real SessionDB whose insert_finding raises ValueError.\"\"\"\n\n    __test__ = False\n\n    def __init__(self, inner):\n        self._inner = inner\n        self._conn = inner._conn\n\n    def insert_finding(self, artifact):\n        raise ValueError(\"synthetic persist failure\")\n\n    def append_phase_validation_log(self, *args, **kwargs):\n        return self._inner.append_phase_validation_log(*args, **kwargs)\n\n\n@pytest.fixture()\ndef api(tmp_path):\n    db = SessionDB(str(tmp_path / \"s.db\"))\n    try:\n        yield SessionApi(db)\n    finally:\n        db.close()\n\n\n# --- the GAP: duplicate-id resubmit must reject, never raise -----------------\n\ndef test_duplicate_resubmit_returns_rejected_entry_and_does_not_raise(api):\n    api.create_session(\"sess-1\", {\"host\": \"svc.example\"})\n    first = api.submit_artifacts(\"sess-1\", \"hunt\", [_valid_finding_dict(\"F1\")])\n    assert first.get(\"accepted\") == 1\n    assert first.get(\"rejected\") == []\n\n    # Re-submit the SAME finding id: must RETURN, not raise IntegrityError.\n    res = api.submit_artifacts(\"sess-1\", \"hunt\", [_valid_finding_dict(\"F1\")])\n    assert isinstance(res, dict)\n    assert res.get(\"ok\") is True\n    assert res.get(\"accepted\") == 0\n    rejected = res.get(\"rejected\")\n    assert isinstance(rejected, list) and len(rejected) == 1\n    assert rejected[0].get(\"index\") == 0\n    assert isinstance(rejected[0].get(\"error\"), str) and rejected[0][\"error\"]\n\n\ndef test_duplicate_within_same_batch_rejects_second_at_its_index(api):\n    \"\"\"Edge case: [F1, F1] in ONE batch -> accepted=1, rejected=[index 1].\"\"\"\n    api.create_session(\"sess-1\", {\"host\": \"svc.example\"})\n    res = api.submit_artifacts(\n        \"sess-1\", \"hunt\", [_valid_finding_dict(\"F1\"), _valid_finding_dict(\"F1\")]\n    )\n    assert res.get(\"ok\") is True\n    assert res.get(\"accepted\") == 1\n    rejected = res.get(\"rejected\")\n    assert len(rejected) == 1\n    assert rejected[0].get(\"index\") == 1\n    assert isinstance(rejected[0].get(\"error\"), str) and rejected[0][\"error\"]\n\n\ndef test_duplicate_does_not_block_subsequent_valid_artifact(api):\n    \"\"\"Edge case: [dup-F1, new-F2] -> F1 rejected at index 0, F2 accepted.\"\"\"\n    api.create_session(\"sess-1\", {\"host\": \"svc.example\"})\n    assert api.submit_artifacts(\n        \"sess-1\", \"hunt\", [_valid_finding_dict(\"F1\")]\n    ).get(\"accepted\") == 1\n\n    res = api.submit_artifacts(\n        \"sess-1\", \"hunt\", [_valid_finding_dict(\"F1\"), _valid_finding_dict(\"F2\")]\n    )\n    assert res.get(\"ok\") is True\n    assert res.get(\"accepted\") == 1  # F2 made it in despite the F1 rejection\n    rejected = res.get(\"rejected\")\n    assert len(rejected) == 1\n    assert rejected[0].get(\"index\") == 0\n\n\ndef test_original_row_survives_duplicate_attempt(api):\n    api.create_session(\"sess-1\", {\"host\": \"svc.example\"})\n    api.submit_artifacts(\"sess-1\", \"hunt\", [_valid_finding_dict(\"F1\")])\n    api.submit_artifacts(\"sess-1\", \"hunt\", [_valid_finding_dict(\"F1\")])\n    assert api.db.get_finding(\"F1\") is not None\n\n\ndef test_valueerror_from_persist_becomes_rejected_entry(tmp_path):\n    \"\"\"Edge case: a ValueError out of the store's insert helper is caught and\n    converted to a rejected entry -- never raised to the caller.\"\"\"\n    inner = SessionDB(str(tmp_path / \"ve.db\"))\n    try:\n        api = SessionApi(_ValueErrorInsertDB(inner))\n        res = api.submit_artifacts(\"sess-1\", \"hunt\", [_valid_finding_dict(\"F9\")])\n        assert isinstance(res, dict)\n        assert res.get(\"ok\") is True\n        assert res.get(\"accepted\") == 0\n        rejected = res.get(\"rejected\")\n        assert len(rejected) == 1\n        assert rejected[0].get(\"index\") == 0\n        assert isinstance(rejected[0].get(\"error\"), str) and rejected[0][\"error\"]\n    finally:\n        inner.close()\n\n\n# --- regression: validation-rejection path unchanged -------------------------\n\ndef test_regression_contract_invalid_artifact_still_rejected(api):\n    api.create_session(\"sess-1\", {\"host\": \"svc.example\"})\n    bad = _valid_finding_dict(\"BAD\")\n    bad[\"severity\"] = \"nonsense\"  # not in contracts.SEVERITIES -> validate() raises\n    res = api.submit_artifacts(\"sess-1\", \"hunt\", [bad])\n    assert res.get(\"ok\") is True\n    assert res.get(\"accepted\") == 0\n    rejected = res.get(\"rejected\")\n    assert len(rejected) == 1\n    assert rejected[0].get(\"index\") == 0\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_resubmit_same_id_returns_rejected_not_raise"
+          },
+          {
+            "name": "test_duplicate_within_batch_rejected_at_its_index"
+          },
+          {
+            "name": "test_valueerror_from_store_becomes_rejected_entry"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_dup_does_not_block_later_valid_item_real_sessiondb"
+          }
+        ],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_regression_dup_within_batch_first_accepted_second_rejected_no_exception"
+          },
+          {
+            "name": "test_regression_valueerror_from_insert_helper_converted_to_rejected"
+          },
+          {
+            "name": "test_regression_original_row_survives_rejected_duplicate"
+          },
+          {
+            "name": "test_regression_contract_invalid_rejection_unchanged"
+          },
+          {
+            "name": "test_regression_full_ngv2_suite_green"
+          }
+        ],
+        "minimum_test_count": 6,
+        "test_data_requirements": "Valid Finding dicts (TEXT PRIMARY KEY id), a batch with a duplicated id, a stubbed insert helper raising ValueError, and a contract-invalid artifact. Real SessionDB over a temp db_path. No time/random."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Validation task: surgical try/except + function-local import; oracle-pinned, deterministic."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_fix_spine_c_gaps.md",
+  "source_brief_sha256": "01b5d50c5a32146f7b306e15f70c16ff0c5e8ce34e72c0ea7c170532dd65e77c",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

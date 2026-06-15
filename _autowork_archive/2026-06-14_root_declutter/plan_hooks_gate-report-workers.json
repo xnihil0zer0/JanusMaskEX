@@ -1,0 +1,368 @@
+{
+  "tasks": [
+    {
+      "task_id": "report-worker-oracle",
+      "title": "Author RED oracle for ngv2/workers/report.py (mutation_target ngv2.workers.report)",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "ngv2.workers.report",
+      "priority": "high",
+      "dependencies": [
+        "report-worker-impl"
+      ],
+      "files_touched": [
+        "ngv2/workers/test_report.py"
+      ],
+      "acceptance_criteria": [
+        "ngv2/workers/test_report.py is the authored oracle named by this task's verification_command and drives report.run_stage entirely through stub seams.",
+        "The oracle covers at least two edge cases: the submission_package seam returning empty output and returning malformed output (with an llm-client stub as needed).",
+        "Tests assert run_stage(context, seams) -> list[dict] of artifacts parseable by artifact_harvester.parse_stage_artifact and that no external submission/network/subprocess occurs.",
+        "The oracle FAILS against the declared mutant of ngv2.workers.report (RED) and passes against the correct implementation; no real model/network/subprocess runs in the oracle."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest ngv2/workers/test_report.py -q",
+      "spec": {
+        "objective": "Author the deterministic RED oracle that pins the contract and packaging behavior of ngv2/workers/report.py using only stub seams, so the declared mutant is killed.",
+        "functional_requirements": [
+          "Drive run_stage(context, seams) using stub submission_package and llm-client seams (no real model, network, or subprocess) and assert the returned list[dict] artifacts parse via artifact_harvester.parse_stage_artifact.",
+          "Assert that empty submission_package output and malformed submission_package output are each handled safely (well-formed artifact, no fabricated package, no external submission).",
+          "Ensure at least one assertion distinguishes correct package assembly from a broken/short-circuited implementation so the test FAILS against the declared mutant of ngv2.workers.report."
+        ],
+        "interfaces": "Tests import ngv2.workers.report.run_stage and pass context={phase,target,prior_findings,parked_package} plus seams={'submission_package': <stub>, 'llm-client': <stub>}; assertions use artifact_harvester.parse_stage_artifact(filename, content, phase) and the report/submission-phase contracts dataclass.",
+        "edge_cases": [
+          "Stub submission_package seam returns empty output (edge case 1).",
+          "Stub submission_package seam returns malformed/None output (edge case 2).",
+          "Stub llm-client seam returns empty/malformed narrative while the package is still assembled structurally."
+        ],
+        "non_goals": [
+          "Do not test or import StageWorker, build_default_seams, conductor, gated_advance, or get_task.",
+          "Do not invoke the real ngv2/submission_package.py, any model, network, subprocess, or external huntr submission.",
+          "Do not test novelty/hunt/triage/verify/poc/detonate behavior."
+        ],
+        "implementation_notes": "Name the file exactly as the verification_command references (ngv2/workers/test_report.py). Provide stub seam callables/objects with controllable empty/malformed output. The mutation_target is the bare dotted module ngv2.workers.report; the non-vacuity gate applies that module's declared mutant and the oracle must fail against it."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_empty_submission_package_output_handled"
+          },
+          {
+            "name": "test_malformed_submission_package_output_handled"
+          },
+          {
+            "name": "test_package_assembled_from_parked_package"
+          },
+          {
+            "name": "test_artifacts_parse_with_parse_stage_artifact"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_oracle_kills_declared_mutant_of_report_module"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_worker_never_fabricates_package_or_submits_externally"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_oracle_uses_only_stub_seams_no_real_io"
+          }
+        ],
+        "minimum_test_count": 5,
+        "test_data_requirements": "Stub submission_package seam configurable to return populated / empty / malformed output; stub llm-client seam returning empty/malformed narrative; context fixtures; assertions against contracts dataclass and parse_stage_artifact only."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 220,
+        "note": "Pure test-authoring task; all budget is the RED oracle that must kill the declared mutant."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "novelty-worker-impl",
+      "title": "Implement ngv2/workers/novelty.py phase worker (composes novelty_gate seam)",
+      "meta_task_type": "orchestration",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/workers/novelty.py"
+      ],
+      "acceptance_criteria": [
+        "ngv2/workers/novelty.py exposes run_stage(context: dict, seams: dict) -> list[dict] exactly matching the frozen phase contract.",
+        "run_stage reads the confirmed finding material from context['prior_findings'] / context['parked_package'] and invokes the injected seams['novelty_gate'] seam to judge novelty.",
+        "A duplicate or failure verdict from the novelty_gate seam is preserved in the emitted artifact and is never coerced into a 'novel' result (the gate is composed, never weakened or bypassed).",
+        "Returned list contains artifact dict(s) parseable by artifact_harvester.parse_stage_artifact(filename, content, phase) and shaped so the relevant novelty-phase contracts dataclass can be built.",
+        "No real model, network, or subprocess is invoked; all gate behavior arrives through the injected seams dict so the module is deterministic.",
+        "Module does not edit or import ngv2/novelty_gate.py for in-place mutation, does not auto-submit to huntr, and does not build StageWorker/build_default_seams/conductor/gated_advance/get_task."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -c \"import ngv2.workers.novelty\"",
+      "spec": {
+        "objective": "Build ngv2/workers/novelty.py as a single-file, seam-injected phase worker that judges whether a confirmed finding is novel by composing the injected novelty_gate seam, emitting artifact dicts the harvester and contracts layer can consume, without weakening the gate.",
+        "functional_requirements": [
+          "Expose run_stage(context: dict, seams: dict) -> list[dict] as the only public entrypoint, freezing the phase contract signature.",
+          "Read the finding-under-judgement from context (phase, target, prior_findings, parked_package) and pass the relevant material to the injected seams['novelty_gate'] seam.",
+          "Preserve the seam's verdict faithfully: a duplicate/non-novel/failure verdict must be reflected as non-novel in the emitted artifact and must never be upgraded to novel; the gate is composed only, never relaxed or short-circuited.",
+          "Emit artifact dict(s) with the filename/content/phase shape expected by artifact_harvester.parse_stage_artifact and with fields matching the relevant novelty-phase contracts dataclass.",
+          "Remain deterministic and side-effect-free: never perform a real LLM call, network request, or subprocess; obtain all gate behavior from the injected seams dict."
+        ],
+        "interfaces": "run_stage(context: dict, seams: dict) -> list[dict]; context originates from get_task(session_row) -> {phase, target, prior_findings, parked_package}; seams['novelty_gate'] is the injected novelty gate (read-only, matching ngv2/novelty_gate.py); output artifact dicts are parseable by ngv2/artifact_harvester.parse_stage_artifact(filename, content, phase).",
+        "edge_cases": [
+          "novelty_gate seam reports the finding is a duplicate: artifact marks the finding non-novel and the worker does not advance or submit.",
+          "novelty_gate seam reports a failure (raises or returns an error/failure verdict): the failure is surfaced in the returned artifact without crashing and without defaulting to novel.",
+          "context is missing or has empty prior_findings / parked_package: worker returns a well-formed (possibly non-novel/empty) artifact list rather than raising.",
+          "novelty_gate seam returns malformed output (None or missing verdict key): worker degrades to a safe non-novel artifact rather than treating absence-of-verdict as novel."
+        ],
+        "non_goals": [
+          "Do not build StageWorker, build_default_seams, the conductor loop, gated_advance, or get_task.",
+          "Do not edit or re-implement ngv2/novelty_gate.py in place; compose it only as an injected seam.",
+          "Do not weaken, bypass, or auto-pass the novelty gate, and do not auto-submit to huntr or contact any external service.",
+          "Do not implement report/hunt/triage/verify/poc/detonate logic (other children)."
+        ],
+        "implementation_notes": "Keep the module a single whole file. Resolve the gate via seams['novelty_gate'] and treat any non-explicitly-novel verdict (duplicate, failure, missing, malformed) as fail-closed non-novel. Build the artifact content to match the novelty-phase contracts dataclass field names (read ngv2/contracts.py) and the (filename, content, phase) tuple parse_stage_artifact expects (read ngv2/artifact_harvester.py); cross-check persisted shape against ngv2/session_db.insert_report. No real model/network/subprocess anywhere in the module.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_run_stage_signature_is_context_seams"
+          },
+          {
+            "name": "test_run_stage_returns_list_of_harvester_parseable_artifacts"
+          },
+          {
+            "name": "test_novel_verdict_produces_novel_artifact"
+          },
+          {
+            "name": "test_duplicate_verdict_preserved_as_non_novel"
+          },
+          {
+            "name": "test_gate_failure_surfaced_and_fail_closed"
+          },
+          {
+            "name": "test_no_real_model_network_or_subprocess_invoked"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_artifact_builds_relevant_novelty_contracts_dataclass"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_non_novel_verdicts_never_upgraded_to_novel"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_missing_prior_findings_does_not_crash"
+          }
+        ],
+        "minimum_test_count": 8,
+        "test_data_requirements": "Stub seams dict whose novelty_gate returns novel, duplicate, failure, and malformed/None verdicts; context fixtures with populated and empty prior_findings/parked_package; no real model/network/subprocess."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 160,
+        "note": "Worker module is thin seam composition; the bulk of effort is in the oracle authored by the sibling test_authoring task."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "report-worker-impl",
+      "title": "Implement ngv2/workers/report.py phase worker (composes submission_package seam)",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/workers/report.py"
+      ],
+      "acceptance_criteria": [
+        "ngv2/workers/report.py exposes run_stage(context: dict, seams: dict) -> list[dict] exactly matching the frozen phase contract.",
+        "run_stage assembles the final submission package from context['parked_package'] / context['prior_findings'] by composing the injected seams['submission_package'] seam (and the injected llm-client seam where needed).",
+        "Returned list contains artifact dict(s) parseable by artifact_harvester.parse_stage_artifact(filename, content, phase) and shaped so the relevant report/submission-phase contracts dataclass can be built.",
+        "Empty or malformed seam output is handled without crashing and without fabricating a package; no auto-submission to huntr or external contact occurs.",
+        "No real model, network, or subprocess is invoked; all packaging behavior arrives through the injected seams dict so the module is deterministic."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/test_report.py -q",
+      "spec": {
+        "objective": "Build ngv2/workers/report.py as a single-file, seam-injected phase worker that assembles the final submission package from parked_package/prior_findings by composing the injected submission_package (and llm-client) seams, emitting artifact dicts the harvester and contracts layer can consume, with no external submission.",
+        "functional_requirements": [
+          "Expose run_stage(context: dict, seams: dict) -> list[dict] as the only public entrypoint, freezing the phase contract signature.",
+          "Read parked_package / prior_findings (and phase/target) from context and assemble the submission package by invoking the injected seams['submission_package'] seam, using the injected llm-client seam only where the package requires generated narrative.",
+          "Emit artifact dict(s) with the filename/content/phase shape expected by artifact_harvester.parse_stage_artifact and fields matching the relevant report/submission-phase contracts dataclass (cross-checked against session_db.insert_report persist shape).",
+          "Handle empty/malformed seam output safely: return a well-formed (possibly incomplete/flagged) artifact list rather than raising or fabricating package content.",
+          "Remain deterministic and side-effect-free: never perform a real LLM call, network request, or subprocess, and never auto-submit to huntr or any external service."
+        ],
+        "interfaces": "run_stage(context: dict, seams: dict) -> list[dict]; context originates from get_task(session_row) -> {phase, target, prior_findings, parked_package}; seams['submission_package'] (matching ngv2/submission_package.py) and seams['llm-client'] (matching ngv2/llm_client.py) are injected read-only; output artifact dicts parseable by ngv2/artifact_harvester.parse_stage_artifact(filename, content, phase).",
+        "edge_cases": [
+          "submission_package seam returns empty output: worker emits a well-formed artifact flagging the empty package rather than crashing or inventing content.",
+          "submission_package seam returns malformed output (None / missing keys / wrong type): worker degrades safely and surfaces the problem in the artifact.",
+          "llm-client seam returns empty/malformed narrative: worker still assembles a structurally valid package artifact.",
+          "context is missing or has empty parked_package / prior_findings: worker returns a well-formed artifact list rather than raising."
+        ],
+        "non_goals": [
+          "Do not build StageWorker, build_default_seams, the conductor loop, gated_advance, or get_task.",
+          "Do not edit or re-implement ngv2/submission_package.py in place; compose it only as an injected seam.",
+          "Do not auto-submit to huntr, contact any external service, or run a real LLM/network/subprocess.",
+          "Do not implement novelty/hunt/triage/verify/poc/detonate logic (other children)."
+        ],
+        "implementation_notes": "Keep the module a single whole file. Resolve packaging via seams['submission_package'] and narrative via seams['llm-client'] only when needed. Build artifact content to match the report/submission-phase contracts dataclass field names (read ngv2/contracts.py) and the (filename, content, phase) tuple parse_stage_artifact expects (read ngv2/artifact_harvester.py); cross-check persisted shape against ngv2/session_db.insert_report. Fail safe on empty/malformed seam output; no external submission anywhere.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_report.py\n```python\n\"\"\"RED oracle for ngv2.report \u2014 deterministic report builder + markdown renderer.\n\nTurns a HuntState (findings) + the detonation LiveTestReports into a\nserializable report dict and a huntr-submission-shaped markdown string. Pure.\n\"\"\"\nfrom ngv2.contracts import Finding, LiveTestReport\nfrom ngv2.state_machine import HuntStateMachine\nfrom ngv2.report import build_report, render_markdown\n\n\ndef _state_with(*findings):\n    sm = HuntStateMachine()\n    for f in findings:\n        sm.add_finding(f)\n    return sm.state\n\n\ndef test_build_report_shape():\n    state = _state_with(Finding('F1', 'berriai/litellm', 'CWE-918', 'high', 'SSRF in proxy', 'desc'))\n    reports = [LiveTestReport('F1', 'confirmed', 0, 'VULNERABLE', '', 5)]\n    r = build_report(state, reports)\n    assert r['summary']['total_findings'] == 1\n    assert r['summary']['confirmed'] == 1\n    assert isinstance(r['findings'], list) and r['findings'][0]['id'] == 'F1'\n    assert isinstance(r['results'], list) and r['results'][0]['verdict'] == 'confirmed'\n\n\ndef test_build_report_counts_verdicts():\n    state = _state_with(\n        Finding('F1', 'o/r', 'CWE-918', 'high', 't1', 'd'),\n        Finding('F2', 'o/r', 'CWE-22', 'low', 't2', 'd'),\n    )\n    reports = [\n        LiveTestReport('F1', 'confirmed', 0, 'VULNERABLE', '', 1),\n        LiveTestReport('F2', 'refuted', 1, '', 'no', 1),\n    ]\n    r = build_report(state, reports)\n    assert r['summary']['total_findings'] == 2\n    assert r['summary']['confirmed'] == 1\n    assert r['summary']['refuted'] == 1\n\n\ndef test_render_markdown_contains_key_content():\n    state = _state_with(Finding('F1', 'berriai/litellm', 'CWE-918', 'high', 'SSRF in proxy', 'desc'))\n    reports = [LiveTestReport('F1', 'confirmed', 0, 'VULNERABLE', '', 5)]\n    md = render_markdown(build_report(state, reports))\n    assert isinstance(md, str) and md.startswith('#')\n    assert 'SSRF in proxy' in md\n    assert 'berriai/litellm' in md\n    assert 'confirmed' in md.lower()\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_run_stage_signature_is_context_seams"
+          },
+          {
+            "name": "test_assembles_package_from_parked_package_via_seam"
+          },
+          {
+            "name": "test_artifacts_are_harvester_parseable"
+          },
+          {
+            "name": "test_empty_submission_package_output_handled"
+          },
+          {
+            "name": "test_malformed_submission_package_output_handled"
+          },
+          {
+            "name": "test_no_real_model_network_subprocess_or_external_submit"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_artifact_builds_relevant_report_contracts_dataclass"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_worker_never_fabricates_package_when_seam_empty"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_missing_parked_package_does_not_crash"
+          }
+        ],
+        "minimum_test_count": 8,
+        "test_data_requirements": "Stub seams dict whose submission_package returns populated, empty, and malformed/None output and whose llm-client returns empty/malformed narrative; context fixtures with populated and empty parked_package/prior_findings; no real model/network/subprocess."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 160,
+        "note": "Worker module is thin seam composition; the bulk of effort is in the oracle authored by the sibling test_authoring task."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "novelty-worker-oracle",
+      "title": "Author RED oracle for ngv2/workers/novelty.py (mutation_target ngv2.workers.novelty)",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "ngv2.workers.novelty",
+      "priority": "high",
+      "dependencies": [
+        "novelty-worker-impl"
+      ],
+      "files_touched": [
+        "ngv2/workers/test_novelty.py"
+      ],
+      "acceptance_criteria": [
+        "ngv2/workers/test_novelty.py is the authored oracle named by this task's verification_command and drives novelty.run_stage entirely through stub seams.",
+        "The oracle covers at least two edge cases: the novelty_gate seam reporting a duplicate, and the seam reporting a failure/malformed output.",
+        "Tests assert run_stage(context, seams) -> list[dict] of artifacts parseable by artifact_harvester.parse_stage_artifact and that a non-novel verdict is never coerced to novel.",
+        "The oracle FAILS against the declared mutant of ngv2.workers.novelty (RED) and passes against the correct implementation; no real model/network/subprocess runs in the oracle."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest ngv2/workers/test_novelty.py -q",
+      "spec": {
+        "objective": "Author the deterministic RED oracle that pins the contract and gate-preservation behavior of ngv2/workers/novelty.py using only stub seams, so the declared mutant is killed.",
+        "functional_requirements": [
+          "Drive run_stage(context, seams) using stub seams (no real novelty_gate, model, network, or subprocess) and assert the returned list[dict] artifacts parse via artifact_harvester.parse_stage_artifact.",
+          "Assert that a duplicate verdict from the stub novelty_gate seam yields a non-novel artifact and that a gate failure/malformed verdict is surfaced fail-closed (never novel).",
+          "Ensure at least one assertion distinguishes correct gate composition from a weakened gate so the test FAILS against the declared mutant of ngv2.workers.novelty."
+        ],
+        "interfaces": "Tests import ngv2.workers.novelty.run_stage and pass context={phase,target,prior_findings,parked_package} plus seams={'novelty_gate': <stub>}; assertions use artifact_harvester.parse_stage_artifact(filename, content, phase) and the novelty-phase contracts dataclass.",
+        "edge_cases": [
+          "Stub novelty_gate seam returns a duplicate verdict (edge case 1).",
+          "Stub novelty_gate seam reports a failure or returns malformed/None output (edge case 2).",
+          "Stub seam returns a genuine novel verdict to confirm the positive path is also pinned."
+        ],
+        "non_goals": [
+          "Do not test or import StageWorker, build_default_seams, conductor, gated_advance, or get_task.",
+          "Do not invoke the real ngv2/novelty_gate.py, any model, network, or subprocess.",
+          "Do not test report/hunt/triage/verify/poc/detonate behavior."
+        ],
+        "implementation_notes": "Name the file exactly as the verification_command references (ngv2/workers/test_novelty.py). Provide stub seam callables/objects with controllable verdicts. The mutation_target is the bare dotted module ngv2.workers.novelty; the non-vacuity gate applies that module's declared mutant and the oracle must fail against it."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_duplicate_verdict_yields_non_novel_artifact"
+          },
+          {
+            "name": "test_gate_failure_or_malformed_is_fail_closed"
+          },
+          {
+            "name": "test_novel_verdict_yields_novel_artifact"
+          },
+          {
+            "name": "test_artifacts_parse_with_parse_stage_artifact"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_oracle_kills_declared_mutant_of_novelty_module"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_no_stub_verdict_is_ever_upgraded_to_novel"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_oracle_uses_only_stub_seams_no_real_io"
+          }
+        ],
+        "minimum_test_count": 5,
+        "test_data_requirements": "Stub novelty_gate seam configurable to return novel / duplicate / failure / malformed verdicts; context fixtures; assertions against contracts dataclass and parse_stage_artifact only."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 220,
+        "note": "Pure test-authoring task; all budget is the RED oracle that must kill the declared mutant."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_gate-report-workers.md",
+  "source_brief_sha256": "9f7232719ce1bab0222d0a4c812ec041220d0aed1cc278f067fd3f24a2d5063d",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

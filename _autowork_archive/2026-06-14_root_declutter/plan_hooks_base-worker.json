@@ -1,0 +1,202 @@
+{
+  "tasks": [
+    {
+      "task_id": "build-stageworker-base",
+      "title": "Implement StageWorker orchestration glue in ngv2/workers/base.py",
+      "meta_task_type": "orchestration",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/workers/base.py"
+      ],
+      "acceptance_criteria": [
+        "ngv2/workers/base.py defines a callable StageWorker(task, get_task_fn, stage_fn, write_fn).",
+        "StageWorker calls get_task_fn(task) exactly once to obtain the context before any staging or writing.",
+        "StageWorker passes the fetched context to stage_fn and collects the returned artifact dict(s).",
+        "Each artifact dict returned by stage_fn is written to the task's output_path via write_fn.",
+        "A stage_fn return of a single dict and a return of a list of dicts are both handled, with each dict written once.",
+        "An empty artifact result causes zero write_fn calls and StageWorker still completes without error.",
+        "Call ordering get_task_fn -> stage_fn -> write_fn is preserved and a missing output_path raises a clear error.",
+        "Module does NOT define build_default_seams, the conductor loop, gated_advance, get_task, or any phase worker."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -c \"import ngv2.workers.base\"",
+      "spec": {
+        "objective": "Provide the base worker orchestration primitive StageWorker that wires a task fetch, a staging step, and an artifact write into a single deterministic pipeline, with all collaborators injected so no concrete seam, conductor, get_task, or phase-worker logic is built here.",
+        "functional_requirements": [
+          "Expose a callable StageWorker(task, get_task_fn, stage_fn, write_fn) from ngv2/workers/base.py.",
+          "Fetch the working context by invoking get_task_fn(task) and use its return value as the context fed downstream.",
+          "Run stage_fn over the fetched context to produce the structured artifact result.",
+          "Write each artifact dict returned by stage_fn to the task's output_path via write_fn.",
+          "Normalize the stage_fn return so a single dict and a list of dicts are both written one artifact at a time.",
+          "Preserve the invocation ordering get_task_fn before stage_fn before write_fn and surface a clear error when output_path is absent."
+        ],
+        "interfaces": "StageWorker(task, get_task_fn, stage_fn, write_fn) -> list of written artifact dicts. get_task_fn(session_row: dict) -> {phase, target, prior_findings, parked_package} (injected, conductor_glue/ngv2.session_get_task). stage_fn(context) -> dict | list[dict] (injected, e.g. a run_stage(context, seams) already bound to its seams). write_fn(output_path, artifact: dict) -> None (injected sink).",
+        "edge_cases": [
+          "stage_fn returns an empty list: write_fn is never called and StageWorker returns an empty collection.",
+          "stage_fn returns a single bare dict rather than a list: it is wrapped and written exactly once.",
+          "stage_fn returns multiple dicts: write_fn is called once per dict, in order.",
+          "task is missing output_path: StageWorker raises a clear KeyError/ValueError before any write occurs.",
+          "get_task_fn raises: the exception propagates and neither stage_fn nor write_fn is invoked."
+        ],
+        "non_goals": [
+          "Do not build build_default_seams or any seam assembly logic.",
+          "Do not implement the conductor loop or gated_advance.",
+          "Do not implement get_task (session_get_task.py); it is injected as get_task_fn.",
+          "Do not author any phase worker module (hunt, triage, verify, poc, detonate, novelty, report)."
+        ],
+        "implementation_notes": "Do NOT create ngv2/workers/__init__.py -- ngv2/workers is a namespace package; sibling workers (detonate.py, novelty.py, report.py) ship with NO __init__.py. An empty/non-mergeable __init__.py is what made this leaf fail AST-merge (incomplete_ast@L0). Build ONLY the named .py module(s).\n\nKeep StageWorker dependency-free and side-effect-only through the injected write_fn. Read output_path from the task argument. Treat stage_fn's contract as dict|list[dict] and normalize via isinstance check. Do not import session_get_task or any seam/conductor module at runtime; collaborators are passed in. Add a minimal ngv2/workers/__init__.py so the package imports cleanly.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_stageworker_is_callable_and_importable"
+          },
+          {
+            "name": "test_get_task_fn_invoked_once_with_task"
+          },
+          {
+            "name": "test_context_from_get_task_fn_passed_to_stage_fn"
+          },
+          {
+            "name": "test_each_artifact_written_to_output_path"
+          },
+          {
+            "name": "test_single_dict_return_written_once"
+          },
+          {
+            "name": "test_list_of_dicts_each_written_in_order"
+          },
+          {
+            "name": "test_call_ordering_fetch_then_stage_then_write"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_end_to_end_with_fake_get_task_stage_write_collaborators"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_write_call_count_equals_number_of_artifacts"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_missing_output_path_raises_before_any_write"
+          }
+        ],
+        "minimum_test_count": 9,
+        "test_data_requirements": "Fake injected collaborators: a get_task_fn returning a context dict {phase, target, prior_findings, parked_package}; a stage_fn returning configurable dict / list[dict] / empty list; a recording write_fn that captures (output_path, artifact) tuples. Sample task dicts with and without output_path."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "Small focused glue module; the paired oracle (separate task) carries the heavier verification budget, so impl-side tests stay lean but still exceed implementation tokens per ratio."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    },
+    {
+      "task_id": "test-stageworker-base",
+      "title": "Author paired mutation-tested oracle for ngv2/workers/base.py",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "ngv2.workers.base",
+      "priority": "high",
+      "dependencies": [
+        "build-stageworker-base"
+      ],
+      "files_touched": [
+        "ngv2/workers/test_base.py"
+      ],
+      "acceptance_criteria": [
+        "ngv2/workers/test_base.py is a sibling test file for ngv2/workers/base.py.",
+        "The oracle verifies StageWorker with at least two edge cases (empty artifact list and multi-dict return).",
+        "Tests use injected fakes for get_task_fn, stage_fn, and write_fn (no real session_get_task or seams).",
+        "The authored test FAILS against the declared mutant of ngv2.workers.base (non-vacuity).",
+        "verification_command names the authored oracle and runs green against the correct implementation."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "pytest ngv2/workers/test_base.py -q",
+      "spec": {
+        "objective": "Author the paired oracle that pins the StageWorker contract: fetch-via-get_task_fn, stage-over-context, write-each-artifact-to-output_path, exercising at least two edge cases and failing against a deliberate mutant of ngv2.workers.base.",
+        "functional_requirements": [
+          "Assert StageWorker fetches context by calling get_task_fn(task) and feeds that context into stage_fn.",
+          "Assert every artifact dict returned by stage_fn is written to the task's output_path via write_fn, once each and in order.",
+          "Edge case one: a stage_fn returning an empty list yields zero write_fn calls.",
+          "Edge case two: a stage_fn returning multiple dicts (and a single bare dict) is written one artifact at a time.",
+          "Assert a task missing output_path raises before any write occurs (ordering/error edge case)."
+        ],
+        "interfaces": "Imports StageWorker from ngv2.workers.base. Constructs fake get_task_fn(session_row)->context dict, fake stage_fn(context)->dict|list[dict], and a recording write_fn(output_path, artifact) capturing calls for assertions.",
+        "edge_cases": [
+          "Empty artifact list -> no writes.",
+          "Multiple artifact dicts -> one write per dict in order.",
+          "Single bare dict return normalized to one write.",
+          "Missing output_path -> error raised before any write_fn call.",
+          "get_task_fn must be called exactly once and before stage_fn (mutant swapping order/skipping fetch must be caught)."
+        ],
+        "non_goals": [
+          "Do not test build_default_seams, the conductor loop, gated_advance, get_task, or any phase worker.",
+          "Do not exercise real filesystem or session collaborators; all are faked/injected."
+        ],
+        "implementation_notes": "Use a recording write_fn that appends (output_path, artifact) tuples and a call-order log shared across the fakes so ordering assertions catch a mutant that reorders or drops a step. Ensure at least one assertion is sensitive to the count of writes so the empty-list and multi-dict cases distinguish correct code from a mutant that always writes once or never writes. The mutation_target ngv2.workers.base's declared mutant must cause at least one test to fail."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_context_fetched_and_forwarded_to_stage_fn"
+          },
+          {
+            "name": "test_each_artifact_written_to_output_path_in_order"
+          },
+          {
+            "name": "test_empty_artifact_list_yields_no_writes"
+          },
+          {
+            "name": "test_multiple_and_single_dict_returns_written_per_artifact"
+          },
+          {
+            "name": "test_missing_output_path_raises_before_any_write"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_full_pipeline_with_recording_fakes"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_write_count_matches_artifact_count_for_varied_returns"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_oracle_fails_against_declared_mutant_of_base"
+          }
+        ],
+        "minimum_test_count": 8,
+        "test_data_requirements": "Recording write_fn capturing (output_path, artifact); fake get_task_fn returning {phase, target, prior_findings, parked_package}; parametrized stage_fn returns covering empty list, single dict, and multi-dict; task fixtures with and without output_path; a shared call-order log to assert fetch->stage->write sequencing."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 160,
+        "note": "test_authoring task: the deliverable is the oracle itself; budget weights the authored tests above the scaffolding/fakes implementation."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_base-worker.md",
+  "source_brief_sha256": "8a53f37a68fd8b327e9023048bbecb4e44a9f0c4c4fcabbb6c4d865fdfc19d52",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

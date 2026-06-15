@@ -1,0 +1,24 @@
+---
+interfaces: "StageWorker(task, get_task_fn, stage_fn, write_fn); stage_fn(context: dict) -> list[dict]; get_task(session_row: dict) -> {phase, target, prior_findings, parked_package}; write_fn(output_path, artifact: dict)"
+working_dir: "/home/xnihil0zer0/NobleGreedv2"
+---
+
+# Title
+
+StageWorker orchestration shell over injected seams
+
+# Scope
+
+Build the NEW ngv2/workers/ package foundation: ngv2/workers/__init__.py and ngv2/workers/base.py exposing StageWorker(task, get_task_fn, stage_fn, write_fn). StageWorker is a generic, phase-agnostic shell that (1) fetches the task context by calling the injected get_task_fn(task) (which matches the conductor_glue get_task signature), (2) runs the injected stage_fn over the resulting context to obtain a list of structured artifact dicts, and (3) writes each returned artifact dict to the task's output_path by calling the injected write_fn. All side effects (model, db, filesystem) arrive through injected seams so the module is deterministic and oracle-testable with no real model/network/subprocess/filesystem. base.py has a paired test_authoring sibling (e.g. ngv2/workers/test_base.py) whose mutation_target is base.py and whose verification_command names the authored RED oracle, with at least two edge cases driven by a stub get_task_fn / stub stage_fn / stub write_fn (e.g. stage_fn returns an empty list so nothing is written; get_task_fn returns a context missing expected keys / a malformed/empty artifact dict from stage_fn).
+
+# Non-Goals
+
+Do not implement any phase logic (no hunt/triage/verify/poc/detonate/novelty/report behavior) — those live in the phase-worker children and are supplied to StageWorker only as the injected stage_fn. Do not build the seam assembler (build_default_seams), the conductor loop, or gated_advance. Do not implement get_task — it is consumed only as the injected get_task_fn. Do not perform any real filesystem I/O (write_fn is injected), real LLM call, network, or subprocess inside the oracle. Do not edit any existing committed module in place.
+
+# Inputs
+
+Consumes get_task(session_row: dict) -> {phase, target, prior_findings, parked_package} from conductor_glue (ngv2/session_get_task.py) as the injected get_task_fn that StageWorker calls. Consumes an injected stage_fn(context: dict) -> list[dict] (the bound phase run_stage; supplied as a stub in the oracle). Consumes an injected write_fn(output_path, artifact: dict) for persistence (stub in oracle). Reads (does not modify) the task object which carries an output_path. Reads (read-only) ngv2/artifact_harvester.py parse_stage_artifact(filename, content, phase) for the artifact dict shape and ngv2/contracts.py dataclasses Finding, PoC, LiveTestReport for the artifact field names that flow through unchanged.
+
+# Deliverables
+
+ngv2/workers/__init__.py and ngv2/workers/base.py exposing StageWorker(task, get_task_fn, stage_fn, write_fn) that calls get_task_fn(task) -> context, runs stage_fn(context) -> list[dict], and writes each artifact dict to the task output_path via write_fn(output_path, artifact). Freezes the shell contract: StageWorker(task, get_task_fn, stage_fn, write_fn) where stage_fn(context: dict) -> list[dict] and get_task_fn matches get_task(session_row: dict) -> {phase, target, prior_findings, parked_package}. Plus a test_authoring sibling with mutation_target set to ngv2/workers/base.py and a verification_command naming the authored oracle, covering at least two edge cases (empty list from stage_fn; malformed/empty context or artifact dict).

@@ -1,0 +1,193 @@
+{
+ "tasks": [
+  {
+   "task_id": "T-ghsa",
+   "title": "GitHub Security Advisory fetcher: injected-seam producer + pure parser with vulnerable_functions reachability signal",
+   "meta_task_type": "data_model",
+   "priority": "critical",
+   "dependencies": [],
+   "files_touched": [
+    "ngv2/sourcing/ghsa_fetcher.py"
+   ],
+   "acceptance_criteria": [
+    "ngv2/sourcing/ghsa_fetcher.py exposes fetch_ghsa(fetcher, ecosystem: str = 'pip') -> list[dict] and a pure parse_ghsa(body: str) -> list[dict].",
+    "fetch_ghsa performs no direct network I/O: it calls the injected Fetcher seam to GET https://api.github.com/advisories?ecosystem=pip using the already-authenticated gh token, then delegates parsing to parse_ghsa.",
+    "parse_ghsa pure-parses a GitHub advisories response body into records carrying cve_id, ghsa_id, cwe, cvss, fix_commit, and vulnerable_functions (a direct reachability signal).",
+    "Emitted records are joinable to huntr records on cve_id/ghsa_id and mergeable into the build_repo_bounties(repo_records) huntr_repo_bounties shape without re-deriving that shape.",
+    "tests/test_ghsa_fetcher_wired.py passes via `python -m pytest tests/test_ghsa_fetcher_wired.py -q`, importing live ngv2.sourcing.ghsa_fetcher with a stub fetcher (offline, hermetic)."
+   ],
+   "spec_author": null,
+   "estimated_complexity": "medium",
+   "verification_command": "python -m pytest tests/test_ghsa_fetcher_wired.py -q",
+   "spec": {
+    "objective": "Implement ngv2/sourcing/ghsa_fetcher.py exactly to the already-committed oracle tests/test_ghsa_fetcher_wired.py: a pure parse_ghsa over an injected fetcher for GitHub Security Advisories (GET https://api.github.com/advisories?ecosystem=pip, gh token, 5000 req/hr) carrying CWE/CVSS/fix-commit and vulnerable_functions[], emitting records mergeable into the huntr snapshot schema.",
+    "functional_requirements": [
+     "parse_ghsa(body: str) -> list[dict] pure-parses a GitHub advisories JSON response body into a list of enrichment records, each carrying cve_id, ghsa_id, cwe, cvss, and fix_commit keys.",
+     "fetch_ghsa(fetcher, ecosystem: str = 'pip') -> list[dict] invokes the injected Fetcher seam to GET https://api.github.com/advisories?ecosystem=<ecosystem> with the already-authenticated gh token header, then delegates body parsing to parse_ghsa.",
+     "Each record includes vulnerable_functions[] extracted as a direct reachability signal, defaulting to an empty list when the advisory omits it.",
+     "Records expose cve_id and ghsa_id join keys so they merge cleanly into the build_repo_bounties huntr_repo_bounties shape without re-deriving the snapshot JSON shape."
+    ],
+    "interfaces": "fetch_ghsa(fetcher, ecosystem: str = 'pip') -> list[dict]; parse_ghsa(body: str) -> list[dict]; Fetcher = Callable[[url, headers], (status, body, headers)] mirroring ngv2/sourcing/huntr_client.py; records join huntr on cve_id/ghsa_id and merge into build_repo_bounties(repo_records: dict) -> dict.",
+    "edge_cases": [
+     "Response body with an empty advisories array yields an empty list rather than an error.",
+     "Malformed / non-JSON body is handled without crashing and yields an empty list.",
+     "An advisory omitting vulnerable_functions still produces a record with vulnerable_functions defaulted to an empty list.",
+     "An advisory missing cve_id but carrying ghsa_id still produces a record retaining the ghsa_id join key."
+    ],
+    "non_goals": [
+     "No real network I/O in the oracle or implementation paths under test: the injected stub fetcher keeps everything hermetic, so this task excludes any integration against live GitHub Advisories and never auto-submits.",
+     "Do NOT add HackerOne or Bugcrowd scrapers (deferred).",
+     "Do NOT re-derive the snapshot JSON shapes; consume the sibling sourcing_schema_and_parser build_repo_bounties builder.",
+     "Do NOT commit data/ngv2/*.json runtime artifacts and do NOT modify downstream selection/loader contracts; no bulk-harvesting violating robots/ToS (polite, rate-limited, incremental only)."
+    ],
+    "implementation_notes": "Follow the injected-seam producer pattern from ngv2/sourcing/huntr_client.py (Fetcher = Callable[[url, headers], (status, body, headers)]). fetch_ghsa builds the advisories URL with the ecosystem query param and the gh auth header, passes through the seam, and routes the body to the pure parse_ghsa. Map identifiers to cve_id/ghsa_id, cwes to cwe, cvss to cvss, fixed-version/patched references to fix_commit, and extract vulnerable_functions[] from each advisory's vulnerabilities entries as the reachability signal. Implement precisely to the asserted signatures and semantics of the committed oracle tests/test_ghsa_fetcher_wired.py.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_ghsa_fetcher_wired.py\n```python\n\"\"\"RED oracle: ngv2/sourcing/ghsa_fetcher.py \u2014 GitHub Security Advisories.\n\nContract (from brief_hooks_free-api-enrichment):\n    fetch_ghsa(fetcher, ecosystem: str = 'pip') -> list[dict]\n    parse_ghsa(body: str) -> list[dict]\n\n* The GHSA REST API is ``GET https://api.github.com/advisories?ecosystem=pip``\n  so the injected fetcher seam is the huntr_client style:\n      Fetcher = Callable[[url: str, headers: dict], tuple[int, str, dict]]\n  ``fetch_ghsa`` GETs via the seam and returns ``parse_ghsa(body)``.\n  Non-200 raises. (Auth/token handling lives in the runtime caller, NOT here.)\n* ``parse_ghsa`` is PURE over the response body (a JSON LIST of advisories).\n  Each emitted record is a dict carrying AT LEAST:\n      'ghsa_id'              -> 'GHSA-...'\n      'cve_id'               -> 'CVE-...' or ''\n      'cwe'                  -> first 'CWE-NNN' from cwes or ''\n      'cvss_score'           -> float score or 0.0\n      'vulnerable_functions' -> list[str] (reachability signal; [] when absent)\n  (join keys for huntr enrichment).\n* Malformed/empty bodies yield [] (never raise). Offline: stub fetchers only.\n\"\"\"\nimport json\n\nimport pytest\n\nfrom ngv2.sourcing.ghsa_fetcher import fetch_ghsa, parse_ghsa\n\nADVISORY = {\n    \"ghsa_id\": \"GHSA-dddd-eeee-ffff\",\n    \"cve_id\": \"CVE-2026-22222\",\n    \"summary\": \"Path traversal in archive extraction\",\n    \"severity\": \"high\",\n    \"cwes\": [{\"cwe_id\": \"CWE-22\", \"name\": \"Path Traversal\"}],\n    \"cvss\": {\"vector_string\": \"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N\", \"score\": 7.5},\n    \"vulnerabilities\": [\n        {\n            \"package\": {\"ecosystem\": \"pip\", \"name\": \"examplepkg\"},\n            \"vulnerable_version_range\": \"< 2.0.1\",\n            \"first_patched_version\": \"2.0.1\",\n            \"vulnerable_functions\": [\"examplepkg.archive.extract\"],\n        }\n    ],\n}\n\nBODY = json.dumps([ADVISORY])\n\n\nclass StubFetcher:\n    def __init__(self, status=200, body=BODY):\n        self.calls = []\n        self.status = status\n        self.body = body\n\n    def __call__(self, url, headers):\n        self.calls.append((url, dict(headers or {})))\n        return (self.status, self.body, {})\n\n\ndef test_parse_ghsa_extracts_join_keys_and_reachability():\n    records = parse_ghsa(BODY)\n    assert len(records) == 1\n    rec = records[0]\n    assert rec[\"ghsa_id\"] == \"GHSA-dddd-eeee-ffff\"\n    assert rec[\"cve_id\"] == \"CVE-2026-22222\"\n    assert rec[\"cwe\"] == \"CWE-22\"\n    assert rec[\"cvss_score\"] == 7.5\n    assert rec[\"vulnerable_functions\"] == [\"examplepkg.archive.extract\"]\n\n\ndef test_fetch_ghsa_targets_advisories_endpoint():\n    stub = StubFetcher()\n    records = fetch_ghsa(stub, ecosystem=\"pip\")\n    assert len(records) == 1\n    url, _headers = stub.calls[0]\n    assert \"api.github.com/advisories\" in url\n    assert \"ecosystem=pip\" in url\n\n\n# edge_case: non-200 raises\ndef test_fetch_ghsa_non_200_raises():\n    with pytest.raises(Exception):\n        fetch_ghsa(StubFetcher(status=403, body=\"\"), ecosystem=\"pip\")\n\n\n# edge_case: malformed / empty bodies yield [] (never raise)\ndef test_parse_ghsa_tolerates_malformed_bodies():\n    assert parse_ghsa(\"\") == []\n    assert parse_ghsa(\"{not json\") == []\n    assert parse_ghsa(json.dumps({\"message\": \"rate limited\"})) == []\n\n\n# edge_case: absent optional fields default safely\ndef test_parse_ghsa_defaults_for_missing_fields():\n    sparse = json.dumps([{\"ghsa_id\": \"GHSA-1111-2222-3333\"}])\n    rec = parse_ghsa(sparse)[0]\n    assert rec[\"cve_id\"] == \"\"\n    assert rec[\"cwe\"] == \"\"\n    assert rec[\"cvss_score\"] == 0.0\n    assert rec[\"vulnerable_functions\"] == []\n\n```\n"
+   },
+   "test_spec": {
+    "unit_tests": [
+     {
+      "name": "test_parse_ghsa_extracts_cve_ghsa_cwe_cvss_fixcommit"
+     },
+     {
+      "name": "test_fetch_ghsa_uses_injected_fetcher_with_gh_token_get"
+     },
+     {
+      "name": "test_parse_ghsa_extracts_vulnerable_functions_signal"
+     },
+     {
+      "name": "test_records_carry_join_keys_for_build_repo_bounties_merge"
+     },
+     {
+      "name": "test_fetch_ghsa_passes_ecosystem_param_and_delegates_to_parse"
+     }
+    ],
+    "integration_tests": [],
+    "property_tests": [
+     {
+      "name": "test_parse_ghsa_records_always_have_ghsa_id_and_vulnerable_functions_keys"
+     }
+    ],
+    "regression_tests": [
+     {
+      "name": "test_parse_ghsa_empty_advisories_returns_empty_list"
+     },
+     {
+      "name": "test_parse_ghsa_malformed_json_returns_empty_list"
+     },
+     {
+      "name": "test_parse_ghsa_missing_vulnerable_functions_defaults_to_empty_list"
+     },
+     {
+      "name": "test_parse_ghsa_missing_cve_id_retains_ghsa_id_join_key"
+     }
+    ],
+    "minimum_test_count": 10,
+    "test_data_requirements": "In-memory GitHub advisories response fixtures only: a representative advisories array with cve_id/ghsa_id/CWE/CVSS/patched refs and vulnerable_functions, an empty advisories array, a malformed/non-JSON body, an advisory without vulnerable_functions, and an advisory with ghsa_id but no cve_id. Stub fetcher returns canned (status, body, headers) tuples so the oracle stays offline and hermetic."
+   },
+   "token_budget_ratio": {
+    "implementation_tokens": 100,
+    "test_tokens": 200,
+    "note": "Oracle tests/test_ghsa_fetcher_wired.py is already committed; effort is implementation against a fixed contract, but test_tokens kept dominant to honor the test-first weighting."
+   },
+   "attribution_metadata": {
+    "proposed_by": "reconciled",
+    "reconciled": true,
+    "diff_resolution": "reconciled"
+   },
+   "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+  },
+  {
+   "task_id": "T-osv",
+   "title": "OSV.dev fetcher: injected-seam producer + pure parser merging into snapshot schema",
+   "meta_task_type": "data_model",
+   "priority": "critical",
+   "dependencies": [],
+   "files_touched": [
+    "ngv2/sourcing/osv_fetcher.py"
+   ],
+   "acceptance_criteria": [
+    "ngv2/sourcing/osv_fetcher.py exposes query_osv(fetcher, package: str | None = None, cve: str | None = None) -> list[dict] and a pure parse_osv(body: str) -> list[dict].",
+    "query_osv performs no direct network I/O: it calls the injected Fetcher seam (Callable[[url, headers], (status, body, headers)]) to POST https://api.osv.dev/v1/query with no auth header, then delegates parsing to parse_osv.",
+    "parse_osv pure-parses an OSV.dev response body into records carrying cve_id, ghsa_id, cwe, cvss, and fix_commit, with each field defaulting gracefully when absent.",
+    "Emitted records are joinable to huntr records on cve_id/ghsa_id and mergeable into the build_repo_bounties(repo_records) huntr_repo_bounties shape without re-deriving that shape.",
+    "tests/test_osv_fetcher_wired.py passes via `python -m pytest tests/test_osv_fetcher_wired.py -q`, importing live ngv2.sourcing.osv_fetcher with a stub fetcher (offline, hermetic)."
+   ],
+   "spec_author": null,
+   "estimated_complexity": "medium",
+   "verification_command": "python -m pytest tests/test_osv_fetcher_wired.py -q",
+   "spec": {
+    "objective": "Implement ngv2/sourcing/osv_fetcher.py exactly to the already-committed oracle tests/test_osv_fetcher_wired.py: a pure parse_osv over an injected fetcher for OSV.dev (POST https://api.osv.dev/v1/query, no auth) that carries CWE/CVSS/fix-commit and emits records mergeable into the huntr snapshot schema.",
+    "functional_requirements": [
+     "parse_osv(body: str) -> list[dict] pure-parses an OSV.dev JSON response body into a list of enrichment records, each carrying cve_id, ghsa_id, cwe, cvss, and fix_commit keys.",
+     "query_osv(fetcher, package: str | None = None, cve: str | None = None) -> list[dict] builds the OSV query payload, invokes the injected Fetcher seam to POST https://api.osv.dev/v1/query with no auth, and delegates body parsing to parse_osv.",
+     "Records expose cve_id and ghsa_id join keys so they merge cleanly into the build_repo_bounties huntr_repo_bounties shape without re-deriving the snapshot JSON shape.",
+     "Missing or partial OSV fields (no aliases, no CWE database_specific, no CVSS severity, no fix-commit ranges) degrade gracefully to safe defaults rather than raising."
+    ],
+    "interfaces": "query_osv(fetcher, package: str | None = None, cve: str | None = None) -> list[dict]; parse_osv(body: str) -> list[dict]; Fetcher = Callable[[url, headers], (status, body, headers)] mirroring ngv2/sourcing/huntr_client.py; records join huntr on cve_id/ghsa_id and merge into build_repo_bounties(repo_records: dict) -> dict.",
+    "edge_cases": [
+     "Response body with an empty or absent vulns array yields an empty list rather than an error.",
+     "Malformed / non-JSON body is handled without crashing and yields an empty list.",
+     "A vuln entry missing cwe, cvss, and fix_commit still produces a record with those fields defaulted (e.g. None/empty) so join keys remain usable."
+    ],
+    "non_goals": [
+     "No real network I/O in the oracle or implementation paths under test: the injected stub fetcher keeps everything hermetic, so this task excludes any integration against live OSV.dev.",
+     "Do NOT add HackerOne or Bugcrowd scrapers (deferred).",
+     "Do NOT re-derive the snapshot JSON shapes; consume the sibling sourcing_schema_and_parser build_repo_bounties builder.",
+     "Do NOT commit data/ngv2/*.json runtime artifacts and do NOT modify downstream selection/loader contracts."
+    ],
+    "implementation_notes": "Follow the injected-seam producer pattern from ngv2/sourcing/huntr_client.py (Fetcher = Callable[[url, headers], (status, body, headers)]). query_osv assembles the POST payload (package or cve, whichever provided) and passes it through the seam; all parsing lives in the pure parse_osv. Map OSV aliases to cve_id/ghsa_id, database_specific CWE ids to cwe, severity to cvss, and fixed ranges/events to fix_commit. Implement precisely to the asserted signatures and semantics of the committed oracle tests/test_osv_fetcher_wired.py. Polite, rate-limited, incremental fetching only; never auto-submit.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_osv_fetcher_wired.py\n```python\n\"\"\"RED oracle: ngv2/sourcing/osv_fetcher.py \u2014 OSV.dev enrichment fetcher.\n\nContract (from brief_hooks_free-api-enrichment):\n    query_osv(fetcher, package: str | None = None, cve: str | None = None) -> list[dict]\n    parse_osv(body: str) -> list[dict]\n\n* The OSV query API is ``POST https://api.osv.dev/v1/query`` (no auth), so the\n  injected fetcher seam here takes a payload:\n      Fetcher = Callable[[url: str, headers: dict, payload: str | None],\n                         tuple[int, str, dict]]\n  ``query_osv`` builds the JSON payload ({\"package\": {\"name\": ..., \"ecosystem\":\n  \"PyPI\"}} for package queries; {\"cve\": ...}-style for cve queries), POSTs via\n  the seam, and returns ``parse_osv(body)``. Non-200 raises.\n* ``parse_osv`` is PURE over the response body (the OSV ``{\"vulns\": [...]}``\n  envelope). Each emitted record is a dict carrying AT LEAST:\n      'osv_id'    -> the OSV vuln id string\n      'cve_id'    -> 'CVE-...' alias or '' when absent\n      'ghsa_id'   -> 'GHSA-...' id/alias or '' when absent\n      'cwe'       -> 'CWE-NNN' from database_specific.cwe_ids or ''\n      'fix_commit'-> the GIT 'fixed' event sha or '' when absent\n  (join keys for huntr enrichment + reachability signal).\n* Malformed/empty bodies yield [] (never raise). Offline: stub fetchers only.\n\"\"\"\nimport json\n\nimport pytest\n\nfrom ngv2.sourcing.osv_fetcher import parse_osv, query_osv\n\nOSV_VULN = {\n    \"id\": \"GHSA-aaaa-bbbb-cccc\",\n    \"aliases\": [\"CVE-2026-12345\"],\n    \"summary\": \"Unsafe deserialization in model loader\",\n    \"database_specific\": {\"cwe_ids\": [\"CWE-502\"]},\n    \"severity\": [{\"type\": \"CVSS_V3\", \"score\": \"CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H\"}],\n    \"affected\": [\n        {\n            \"package\": {\"ecosystem\": \"PyPI\", \"name\": \"examplepkg\"},\n            \"ranges\": [\n                {\n                    \"type\": \"GIT\",\n                    \"repo\": \"https://github.com/alpha/one\",\n                    \"events\": [{\"introduced\": \"0\"}, {\"fixed\": \"deadbeefcafe\"}],\n                }\n            ],\n        }\n    ],\n}\n\nBODY = json.dumps({\"vulns\": [OSV_VULN]})\n\n\nclass StubFetcher:\n    def __init__(self, status=200, body=BODY):\n        self.calls = []\n        self.status = status\n        self.body = body\n\n    def __call__(self, url, headers, payload=None):\n        self.calls.append((url, dict(headers or {}), payload))\n        return (self.status, self.body, {})\n\n\ndef test_parse_osv_extracts_join_keys():\n    records = parse_osv(BODY)\n    assert len(records) == 1\n    rec = records[0]\n    assert rec[\"osv_id\"] == \"GHSA-aaaa-bbbb-cccc\"\n    assert rec[\"cve_id\"] == \"CVE-2026-12345\"\n    assert rec[\"ghsa_id\"] == \"GHSA-aaaa-bbbb-cccc\"\n    assert rec[\"cwe\"] == \"CWE-502\"\n    assert rec[\"fix_commit\"] == \"deadbeefcafe\"\n\n\ndef test_query_osv_posts_package_payload():\n    stub = StubFetcher()\n    records = query_osv(stub, package=\"examplepkg\")\n    assert len(records) == 1\n    url, _headers, payload = stub.calls[0]\n    assert \"api.osv.dev/v1/query\" in url\n    assert payload is not None and \"examplepkg\" in payload\n    assert \"PyPI\" in payload\n\n\ndef test_query_osv_by_cve_mentions_cve_in_request():\n    stub = StubFetcher()\n    query_osv(stub, cve=\"CVE-2026-12345\")\n    url, _headers, payload = stub.calls[0]\n    assert \"CVE-2026-12345\" in (payload or \"\") + url\n\n\n# edge_case: non-200 raises\ndef test_query_osv_non_200_raises():\n    with pytest.raises(Exception):\n        query_osv(StubFetcher(status=503, body=\"\"), package=\"x\")\n\n\n# edge_case: malformed / empty bodies yield [] (never raise)\ndef test_parse_osv_tolerates_malformed_bodies():\n    assert parse_osv(\"\") == []\n    assert parse_osv(\"{not json\") == []\n    assert parse_osv(json.dumps({})) == []\n    assert parse_osv(json.dumps({\"vulns\": [{\"id\": \"OSV-1\"}]}))[0][\"cve_id\"] == \"\"\n\n```\n"
+   },
+   "test_spec": {
+    "unit_tests": [
+     {
+      "name": "test_parse_osv_extracts_cve_ghsa_cwe_cvss_fixcommit"
+     },
+     {
+      "name": "test_query_osv_uses_injected_fetcher_no_auth_post"
+     },
+     {
+      "name": "test_query_osv_builds_package_and_cve_payloads"
+     },
+     {
+      "name": "test_records_carry_join_keys_for_build_repo_bounties_merge"
+     },
+     {
+      "name": "test_query_osv_delegates_body_to_parse_osv"
+     }
+    ],
+    "integration_tests": [],
+    "property_tests": [
+     {
+      "name": "test_parse_osv_records_always_have_cve_id_and_ghsa_id_keys"
+     }
+    ],
+    "regression_tests": [
+     {
+      "name": "test_parse_osv_empty_or_absent_vulns_returns_empty_list"
+     },
+     {
+      "name": "test_parse_osv_malformed_json_returns_empty_list"
+     },
+     {
+      "name": "test_parse_osv_missing_cwe_cvss_fixcommit_defaults_gracefully"
+     }
+    ],
+    "minimum_test_count": 9,
+    "test_data_requirements": "In-memory OSV.dev response fixtures only: a representative vulns payload with aliases/CWE/CVSS/fixed events, an empty-vulns payload, a malformed/non-JSON body, and a sparse vuln missing enrichment fields. Stub fetcher returns canned (status, body, headers) tuples so the oracle stays offline and hermetic."
+   },
+   "token_budget_ratio": {
+    "implementation_tokens": 100,
+    "test_tokens": 200,
+    "note": "Oracle tests/test_osv_fetcher_wired.py is already committed; effort is implementation against a fixed contract, but test_tokens kept dominant to honor the test-first weighting."
+   },
+   "attribution_metadata": {
+    "proposed_by": "reconciled",
+    "reconciled": true,
+    "diff_resolution": "reconciled"
+   },
+   "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+  }
+ ],
+ "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_free-api-enrichment.md",
+ "source_brief_sha256": "f6290247fe497df26e984e5267c8440f51044aaea0046b1e900154ac29e74b03",
+ "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

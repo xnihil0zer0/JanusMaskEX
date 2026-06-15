@@ -1,0 +1,289 @@
+{
+  "tasks": [
+    {
+      "task_id": "archiver-oracle",
+      "title": "RED oracle for tools/drive_backup/archiver.py (argv shape, naming, excludes, diff form, manifest)",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "tools.drive_backup.archiver",
+      "priority": "high",
+      "dependencies": [
+        "archiver-impl"
+      ],
+      "files_touched": [
+        "tests/drive_backup/test_archiver.py"
+      ],
+      "acceptance_criteria": [
+        "tests/drive_backup/test_archiver.py pins DEFAULT_EXCLUDES, the artifact stem, the tar->zstd archive argv via the runner seam, --exclude materialization with .git included, the empty-base vs base_sha..sha diff forms, and the complete JSON-able manifest.",
+        "Tests inject runner and now seams and assert NO real tar/zstd/git execution and NO writes into the repo working tree.",
+        "The authored tests FAIL against the declared mutant of tools.drive_backup.archiver (non-vacuity) and pass against the GREEN impl.",
+        "python -m pytest tests/drive_backup/test_archiver.py -q is GREEN against the impl."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/drive_backup/test_archiver.py -q",
+      "spec": {
+        "objective": "Author the paired mutation-gated oracle for tools/drive_backup/archiver.py: assert DEFAULT_EXCLUDES membership, the <repo>_<sha7>_<compactUTC> stem with .tar.zst/.diff siblings, the tar->zstd archive argv through the injected runner, --exclude materialization with .git included by default, the empty-base full-diff form when base_sha is None vs the base_sha..sha range form, and the complete JSON-able manifest (repo, sha, base_sha, stem, excludes, archive_argv, diff_argv, created_at).",
+        "functional_requirements": [
+          "Assert archiver.DEFAULT_EXCLUDES is a frozenset containing the documented cache dirs.",
+          "Assert the artifact stem and .tar.zst/.diff sibling paths under out_dir.",
+          "Assert runner is the only subprocess seam and the archive argv is tar->zstd with --exclude args (.git included by default).",
+          "Assert the diff argv: empty-base full-diff form for base_sha=None, else git -C repo_root diff base_sha..sha.",
+          "Assert ArchiveResult fields and that manifest is JSON-able and complete."
+        ],
+        "interfaces": "Uses archiver.build_archive(repo_root, sha, *, runner, now, out_dir, exclude=DEFAULT_EXCLUDES, base_sha=None) -> ArchiveResult with injected runner/now seams; reads ArchiveResult.archive_path/diff_path/base_sha/manifest and archiver.DEFAULT_EXCLUDES/ArchiveResult.",
+        "edge_cases": [
+          "base_sha=None empty-base full-diff form is asserted distinctly from the base_sha..sha range form.",
+          "An explicitly listed .git in exclude IS materialized as --exclude .git, but the default set leaves .git included."
+        ],
+        "non_goals": [
+          "No real tar/zstd/git execution \u2014 runner/now are injected seams.",
+          "Does not test ledger.py (that is ledger-oracle).",
+          "No integration wiring of the pre-push hook."
+        ],
+        "implementation_notes": "mutation_target tools.drive_backup.archiver resolves to tools/drive_backup/archiver.py in the impl task files_touched, satisfying the paired-auto-oracle wiring exemption. Tests must use tmp_path/out_dir OUTSIDE the repo and a fake runner; no real subprocess or filesystem writes into the working tree. Do NOT add a *_wired verification command."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_default_excludes_frozenset_membership"
+          },
+          {
+            "name": "test_stem_and_sibling_paths"
+          },
+          {
+            "name": "test_archive_argv_tar_to_zstd_via_runner_with_exclude_args"
+          },
+          {
+            "name": "test_diff_argv_empty_base_and_range_forms"
+          },
+          {
+            "name": "test_manifest_jsonable_and_complete"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_git_included_by_default_but_excludable_when_listed"
+          },
+          {
+            "name": "test_no_real_subprocess_or_repo_writes"
+          }
+        ],
+        "minimum_test_count": 7,
+        "test_data_requirements": "Fake runner capturing argv/**kw; fixed tz-aware now(); tmp_path out_dir outside repo; sample sha and base_sha."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 120,
+        "note": "Pure test_authoring leaf \u2014 all budget is test tokens for the archiver oracle."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "ledger-oracle",
+      "title": "RED oracle for tools/drive_backup/ledger.py (NDJSON round-trip, atomic durability, corrupt-line skip)",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "tools.drive_backup.ledger",
+      "priority": "high",
+      "dependencies": [
+        "archiver-impl"
+      ],
+      "files_touched": [
+        "tests/drive_backup/test_ledger.py"
+      ],
+      "acceptance_criteria": [
+        "tests/drive_backup/test_ledger.py pins BackupLedger(path) explicit seam, last_backed_up_sha() latest/None semantics, record() atomic append + entries() order round-trip, durability across separate instances, and corrupt/partial trailing line skip.",
+        "Tests use a ledger path OUTSIDE the repo and leave no lock/-wal/-shm sidecars.",
+        "The authored tests FAIL against the declared mutant of tools.drive_backup.ledger (non-vacuity) and pass against the GREEN impl.",
+        "python -m pytest tests/drive_backup/test_ledger.py -q is GREEN against the impl."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/drive_backup/test_ledger.py -q",
+      "spec": {
+        "objective": "Author the paired mutation-gated oracle for tools/drive_backup/ledger.py: BackupLedger(path) explicit seam, last_backed_up_sha() returning the most recent recorded sha or None for empty/missing, record(sha, archive_name, uploaded) appending atomically and entries() round-tripping rows in order, durability across separate instances, and corrupt/partial trailing line skipped not fatal.",
+        "functional_requirements": [
+          "Assert last_backed_up_sha() returns None for an empty/missing ledger.",
+          "Assert record() then last_backed_up_sha() returns the most recent sha and entries() round-trips rows in order.",
+          "Assert a corrupt/partial trailing line is skipped, not fatal.",
+          "Assert recorded entries are durable across separate BackupLedger instances (atomic write-temp-then-rename)."
+        ],
+        "interfaces": "Uses ledger.BackupLedger(path) with last_backed_up_sha() -> str|None, record(sha, archive_name, uploaded: bool) -> None, entries() -> list[dict].",
+        "edge_cases": [
+          "Empty and missing ledger files both yield None / [].",
+          "A truncated trailing JSON line does not raise and prior valid rows remain readable."
+        ],
+        "non_goals": [
+          "Does not test archiver.py (that is archiver-oracle).",
+          "No implicit ledger path default is exercised \u2014 path is an explicit seam.",
+          "No integration wiring of the pre-push hook."
+        ],
+        "implementation_notes": "mutation_target tools.drive_backup.ledger resolves to tools/drive_backup/ledger.py in the impl task files_touched, satisfying the paired-auto-oracle wiring exemption. Use a tmp_path ledger path OUTSIDE the repo; assert no leftover .lock/-wal/-shm sidecars. Do NOT add a *_wired verification command."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_last_backed_up_sha_none_for_empty_or_missing"
+          },
+          {
+            "name": "test_record_then_last_backed_up_sha_and_entries_round_trip"
+          },
+          {
+            "name": "test_corrupt_partial_trailing_line_skipped"
+          },
+          {
+            "name": "test_entries_durable_across_separate_instances"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_no_lock_or_sidecar_files_left_behind"
+          },
+          {
+            "name": "test_entries_preserve_insertion_order"
+          }
+        ],
+        "minimum_test_count": 6,
+        "test_data_requirements": "tmp_path ledger path outside the repo; synthetic NDJSON with valid rows plus one corrupt/partial trailing line; two BackupLedger instances over the same path."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 90,
+        "note": "Pure test_authoring leaf \u2014 all budget is test tokens for the ledger oracle."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "archiver-impl",
+      "title": "Build drive-backup archiver + ledger seams (tar.zst snapshot, git diff, NDJSON ledger)",
+      "meta_task_type": "io_adapter",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tools/drive_backup/archiver.py",
+        "tools/drive_backup/ledger.py"
+      ],
+      "acceptance_criteria": [
+        "tools/drive_backup/archiver.py and tools/drive_backup/ledger.py are NEW single-file, whole-file, stdlib-only modules.",
+        "archiver.DEFAULT_EXCLUDES is a frozenset containing node_modules, .venv, venv, __pycache__, .pytest_cache, .mypy_cache, *.pyc, state/output, _autowork_archive.",
+        "archiver.ArchiveResult exposes fields archive_path, diff_path, base_sha, manifest.",
+        "archiver.build_archive(repo_root, sha, *, runner, now, out_dir, exclude=DEFAULT_EXCLUDES, base_sha=None) -> ArchiveResult is the frozen signature.",
+        "Artifact stem is <repo_basename>_<sha[:7]>_<compactUTC> with .tar.zst and .diff siblings under out_dir.",
+        "runner is the ONLY subprocess seam; archive argv is a tar create piped/compressed to zstd and is recorded in the manifest.",
+        "exclude entries are materialized as --exclude args; .git is INCLUDED by default unless explicitly listed.",
+        "base_sha=None produces the empty-base full-diff form (git diff <sha>); otherwise git -C repo_root diff <base_sha>..<sha>.",
+        "manifest is JSON-able with keys repo, sha, base_sha, stem, excludes, archive_argv, diff_argv, created_at.",
+        "ledger.BackupLedger(path) takes an EXPLICIT path seam (no implicit default in tested surface).",
+        "BackupLedger.last_backed_up_sha() returns the most recent recorded sha or None when empty/missing.",
+        "BackupLedger.record(sha, archive_name, uploaded) appends a row atomically (write-temp-then-rename) and entries() round-trips rows in order.",
+        "Corrupt/partial trailing ledger lines are skipped, not fatal.",
+        "Neither module writes any archive/ledger/temp/lock/log into the repo or working tree; default destinations are never '.', os.getcwd(), or __file__'s dir; all file handles close deterministically.",
+        "python -m pytest tests/drive_backup/test_archiver.py tests/drive_backup/test_ledger.py -q is GREEN."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -c \"import tools.drive_backup.archiver, tools.drive_backup.ledger\"",
+      "spec": {
+        "objective": "Create two NEW single-file, stdlib-only modules under tools/drive_backup/: archiver.py (build_archive producing a timestamped whole-tree tar.zst snapshot + a git diff against the last-backed-up commit, named by repo+sha7+compact UTC timestamp, caches excluded, with a manifest of dropped paths) and ledger.py (BackupLedger NDJSON record of prior backups). All subprocess access flows through the injected runner seam and all time through the injected now() seam \u2014 no real tar/zstd/git execution in any tested path. IMPL-only against the pre-committed RED oracles.",
+        "functional_requirements": [
+          "archiver.DEFAULT_EXCLUDES is a frozenset containing the cache/dirs node_modules, .venv, venv, __pycache__, .pytest_cache, .mypy_cache, *.pyc, state/output, _autowork_archive.",
+          "The artifact stem is <repo_basename>_<sha[:7]>_<now-as-compact-UTC-iso> (e.g. JanusMaskJR_a1b2c3d_20260612T231500Z), used for the .tar.zst and .diff siblings under out_dir.",
+          "The injected runner is the ONLY way subprocesses are touched, and the archive argv has a tar-create-then-zstd shape recorded as archive_argv in the manifest.",
+          "exclude entries are materialized as --exclude args in the archive argv, with .git INCLUDED by default (whole-dir honored) unless .git is explicitly listed in exclude.",
+          "When base_sha is None (first-ever backup) the diff uses the empty-base full-diff form (git diff <sha>, full vs empty tree); otherwise git -C repo_root diff <base_sha>..<sha>, recorded as diff_argv.",
+          "manifest is a JSON-able dict that is complete with keys repo, sha, base_sha, stem, excludes, archive_argv, diff_argv, created_at, and ArchiveResult carries archive_path, diff_path, base_sha, manifest.",
+          "BackupLedger.record(sha, archive_name, uploaded) followed by last_backed_up_sha() returns the most recent recorded sha and the row round-trips via entries() in order.",
+          "BackupLedger.last_backed_up_sha() returns None for an empty or missing ledger file."
+        ],
+        "interfaces": "tools/drive_backup/archiver.py: DEFAULT_EXCLUDES (frozenset); ArchiveResult dataclass{archive_path, diff_path, base_sha, manifest}; build_archive(repo_root, sha, *, runner, now, out_dir, exclude=DEFAULT_EXCLUDES, base_sha=None) -> ArchiveResult. tools/drive_backup/ledger.py: BackupLedger(path); last_backed_up_sha() -> str|None; record(sha, archive_name, uploaded: bool) -> None; entries() -> list[dict]. runner(argv, **kw) -> CompletedProcess-like is the injected subprocess seam; now() returns a tz-aware UTC datetime.",
+        "edge_cases": [
+          "A corrupt or partial trailing line in the NDJSON ledger is SKIPPED, not fatal \u2014 entries() and last_backed_up_sha() still return the valid prior rows.",
+          "Recorded entries are DURABLE across separate BackupLedger instances pointed at the same path, proving the atomic write-temp-then-rename append."
+        ],
+        "non_goals": [
+          "Integration wiring into the pre-push hook orchestration is OUT OF SCOPE here \u2014 deferred to the dependent drive-backup-hook-runner and drive-backup-installer leaves; this leaf only builds the archiver + ledger seams (no integration test gate is required).",
+          "No real tar, zstd, or git execution in any tested path \u2014 runner and now are injected seams; tests assert argv construction, naming, exclude materialization, manifest contents, and ledger round-trip only.",
+          "No upload logic (that is drive-backup-uploader) and no reading of git hook stdin (that is drive-backup-hook-runner).",
+          "No implicit ledger path default in the tested surface \u2014 BackupLedger(path) is an explicit seam.",
+          "No edits to any existing file (both modules are NEW) and no edits to any _NEVER_AUTO_APPROVE file; no third-party imports (stdlib only).",
+          "Does NOT author its own oracles \u2014 tests/drive_backup/test_archiver.py and tests/drive_backup/test_ledger.py are hand-authored RED preconditions and are authoritative if a pinned name differs."
+        ],
+        "implementation_notes": "BUILD-BLOCKING resource hygiene (prior run died auto_commit_failed_r1 because the staging worktree could not be removed): NEVER write archives, ledger DB/state, temp dirs, lock files, or logs into the repo/working tree \u2014 all output goes to a caller-supplied path or a tempfile.mkdtemp()/NamedTemporaryFile area OUTSIDE the repo, and default destinations MUST NOT be '.', os.getcwd(), or __file__'s dir. NEVER run git init/git clone or copy a tree containing a nested .git/ into the worktree. Close EVERY file handle deterministically (context managers or try/finally) \u2014 no module-global open handles and no leftover .lock/-wal/-shm sidecars \u2014 so the staging worktree removes with exit 0. The impl picks one tar|zstd pipeline shape (tar --use-compress-program=zstd or an explicit pipe) and records the chosen argv in manifest['archive_argv']. The committed RED oracles tests/drive_backup/test_archiver.py (7 tests) and tests/drive_backup/test_ledger.py (5 tests) are authoritative for pinned names.",
+        "non_goals_note": "integration"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_default_excludes_is_frozenset_with_cache_dirs"
+          },
+          {
+            "name": "test_artifact_stem_is_repo_sha7_compact_utc"
+          },
+          {
+            "name": "test_runner_is_only_subprocess_seam_and_archive_argv_is_tar_to_zstd"
+          },
+          {
+            "name": "test_excludes_materialized_as_exclude_args_git_included_by_default"
+          },
+          {
+            "name": "test_first_backup_base_sha_none_uses_empty_base_full_diff_form"
+          },
+          {
+            "name": "test_manifest_is_jsonable_and_complete"
+          },
+          {
+            "name": "test_ledger_record_then_last_backed_up_sha_returns_latest_and_round_trips_entries"
+          },
+          {
+            "name": "test_last_backed_up_sha_returns_none_for_empty_or_missing_ledger"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_ledger_entries_durable_across_separate_instances_atomic_rename"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_corrupt_partial_trailing_ledger_line_is_skipped_not_fatal"
+          },
+          {
+            "name": "test_no_artifacts_or_handles_leak_into_repo_working_tree"
+          },
+          {
+            "name": "test_explicit_diff_argv_uses_base_sha_to_sha_range_form"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "A fake runner capturing argv and **kw and returning a CompletedProcess-like stub; a fixed now() returning a tz-aware UTC datetime (e.g. 2026-06-12T23:15:00Z); a tmp_path out_dir and ledger path OUTSIDE the repo; sample sha/base_sha values and a synthetic NDJSON ledger with one corrupt/partial trailing line."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 160,
+        "note": "Test tokens (160) >= 1.5x implementation tokens (100). Two small stdlib-only modules with a tight argv/naming/manifest surface and a ledger round-trip; the bulk of the proof load is in the paired RED oracles."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "brief_hooks_drive-backup-archiver.md",
+  "source_brief_sha256": "ab32792dd9e13339da8be23106ef335a3d4380c492dce27c0bc635b885fed02b"
+}

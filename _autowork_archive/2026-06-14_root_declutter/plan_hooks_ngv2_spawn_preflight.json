@@ -1,0 +1,124 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2-spawn-preflight",
+      "title": "ngv2/spawn_preflight.py \u2014 NEW Phase-8.2 5-gate spawn preflight (cascade/memory/capacity/dedup/cooldown) concept-ported pure with injected facts",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/spawn_preflight.py"
+      ],
+      "acceptance_criteria": [
+        "A NEW single file ngv2/spawn_preflight.py is created byte-for-byte from the brief Deliverables.",
+        "run_preflight(*, worker_type, ...) is pure, total, deterministic, stdlib-only \u2014 every external fact is an injected keyword argument.",
+        "The five gates run IN ORDER (cascade, memory, capacity, dedup, cooldown) and short-circuit on the first BLOCK.",
+        "cascade BLOCKS only when >= CASCADE_MIN_SAMPLE (4) recent completions exist and failed fraction > CASCADE_FAILURE_THRESHOLD (0.50).",
+        "memory BLOCKS when available_memory_mb is not None and < MEMORY_MIN_AVAILABLE_MB (2048); None skips the gate.",
+        "capacity BLOCKS when active_workers >= max_workers (default MAX_CONCURRENT_WORKERS=8).",
+        "dedup BLOCKS when task_target is in running_targets OR completed within dedup_window_s (default 300) of injected now; task_target None skips.",
+        "cooldown BLOCKS while (now - last_failure_at) < _cooldown_seconds(consecutive_failures) = min(15 * 2**(n-1), 180).",
+        "GO returns the full ordered gate list; BLOCK names blocked_by and the partial prefix of gates passed.",
+        "force=True short-circuits to GO with reason 'forced'.",
+        "No sqlite, psutil, filesystem, network, real clock, randomness, subprocess, LLM, or third-party imports in any path.",
+        "No other module is touched, imported, or altered; no __JANUSMASK_PATCHES__ list is emitted.",
+        "The committed oracle tests/test_spawn_preflight_wired.py passes."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": ".venv/bin/python -m pytest tests/test_spawn_preflight_wired.py -q",
+      "spec": {
+        "objective": "Build a NEW orchestration module ngv2/spawn_preflight.py in the external NobleGreedv2 repo that concept-ports legacy services/spawn_preflight.py's 5-gate spawn preflight (the guard that killed legacy's rate-limit cascade self-DoS) while DISCARDING legacy's host probing: every fact is injected so run_preflight is pure, total, deterministic, and stdlib-only.",
+        "functional_requirements": [
+          "Expose run_preflight(*, worker_type, task_target=None, recent_completions=None, available_memory_mb=None, active_workers=0, max_workers=8, running_targets=None, recent_target_completions=None, now=0.0, dedup_window_s=300, consecutive_failures=0, last_failure_at=None, force=False) -> dict returning {'verdict','blocked_by','reason','gates'}.",
+          "Gate 1 cascade: with >= CASCADE_MIN_SAMPLE (4) recent_completions (each a mapping with 'success' bool defaulting True), BLOCK when failed fraction > CASCADE_FAILURE_THRESHOLD (0.50).",
+          "Gate 2 memory: BLOCK when available_memory_mb is not None and below MEMORY_MIN_AVAILABLE_MB (2048); None skips the gate.",
+          "Gate 3 capacity: BLOCK when active_workers >= max_workers (default MAX_CONCURRENT_WORKERS=8).",
+          "Gate 4 dedup: when task_target is not None, BLOCK if it is in running_targets OR if recent_target_completions[task_target] is within dedup_window_s (default 300) of injected now.",
+          "Gate 5 cooldown: BLOCK while (now - last_failure_at) < _cooldown_seconds(consecutive_failures) where _cooldown_seconds = min(COOLDOWN_BASE_S(15) * 2**(n-1), COOLDOWN_MAX_S(180)).",
+          "Gates run IN ORDER and short-circuit on first BLOCK; GO returns full ordered gate list, BLOCK returns partial prefix passed and names blocked_by.",
+          "force=True short-circuits to GO with reason 'forced'; export constants MAX_CONCURRENT_WORKERS, CASCADE_FAILURE_THRESHOLD, CASCADE_MIN_SAMPLE, MEMORY_MIN_AVAILABLE_MB, DEDUP_COMPLETED_WINDOW_S, COOLDOWN_BASE_S, COOLDOWN_MAX_S and helper _cooldown_seconds."
+        ],
+        "interfaces": "NEW orchestration module ngv2/spawn_preflight.py exposing run_preflight(*, worker_type, task_target=None, recent_completions=None, available_memory_mb=None, active_workers=0, max_workers=8, running_targets=None, recent_target_completions=None, now=0.0, dedup_window_s=300, consecutive_failures=0, last_failure_at=None, force=False) -> dict, plus constants MAX_CONCURRENT_WORKERS, CASCADE_FAILURE_THRESHOLD, CASCADE_MIN_SAMPLE, MEMORY_MIN_AVAILABLE_MB, DEDUP_COMPLETED_WINDOW_S, COOLDOWN_BASE_S, COOLDOWN_MAX_S and helper _cooldown_seconds(consecutive_failures) -> int.",
+        "edge_cases": [
+          "Fewer than 4 recent_completions: cascade gate is skipped (never blocks).",
+          "Exactly 50% failure rate with >=4 samples: does NOT block (strictly greater-than threshold).",
+          "available_memory_mb None: memory gate skipped.",
+          "task_target None: dedup gate skipped entirely.",
+          "completed exactly dedup_window_s ago: does NOT block (strictly less-than).",
+          "consecutive_failures <= 0: cooldown window is 0, gate never blocks.",
+          "last_failure_at None: cooldown gate skipped even with a positive streak.",
+          "elapsed exactly equal to cooldown window: does NOT block (strictly less-than).",
+          "force=True bypasses all five gates and returns reason 'forced'."
+        ],
+        "non_goals": [
+          "Not an edit and not integration \u2014 do NOT author or modify any test; the oracle tests/test_spawn_preflight_wired.py is committed and authoritative.",
+          "Do NOT touch, import, or alter ngv2/worker_registry.py, ngv2/dynamic_scheduler.py, ngv2/concurrency_scheduler.py, or any other module.",
+          "Do NOT call sqlite, psutil, filesystem, network, a real clock, randomness, or subprocess in any path.",
+          "No LLM, no third-party imports (stdlib only); do NOT emit a __JANUSMASK_PATCHES__ list."
+        ],
+        "implementation_notes": "Emit ngv2/spawn_preflight.py as a single whole-file deliverable reproducing the brief Deliverables content BYTE-FOR-BYTE. It imports only from __future__ and typing (stdlib); no ngv2 sibling imports. _go() returns the full _GATE_ORDER list; _block(gate, reason, passed) returns the partial prefix. Append each gate name to `passed` only after it passes so a BLOCK reports the correct prefix.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_spawn_preflight_wired.py\n```python\nimport importlib\nimport pytest\n\nsp = importlib.import_module(\"ngv2.spawn_preflight\")\n\n\ndef test_module_is_live_ngv2():\n    # in NGv2 this asserts the live package path\n    assert hasattr(sp, \"run_preflight\")\n    assert hasattr(sp, \"MAX_CONCURRENT_WORKERS\")\n\n\ndef test_clean_go():\n    r = sp.run_preflight(worker_type=\"hunt\", task_target=\"o/r\")\n    assert r[\"verdict\"] == \"GO\"\n    assert r[\"blocked_by\"] == \"\"\n    assert r[\"gates\"] == [\"cascade\", \"memory\", \"capacity\", \"dedup\", \"cooldown\"]\n\n\ndef test_cascade_blocks_on_high_failure():\n    comps = [{\"success\": False}] * 3 + [{\"success\": True}]\n    r = sp.run_preflight(worker_type=\"hunt\", recent_completions=comps)\n    assert r[\"verdict\"] == \"BLOCKED\"\n    assert r[\"blocked_by\"] == \"cascade\"\n    assert r[\"gates\"] == []\n\n\ndef test_cascade_ignored_below_min_sample():\n    comps = [{\"success\": False}] * 3\n    r = sp.run_preflight(worker_type=\"hunt\", recent_completions=comps)\n    assert r[\"verdict\"] == \"GO\"\n\n\ndef test_memory_floor_blocks():\n    r = sp.run_preflight(worker_type=\"hunt\", available_memory_mb=1024)\n    assert r[\"blocked_by\"] == \"memory\"\n    assert r[\"gates\"] == [\"cascade\"]\n\n\ndef test_capacity_cap_blocks():\n    r = sp.run_preflight(worker_type=\"hunt\", active_workers=8, max_workers=8)\n    assert r[\"blocked_by\"] == \"capacity\"\n    assert r[\"gates\"] == [\"cascade\", \"memory\"]\n\n\ndef test_dedup_running_blocks():\n    r = sp.run_preflight(worker_type=\"hunt\", task_target=\"o/r\", running_targets=[\"o/r\"])\n    assert r[\"blocked_by\"] == \"dedup\"\n\n\ndef test_dedup_recent_completion_blocks():\n    r = sp.run_preflight(worker_type=\"hunt\", task_target=\"o/r\",\n                         recent_target_completions={\"o/r\": 0.0}, now=100.0)\n    assert r[\"blocked_by\"] == \"dedup\"\n\n\ndef test_dedup_old_completion_allows():\n    r = sp.run_preflight(worker_type=\"hunt\", task_target=\"o/r\",\n                         recent_target_completions={\"o/r\": 0.0}, now=1000.0)\n    assert r[\"verdict\"] == \"GO\"\n\n\ndef test_cooldown_exponential_blocks():\n    r = sp.run_preflight(worker_type=\"hunt\", consecutive_failures=2,\n                         last_failure_at=0.0, now=10.0)\n    assert r[\"blocked_by\"] == \"cooldown\"\n\n\ndef test_cooldown_elapsed_allows():\n    r = sp.run_preflight(worker_type=\"hunt\", consecutive_failures=1,\n                         last_failure_at=0.0, now=20.0)\n    assert r[\"verdict\"] == \"GO\"\n\n\ndef test_force_bypasses_all():\n    r = sp.run_preflight(worker_type=\"hunt\", available_memory_mb=0,\n                         active_workers=99, max_workers=1, force=True)\n    assert r[\"verdict\"] == \"GO\"\n    assert r[\"reason\"] == \"forced\"\n\n\ndef test_cooldown_seconds_caps():\n    assert sp._cooldown_seconds(0) == 0\n    assert sp._cooldown_seconds(1) == 15\n    assert sp._cooldown_seconds(2) == 30\n    assert sp._cooldown_seconds(20) == 180\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_clean_go (committed oracle): all gates pass -> GO with full ordered gate list"
+          },
+          {
+            "name": "test_cascade_blocks_on_high_failure (committed oracle): >=4 completions with >50% failures -> BLOCKED blocked_by cascade"
+          },
+          {
+            "name": "test_memory_floor_blocks (committed oracle): available_memory_mb below 2048 -> BLOCKED blocked_by memory"
+          },
+          {
+            "name": "test_capacity_cap_blocks (committed oracle): active_workers >= max_workers -> BLOCKED blocked_by capacity"
+          },
+          {
+            "name": "test_dedup_blocks_running_or_recent (committed oracle): target running or recently completed -> BLOCKED blocked_by dedup"
+          },
+          {
+            "name": "test_cooldown_blocks_within_window (committed oracle): within exponential backoff window -> BLOCKED blocked_by cooldown"
+          },
+          {
+            "name": "test_cooldown_seconds_caps (committed oracle): _cooldown_seconds doubling capped at 180s"
+          },
+          {
+            "name": "test_force_bypasses_all_gates (committed oracle): force=True -> GO reason 'forced'"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_clean_go"
+          },
+          {
+            "name": "test_cascade_blocks_on_high_failure"
+          },
+          {
+            "name": "test_capacity_cap_blocks"
+          },
+          {
+            "name": "test_cooldown_seconds_caps"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "All facts are injected: synthetic recent_completions lists of {'success': bool}, scalar available_memory_mb / active_workers / max_workers, running_targets sequences, recent_target_completions target->epoch-second mappings with an injected `now`, and consecutive_failures / last_failure_at pairs. No real clock, filesystem, or external resource. Acceptance is the committed oracle tests/test_spawn_preflight_wired.py."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Single byte-for-byte whole-file deliverable; the committed oracle carries the acceptance contract, so the budget weights verification over net-new authoring."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2_spawn_preflight.md",
+  "source_brief_sha256": "026bd9f3ccd18b7f238d4199767fa751912518c5875e39c7d35577687b000259",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

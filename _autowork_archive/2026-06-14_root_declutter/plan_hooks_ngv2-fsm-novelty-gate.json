@@ -1,0 +1,128 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2_novelty_gate_impl",
+      "title": "Pure novelty and duplication classifier classify_novelty() against prior-submission corpus",
+      "meta_task_type": "validation",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/novelty_gate.py"
+      ],
+      "acceptance_criteria": [
+        "ngv2/novelty_gate.py exists and exports classify_novelty(finding: dict, known_corpus: list) -> str.",
+        "Returns 'NOVEL', 'POSSIBLE_DUP', or 'CONFIRMED_DUP' based on the specified rules, with empty corpus resulting in 'NOVEL'.",
+        "CONFIRMED_DUP is returned if any corpus entry matches the finding on cwe, file, and normalized title.",
+        "POSSIBLE_DUP is returned if no CONFIRMED_DUP matches but a similar title match exists OR (same cwe AND same file).",
+        "Title normalization lowercases, strips outer whitespace, and collapses internal whitespace sequences into a single space, performing substring match in either direction for similarity.",
+        "Module is stdlib-only, deterministic, and performs no I/O, database, network, LLM, wall-clock, or subprocess calls."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -c \"from ngv2.novelty_gate import classify_novelty; print(classify_novelty({'title': 'Test', 'cwe': 'CWE-79', 'file': 'x.py'}, []))\"",
+      "spec": {
+        "objective": "Implement a pure, stdlib+ngv2-only, deterministic novelty and duplication classifier that ports the legacy novelty_checker.py logic to decide if a finding is NOVEL, a POSSIBLE_DUP, or a CONFIRMED_DUP.",
+        "functional_requirements": [
+          "Expose classify_novelty(finding: dict, known_corpus: list) -> str which is a pure and deterministic function.",
+          "Extract 'title', 'cwe', and 'file' fields from finding (must carry at least these keys).",
+          "Iterate through each entry in known_corpus (each entry being a dict containing 'title', 'cwe', and 'file').",
+          "Normalize titles by lowercasing, stripping leading/trailing whitespace, and collapsing all internal whitespace sequences to a single space.",
+          "Perform title matching: for CONFIRMED_DUP, check if normalized titles are exactly equal. For POSSIBLE_DUP, check if normalized finding title is a substring of normalized corpus entry title, or vice-versa.",
+          "Match file-locus by checking if the finding's 'file' value is equal to the corpus entry's 'file' value.",
+          "Apply the decision rule: CONFIRMED_DUP iff some corpus entry has the same cwe AND same file AND equal normalized title. Else POSSIBLE_DUP iff some corpus entry has a similar title OR (same cwe AND same file). Else NOVEL.",
+          "If the corpus is empty, immediately return 'NOVEL'.",
+          "Resolve multiple matching entries deterministically: if any entry matches CONFIRMED_DUP, the verdict must be 'CONFIRMED_DUP' (strongest match wins).",
+          "Ensure exception-safety: handle missing keys, None values, or wrong types in finding or known_corpus entries gracefully without raising exceptions."
+        ],
+        "interfaces": "exposes `classify_novelty(finding: dict, known_corpus: list) -> str` returning 'NOVEL'|'POSSIBLE_DUP'|'CONFIRMED_DUP'.",
+        "edge_cases": [
+          "Empty known_corpus -> NOVEL.",
+          "Whitespace normalization: handles multiple consecutive spaces, tabs, and newlines by collapsing them to a single space, and strips leading/trailing whitespaces.",
+          "Substring match in either direction: checks normalized_finding_title in normalized_corpus_title OR normalized_corpus_title in normalized_finding_title.",
+          "Finding or corpus entries with extra fields are handled gracefully without exceptions.",
+          "Exact cwe and file-locus comparison matches case-sensitively (or handles mismatching formats gracefully)."
+        ],
+        "non_goals": [
+          "Do not implement real database connections, network requests, platform/advisory API calls, embeddings, or fuzzy ML similarity.",
+          "Do not perform the FSM transition or the operator-override routing (handled by wiring brief).",
+          "No subprocess, LLM, wall-clock, or randomness."
+        ],
+        "implementation_notes": "Keep the module free of any I/O or import beyond the Python standard library. Define a helper function for title normalization to collapse and strip whitespaces. Evaluate CONFIRMED_DUP first or track if any entry qualifies for it to ensure the strongest match wins over POSSIBLE_DUP. Use the credential-naming constraint (avoid variables named with 'password', 'secret', or 'key').\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_empty_corpus_returns_novel"
+          },
+          {
+            "name": "test_confirmed_dup_all_three_match"
+          },
+          {
+            "name": "test_possible_dup_normalized_title_only_substring_finding_in_corpus"
+          },
+          {
+            "name": "test_possible_dup_normalized_title_only_substring_corpus_in_finding"
+          },
+          {
+            "name": "test_possible_dup_same_cwe_and_file"
+          },
+          {
+            "name": "test_novel_no_overlap"
+          },
+          {
+            "name": "test_title_normalization_collapses_and_strips_whitespace"
+          },
+          {
+            "name": "test_strongest_match_wins_confirmed_over_possible"
+          },
+          {
+            "name": "test_exact_cwe_and_file_matching_is_case_sensitive"
+          },
+          {
+            "name": "test_totality_handles_missing_keys_gracefully"
+          },
+          {
+            "name": "test_totality_handles_none_values_gracefully"
+          },
+          {
+            "name": "test_totality_handles_malformed_types_gracefully"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_integration_with_contracts_finding_objects"
+          },
+          {
+            "name": "test_integration_multiple_sequential_verdicts"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_property_determinism_under_inputs"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_regression_non_overlapping_similar_cwe_file"
+          }
+        ],
+        "minimum_test_count": 15,
+        "test_data_requirements": "Dictionaries representing findings and corpus entries with varying combinations of 'title', 'cwe', 'file', and extra fields, along with empty and mock inputs."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 1000,
+        "test_tokens": 1500,
+        "note": "Implementation covers pure classification logic and whitespace normalization; test budget is for verifying edge cases and exception safety."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2-fsm-novelty-gate.md",
+  "source_brief_sha256": "5081a1557f39474cb1f7b3f27bd965705eb2e79d264a6b092633a80d43b17c7f",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

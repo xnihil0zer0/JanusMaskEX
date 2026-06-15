@@ -1,0 +1,313 @@
+{
+  "tasks": [
+    {
+      "task_id": "B1",
+      "title": "LEAF B1: session_gate: pure gate transition validation rules",
+      "meta_task_type": "validation",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/session_gate.py"
+      ],
+      "acceptance_criteria": [
+        "ngv2/session_gate.py is created as a NEW whole-file module.",
+        "Exposes gate_transition(rows, from_phase, to_phase) returning a structured GateResult(ok, error).",
+        "Enforces: hunt -> triage needs >= 1 valid Finding (deserialized and validated via Finding.validate()).",
+        "Enforces: triage -> poc needs unique/deduplicated findings.",
+        "Enforces: poc -> detonate needs every PoC.finding_id to map to an existing finding ID.",
+        "Enforces: detonate -> report needs every PoC finding ID to have a corresponding LiveTestReport.",
+        "Pure over rows list, no database or I/O access in session_gate.",
+        "The verification oracle session_gate_wired passes."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "pytest tests/ngv2/test_session_gate_wired.py",
+      "spec": {
+        "objective": "Implement the pure transition gate validation rules for the pipeline phases.",
+        "functional_requirements": [
+          "Implement GateResult dataclass with ok: bool and error: Optional[str] fields.",
+          "Implement gate_transition(rows, from_phase, to_phase) -> GateResult, where rows is a list of dictionary representations of Finding, PoC, or LiveTestReport contracts.",
+          "Validate hunt -> triage: check that there is at least one Finding, and that each Finding validates successfully via validate().",
+          "Validate triage -> poc: check that findings in the rows have unique IDs.",
+          "Validate poc -> detonate: verify that every PoC.finding_id corresponds to a valid registered Finding ID in the rows.",
+          "Validate detonate -> report: verify that every PoC (or finding) has a corresponding LiveTestReport."
+        ],
+        "interfaces": "GateResult(ok: bool, error: Optional[str]); gate_transition(rows: List[dict], from_phase: str, to_phase: str) -> GateResult",
+        "edge_cases": [
+          "Empty rows list passed to gate_transition: returns GateResult(ok=False, error='No artifacts found')",
+          "Invalid severity value in a finding: validate() raises ValueError, caught to return GateResult(ok=False, error=...)",
+          "Multiple findings with duplicate IDs during triage -> poc transition: returns GateResult(ok=False, error='Duplicate findings detected')",
+          "PoC finding_id does not exist in findings during poc -> detonate transition: returns GateResult(ok=False, error=...)",
+          "PoC lacks a LiveTestReport during detonate -> report: returns GateResult(ok=False, error=...)"
+        ],
+        "non_goals": [
+          "Do not connect to SQLite database or perform file I/O in this module; the word integration is named here to specify this is a pure unit logic module.",
+          "Do not implement web/REST endpoints."
+        ],
+        "implementation_notes": "Create the module as ngv2/session_gate.py. Import dataclasses and ngv2.contracts (Finding, PoC, LiveTestReport). Keep the validation pure and clean.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/ngv2/test_session_gate_wired.py\n```python\n\"\"\"RED oracle for ngv2/session_gate.py (Agentic Spine Epic B, LEAF B1).\n\nPure transition-gate validators. NO database access in this module; the gate\noperates over an injected, deserialized artifact set (\"rows\").\n\nPinned contract (the blind worker MUST build to this):\n\n- ``gate_transition(rows, from_phase, to_phase) -> GateResult`` where\n  ``GateResult`` exposes ``.ok`` (bool) and ``.error`` (str | None; None or ''\n  when ok, a specific non-empty diagnostic when not ok).\n\n- ``rows`` is a dict keyed by artifact type. Each value is a list of artifact\n  *dicts* (the ``to_dict()`` forms of the contract dataclasses), which the gate\n  deserializes via the contracts' ``from_dict`` and validates with each\n  artifact's ``validate()``. Chosen shape::\n\n      {\n          'findings': [Finding.to_dict(), ...],\n          'pocs':     [PoC.to_dict(), ...],\n          'reports':  [LiveTestReport.to_dict(), ...],\n      }\n\n  Missing keys are treated as empty lists.\n\nGate rules (the four pipeline edges):\n\n- ``hunt -> triage``   : ok iff there is >= 1 valid ``Finding``.\n- ``triage -> poc``    : ok iff the findings are deduped (no duplicate\n                          ``Finding.id``) and >= 1 finding exists.\n- ``poc -> detonate``  : ok iff every ``PoC.finding_id`` maps to a registered\n                          finding id (no orphan PoC).\n- ``detonate -> report``: ok iff every PoC has a matching ``LiveTestReport``\n                          (i.e. some report.poc_finding_id == poc.finding_id).\n\"\"\"\nimport pytest\n\nfrom ngv2.contracts import Finding, PoC, LiveTestReport\nfrom ngv2.session_gate import gate_transition, GateResult\n\n\ndef _finding(fid=\"F1\", severity=\"high\"):\n    return Finding(\n        id=fid,\n        target=\"svc.example\",\n        category=\"injection\",\n        severity=severity,\n        title=\"title-\" + fid,\n        description=\"desc-\" + fid,\n        evidence=[],\n    ).to_dict()\n\n\ndef _poc(finding_id=\"F1\"):\n    return PoC(\n        finding_id=finding_id,\n        language=\"python\",\n        code=\"print('x')\",\n        entrypoint=\"main\",\n    ).to_dict()\n\n\ndef _report(poc_finding_id=\"F1\", verdict=\"confirmed\"):\n    return LiveTestReport(\n        poc_finding_id=poc_finding_id,\n        verdict=verdict,\n        exit_code=0,\n        stdout=\"\",\n        stderr=\"\",\n        duration_ms=5,\n    ).to_dict()\n\n\ndef test_gateresult_shape():\n    res = gate_transition({\"findings\": [_finding()]}, \"hunt\", \"triage\")\n    assert isinstance(res, GateResult)\n    assert hasattr(res, \"ok\") and hasattr(res, \"error\")\n    assert isinstance(res.ok, bool)\n\n\n# --- hunt -> triage --------------------------------------------------------\n\ndef test_hunt_to_triage_passes_with_valid_finding():\n    res = gate_transition({\"findings\": [_finding()]}, \"hunt\", \"triage\")\n    assert res.ok is True\n\n\ndef test_hunt_to_triage_fails_with_zero_findings():\n    res = gate_transition({\"findings\": []}, \"hunt\", \"triage\")\n    assert res.ok is False\n    assert res.error  # specific, non-empty diagnostic\n\n\ndef test_hunt_to_triage_fails_with_missing_findings_key():\n    # Edge case: absent key is treated as empty -> fail.\n    res = gate_transition({}, \"hunt\", \"triage\")\n    assert res.ok is False\n    assert res.error\n\n\n# --- triage -> poc ---------------------------------------------------------\n\ndef test_triage_to_poc_passes_with_deduped_findings():\n    res = gate_transition(\n        {\"findings\": [_finding(\"F1\"), _finding(\"F2\")]}, \"triage\", \"poc\"\n    )\n    assert res.ok is True\n\n\ndef test_triage_to_poc_fails_on_duplicate_finding_ids():\n    # Edge case: duplicate ids are not deduped -> fail.\n    res = gate_transition(\n        {\"findings\": [_finding(\"F1\"), _finding(\"F1\")]}, \"triage\", \"poc\"\n    )\n    assert res.ok is False\n    assert res.error\n\n\n# --- poc -> detonate -------------------------------------------------------\n\ndef test_poc_to_detonate_passes_when_every_poc_maps_to_finding():\n    rows = {\n        \"findings\": [_finding(\"F1\"), _finding(\"F2\")],\n        \"pocs\": [_poc(\"F1\"), _poc(\"F2\")],\n    }\n    res = gate_transition(rows, \"poc\", \"detonate\")\n    assert res.ok is True\n\n\ndef test_poc_to_detonate_fails_on_orphan_poc():\n    rows = {\n        \"findings\": [_finding(\"F1\")],\n        \"pocs\": [_poc(\"F1\"), _poc(\"ORPHAN\")],\n    }\n    res = gate_transition(rows, \"poc\", \"detonate\")\n    assert res.ok is False\n    assert res.error\n\n\n# --- detonate -> report ----------------------------------------------------\n\ndef test_detonate_to_report_passes_when_every_poc_has_report():\n    rows = {\n        \"findings\": [_finding(\"F1\"), _finding(\"F2\")],\n        \"pocs\": [_poc(\"F1\"), _poc(\"F2\")],\n        \"reports\": [_report(\"F1\"), _report(\"F2\")],\n    }\n    res = gate_transition(rows, \"detonate\", \"report\")\n    assert res.ok is True\n\n\ndef test_detonate_to_report_fails_when_a_poc_lacks_report():\n    rows = {\n        \"findings\": [_finding(\"F1\"), _finding(\"F2\")],\n        \"pocs\": [_poc(\"F1\"), _poc(\"F2\")],\n        \"reports\": [_report(\"F1\")],  # F2 has no report\n    }\n    res = gate_transition(rows, \"detonate\", \"report\")\n    assert res.ok is False\n    assert res.error\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_gate_result_structure"
+          },
+          {
+            "name": "test_gate_transition_hunt_triage_valid"
+          },
+          {
+            "name": "test_gate_transition_hunt_triage_invalid_finding"
+          },
+          {
+            "name": "test_gate_transition_triage_poc_deduped"
+          },
+          {
+            "name": "test_gate_transition_poc_detonate_mapped"
+          },
+          {
+            "name": "test_gate_transition_detonate_report_matched"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_empty_rows_rejected"
+          },
+          {
+            "name": "test_duplicate_findings_rejected"
+          },
+          {
+            "name": "test_orphan_poc_rejected"
+          },
+          {
+            "name": "test_missing_report_rejected"
+          }
+        ],
+        "edge_cases": [
+          "Empty rows list passed to gate_transition: returns GateResult(ok=False, error='No artifacts found')",
+          "Multiple findings with duplicate IDs during triage -> poc transition: returns GateResult(ok=False, error='Duplicate findings detected')"
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Mock finding, PoC, and live test report dictionaries matching the schema defined in ngv2/contracts.py."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "The module is pure logic; focus budget on validating the transition criteria and exception handling."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "B2",
+      "title": "session_db: normalized SQLite session store with injected path, WAL pragmas, FK/CHECK",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [
+        "B1"
+      ],
+      "files_touched": [
+        "ngv2/session_db.py"
+      ],
+      "acceptance_criteria": [
+        "New whole-file ngv2/session_db.py defines SessionDB(db_path) taking an injected path with NO hardcoded /tmp default, following the WorkerRegistry(db_path) convention.",
+        "Schema creates session_pipeline, findings, pocs, live_test_reports, and phase_validation_logs with FK constraints and CHECK constraints matching contracts.SEVERITIES and contracts.VERDICTS.",
+        "Connection setup issues PRAGMA journal_mode=WAL, PRAGMA synchronous=NORMAL, PRAGMA busy_timeout=5000; PRAGMA journal_mode returns 'wal'.",
+        "Insert helpers wrap writes in BEGIN IMMEDIATE; insert/fetch round-trips for Finding/PoC/LiveTestReport reproduce the artifact faithfully via contracts to_dict/from_dict.",
+        "A bad severity (CHECK violation) and an orphan finding_id (FK violation) are both rejected by the database."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "pytest -q tests/ngv2/test_session_db_wired.py",
+      "spec": {
+        "objective": "Implement the durable, crash-resilient session-state layer as its own SQLite file (never merged into worker_registry.db/agent_registry/work_intents). SessionDB persists findings, PoCs, detonation/live-test reports, and a phase-validation audit log, with a normalized schema enforcing severity/verdict CHECKs and referential integrity via FKs, and with WAL/busy_timeout pragmas to reduce SQLITE_BUSY.",
+        "functional_requirements": [
+          "SessionDB(db_path) accepts an injected path with no hardcoded default (mirror ngv2/worker_registry.py:46 WorkerRegistry(db_path) convention); the DB lives in its own file.",
+          "_init_schema creates session_pipeline, findings, pocs, live_test_reports, phase_validation_logs with FOREIGN KEY constraints (pocs.finding_id -> findings.id, live_test_reports.poc_finding_id -> pocs.finding_id) and CHECK constraints matching contracts.SEVERITIES ('low','medium','high','critical') and contracts.VERDICTS ('confirmed','refuted','error','inconclusive').",
+          "Connection setup issues PRAGMA journal_mode=WAL, PRAGMA synchronous=NORMAL, PRAGMA busy_timeout=5000, and PRAGMA foreign_keys=ON so FK constraints are enforced.",
+          "Write paths are wrapped in BEGIN IMMEDIATE transactions for atomic, gated phase persistence.",
+          "Provide insert/fetch round-trip helpers per artifact type (Finding, PoC, LiveTestReport) built on the contracts' existing to_dict/from_dict \u2014 no parallel to_row/from_row unless a column shape genuinely requires it.",
+          "FK and CHECK violations raise (a bad severity or an orphan finding_id is rejected at write time)."
+        ],
+        "interfaces": "SessionDB(db_path: str | os.PathLike). Methods such as insert_finding(Finding)->id, get_finding(id)->Finding, insert_poc(PoC), get_poc(finding_id)->PoC, insert_live_test_report(LiveTestReport), get_live_test_report(poc_finding_id)->LiveTestReport, plus a phase_validation_logs append/fetch. Reuses contracts to_dict/from_dict for row (de)serialization. May reuse B1's GateResult shape conceptually but does not import session_gate.",
+        "edge_cases": [
+          "Inserting a Finding with severity outside SEVERITIES is rejected by the CHECK constraint.",
+          "Inserting a PoC whose finding_id has no matching findings row is rejected by the FK constraint (orphan).",
+          "After connect, PRAGMA journal_mode returns 'wal' and busy_timeout reflects 5000.",
+          "Insert-then-fetch of a Finding/PoC/LiveTestReport yields an object equal to the original (faithful round-trip)."
+        ],
+        "non_goals": "No HTTP/REST/MCP server, no network or LLM call, and no integration that physically merges into worker_registry.db/agent_registry/work_intents (separate session DB file; ATTACH DATABASE only if a cross-DB read is ever needed). Does not reconcile the pre-existing three-way intent-table schema collision. Makes no provable concurrency guarantee \u2014 WAL/busy_timeout are documented, not unit-asserted as a concurrency proof.",
+        "implementation_notes": "NEW whole-file emission. meta_task_type io_adapter: the differential fuzz gate is bypassed for stateful SQLite code, so the round-trip + FK/CHECK oracle is load-bearing and must be thorough. Enable PRAGMA foreign_keys=ON per-connection (it is off by default in SQLite). Use contracts to_dict/from_dict for serialization; store the audit log rows in phase_validation_logs.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n",
+        "meta_task_type": "data_model",
+        "required_methods_directive": "REQUIRED METHOD SURFACE (MANDATORY \u2014 implement ALL of these; the oracle exercises every one): SessionDB(db_path) and these SIX helpers covering ALL THREE artifact types \u2014 insert_finding(Finding), get_finding(id)->Finding|None, insert_poc(PoC), get_poc(finding_id)->PoC|None, insert_report(LiveTestReport), get_report(poc_finding_id)->LiveTestReport|None. Do NOT omit the LiveTestReport helpers (insert_report/get_report). Round-trip must be faithful via to_dict(). Connection issues PRAGMA journal_mode=WAL, synchronous=NORMAL, busy_timeout=5000, foreign_keys=ON; writes in BEGIN IMMEDIATE. CHECK constraint on severity (\u2208 SEVERITIES) and verdict (\u2208 VERDICTS); FK pocs.finding_id->findings and live_test_reports.poc_finding_id->pocs so an orphan insert raises sqlite3.IntegrityError; get_* miss returns None.",
+        "determinism_directive": "DETERMINISM (MANDATORY \u2014 the AST enforcer REJECTS wall-clock/random): do NOT call time.time(), time.monotonic(), datetime.now()/utcnow(), random, or any non-deterministic source ANYWHERE in the module. The oracle does NOT require timestamp columns \u2014 prefer OMITTING created_at/timestamp columns entirely. If a timestamp is genuinely needed, take an INJECTED now_fn parameter (per the WorkerRegistry(db_path, *, now_fn=None) convention) and call now_fn() \u2014 never import time at module scope for a default clock."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_sessiondb_requires_injected_path_no_default"
+          },
+          {
+            "name": "test_schema_creates_all_five_tables"
+          },
+          {
+            "name": "test_wal_and_busy_timeout_pragmas_in_effect"
+          },
+          {
+            "name": "test_writes_use_begin_immediate"
+          },
+          {
+            "name": "test_finding_poc_report_round_trip_via_contracts"
+          },
+          {
+            "name": "test_check_and_fk_violations_raise"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_persist_full_pipeline_artifacts_and_reload_from_disk"
+          },
+          {
+            "name": "test_phase_validation_log_append_and_fetch"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "property_round_trip_preserves_arbitrary_valid_artifacts"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "regression_bad_severity_rejected_by_check"
+          },
+          {
+            "name": "regression_orphan_finding_id_rejected_by_fk"
+          },
+          {
+            "name": "regression_journal_mode_returns_wal"
+          },
+          {
+            "name": "regression_finding_round_trip_faithful"
+          }
+        ],
+        "minimum_test_count": 9,
+        "test_data_requirements": "tmp_path-based SessionDB(tmp_path/'s.db'); one valid Finding/PoC/LiveTestReport triple; a Finding with an out-of-range severity; a PoC with a non-existent finding_id; verification of PRAGMA journal_mode and busy_timeout values."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Stateful DB code with bypassed differential gate; oracle is load-bearing so test budget dominates."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation.",
+      "implementation_notes": "DETERMINISM (MANDATORY \u2014 the AST enforcer REJECTS wall-clock/random): do NOT call time.time(), time.monotonic(), datetime.now()/utcnow(), random, or any non-deterministic source ANYWHERE in the module. The oracle does NOT require timestamp columns \u2014 prefer OMITTING created_at/timestamp columns entirely. If a timestamp is genuinely needed, take an INJECTED now_fn parameter (per the WorkerRegistry(db_path, *, now_fn=None) convention) and call now_fn() \u2014 never import time at module scope for a default clock. REQUIRED METHOD SURFACE (MANDATORY \u2014 implement ALL of these; the oracle exercises every one): SessionDB(db_path) and these SIX helpers covering ALL THREE artifact types \u2014 insert_finding(Finding), get_finding(id)->Finding|None, insert_poc(PoC), get_poc(finding_id)->PoC|None, insert_report(LiveTestReport), get_report(poc_finding_id)->LiveTestReport|None. Do NOT omit the LiveTestReport helpers (insert_report/get_report). Round-trip must be faithful via to_dict(). Connection issues PRAGMA journal_mode=WAL, synchronous=NORMAL, busy_timeout=5000, foreign_keys=ON; writes in BEGIN IMMEDIATE. CHECK constraint on severity (\u2208 SEVERITIES) and verdict (\u2208 VERDICTS); FK pocs.finding_id->findings and live_test_reports.poc_finding_id->pocs so an orphan insert raises sqlite3.IntegrityError; get_* miss returns None. meta_task_type is data_model (bypass differential fuzz \u2014 a stateful SQLite module cannot be differentially fuzzed; the pre-committed oracle is load-bearing). NEW whole-file module."
+    },
+    {
+      "task_id": "B4",
+      "title": "state_machine: additive transition_with_gate wrapper anchored on PHASES",
+      "meta_task_type": "validation",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/state_machine.py"
+      ],
+      "acceptance_criteria": [
+        "Adds ONLY a new top-level function transition_with_gate(machine, to, gate_result) to ngv2/state_machine.py; every existing symbol (PHASES, ALLOWED_TRANSITIONS, HuntStateMachine.can_transition/transition) is preserved byte-for-byte.",
+        "transition_with_gate moves machine to `to` only when gate_result.ok is truthy AND (machine.state.phase, to) is in ALLOWED_TRANSITIONS; a passing gate does NOT bypass the allow-map.",
+        "Otherwise it raises ValueError carrying gate_result.error and leaves machine.state.phase unchanged.",
+        "It duck-types .ok/.error on gate_result and does NOT import session_gate.",
+        "Emission uses the __JANUSMASK_PATCHES__ symbol-patch format anchored on the PHASES constant line, reproduced byte-for-byte, with the new function appended after it; not whole-file."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "pytest -q tests/ngv2/test_state_machine_gate_wired.py",
+      "spec": {
+        "objective": "Add the orchestration wrapper that ties a gate decision to an FSM move: transition_with_gate advances the HuntStateMachine only when the gate passes AND the move is allowed by ALLOWED_TRANSITIONS, raising with the gate's error otherwise. The wrapper is additive and must not alter any existing state_machine symbol.",
+        "functional_requirements": [
+          "Define a new top-level function transition_with_gate(machine, to, gate_result) in ngv2/state_machine.py.",
+          "Transition machine to `to` only when gate_result.ok is truthy AND (machine.state.phase, to) is present in ALLOWED_TRANSITIONS.",
+          "On a failed gate (ok falsy) or a disallowed move, raise ValueError(gate_result.error) and leave machine.state.phase unchanged.",
+          "Duck-type gate_result via attribute access .ok and .error; do NOT import session_gate or any new module.",
+          "Preserve all existing symbols: PHASES, ALLOWED_TRANSITIONS, HuntStateMachine.can_transition, and HuntStateMachine.transition remain unmodified."
+        ],
+        "interfaces": "transition_with_gate(machine: HuntStateMachine, to: str, gate_result) -> machine (or None); raises ValueError on a failed gate or disallowed transition. gate_result is any object exposing .ok and .error (GateResult shape from B1, duck-typed).",
+        "edge_cases": [
+          "Passing gate (ok truthy) but (phase, to) not in ALLOWED_TRANSITIONS raises ValueError and leaves machine.state.phase unchanged (gate does not bypass the allow-map).",
+          "Failing gate (ok falsy) raises ValueError carrying gate_result.error and leaves machine.state.phase unchanged.",
+          "Passing gate AND allowed move advances machine.state.phase to `to`."
+        ],
+        "non_goals": "No import of session_gate (duck-typed only), no DB access, no network/LLM call, and no integration that modifies HuntStateMachine, ALLOWED_TRANSITIONS, transition, can_transition, or any existing symbol. Not a whole-file rewrite.",
+        "implementation_notes": "PATCH FORMAT (MANDATORY): emit a single __JANUSMASK_PATCHES__ list with EXACTLY ONE entry of kind 'symbol' whose name is the existing module constant PHASES. In code, reproduce the anchor line BYTE-FOR-BYTE as staged at inbox/targets/ngv2/state_machine.py \u2014 the single line `PHASES = ('hunt', 'triage', 'poc', 'detonate', 'report', 'done')` \u2014 then append the new top-level `def transition_with_gate(machine, to, gate_result):` after it. The harness inserts the new function next to the anchor and preserves every other byte. DO NOT anchor on a class/function; DO NOT reproduce or modify HuntStateMachine/ALLOWED_TRANSITIONS/transition/can_transition; DO NOT emit whole-file.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n",
+        "logic_directive": "LOGIC (MANDATORY): to check the move is allowed, REUSE the existing method `machine.can_transition(to)` (equivalently `to in ALLOWED_TRANSITIONS.get(machine.state.phase, ())`). DO NOT write `(machine.state.phase, to) in ALLOWED_TRANSITIONS` \u2014 ALLOWED_TRANSITIONS is a dict KEYED BY PHASE STRING whose values are tuples of allowed next phases, so a (phase, to) tuple is NEVER a key and that check is always False. Exact body: `if getattr(gate_result, 'ok', False) and machine.can_transition(to): machine.transition(to); return` else `raise ValueError(getattr(gate_result, 'error', None))`. On the success path the phase advances; on a failing gate OR a disallowed move, raise ValueError carrying gate_result.error and leave machine.state.phase unchanged."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_transition_with_gate_defined_top_level"
+          },
+          {
+            "name": "test_passing_gate_and_allowed_move_advances_phase"
+          },
+          {
+            "name": "test_passing_gate_but_disallowed_move_raises_and_preserves_phase"
+          },
+          {
+            "name": "test_failing_gate_raises_valueerror_with_error_and_preserves_phase"
+          },
+          {
+            "name": "test_duck_types_ok_error_without_importing_session_gate"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_existing_symbols_preserved_phases_allowed_transitions_can_transition_transition"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "property_phase_never_changes_when_gate_fails"
+          },
+          {
+            "name": "property_phase_advances_iff_gate_ok_and_move_allowed"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "regression_passing_gate_disallowed_move_raises_and_no_state_change"
+          },
+          {
+            "name": "regression_failing_gate_raises_with_gate_error_no_state_change"
+          },
+          {
+            "name": "regression_passing_gate_allowed_move_advances"
+          }
+        ],
+        "minimum_test_count": 8,
+        "test_data_requirements": "Stub gate_result objects exposing .ok and .error (truthy and falsy variants); a HuntStateMachine positioned at a known phase; allowed and disallowed target phases derived from ALLOWED_TRANSITIONS."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Tiny additive wrapper; oracle must also prove preservation of every existing symbol."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation.",
+      "implementation_notes": "LOGIC (MANDATORY): to check the move is allowed, REUSE the existing method `machine.can_transition(to)` (equivalently `to in ALLOWED_TRANSITIONS.get(machine.state.phase, ())`). DO NOT write `(machine.state.phase, to) in ALLOWED_TRANSITIONS` \u2014 ALLOWED_TRANSITIONS is a dict KEYED BY PHASE STRING whose values are tuples of allowed next phases, so a (phase, to) tuple is NEVER a key and that check is always False. Exact body: `if getattr(gate_result, 'ok', False) and machine.can_transition(to): machine.transition(to); return` else `raise ValueError(getattr(gate_result, 'error', None))`. On the success path the phase advances; on a failing gate OR a disallowed move, raise ValueError carrying gate_result.error and leave machine.state.phase unchanged."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_spine_state_core.md",
+  "source_brief_sha256": "670eb1edb67e9df196dd7761ba5338919e07bdd29d2742b9fc8643a319f8a7fd",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

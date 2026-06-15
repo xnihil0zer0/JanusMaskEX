@@ -1,0 +1,97 @@
+{
+  "tasks": [
+    {
+      "task_id": "fix-external-partial-edit-prompt",
+      "title": "Fix prepare_task_prompt partial-edit gate for EXTERNAL targets (harness/orchestrator.py EDIT)",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/orchestrator.py"
+      ],
+      "acceptance_criteria": [
+        "Inside prepare_task_prompt, the files_touched existence check resolves candidates against effective_target_root(task.get('working_dir')) (lazy in-body import) instead of (Path(PROJECT_DIR) / p).",
+        "The two anchor lines use_manifest=... and _pe_candidates=... are preserved byte-for-byte; only the existence-computation block changes, adding 'from harness.paths import effective_target_root' and '_target_root = effective_target_root(task.get('working_dir'))' and switching the join to (_target_root / p).",
+        "No module-level import is added; the effective_target_root import is lazy/in-body, matching the existing idiom at orchestrator.py:441.",
+        "The module-scope Path import is left intact and still used elsewhere (not removed).",
+        "Change is emitted as a single top-level __JANUSMASK_PATCHES__ list with EXACTLY ONE entry of kind 'symbol', name 'prepare_task_prompt', whose code is the FULL corrected function with every other byte (docstring, prompt += blocks) preserved; no __JANUSMASK_MANIFEST__, no whole-file rewrite, no other symbol touched.",
+        "An EXTERNAL task whose files_touched target EXISTS under the external root yields a prompt CONTAINING 'PARTIAL-EDIT DISPATCH' and '__JANUSMASK_PATCHES__'.",
+        "An EXTERNAL task whose files_touched target is ABSENT under the external root yields a prompt that does NOT contain 'PARTIAL-EDIT DISPATCH' (NEW-FILE GUARD preserved).",
+        "Self/None tasks behave exactly as before (effective_target_root returns PROJECT_ROOT for them).",
+        "tests/test_prepare_task_prompt_external_partial_edit_wired.py passes 3/3 GREEN; no new tests are authored.",
+        "The signature of prepare_task_prompt and all other symbols in the file are unchanged."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "pytest tests/test_prepare_task_prompt_external_partial_edit_wired.py",
+      "spec": {
+        "objective": "Make prepare_task_prompt's partial-edit prompt gate resolve files_touched existence against the task's EFFECTIVE target root via harness.paths.effective_target_root(working_dir) instead of PROJECT_DIR, so EXTERNAL EDIT tasks whose existing targets live under an external root receive the PARTIAL-EDIT (__JANUSMASK_PATCHES__) prompt rather than a whole-file prompt that the commit-path whole_file_drift guard later rejects. Behavior-only, signature unchanged, exactly two source lines changed (lazy import + _target_root resolution), every other byte of the function and file preserved.",
+        "functional_requirements": [
+          "In prepare_task_prompt, replace the existence computation '(Path(PROJECT_DIR) / p).exists()' with '(_target_root / p).exists()' where '_target_root = effective_target_root(task.get(\"working_dir\"))', adding a lazy in-body import 'from harness.paths import effective_target_root' immediately after the unchanged _pe_candidates line; keep the use_manifest and _pe_candidates lines byte-identical.",
+          "EXTERNAL EDIT tasks whose files_touched target EXISTS under the external root (working_dir) must take the partial-edit branch so the emitted prompt contains 'PARTIAL-EDIT DISPATCH' and '__JANUSMASK_PATCHES__'.",
+          "NEW-FILE GUARD preserved: a target genuinely ABSENT under the external root still yields _targets_exist=False and therefore the whole-file prompt (prompt must NOT contain 'PARTIAL-EDIT DISPATCH').",
+          "Self/None-working_dir tasks are unaffected because effective_target_root returns PROJECT_ROOT for them, so existing self-path behavior (existing target -> partial-edit prompt) is unchanged."
+        ],
+        "interfaces": "in-place EDIT of harness/orchestrator.py::prepare_task_prompt \u2014 resolve files_touched existence against effective_target_root(task.get('working_dir')) instead of PROJECT_DIR; signature def prepare_task_prompt(task) unchanged; no module-level import added; emitted via a single __JANUSMASK_PATCHES__ symbol entry named 'prepare_task_prompt' carrying the full corrected function.",
+        "edge_cases": [
+          "external-EDIT-exists \u2192 partial-edit-prompt: an EXTERNAL task (working_dir outside the repo) whose files_touched target EXISTS under that external root yields a prompt CONTAINING 'PARTIAL-EDIT DISPATCH' and '__JANUSMASK_PATCHES__'.",
+          "external-NEW-absent \u2192 whole-file-prompt: an EXTERNAL task whose files_touched target is ABSENT under the external root yields a prompt that does NOT contain 'PARTIAL-EDIT DISPATCH' (NEW-FILE GUARD preserved).",
+          "self-EDIT-exists \u2192 partial-edit-prompt: a self/None working_dir task whose existing target lives under PROJECT_ROOT still yields the partial-edit prompt (self path locked, unchanged)."
+        ],
+        "non_goals": [
+          "Does NOT change the commit-path whole_file_drift guard in harness/git_integration.py.",
+          "Does NOT touch any file other than harness/orchestrator.py.",
+          "Does NOT alter the NEW-FILE GUARD semantics (absent external targets still get the whole-file prompt).",
+          "Does NOT change the signature of prepare_task_prompt or any other symbol in the file.",
+          "Does NOT add a module-level import (the effective_target_root import is lazy / in-body).",
+          "Out of scope: integration testing of the end-to-end external commit flow; this leaf is a behavior-only unit fix verified by the pre-committed oracle."
+        ],
+        "implementation_notes": "Read the function's CURRENT on-disk content from the read-only staged target at /home/xnihil0zer0/JanusMaskJR_agentwork/claude/claude-r1-notask-0609e762/inbox/targets/harness/orchestrator.py and copy it byte-for-byte EXCEPT the four-line existence block (~orchestrator.py:1519-1522). VERBATIM CURRENT:\n    use_manifest = _requires_verbatim_manifest(files_touched)\n    _pe_candidates = files_touched if isinstance(files_touched, list) else [files_touched]\n    _targets_exist = bool(_pe_candidates) and all(\n        isinstance(p, str) and (Path(PROJECT_DIR) / p).exists() for p in _pe_candidates)\nREPLACE WITH EXACTLY:\n    use_manifest = _requires_verbatim_manifest(files_touched)\n    _pe_candidates = files_touched if isinstance(files_touched, list) else [files_touched]\n    from harness.paths import effective_target_root\n    _target_root = effective_target_root(task.get('working_dir'))\n    _targets_exist = bool(_pe_candidates) and all(\n        isinstance(p, str) and (_target_root / p).exists() for p in _pe_candidates)\nLOUD DISPATCH DIRECTIVE: orchestrator.py is LARGE, so this MUST be a partial edit. Emit a single top-level __JANUSMASK_PATCHES__ list with EXACTLY ONE entry of kind 'symbol', name 'prepare_task_prompt', whose code is the FULL corrected def prepare_task_prompt(...) (entire function incl. long docstring and prompt += blocks preserved byte-for-byte, only the four-line block changed). Do NOT emit __JANUSMASK_MANIFEST__, do NOT emit a whole-file rewrite, do NOT touch any other symbol. Keep the module-scope Path import (used elsewhere). Lazy in-body import matches the precedent at orchestrator.py:441 'from harness.paths import _target_is_self, effective_target_root'. effective_target_root returns PROJECT_ROOT for self/None tasks and Path(working_dir).resolve() otherwise. The pre-committed RED oracle tests/test_prepare_task_prompt_external_partial_edit_wired.py (JM master b833f58) is the authoritative contract: case (a) external-EDIT-exists is RED today, cases (b)/(c) are green; make it 3/3 green and author no new tests.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_prepare_task_prompt_external_partial_edit_wired.py\n```python\n\"\"\"RED oracle \u2014 ``prepare_task_prompt`` must emit the PARTIAL-EDIT prompt for\nEXTERNAL EDIT targets that EXIST under the task's effective target root.\n\nRoot cause under test: ``prepare_task_prompt`` resolves ``files_touched``\nagainst ``PROJECT_DIR`` (the JanusMask repo root) when deciding whether to\noffer the ``__JANUSMASK_PATCHES__`` partial-edit prompt. For an EXTERNAL task\n(``working_dir`` outside the repo) an existing target lives under the external\nroot, NOT under ``PROJECT_DIR`` \u2014 so the existence check is False, the agent\ngets the WHOLE-FILE prompt, emits a cosmetic whole-file rewrite, and the\ncommit path's ``whole_file_drift`` guard rejects it. The fix resolves the\ncandidates against ``harness.paths.effective_target_root(working_dir)``.\n\nContract pinned here:\n  (a) EXTERNAL EDIT, target EXISTS under working_dir  -> PARTIAL-EDIT prompt\n      (RED today: prompt omits it because targets resolve against PROJECT_DIR).\n  (b) EXTERNAL NEW,  target ABSENT under working_dir  -> WHOLE-FILE prompt\n      (NEW-FILE GUARD: patches cannot create files; passes before and after).\n  (c) SELF EDIT, target EXISTS at PROJECT_DIR          -> PARTIAL-EDIT prompt\n      (proves the self path is unaffected; passes before and after).\n\nThe external cases use a hermetic tmp dir (not NGv2) so the test does not\ncouple to any sibling checkout. ``effective_target_root`` resolves a non-self\n``working_dir`` to ``Path(working_dir).resolve()``, so a tmp dir is a valid\nexternal target root.\n\"\"\"\nimport os\n\nimport pytest\n\nfrom harness.orchestrator import prepare_task_prompt\n\n_PARTIAL_MARKER = \"PARTIAL-EDIT DISPATCH\"\n_PATCHES_TOKEN = \"__JANUSMASK_PATCHES__\"\n\n\n@pytest.fixture()\ndef external_root(tmp_path):\n    \"\"\"A hermetic external (non-repo) target root holding one real .py file.\n\n    Lives under pytest's tmp_path, which is OUTSIDE the JanusMask repo tree, so\n    ``effective_target_root`` classifies the working_dir as external (non-self).\n    \"\"\"\n    pkg = tmp_path / \"pkg\"\n    pkg.mkdir()\n    (pkg / \"__init__.py\").write_text(\"\", encoding=\"utf-8\")\n    (pkg / \"mod.py\").write_text(\n        \"def existing_symbol() -> int:\\n    return 1\\n\", encoding=\"utf-8\"\n    )\n    return tmp_path\n\n\ndef test_external_edit_existing_target_emits_partial_edit_prompt(external_root):\n    \"\"\"(a) EXTERNAL EDIT of an EXISTING file must offer the partial-edit prompt.\n\n    RED today: ``_targets_exist`` is computed against PROJECT_DIR, where\n    ``pkg/mod.py`` does not exist, so the whole-file prompt is emitted instead.\n    \"\"\"\n    task = {\n        \"task_id\": \"ext-edit-existing\",\n        \"working_dir\": str(external_root),\n        \"files_touched\": [\"pkg/mod.py\"],\n        \"meta_task_type\": \"validation\",\n        \"specification\": \"edit an existing external symbol in place\",\n    }\n    prompt = prepare_task_prompt(task)\n    assert _PARTIAL_MARKER in prompt, (\n        \"external EDIT of an existing target must emit the PARTIAL-EDIT prompt; \"\n        \"files_touched must resolve against effective_target_root(working_dir), \"\n        \"not PROJECT_DIR\"\n    )\n    assert _PATCHES_TOKEN in prompt\n\n\ndef test_external_new_absent_target_emits_whole_file_prompt(external_root):\n    \"\"\"(b) EXTERNAL NEW target (absent in the external root) must NOT get patches.\n\n    NEW-FILE GUARD: partial-edit patches cannot create files, so an absent\n    target must fall through to the whole-file prompt. Passes before and after\n    the fix \u2014 it locks the guard.\n    \"\"\"\n    task = {\n        \"task_id\": \"ext-new-absent\",\n        \"working_dir\": str(external_root),\n        \"files_touched\": [\"pkg/absent.py\"],\n        \"meta_task_type\": \"validation\",\n        \"specification\": \"create a brand new external module\",\n    }\n    prompt = prepare_task_prompt(task)\n    assert _PARTIAL_MARKER not in prompt, (\n        \"an absent (NEW) external target must get the whole-file prompt; \"\n        \"patches cannot create files (NEW-FILE GUARD)\"\n    )\n\n\ndef test_self_edit_existing_target_still_emits_partial_edit_prompt():\n    \"\"\"(c) SELF EDIT of an existing repo file must still get the partial-edit prompt.\n\n    Proves the fix does not regress the self path. ``working_dir=None`` ->\n    effective_target_root is PROJECT_ROOT, where harness/orchestrator.py exists.\n    Passes before and after the fix.\n    \"\"\"\n    rel = os.path.join(\"harness\", \"orchestrator.py\")\n    task = {\n        \"task_id\": \"self-edit-existing\",\n        \"working_dir\": None,\n        \"files_touched\": [rel],\n        \"meta_task_type\": \"validation\",\n        \"specification\": \"edit a large self file in place\",\n    }\n    prompt = prepare_task_prompt(task)\n    assert _PARTIAL_MARKER in prompt\n    assert _PATCHES_TOKEN in prompt\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "external-EDIT-exists \u2192 partial-edit-prompt: EXTERNAL working_dir, existing target under external root -> prompt contains 'PARTIAL-EDIT DISPATCH' and '__JANUSMASK_PATCHES__'"
+          },
+          {
+            "name": "external-NEW-absent \u2192 whole-file-prompt: EXTERNAL working_dir, target absent under external root -> prompt does NOT contain 'PARTIAL-EDIT DISPATCH' (NEW-FILE GUARD preserved)"
+          },
+          {
+            "name": "self-EDIT-exists \u2192 partial-edit-prompt: self/None working_dir, existing target under PROJECT_ROOT -> prompt contains 'PARTIAL-EDIT DISPATCH'"
+          },
+          {
+            "name": "lazy-import-wired: prepare_task_prompt resolves _target_root via effective_target_root(task.get('working_dir')) and no new module-level import of effective_target_root is added"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "external-EDIT-exists \u2192 partial-edit-prompt: oracle case (a) tests/test_prepare_task_prompt_external_partial_edit_wired.py goes RED->GREEN"
+          },
+          {
+            "name": "external-NEW-absent \u2192 whole-file-prompt: oracle case (b) stays GREEN (NEW-FILE GUARD preserved)"
+          },
+          {
+            "name": "self-EDIT-exists \u2192 partial-edit-prompt: oracle case (c) self path stays GREEN"
+          }
+        ],
+        "minimum_test_count": 6,
+        "test_data_requirements": "Use the pre-committed RED oracle tests/test_prepare_task_prompt_external_partial_edit_wired.py (JM master commit b833f58) as the authoritative contract; do NOT author new tests. It constructs an EXTERNAL working_dir (e.g. a tmp dir outside the repo) with an existing relative target for the partial-edit case, an absent relative target for the NEW-FILE-GUARD case, and a self/None working_dir for the self-path case; assertions key on presence/absence of 'PARTIAL-EDIT DISPATCH' and '__JANUSMASK_PATCHES__' in the returned prompt. Make it 3/3 green."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "Implementation is a tiny two-line behavior change inside one function (emitted as a full-function symbol patch). Tests are pre-committed (the b833f58 oracle); no new tests are authored, so the test budget covers running/verifying the 3/3 contract only."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_fix_external_partial_edit_prompt.md",
+  "source_brief_sha256": "479af71de2a72725904452fe222e6493cc619356eac877e9b045d7ed23672cbb"
+}

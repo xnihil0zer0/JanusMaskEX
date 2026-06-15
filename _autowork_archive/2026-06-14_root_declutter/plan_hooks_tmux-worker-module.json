@@ -1,0 +1,166 @@
+{
+  "tasks": [
+    {
+      "task_id": "tmux-worker-module-impl",
+      "title": "Implement tmux worker backend and execution wrapper in harness/tmux_worker.py",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/tmux_worker.py"
+      ],
+      "acceptance_criteria": [
+        "`harness/tmux_worker.py` is successfully created as a new module.",
+        "It defines and exposes `TmuxWorkerResult`, `_ExitedProc`, `seed_from_prompt_file`, `run_tmux_worker`, and `spawn_claude_tmux` functions/classes.",
+        "Exposes `spawn_claude_tmux(agent, resolved_prompt, env, config, *, dbus_sock=None) -> _ExitedProc` interface.",
+        "`_ExitedProc` class supports `poll() -> 0`, `returncode=0`, `wait(timeout=None) -> 0`, `kill()` no-op, and assignable `_work_dir`.",
+        "Implements environment preparation, config seeding, command jailing via `harness/agent_jail.py`, prompt writing, and tmux execution orchestration using seams from `overseer/tmux_session.py` and `overseer/tmux_seams.py`.",
+        "Consumes task and environment parameters `JANUSMASK_TASK_ID`, `JANUSMASK_WORK_DIR`, and `JANUSMASK_STATE_DIR` correctly."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -c \"import harness.tmux_worker\"",
+      "spec": {
+        "objective": "Implement the tmux worker execution backend and process wrappers to support interactive Claude execution in tmux.",
+        "functional_requirements": [
+          "Implement `TmuxWorkerResult` and `_ExitedProc` classes with the required interface (poll, wait, kill, returncode, assignable `_work_dir`).",
+          "Implement `seed_from_prompt_file` to load/prepare config/credentials seeding.",
+          "Implement `run_tmux_worker` to execute/orchestrate commands under tmux.",
+          "Implement `spawn_claude_tmux` to prepare environment, jail command using `agent_jail`, write prompt, and start the tmux worker execution."
+        ],
+        "interfaces": "exposes `spawn_claude_tmux(agent, resolved_prompt, env, config, *, dbus_sock=None) -> _ExitedProc` where `_ExitedProc` has `poll() -> 0`, `returncode=0`, `wait(timeout=None) -> 0`, `kill()` no-op, and assignable `_work_dir`",
+        "edge_cases": [
+          "Config missing keys or having empty values handles defaults gracefully.",
+          "Environments without bwrap or tmux configured handle errors without hanging."
+        ],
+        "non_goals": [
+          "INTEGRATION-TEST EXCUSE (REQUIRED verbatim in every generated task's `spec.non_goals`): live end-to-end integration of this backend (spawning a real interactive claude in tmux for a real worker task) is an OPERATOR-VALIDATED step performed AFTER merge by flipping the flag; it is deliberately OUT OF SCOPE for automated leaf tests, which exercise pure seams over injected fakes only (no real tmux/claude spawn in any test). This excuses the `missing_integration_test` plan gate.",
+          "Do NOT change the headless path, the agy STDIN path, the synthesis `active_agents`, or any `agents.*` entry.",
+          "Do NOT remove or rewrite any existing `spawn_agent` branch; the new branch is purely additive and flag-gated.",
+          "Do NOT flip the default to `tmux` here (operator does it after live validation).",
+          "Do NOT touch NGv2 (the agy-default hunt is the separate epic `ngv2_agy_default_hunt`).",
+          "Do NOT scrape the TUI for the deliverable; the deliverable is the outbox files claude writes."
+        ],
+        "implementation_notes": "Create `harness/tmux_worker.py` using helper functions from `overseer/tmux_session.py`, `overseer/tmux_seams.py`, and `harness/agent_jail.py`. Ensure the interfaces and classes match the requirements."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_tmux_worker_result_class_interface"
+          },
+          {
+            "name": "test_exited_proc_class_interface"
+          },
+          {
+            "name": "test_seed_from_prompt_file"
+          },
+          {
+            "name": "test_spawn_claude_tmux_environment_prep"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_default_backend_remains_headless_and_unaltered"
+          },
+          {
+            "name": "test_no_real_tmux_or_claude_spawned"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Mock config and environment parameters (JANUSMASK_TASK_ID, JANUSMASK_WORK_DIR, JANUSMASK_STATE_DIR). Mock tmux sessions and commands."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation of tmux_worker.py is medium complexity. Verification uses mock seams to avoid real tmux spawns."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "tmux-worker-test-authoring",
+      "title": "Author unit and seam tests for tmux worker in tests/harness/test_tmux_worker.py",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "harness.tmux_worker",
+      "priority": "high",
+      "dependencies": [
+        "tmux-worker-module-impl"
+      ],
+      "files_touched": [
+        "tests/harness/test_tmux_worker.py"
+      ],
+      "acceptance_criteria": [
+        "`tests/harness/test_tmux_worker.py` is successfully created.",
+        "The test suite contains tests that mock tmux, subprocess, and filesystem operations.",
+        "Tests verify all execution pathways, faked tmux interactions, error scenarios, and process shims without spawning real processes.",
+        "Running `pytest tests/harness/test_tmux_worker.py` passes successfully."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "pytest tests/harness/test_tmux_worker.py",
+      "spec": {
+        "objective": "Author comprehensive unit and fake-based tests for harness/tmux_worker.py.",
+        "functional_requirements": [
+          "Verify all execution pathways in `harness/tmux_worker.py` using mock seams.",
+          "Verify faked tmux interactions (startup dialogs, sending turns) without spawning real processes.",
+          "Verify error handling scenarios (e.g. missing executable, timeout).",
+          "Verify `_ExitedProc` shim behaviors (poll, returncode, wait, kill)."
+        ],
+        "interfaces": "exposes pytest test cases for `harness/tmux_worker.py`",
+        "edge_cases": [
+          "Verify behavior when config dict lacks required keys.",
+          "Verify behavior when bwrap or tmux execution fails."
+        ],
+        "non_goals": [
+          "INTEGRATION-TEST EXCUSE (REQUIRED verbatim in every generated task's `spec.non_goals`): live end-to-end integration of this backend (spawning a real interactive claude in tmux for a real worker task) is an OPERATOR-VALIDATED step performed AFTER merge by flipping the flag; it is deliberately OUT OF SCOPE for automated leaf tests, which exercise pure seams over injected fakes only (no real tmux/claude spawn in any test). This excuses the `missing_integration_test` plan gate.",
+          "Do NOT change the headless path, the agy STDIN path, the synthesis `active_agents`, or any `agents.*` entry.",
+          "Do NOT remove or rewrite any existing `spawn_agent` branch; the new branch is purely additive and flag-gated.",
+          "Do NOT flip the default to `tmux` here (operator does it after live validation).",
+          "Do NOT touch NGv2 (the agy-default hunt is the separate epic `ngv2_agy_default_hunt`).",
+          "Do NOT scrape the TUI for the deliverable; the deliverable is the outbox files claude writes."
+        ],
+        "implementation_notes": "Use `unittest.mock` to mock subprocess, os, and other side-effect causing systems. Verify all methods on `TmuxWorkerResult` and `_ExitedProc`."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_exited_proc_poll_and_wait"
+          },
+          {
+            "name": "test_exited_proc_kill"
+          },
+          {
+            "name": "test_spawn_claude_tmux_success"
+          },
+          {
+            "name": "test_spawn_claude_tmux_failure"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Mock environment config, mock prompts, and expected process/tmux session variables."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 200,
+        "note": "Pure test authoring task. Implementation is done in the previous task."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_tmux-worker-module.md",
+  "source_brief_sha256": "2d198e015170fab3268d78430010145d23dd08697b20e2481e003264b8087ec0"
+}

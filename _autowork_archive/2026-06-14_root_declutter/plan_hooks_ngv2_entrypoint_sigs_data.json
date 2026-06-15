@@ -1,0 +1,93 @@
+{
+  "tasks": [
+    {
+      "task_id": "ngv2_entrypoint_sigs_data",
+      "title": "Create NEW data/ngv2/reachability_rules/entrypoint_sigs.json rules-as-data entry-point catalog (web routes + CLIs + G6 MFF model-load boundaries)",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "data/ngv2/reachability_rules/entrypoint_sigs.json"
+      ],
+      "acceptance_criteria": [
+        "NEW file data/ngv2/reachability_rules/entrypoint_sigs.json exists and is valid JSON with top-level keys schema_version (1) and entrypoints (list).",
+        "entrypoints covers route frameworks fastapi/flask/django/aiohttp/tornado (kind=route, attacker_boundary=network).",
+        "entrypoints covers CLI frameworks click/argparse (kind=cli, attacker_boundary=cli).",
+        "Gap G6 is folded: an mff entry with kind=model_load and attacker_boundary=model_file names torch.load and pickle.load (plus joblib/keras/safetensors/from_pretrained/load_pretrained_model) so the model FILE is treated as attacker input.",
+        "Every signature_regex string compiles as a valid Python regular expression.",
+        "File content matches the pinned DISPATCH DIRECTIVE block byte-for-byte.",
+        "python3 -m pytest -q tests/ngv2/test_entrypoint_sigs_data_wired.py reports 3 passed (committed RED oracle made GREEN; no new tests authored)."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python3 -m pytest -q tests/ngv2/test_entrypoint_sigs_data_wired.py",
+      "spec": {
+        "objective": "CREATE the NEW data file data/ngv2/reachability_rules/entrypoint_sigs.json as a pure rules-as-data entry-point signature catalog consumed by the Stage-1 scanners: a JSON object with schema_version and an entrypoints list, each entry carrying framework/kind/attacker_boundary/signature_regex[]. It must cover FastAPI/Flask/Django/aiohttp/tornado web routes, click/argparse CLIs, and fold Gap G6 by adding an mff/model_load/model_file entry for torch.load/pickle.load/joblib/keras/safetensors/from_pretrained/load_pretrained_model so MFF loaders are treated as attacker boundaries (the model FILE is the attacker input). Emit the complete file byte-for-byte per the DISPATCH DIRECTIVE.",
+        "functional_requirements": [
+          "Emit the COMPLETE data/ngv2/reachability_rules/entrypoint_sigs.json byte-for-byte per the DISPATCH DIRECTIVE: a JSON object with schema_version=1 and an entrypoints list covering fastapi/flask/django/aiohttp/tornado route entries (kind=route, attacker_boundary=network) and click/argparse CLI entries (kind=cli, attacker_boundary=cli), each with framework/kind/attacker_boundary/signature_regex[].",
+          "Fold Gap G6: include an mff entry with kind=model_load and attacker_boundary=model_file whose signature_regex names torch.load and pickle.load plus joblib/keras/safetensors/from_pretrained/load_pretrained_model; every signature_regex across all entries MUST compile as a valid Python regex."
+        ],
+        "interfaces": "Creates NEW data/ngv2/reachability_rules/entrypoint_sigs.json \u2014 rules-as-data entry-point signature catalog. Top-level: {schema_version:int, entrypoints:[{framework:str, kind:'route'|'cli'|'model_load', attacker_boundary:'network'|'cli'|'model_file', signature_regex:[str,...]}]}. No Python module surface; consumed by Stage-1 scanners.",
+        "edge_cases": [
+          "test_each_signature_regex_compiles: every signature_regex string (including escaped sequences like \\\\w, \\\\b, \\\\s, and the safetensors[\\\\w.]* alternation) must be a valid Python regular expression under re.compile.",
+          "test_g6_mff_model_load_boundary_present: the integration-style coverage case \u2014 the G6 mff/model_load entry must be present with attacker_boundary=model_file and signature regex naming both torch.load and pickle.load loaders."
+        ],
+        "non_goals": [
+          "Do NOT add Python code \u2014 this is pure rules-as-data consumed by the Stage-1 scanners.",
+          "Do NOT touch any module or other data file.",
+          "Do NOT remove any of the pinned required CWEs/frameworks/boundaries.",
+          "Do NOT author new tests \u2014 the committed oracle is authoritative.",
+          "Catalog INTEGRATION into the live scan path is the consuming module's leaf, not this data leaf."
+        ],
+        "implementation_notes": "WHOLE-FILE single-file emission. Write data/ngv2/reachability_rules/entrypoint_sigs.json with EXACTLY the following content (copy the DISPATCH DIRECTIVE block VERBATIM):\n\n{\n  \"schema_version\": 1,\n  \"entrypoints\": [\n    {\n      \"framework\": \"fastapi\",\n      \"kind\": \"route\",\n      \"attacker_boundary\": \"network\",\n      \"signature_regex\": [\n        \"@\\\\w+\\\\.(?:get|post|put|delete|patch|options|head|websocket)\\\\s*\\\\(\",\n        \"\\\\bAPIRouter\\\\s*\\\\(\"\n      ]\n    },\n    {\n      \"framework\": \"flask\",\n      \"kind\": \"route\",\n      \"attacker_boundary\": \"network\",\n      \"signature_regex\": [\n        \"@\\\\w+\\\\.route\\\\s*\\\\(\",\n        \"\\\\.add_url_rule\\\\s*\\\\(\"\n      ]\n    },\n    {\n      \"framework\": \"django\",\n      \"kind\": \"route\",\n      \"attacker_boundary\": \"network\",\n      \"signature_regex\": [\n        \"\\\\bre_path\\\\s*\\\\(\",\n        \"\\\\burlpatterns\\\\b\",\n        \"\\\\bpath\\\\s*\\\\(\"\n      ]\n    },\n    {\n      \"framework\": \"aiohttp\",\n      \"kind\": \"route\",\n      \"attacker_boundary\": \"network\",\n      \"signature_regex\": [\n        \"@routes\\\\.(?:get|post|put|delete|patch|head|view)\\\\s*\\\\(\",\n        \"\\\\.router\\\\.add_(?:get|post|put|delete|route)\\\\s*\\\\(\"\n      ]\n    },\n    {\n      \"framework\": \"tornado\",\n      \"kind\": \"route\",\n      \"attacker_boundary\": \"network\",\n      \"signature_regex\": [\n        \"\\\\bclass\\\\s+\\\\w+\\\\s*\\\\(\\\\s*tornado\\\\.web\\\\.RequestHandler\\\\b\"\n      ]\n    },\n    {\n      \"framework\": \"click\",\n      \"kind\": \"cli\",\n      \"attacker_boundary\": \"cli\",\n      \"signature_regex\": [\n        \"@click\\\\.command\\\\s*\\\\(\",\n        \"@\\\\w+\\\\.command\\\\s*\\\\(\"\n      ]\n    },\n    {\n      \"framework\": \"argparse\",\n      \"kind\": \"cli\",\n      \"attacker_boundary\": \"cli\",\n      \"signature_regex\": [\n        \"\\\\bargparse\\\\.ArgumentParser\\\\s*\\\\(\"\n      ]\n    },\n    {\n      \"framework\": \"mff\",\n      \"kind\": \"model_load\",\n      \"attacker_boundary\": \"model_file\",\n      \"signature_regex\": [\n        \"\\\\btorch\\\\.load\\\\s*\\\\(\",\n        \"\\\\bpickle\\\\.load\\\\s*\\\\(\",\n        \"\\\\bjoblib\\\\.load\\\\s*\\\\(\",\n        \"\\\\bkeras\\\\.models\\\\.load_model\\\\s*\\\\(\",\n        \"\\\\bload_model\\\\s*\\\\(\",\n        \"\\\\bsafetensors[\\\\w.]*\\\\.load(?:_file)?\\\\s*\\\\(\",\n        \"\\\\.from_pretrained\\\\s*\\\\(\",\n        \"\\\\bload_pretrained_model\\\\s*\\\\(\"\n      ]\n    }\n  ]\n}\n\nThe committed RED oracle tests/ngv2/test_entrypoint_sigs_data_wired.py is authoritative \u2014 make it GREEN (3 tests): it pins that fastapi/flask/django/click/argparse frameworks and route/cli/model_load kinds are present; that every signature regex compiles; and that the G6 model_load/model_file boundary is present naming torch + pickle loaders. Do NOT author new tests. Verify with python3 -m pytest -q tests/ngv2/test_entrypoint_sigs_data_wired.py (CWD-relative, no cd) expecting 3 passed.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/ngv2/test_entrypoint_sigs_data_wired.py\n```python\n\"\"\"RED oracle for the Stage-1 rules-as-data catalog\ndata/ngv2/reachability_rules/entrypoint_sigs.json.\n\nPure JSON schema + coverage: web/CLI frameworks present, every signature compiles,\nand -- folding Gap G6 -- a model_load entry-point boundary (attacker = the model\nFILE) is present so MFF loaders are treated as attacker boundaries.\n\"\"\"\nimport json\nimport os\nimport re\n\nimport ngv2\n\n_RULES_DIR = os.path.join(\n    os.path.dirname(os.path.dirname(os.path.abspath(ngv2.__file__))),\n    'data', 'ngv2', 'reachability_rules')\n\n\ndef _load(name):\n    with open(os.path.join(_RULES_DIR, name), 'r', encoding='utf-8') as f:\n        return json.load(f)\n\n\ndef test_entrypoint_sigs_schema_and_framework_coverage():\n    entries = _load('entrypoint_sigs.json')['entrypoints']\n    assert isinstance(entries, list) and entries\n    frameworks = {e['framework'] for e in entries}\n    assert {'fastapi', 'flask', 'django', 'click', 'argparse'} <= frameworks\n    kinds = {e['kind'] for e in entries}\n    assert {'route', 'cli', 'model_load'} <= kinds\n\n\ndef test_each_signature_regex_compiles():\n    entries = _load('entrypoint_sigs.json')['entrypoints']\n    for e in entries:\n        assert {'framework', 'kind', 'attacker_boundary', 'signature_regex'} <= set(e)\n        assert isinstance(e['signature_regex'], list) and e['signature_regex']\n        for pat in e['signature_regex']:\n            re.compile(pat)  # edge: every signature must be a valid regex\n\n\ndef test_g6_mff_model_load_boundary_present():\n    entries = _load('entrypoint_sigs.json')['entrypoints']\n    mff = [e for e in entries\n           if e['kind'] == 'model_load' and e['attacker_boundary'] == 'model_file']\n    assert mff, 'G6 MFF model-load entry-point boundary missing'\n    joined = ' '.join(p for e in mff for p in e['signature_regex'])\n    assert 'torch' in joined and 'pickle' in joined  # edge: MFF loaders named\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_entrypoint_sigs_schema_and_framework_coverage"
+          },
+          {
+            "name": "test_each_signature_regex_compiles"
+          },
+          {
+            "name": "test_g6_mff_model_load_boundary_present"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_g6_mff_model_load_boundary_present"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_each_signature_regex_compiles"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_entrypoint_sigs_schema_and_framework_coverage"
+          },
+          {
+            "name": "test_g6_mff_model_load_boundary_present"
+          }
+        ],
+        "minimum_test_count": 3,
+        "test_data_requirements": "No new test data and NO new tests are authored. The committed RED oracle tests/ngv2/test_entrypoint_sigs_data_wired.py loads the produced data/ngv2/reachability_rules/entrypoint_sigs.json and asserts: (1) schema + framework coverage (fastapi/flask/django/click/argparse) and route/cli/model_load kinds; (2) every signature_regex compiles via re.compile; (3) the G6 mff/model_load entry with attacker_boundary=model_file names torch.load and pickle.load. Expected result: 3 passed."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation is a small whole-file JSON data emission; tests are the committed oracle (not authored here), so the test-heavy ratio reflects that correctness is established entirely by the pinned 3-test oracle going GREEN."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ngv2_entrypoint_sigs_data.md",
+  "source_brief_sha256": "b3e9abf50e77f02899dcfcf110ae431e38f26f24e681d1a0b790ef2f37039015",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

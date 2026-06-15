@@ -1,0 +1,101 @@
+{
+  "tasks": [
+    {
+      "task_id": "ac-population-db-impl",
+      "title": "Implement Autocompiler persistent population DB (autocompiler/population.py)",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "autocompiler/population.py"
+      ],
+      "acceptance_criteria": [
+        "Expose a dataclass Candidate containing at minimum id, code, files, fitness, elo, n_selected, and parent_ids.",
+        "Implement PopulationDB with methods add, get, candidates, __len__, and save.",
+        "Implement classmethod PopulationDB.load to restore the state from JSON files under the injected state_dir.",
+        "Ensure loading missing directories or corrupted JSON doesn't raise, returning an empty DB.",
+        "All tests in tests/autocompiler/test_population.py and tests/autocompiler/test_population_wired.py pass."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/autocompiler/test_population.py tests/autocompiler/test_population_wired.py -q",
+      "spec": {
+        "objective": "Build the NEW whole-file module autocompiler/population.py providing the durable candidate store: a JSON-serializable Candidate record and a PopulationDB with add/get/save/load that round-trips Candidate JSON under an injected state_dir.",
+        "functional_requirements": [
+          "Expose a dataclass Candidate with fields: id (str), code (str), files (dict[str, str]), fitness (dict), elo (float), n_selected (int), and parent_ids (list[str]).",
+          "Implement PopulationDB which is initialized with an injected state_dir.",
+          "Provide add(candidate), get(id), candidates(), and __len__() methods on PopulationDB to manage memory candidates.",
+          "Provide save() and load(state_dir) (classmethod) to round-trip Candidate JSON under the injected state_dir, handling absent directories and corrupted JSON by yielding an empty population."
+        ],
+        "interfaces": "exposes Candidate (JSON-serializable record with id, source/files, parent lineage, fitness: dict, elo: float, visit-count) and PopulationDB.add/get/save/load (round-trips Candidate JSON under injected state_dir; unknown DB => empty, not raise)",
+        "edge_cases": [
+          "add->save->load round-trip preserves Candidate fields incl. fitness/elo/visit-count",
+          "unknown/absent DB path => empty population not raise",
+          "corrupt JSON => empty not raise"
+        ],
+        "non_goals": [
+          "Does NOT spawn any process, model, network, or un-injected subprocess (all FS I/O under the injected state_dir).",
+          "Does NOT touch any harness/** or _NEVER_AUTO_APPROVE file.",
+          "Does NOT flip a runtime flag.",
+          "Does NOT author new tests. Pure/stdlib-only."
+        ],
+        "implementation_notes": "Use the durable-JSON-state pattern mirrored from overseer/procedure_state.py. Standard library only. Ensure PopulationDB.load is a classmethod that reads population.json under state_dir and catches JSON decode / file errors to return an empty db.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/autocompiler/test_population.py\n```python\n\"\"\"RED oracle \u2014 authoritative contract for autocompiler/population.py (leaf ac-population-db).\n\nContract: ``Candidate`` is a dataclass with fields ``id`` (str), ``code`` (str),\n``files`` (dict[str, str]), ``fitness`` (dict), ``elo`` (float), ``n_selected``\n(int), ``parent_ids`` (list[str]). ``PopulationDB(state_dir)`` persists\ncandidates as JSON under the INJECTED ``state_dir`` (durable-JSON pattern of\noverseer/procedure_state.py): ``add(c)``, ``get(id) -> Candidate | None``,\n``candidates() -> list[Candidate]``, ``__len__``, ``save()``,\n``PopulationDB.load(state_dir) -> PopulationDB`` (classmethod). Loading a\nmissing or corrupted store returns an EMPTY DB \u2014 never raises. Pure stdlib;\nno process/model/network I/O.\n\"\"\"\nimport json\nfrom pathlib import Path\n\nfrom autocompiler.population import Candidate, PopulationDB\n\n\ndef _cand(cid='c1', elo=1200.0):\n    return Candidate(id=cid, code='x = 1\\n', files={'autocompiler/x.py': 'x = 1\\n'},\n                     fitness={'score': 0.5, 'prune': False}, elo=elo, n_selected=0,\n                     parent_ids=[])\n\n\ndef test_add_get_roundtrip(tmp_path):\n    db = PopulationDB(tmp_path)\n    c = _cand()\n    db.add(c)\n    got = db.get('c1')\n    assert got is not None\n    assert got.id == 'c1' and got.code == 'x = 1\\n'\n    assert got.files == {'autocompiler/x.py': 'x = 1\\n'}\n    assert got.elo == 1200.0 and got.parent_ids == []\n    assert len(db) == 1\n\n\ndef test_save_load_roundtrip(tmp_path):\n    db = PopulationDB(tmp_path)\n    db.add(_cand('a', 1100.0))\n    db.add(_cand('b', 1300.0))\n    db.save()\n    db2 = PopulationDB.load(tmp_path)\n    assert len(db2) == 2\n    assert db2.get('b').elo == 1300.0\n    ids = {c.id for c in db2.candidates()}\n    assert ids == {'a', 'b'}\n\n\ndef test_save_writes_json_under_state_dir(tmp_path):\n    db = PopulationDB(tmp_path)\n    db.add(_cand())\n    db.save()\n    written = list(Path(tmp_path).rglob('*.json'))\n    assert written, 'save() must persist JSON under the injected state_dir'\n    json.loads(written[0].read_text())\n\n\ndef test_get_unknown_returns_none(tmp_path):\n    db = PopulationDB(tmp_path)\n    assert db.get('nope') is None\n\n\ndef test_load_missing_dir_is_empty(tmp_path):\n    db = PopulationDB.load(tmp_path / 'does' / 'not' / 'exist')\n    assert len(db) == 0\n    assert db.candidates() == []\n\n\ndef test_load_corrupted_store_is_empty_not_raise(tmp_path):\n    db = PopulationDB(tmp_path)\n    db.add(_cand())\n    db.save()\n    for p in Path(tmp_path).rglob('*.json'):\n        p.write_text('{not json!!')\n    db2 = PopulationDB.load(tmp_path)\n    assert len(db2) == 0\n\n```\n\n## tests/autocompiler/test_population_wired.py\n```python\n\"\"\"RED wiring oracle for autocompiler/population.py (leaf ac-population wire proof).\n\nProves the module is WIRED per harness.wire_up.check_wired: present in the\ndiscovered module set AND reachable from a live root OR registered for dynamic\nwiring under config/** (config/autocompiler.yaml). RED while the module does\nnot exist; GREEN once the leaf lands alongside the committed registration.\n\"\"\"\nfrom pathlib import Path\n\nfrom harness.wire_up import check_wired\n\n\ndef test_population_module_is_wired():\n    repo_root = Path(__file__).resolve().parents[2]\n    res = check_wired(repo_root, 'autocompiler/population.py')\n    assert res.wired, res.reason\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_candidate_fields_and_initialization"
+          },
+          {
+            "name": "test_add_get_roundtrip"
+          },
+          {
+            "name": "test_get_unknown_returns_none"
+          },
+          {
+            "name": "test_load_missing_dir_is_empty"
+          },
+          {
+            "name": "test_load_corrupted_store_is_empty_not_raise"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_population_module_is_wired"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_candidate_fields_serialization_fuzzing"
+          },
+          {
+            "name": "test_population_db_save_load_fuzzing"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_save_load_roundtrip"
+          },
+          {
+            "name": "test_save_writes_json_under_state_dir"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "No external test data required. Standard py.path / tmp_path fixture is used for state_dir injection."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation is a single simple python module. Test token budget covers the pre-existing red tests validation."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ac-population-db.md",
+  "source_brief_sha256": "c3a3f71107878aa7011c784d674f907304ffd6fa2c41ef2d1e17d210dd1eb1c3"
+}

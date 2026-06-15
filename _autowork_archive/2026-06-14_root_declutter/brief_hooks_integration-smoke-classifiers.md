@@ -1,0 +1,23 @@
+---
+interfaces: "is_io_bound(module_rel, module_src, *, signals=BOUNDARY_SIGNALS) -> IoBoundResult(io_bound, signals, reason); has_executing_integration_oracle(module_rel, test_srcs, *, entrypoints=ENTRYPOINT_NAMES) -> SmokeOracleResult(present, oracle_files, reason, fix_hint); constants BOUNDARY_SIGNALS, ENTRYPOINT_NAMES, BOUNDARY_MOCK_ALLOWLIST in harness/integration_smoke.py"
+---
+
+# Title
+
+Substrate: pure AST classifiers in harness/integration_smoke.py
+
+# Scope
+
+Build the NEW single-file whole-file module `harness/integration_smoke.py` holding the two pure, stdlib-only (`ast` + injected file-read seam) classifiers that every other layer of the epic keys off. (1) `is_io_bound(module_rel, module_src, *, signals=BOUNDARY_SIGNALS) -> IoBoundResult(io_bound, signals, reason)` — pure AST scan returning io_bound=True iff the source shows any real-world boundary signal: imports/uses of `subprocess`, `socket`, `http.client`/`urllib`/`requests`, file writes (`open(..., 'w'|'a'|'x'|'wb'|...)`), `os.system`/`os.popen`, `shutil.copy*`/`move`, a `__main__` block that calls into the module, or a known external tool driven via subprocess argv (`git`, `tar`, `rclone`, `gcloud`, `curl`); reason names the matched signal(s). (2) `has_executing_integration_oracle(module_rel, test_srcs, *, entrypoints=ENTRYPOINT_NAMES) -> SmokeOracleResult(present, oracle_files, reason, fix_hint)` — pure AST scan over the leaf's committed test sources returning present=True iff some test (a) imports the real module M (not a stub), (b) CALLS one of M's production entrypoints (default-deps adapter / `main` / `build_*` / `run*` / a `__main__` via `runpy`, drawn from ENTRYPOINT_NAMES plus task-declared `spec['integration_entrypoints']`), and (c) does NOT neutralize that entrypoint — must NOT `monkeypatch.setattr(M, '<entrypoint>', ...)` the entrypoint itself and must NOT pass an injected replacement for the entrypoint's own dep-builder (e.g. `build_deps=<fake>`). Mocking only the lowest boundary seam (`subprocess.run`, `socket`, a network client) is ALLOWED and must classify as EXECUTING. Declare the module-level constants `BOUNDARY_SIGNALS`, `ENTRYPOINT_NAMES`, `BOUNDARY_MOCK_ALLOWLIST` here as the single source of truth. Docstrings MUST LOUDLY state the limits: the AST cannot prove an oracle's assertions are meaningful (a call-with-no-asserts still counts as executing; mutation gate + review are the backstop) and reflectively-constructed entrypoints are a stated blind spot. This child re-plans into the substrate leaf plus its ISOLATED unit oracle (the one place an isolated oracle is permitted, since these are pure functions).
+
+# Non-Goals
+
+Do NOT touch `harness/orchestrator.py`, `harness/planner/plan_validator.py`, `harness/config.yaml`, or `harness/sandbox_smoke.py` — this child is the pure substrate only. Do NOT spawn a process, make a model/API/network call, shell out, read the clock, or use randomness; all source reads flow through an injected file-read seam. Do NOT decide acceptance/rejection or interact with the accept path — that is the consumer's job. Do NOT bundle any existing-file edit into the same leaf as the new module (NEW file + EXISTING-file edit in one leaf trips `auto_commit_failed`). Do NOT prove assertion adequacy or claim coverage the AST cannot deliver.
+
+# Inputs
+
+Read-only context: `harness/planner/taxonomies.py::META_TASK_POLICY`/`SKIP_SMOKE_GATE_TYPES` (the new classifiers deliberately do NOT consult the skip-list), `harness/sandbox_smoke.py::smoke_import` (complementary import gate, not modified), and the regression shapes in `tools/drive_backup/hook_runner.py`, `tools/drive_backup/archiver.py`, `tests/drive_backup/test_hook_runner_production_deps.py`, `tests/drive_backup/test_archiver.py` (used to shape the executing-vs-hermetic discrimination; not modified).
+
+# Deliverables
+
+`harness/integration_smoke.py` exposing the frozen, AST-pure contract: `is_io_bound(module_rel, module_src, *, signals=BOUNDARY_SIGNALS) -> IoBoundResult(io_bound, signals, reason)`, `has_executing_integration_oracle(module_rel, test_srcs, *, entrypoints=ENTRYPOINT_NAMES) -> SmokeOracleResult(present, oracle_files, reason, fix_hint)`, and the module-level constants `BOUNDARY_SIGNALS`, `ENTRYPOINT_NAMES`, `BOUNDARY_MOCK_ALLOWLIST`. Plus `tests/harness/test_integration_smoke.py` as the isolated oracle covering the full I/O-signal matrix (subprocess, socket, urllib, file write, os.system, shutil, `__main__`, tool-argv git/tar/rclone), executing-vs-hermetic discrimination (incl. monkeypatched-entrypoint and fake-`build_deps` anti-patterns), the pure-logic exemption, and deep-copy purity / idempotency.

@@ -1,0 +1,88 @@
+{
+  "tasks": [
+    {
+      "task_id": "impl_elo_math",
+      "title": "Implement Autocompiler Elo rating math in autocompiler/elo.py",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "autocompiler/elo.py"
+      ],
+      "acceptance_criteria": [
+        "Create the autocompiler/elo.py file.",
+        "Implement expected_score(ra, rb) correctly using the standard Elo formula.",
+        "Implement update_elo(ra, rb, outcome, k) that conserves ratings.",
+        "Implement tournament_round(pairs, rater_seam) using ONLY the injected rater_seam without spawning real models.",
+        "The verification command passes and all tests are green."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/autocompiler/test_elo.py tests/autocompiler/test_elo_wired.py -q",
+      "spec": {
+        "objective": "Build the new autocompiler/elo.py module providing standard pairwise Elo math functions expected_score and update_elo, along with tournament_round utilizing an injected rater seam.",
+        "functional_requirements": [
+          "Implement expected_score(ra, rb) -> float, standard Elo math: expected_a = 1.0 / (1.0 + 10.0 ** ((rb - ra) / 400.0)).",
+          "Implement update_elo(ra, rb, outcome, k) -> Tuple[float, float], yielding new ratings based on expected_score and conserving total rating under K-factor.",
+          "Implement tournament_round(pairs, rater_seam) -> List[Tuple[float, float]], running pairwise tournaments strictly using the injected rater_seam."
+        ],
+        "interfaces": "exposes `expected_score(...)`/`update_elo(...)` (standard K-factor formula) and `tournament_round(pairs, rater_seam)` (uses the injected rater only; never spawns a real model)",
+        "edge_cases": [
+          "expected_score symmetry / equal-ratings => 0.5",
+          "update_elo conserves total under the K-factor",
+          "tournament_round consults ONLY the injected rater_seam, never a real model"
+        ],
+        "non_goals": [
+          "Does NOT spawn any real model, process, network, or un-injected subprocess \u2014 the rater is always the injected rater_seam.",
+          "Does NOT touch any harness/** or _NEVER_AUTO_APPROVE file.",
+          "Does NOT flip a runtime flag.",
+          "Does NOT author new tests."
+        ],
+        "implementation_notes": "Ensure standard math implementation using float values. Ensure standard libraries only.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/autocompiler/test_elo.py\n```python\n\"\"\"RED oracle \u2014 authoritative contract for autocompiler/elo.py (leaf ac-elo).\n\nContract: standard Elo over candidates. ``expected_score(ra, rb) -> float`` =\n1 / (1 + 10 ** ((rb - ra) / 400)). ``update_elo(ra, rb, score_a, k=32) ->\n(ra', rb')`` with ra' = ra + k * (score_a - expected_score(ra, rb)) and the\nsymmetric update for rb (score_b = 1 - score_a). ``tournament_round(pairs,\nrater_seam) -> dict[str, float]`` takes ``pairs`` = list of (cand_a, cand_b)\nwhere candidates are duck-typed objects with attrs ``id`` (str) and ``elo``\n(float); calls the INJECTED ``rater_seam(cand_a, cand_b) -> float`` (score for\na: 1.0 win / 0.5 draw / 0.0 loss) EXACTLY ONCE per pair, and returns the dict\nof updated ratings keyed by candidate id. Pure: the injected rater is the ONLY\nexternal call \u2014 no process, model, or network.\n\"\"\"\nimport math\nfrom types import SimpleNamespace\n\nfrom autocompiler.elo import expected_score, update_elo, tournament_round\n\n\ndef test_expected_score_symmetric_at_equal_rating():\n    assert expected_score(1200.0, 1200.0) == 0.5\n\n\ndef test_expected_score_formula():\n    assert math.isclose(expected_score(1400.0, 1200.0),\n                        1 / (1 + 10 ** ((1200.0 - 1400.0) / 400)))\n    assert math.isclose(expected_score(1400.0, 1200.0) + expected_score(1200.0, 1400.0), 1.0)\n\n\ndef test_update_elo_k_factor():\n    ra2, rb2 = update_elo(1200.0, 1200.0, 1.0)\n    assert math.isclose(ra2, 1216.0) and math.isclose(rb2, 1184.0)\n\n\ndef test_update_elo_zero_sum():\n    ra2, rb2 = update_elo(1350.0, 1100.0, 0.0, k=24)\n    assert math.isclose((ra2 - 1350.0) + (rb2 - 1100.0), 0.0, abs_tol=1e-9)\n\n\ndef test_tournament_round_uses_injected_rater_only():\n    a = SimpleNamespace(id='a', elo=1200.0)\n    b = SimpleNamespace(id='b', elo=1200.0)\n    c = SimpleNamespace(id='c', elo=1200.0)\n    calls = []\n\n    def rater(x, y):\n        calls.append((x.id, y.id))\n        return 1.0\n    ratings = tournament_round([(a, b), (a, c)], rater)\n    assert len(calls) == 2, 'rater_seam must be called exactly once per pair'\n    assert ratings['a'] > 1200.0\n    assert ratings['b'] < 1200.0 and ratings['c'] < 1200.0\n\n\ndef test_tournament_round_deterministic():\n    def mk():\n        return (SimpleNamespace(id='a', elo=1200.0), SimpleNamespace(id='b', elo=1250.0))\n    r1 = tournament_round([mk()], lambda x, y: 0.5)\n    r2 = tournament_round([mk()], lambda x, y: 0.5)\n    assert r1 == r2\n\n\ndef test_tournament_round_empty():\n    assert tournament_round([], lambda x, y: 1.0) == {}\n\n```\n\n## tests/autocompiler/test_elo_wired.py\n```python\n\"\"\"RED wiring oracle for autocompiler/elo.py (leaf ac-elo wire proof).\n\nProves the module is WIRED per harness.wire_up.check_wired: present in the\ndiscovered module set AND reachable from a live root OR registered for dynamic\nwiring under config/** (config/autocompiler.yaml). RED while the module does\nnot exist; GREEN once the leaf lands alongside the committed registration.\n\"\"\"\nfrom pathlib import Path\n\nfrom harness.wire_up import check_wired\n\n\ndef test_elo_module_is_wired():\n    repo_root = Path(__file__).resolve().parents[2]\n    res = check_wired(repo_root, 'autocompiler/elo.py')\n    assert res.wired, res.reason\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_expected_score_equal_ratings"
+          },
+          {
+            "name": "test_expected_score_symmetry"
+          },
+          {
+            "name": "test_update_elo_conservation"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_tournament_round_mock_rater"
+          }
+        ],
+        "property_tests": [
+          {
+            "name": "test_elo_expected_score_bounds"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_tournament_round_only_uses_seam"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "None. Standard math functions only require numeric types."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Standard Elo math with clean, concise code. Verification using existing pytest tests."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_ac-elo.md",
+  "source_brief_sha256": "9f28baf1e841ebafc7a27e98e1eb50f8af4b79a5679b7d45fbf25448f6d38364"
+}
