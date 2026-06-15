@@ -1891,6 +1891,55 @@ def _resolve_verification_command(state_dir: Path, task: dict[str, Any], task_id
 from harness.wire_up import check_wired
 from harness.wire_up import WireResult
 
+def _new_module_red_by_absence(task, worktree_root, verify_exit, verify_out) -> bool:
+    """Return True iff this is a test_authoring RED-by-absence oracle.
+
+    A RED-by-absence oracle authors a NEW test for a module that does NOT yet
+    exist on disk: the verification_command fails specifically because importing
+    the not-yet-built target raises ModuleNotFoundError / ImportError /
+    AttributeError referencing it. For such a task the vcmd-exit-0 gate and the
+    mutant non-vacuity gate are INAPPLICABLE (you cannot make a test pass
+    against, nor mutate, a module that does not exist), so they are bypassed for
+    this case ONLY -- the oracle's non-vacuity is established by construction
+    (it cannot pass without the real module).
+
+    Narrowly scoped and fail-closed. Returns True iff ALL hold (else False;
+    never raises):
+      (a) (task.meta_task_type or task.constraints.meta_task_type) ==
+          'test_authoring';
+      (b) mutation_target is a non-empty BARE dotted module name (reject any
+          value containing '/', '\\', '..', or ending in '.py');
+      (c) the target module file is ABSENT under ``worktree_root``;
+      (d) ``verify_exit`` is not None and != 0;
+      (e) ``verify_out`` contains one of ModuleNotFoundError / ImportError /
+          AttributeError AND mentions the target top-level package
+          (``mutation_target.split('.')[0]``).
+    """
+    try:
+        import re as _re
+        _mtt = task.get('meta_task_type') or (task.get('constraints') or {}).get('meta_task_type')
+        if _mtt != 'test_authoring':
+            return False
+        mt = task.get('mutation_target')
+        if not isinstance(mt, str) or not mt:
+            return False
+        if '/' in mt or '\\' in mt or '..' in mt or mt.endswith('.py'):
+            return False
+        if _re.fullmatch('[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*', mt) is None:
+            return False
+        target_file = Path(worktree_root) / (mt.replace('.', '/') + '.py')
+        if target_file.exists():
+            return False
+        if verify_exit is None or verify_exit == 0:
+            return False
+        out = verify_out or ''
+        if not any((_e in out for _e in ('ModuleNotFoundError', 'ImportError', 'AttributeError'))):
+            return False
+        if mt.split('.')[0] not in out:
+            return False
+        return True
+    except Exception:
+        return False
 def _wire_up_gate_enabled(state_dir=None) -> bool:
     """WIRE_UP_GATE: return ``config['autowork']['wire_up_gate']`` (default False).
 
@@ -1939,6 +1988,9 @@ def _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, wor
         if not isinstance(rel, str) or not rel.endswith('.py'):
             continue
         if 'tests' in Path(rel).parts:
+            continue
+        _bn = Path(rel).name
+        if _bn.startswith('test_') or _bn.endswith('_test.py'):
             continue
         if _tracked_in_parent(rel):
             continue
@@ -2819,7 +2871,8 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                         logger.warning('verification_sandbox_error: ledger append failed for %s: %s', task_id, exc)
                     return False
                 raise
-            if verify_exit != 0:
+            _nm_oracle = _new_module_red_by_absence(task, worktree_root, verify_exit, (verify_stdout or '') + '\n' + (verify_stderr or ''))
+            if verify_exit != 0 and not _nm_oracle:
                 cmd_preview = vcmd if len(vcmd) <= 200 else vcmd[:200] + '...(truncated)'
                 logger.warning('verification_failed: task=%s exit=%s timeout=%s cmd=%s', task_id, verify_exit, timed_out, cmd_preview)
                 _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'verification_failed')
@@ -2834,7 +2887,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
             logger.info('auto-commit: SUCCESS in staging for %s -> %s (sha=%s)', task_id, target_rel, result.get('sha'))
             _mut_specs = list(task.get('mutations') or [])
             _mut_target = task.get('mutation_target')
-            if _mtt == 'test_authoring' or _mut_specs or _mut_target:
+            if (_mtt == 'test_authoring' or _mut_specs or _mut_target) and not _nm_oracle:
                 if not _mut_specs and (not _mut_target):
                     logger.warning('mutation_gate_missing: task=%s declares no mutant -- rejected fail-closed', task_id)
                     _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'mutation_gate_missing')
