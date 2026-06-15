@@ -87,6 +87,50 @@ def test_render_shim_chains_to_original_when_given():
     assert "python -m tools.drive_backup.hook_runner" in shim
 
 
+# ---- detachment: the backup step must NOT block the push -----------------
+
+def test_render_shim_backup_step_is_fully_detached():
+    """ROOT CAUSE (RED on HEAD): render_shim runs the backup synchronously
+    (``( cd ... && ... ) || true``), so git waits in ``do_wait`` for the
+    whole ~15-min rclone upload before the push returns. The backup must be
+    fully detached: a new session (``setsid``) with ALL three std fds routed
+    to /dev/null and backgrounded (``&``), so git inherits no open pipe/FD
+    and the push returns immediately. (Observed live: leaf-4a-payload-bank
+    push parked 18 min on rclone.)"""
+    shim = render_shim(JM_ROOT)
+    assert "python -m tools.drive_backup.hook_runner" in shim
+    # New session so no controlling terminal / git process-group wait.
+    assert "setsid" in shim
+    # stdin detached so the uploader never reads from git's pipe.
+    assert "</dev/null" in shim
+    # stdout+stderr detached so git gets EOF immediately (no do_wait).
+    assert ">/dev/null 2>&1" in shim
+    # The backup invocation is backgrounded.
+    backup_lines = [ln for ln in shim.splitlines()
+                    if "tools.drive_backup.hook_runner" in ln]
+    assert backup_lines, shim
+    assert any(ln.rstrip().endswith("&") for ln in backup_lines), backup_lines
+    # Still always exits 0 (never changes the push's exit code).
+    assert "exit 0" in shim
+
+
+def test_render_shim_chained_hook_still_runs_synchronously():
+    """The detach applies ONLY to the backup step. A chained original hook
+    must still run SYNCHRONOUSLY and gate the push (its non-zero exit blocks),
+    so it is NOT backgrounded."""
+    chained = "/home/xnihil0zer0/JanusMaskJR/.git/hooks/pre-push.pre-janusmask"
+    shim = render_shim(JM_ROOT, chained_hook=chained)
+    # The chained original still gates the push.
+    assert "exit_code=$?" in shim or "exit $exit_code" in shim
+    # The line invoking the chained hook is NOT backgrounded.
+    chained_lines = [ln for ln in shim.splitlines() if chained in ln]
+    assert chained_lines, shim
+    for ln in chained_lines:
+        assert not ln.rstrip().endswith("&"), ln
+    # The backup step is still detached.
+    assert "setsid" in shim
+
+
 # ---- install branches ----------------------------------------------------
 
 def test_install_creates_when_no_hook_exists():
