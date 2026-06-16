@@ -353,6 +353,7 @@ def main(args=None):
     final_plan = amend_result.amended_plan
     from harness.planner.plan_normalizer import normalize_plan
     final_plan = normalize_plan(final_plan, repo_root=_effective_repo_root(brief_obj))
+    _stamp_brief_metadata(final_plan, brief_obj)
     from harness.planner.plan_validator import validate_plan
     violations = validate_plan(final_plan)
     if violations:
@@ -367,5 +368,39 @@ def _effective_repo_root(brief_obj):
     if isinstance(wd, str) and wd and (not _target_is_self(wd)):
         return Path(wd)
     return Path.cwd()
+
+def _stamp_brief_metadata(plan, brief_obj):
+    """Idempotently stamp brief-derived metadata onto ``plan`` BEFORE validation.
+
+    Mirrors the stamping block inside ``persist_plan`` so the plan validator
+    sees ``working_dir`` and ``required_task_ids`` (and the v2.1 traceability
+    fields) at ``validate_plan`` time rather than only after persistence. Each
+    write is guarded by ``'<key>' not in plan`` so an existing key is never
+    overwritten, which makes the helper idempotent (a second call -- or the
+    later ``persist_plan`` stamping -- is a no-op for these keys).
+
+    Returns ``plan`` unchanged when ``brief_obj`` is None or ``plan`` is not a
+    dict. Brief attributes are read defensively via ``getattr`` and only
+    present, correctly-typed values are stamped; ``required_task_ids`` is
+    coerced via ``list(rti)`` only when it is a non-empty list/tuple.
+    """
+    if brief_obj is None or not isinstance(plan, dict):
+        return plan
+    sp = getattr(brief_obj, 'source_path', None)
+    if isinstance(sp, str) and 'source_brief_path' not in plan:
+        plan['source_brief_path'] = sp
+    sh = getattr(brief_obj, 'sha256', None)
+    if isinstance(sh, str) and 'source_brief_sha256' not in plan:
+        plan['source_brief_sha256'] = sh
+    wd = getattr(brief_obj, 'working_dir', None)
+    if isinstance(wd, str) and wd and ('working_dir' not in plan):
+        plan['working_dir'] = wd
+    rti = getattr(brief_obj, 'required_task_ids', ()) or ()
+    if isinstance(rti, (list, tuple)) and rti and ('required_task_ids' not in plan):
+        plan['required_task_ids'] = list(rti)
+    pe = getattr(brief_obj, 'parent_epic_slug', None)
+    if isinstance(pe, str) and pe and ('parent_epic_slug' not in plan):
+        plan['parent_epic_slug'] = pe
+    return plan
 if __name__ == '__main__':
     main()
