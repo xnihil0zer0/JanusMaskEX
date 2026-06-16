@@ -1257,7 +1257,10 @@ def _recently_failed_to_plan(state_dir: pathlib.Path, slug: str) -> bool:
     if isinstance(attempts_raw, bool) or not isinstance(attempts_raw, int):
         return False
     attempts = attempts_raw
-    if attempts <= 2:
+    deterministic = bool(data.get('deterministic', False))
+    if deterministic and attempts >= 1:
+        threshold = 86400.0
+    elif attempts <= 2:
         threshold = 0.0
     elif attempts == 3:
         threshold = 300.0
@@ -1605,6 +1608,7 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
                 try:
                     marker.parent.mkdir(parents=True, exist_ok=True)
                     prev_attempts = 0
+                    prev_deterministic = False
                     try:
                         existing_raw = marker.read_text(encoding='utf-8')
                         existing = json.loads(existing_raw)
@@ -1612,9 +1616,11 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
                             cand = existing.get('attempts', 0)
                             if isinstance(cand, int) and (not isinstance(cand, bool)):
                                 prev_attempts = cand
+                            prev_deterministic = bool(existing.get('deterministic', False))
                     except (OSError, FileNotFoundError, json.JSONDecodeError, ValueError):
                         prev_attempts = 0
-                    payload = {'attempts': prev_attempts + 1, 'last_ts': time.time()}
+                    is_deterministic = prev_deterministic or any(tok in (stderr_tail or '').lower() for tok in ('planvalidationerror', 'missing required field', 'validation failed'))
+                    payload = {'attempts': prev_attempts + 1, 'last_ts': time.time(), 'deterministic': bool(is_deterministic)}
                     marker.write_text(json.dumps(payload, sort_keys=True), encoding='utf-8')
                 except OSError:
                     pass
