@@ -48,7 +48,7 @@ agents:
     - --dangerously-skip-permissions
     command: ${PROJECT_ROOT}/.agents/agy/agy
 autowork:
-  archive_spent_briefs: false
+  archive_spent_briefs: true
   auto_approve_ro_gate: true
   auto_approve_sensitive_harness: true
   brief_max_age_seconds: 604800
