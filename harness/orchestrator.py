@@ -1572,7 +1572,11 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
     if manifest is not None:
         _ft_raw = task.get('files_touched')
         _declared = [str(f) for f in _ft_raw] if isinstance(_ft_raw, list) else []
-        _missing = [f for f in _declared if f not in manifest]
+        def _norm_manifest_path(p):
+            n = os.path.normpath(str(p)).replace('\\', '/')
+            return n[2:] if n.startswith('./') else n
+        _manifest_norm = {_norm_manifest_path(k) for k in manifest}
+        _missing = [f for f in _declared if _norm_manifest_path(f) not in _manifest_norm]
         if (not manifest) or _missing:
             _need = _missing or _declared or ['<none declared>']
             msg = ('__JANUSMASK_MANIFEST__ is empty or missing declared files '
