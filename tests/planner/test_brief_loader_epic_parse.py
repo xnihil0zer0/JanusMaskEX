@@ -48,8 +48,11 @@ def test_planningbrief_has_dependencies_and_interfaces_fields() -> None:
     names = [f.name for f in dataclasses.fields(PlanningBrief)]
     assert "dependencies" in names
     assert "interfaces" in names
-    # dependencies/interfaces are the new trailing fields (after Brief-2 pair).
-    assert names[-2:] == ["dependencies", "interfaces"], names
+    assert "required_task_ids" in names
+    # dependencies/interfaces/required_task_ids are the trailing optional fields
+    # (order-independent among the three, but pinned as the last three so a
+    # future field append is a deliberate update, not a silent one).
+    assert set(names[-3:]) == {"dependencies", "interfaces", "required_task_ids"}, names
 
 
 def test_defaults_when_no_optional_frontmatter(tmp_path) -> None:
