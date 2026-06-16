@@ -1,5 +1,6 @@
 from __future__ import annotations
-from harness.autowork_parallelism import can_run_parallel, transitive_deps
+from harness.autowork_parallelism import can_run_parallel
+from harness.autowork_parallelism import transitive_deps
 
 def test_disjoint_files_returns_true():
     a = {'task_id': 'A', 'files_touched': ['foo.py']}
@@ -41,39 +42,41 @@ def test_transitive_deps_cycle():
 
 def test_project_isolation():
     ext = '/home/xnihil0zer0/NobleGreedv2'
-
-    # (i) Two tasks resolving to the SAME isolated external root -> serialize.
-    # They share one mutable repo root whose EXTERNAL_DIRTY_GATE reads shared state.
     a = {'task_id': 'A', 'files_touched': ['foo.py'], 'working_dir': ext}
     b = {'task_id': 'B', 'files_touched': ['bar.py'], 'working_dir': ext}
     assert can_run_parallel(a, b) is False
-
-    # (ii) Both working_dir absent => both JM self-tasks => parallelize
-    # (self-tasks are fully worktree-isolated already).
     a = {'task_id': 'A', 'files_touched': ['foo.py']}
     b = {'task_id': 'B', 'files_touched': ['bar.py']}
     assert can_run_parallel(a, b) is True
-
-    # (iii) One external + one bare self-task => different projects => parallelize.
     a = {'task_id': 'A', 'files_touched': ['foo.py'], 'working_dir': ext}
     b = {'task_id': 'B', 'files_touched': ['bar.py']}
     assert can_run_parallel(a, b) is True
-
-    # JM self-tasks with an explicit repo-root working_dir are likewise exempt.
     a = {'task_id': 'A', 'files_touched': ['foo.py'], 'working_dir': '/home/xnihil0zer0/JanusMaskJR'}
     b = {'task_id': 'B', 'files_touched': ['bar.py'], 'working_dir': '/home/xnihil0zer0/JanusMaskJR'}
     assert can_run_parallel(a, b) is True
 
 def test_project_isolation_exact_path():
-    # Isolation membership is EXACT resolved-path comparison against
-    # _ISOLATED_EXTERNAL_DIRS, never a substring test: a path merely
-    # CONTAINING "NobleGreedv2" is not isolated.
     fixtures = '/home/xnihil0zer0/JanusMaskJR/fixtures/NobleGreedv2-samples'
     a = {'task_id': 'A', 'files_touched': ['foo.py'], 'working_dir': fixtures}
     b = {'task_id': 'B', 'files_touched': ['bar.py'], 'working_dir': fixtures}
     assert can_run_parallel(a, b) is True
-
     sibling = '/home/xnihil0zer0/NobleGreedv2-other'
     a = {'task_id': 'A', 'files_touched': ['foo.py'], 'working_dir': sibling}
     b = {'task_id': 'B', 'files_touched': ['bar.py'], 'working_dir': sibling}
     assert can_run_parallel(a, b) is True
+
+def test_selfheal_pseudo_task_never_conflicts_with_real_task():
+    real = {'task_id': 'real-x', 'files_touched': ['harness/orchestrator.py']}
+    selfheal = {'task_id': 'selfheal_claude_daemon_inactivity_stuck_42', 'files_touched': []}
+    assert can_run_parallel(real, selfheal) is True
+    assert can_run_parallel(selfheal, real) is True
+
+def test_same_selfheal_id_still_serializes():
+    a = {'task_id': 'selfheal_x', 'files_touched': []}
+    b = {'task_id': 'selfheal_x', 'files_touched': []}
+    assert can_run_parallel(a, b) is False
+
+def test_non_selfheal_empty_files_still_conservative():
+    a = {'task_id': 'a', 'files_touched': []}
+    b = {'task_id': 'b', 'files_touched': ['x.py']}
+    assert can_run_parallel(a, b) is False

@@ -35,6 +35,10 @@ def transitive_deps(task_id: str, all_tasks: list[dict]) -> set[str]:
 def can_run_parallel(task_a: dict, task_b: dict, all_tasks: list[dict] | None=None, *, conservative_missing_files: bool=True) -> bool:
     if task_a.get('task_id') == task_b.get('task_id'):
         return False
+    a_id = task_a.get('task_id')
+    b_id = task_b.get('task_id')
+    if isinstance(a_id, str) and a_id.startswith('selfheal_') or (isinstance(b_id, str) and b_id.startswith('selfheal_')):
+        return True
     proj_a = _get_project_dir(task_a)
     proj_b = _get_project_dir(task_b)
     if proj_a == proj_b and proj_a in _ISOLATED_EXTERNAL_DIRS:
