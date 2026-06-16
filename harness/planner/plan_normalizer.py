@@ -650,6 +650,14 @@ def _drop_redundant_precommitted_oracles(tasks: List[Dict[str, Any]], repo_root:
     ``import <target>``) -- where the matching file is NOT one of the
     oracle's own ``files_touched``.  When in doubt the oracle is KEPT.
 
+    Additionally, the drop now fires ONLY when the SAME plan also contains a
+    non-``test_authoring`` (impl) task whose ``files_touched`` includes the
+    oracle's target module path (``_module_path(target) in impl_paths``).  A
+    standalone oracle with no such impl sibling -- the brief's only
+    deliverable -- is therefore always KEPT, even when the target module is
+    merely imported by some committed test.  This guard is purely additive
+    and STRICTER: it can only KEEP more oracles, never drop more.
+
     Dependents of a dropped oracle are rewired with the same drop-map
     pattern as :func:`_dedupe_oracles`: the dropped id is removed from
     every other task's ``dependencies`` (never pointing at a non-existent
@@ -671,6 +679,7 @@ def _drop_redundant_precommitted_oracles(tasks: List[Dict[str, Any]], repo_root:
             if not target:
                 continue
             groups.setdefault(target, []).append(t)
+        impl_paths = {f for t in tasks if isinstance(t, dict) and (not _is_test_authoring(t)) for f in _files_touched(t) if isinstance(f, str) and f}
         drop_ids: Set[str] = set()
         for target, group in groups.items():
             if len(group) != 1:
@@ -709,7 +718,7 @@ def _drop_redundant_precommitted_oracles(tasks: List[Dict[str, Any]], repo_root:
                     if from_needle in text or import_needle in text:
                         covered = True
                         break
-            if covered:
+            if covered and _module_path(target) in impl_paths:
                 drop_ids.add(_task_id(oracle))
         if not drop_ids:
             return tasks
