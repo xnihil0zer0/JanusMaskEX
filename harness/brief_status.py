@@ -15,14 +15,6 @@ def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
                         tid = row.get('task_id')
                         if not tid:
                             continue
-                        # Process ledger rows CHRONOLOGICALLY (the file is
-                        # append-only): an ``accepted/auto_commit`` row is
-                        # logged at COMMIT time, but if the later push/merge
-                        # fails the task is rolled back / routed to blocked.
-                        # A subsequent ``reject_rollback`` or ``task_blocked``
-                        # row for the same task_id INVALIDATES the stale accept,
-                        # so the daemon re-stages it instead of treating an
-                        # orphaned commit as done. Last terminal event wins.
                         if row.get('phase') == 'accepted' and row.get('event') == 'auto_commit':
                             accepted_map[tid] = {'task_id': tid, 'commit_sha': row.get('commit_sha'), 'ts': row.get('ts')}
                         elif row.get('event') in ('reject_rollback', 'task_blocked'):
@@ -44,6 +36,7 @@ def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
         plan_file = repo_root / plan_filename
         has_plan = plan_file.exists() and (not plan_filename.endswith('_critique.json'))
         task_ids = []
+        plan_stale = False
         if has_plan:
             try:
                 with open(plan_file, 'r', encoding='utf-8') as f:
@@ -52,6 +45,18 @@ def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
                         for t in plan_data['tasks']:
                             if isinstance(t, dict) and 'task_id' in t:
                                 task_ids.append(t['task_id'])
+                try:
+                    stamped = plan_data.get('source_brief_sha256') if isinstance(plan_data, dict) else None
+                    if isinstance(stamped, str) and stamped:
+                        current_sha = hashlib.sha256(p.read_bytes()).hexdigest()
+                        if stamped != current_sha:
+                            has_plan = False
+                            plan_stale = True
+                    elif plan_file.stat().st_mtime < p.stat().st_mtime:
+                        has_plan = False
+                        plan_stale = True
+                except Exception:
+                    pass
             except Exception:
                 has_plan = False
         if not has_plan:
@@ -83,7 +88,7 @@ def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
             state = 'queued'
         staged_or_done = set(queued) | set(processing) | set(processed_unaccepted) | set(blocked) | {a['task_id'] for a in accepted_for_brief}
         unstaged_task_ids = [tid for tid in task_ids if tid not in staged_or_done]
-        records.append({'slug': slug, 'brief_filename': p.name, 'brief_mtime': p.stat().st_mtime, 'has_plan': has_plan, 'plan_filename': plan_filename, 'task_ids': task_ids, 'queued': queued, 'processing': processing, 'processed_unaccepted': processed_unaccepted, 'accepted': accepted_for_brief, 'blocked': blocked, 'remaining': remaining, 'state': state, 'unstaged_task_ids': unstaged_task_ids})
+        records.append({'slug': slug, 'brief_filename': p.name, 'brief_mtime': p.stat().st_mtime, 'has_plan': has_plan, 'plan_filename': plan_filename, 'plan_stale': plan_stale, 'task_ids': task_ids, 'queued': queued, 'processing': processing, 'processed_unaccepted': processed_unaccepted, 'accepted': accepted_for_brief, 'blocked': blocked, 'remaining': remaining, 'state': state, 'unstaged_task_ids': unstaged_task_ids})
     records.sort(key=lambda x: x['brief_mtime'], reverse=True)
     return records
 
@@ -280,3 +285,4 @@ def epic_has_failed_descendant(epic_slug, epic_children, status_index) -> bool:
             if isinstance(grandchild, str) and grandchild and (grandchild not in seen):
                 frontier.append(grandchild)
     return False
+import hashlib
