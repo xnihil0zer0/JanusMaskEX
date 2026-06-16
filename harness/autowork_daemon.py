@@ -1253,6 +1253,20 @@ def _recently_failed_to_plan(state_dir: pathlib.Path, slug: str) -> bool:
     if isinstance(last_ts_raw, bool) or not isinstance(last_ts_raw, (int, float)):
         return False
     last_ts = float(last_ts_raw)
+    # A re-authored brief (its file mtime is newer than the recorded failure)
+    # invalidates a stale park marker -- the operator changed the spec since the
+    # failure, so give it a fresh planning chance instead of honoring a slug-stable
+    # (e.g. 24h deterministic) park that re-authoring would otherwise NOT clear.
+    try:
+        _brief_p = pathlib.Path(state_dir).parent / f'brief_hooks_{slug}.md'
+        if _brief_p.exists() and _brief_p.stat().st_mtime > last_ts:
+            try:
+                marker.unlink()
+            except OSError:
+                pass
+            return False
+    except OSError:
+        pass
     attempts_raw = data.get('attempts', 0)
     if isinstance(attempts_raw, bool) or not isinstance(attempts_raw, int):
         return False
