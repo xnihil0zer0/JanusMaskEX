@@ -1570,6 +1570,16 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
     relax_external = relax_external_for(task, content=code)
     manifest = _parse_manifest(code)
     if manifest is not None:
+        _ft_raw = task.get('files_touched')
+        _declared = [str(f) for f in _ft_raw] if isinstance(_ft_raw, list) else []
+        _missing = [f for f in _declared if f not in manifest]
+        if (not manifest) or _missing:
+            _need = _missing or _declared or ['<none declared>']
+            msg = ('__JANUSMASK_MANIFEST__ is empty or missing declared files '
+                   f'{_need}: every files_touched entry must appear as a manifest '
+                   'key mapped to its full source. Resubmit a complete manifest.')
+            logger.warning('%s manifest submission empty/incomplete (declared=%r, manifest_keys=%r)', agent, _declared, list(manifest.keys()))
+            return (False, [Violation(rule='manifest_incomplete', severity='error', line=0, message=msg)])
         all_violations: list = []
         for rel, src in manifest.items():
             if not rel.endswith('.py'):
