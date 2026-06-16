@@ -2182,7 +2182,10 @@ def _auto_approve_sensitive_eligible(state_dir, task, task_id, rel_paths, config
          ``harness/agent_jail.py/../test_author.py`` to an innocent-looking
          ``harness/test_author.py`` and defeat both the deny-list and the
          harness/ check), (b) does not match any pattern in
-         ``_NEVER_AUTO_APPROVE``, and (c) is a ``harness/**`` path.
+         ``_NEVER_AUTO_APPROVE``, and (c) at least one rel is a ``harness/**``
+         path; sensitive-but-non-harness rels (config/**, scripts/**,
+         services/**) are rejected, while non-sensitive rels (tests/**, docs,
+         ...) ride along.
       5. The persisted approval count (state/control/autowork/
          auto_approve_count.json, default 0 when absent) is strictly below the
          configured ceiling (``auto_approve_sensitive_ceiling``, default 3).
@@ -2216,7 +2219,8 @@ def _auto_approve_sensitive_eligible(state_dir, task, task_id, rel_paths, config
         import os as _os
         if not rel_paths:
             return False
-        from harness.git_integration import _matches_sensitive
+        from harness.git_integration import _matches_sensitive, _SENSITIVE_APPLY_GLOBS
+        saw_harness = False
         for rel in rel_paths:
             if not isinstance(rel, str) or not rel:
                 return False
@@ -2227,8 +2231,13 @@ def _auto_approve_sensitive_eligible(state_dir, task, task_id, rel_paths, config
                 return False
             if _matches_sensitive(rel, _NEVER_AUTO_APPROVE):
                 return False
-            if not _matches_sensitive(rel, ('harness/**',)):
+            if _matches_sensitive(rel, ('harness/**',)):
+                saw_harness = True
+            elif _matches_sensitive(rel, _SENSITIVE_APPLY_GLOBS):
                 return False
+            # else: non-sensitive path (tests/**, docs, ...) rides along
+        if not saw_harness:
+            return False
         if not _widened:
             ceiling = autowork.get('auto_approve_sensitive_ceiling', 3)
             if ceiling is None:
