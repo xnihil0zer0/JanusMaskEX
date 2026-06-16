@@ -353,12 +353,12 @@ def main(args=None):
     final_plan = amend_result.amended_plan
     from harness.planner.plan_normalizer import normalize_plan
     final_plan = normalize_plan(final_plan, repo_root=_effective_repo_root(brief_obj))
-    persist_plan(final_plan, parsed.output_plan, brief_obj=brief_obj)
     from harness.planner.plan_validator import validate_plan
     violations = validate_plan(final_plan)
     if violations:
         print(f'Merged plan failed validation: {violations}', file=sys.stderr)
         sys.exit(1)
+    persist_plan(final_plan, parsed.output_plan, brief_obj=brief_obj)
     sys.exit(0)
 
 def _effective_repo_root(brief_obj):
