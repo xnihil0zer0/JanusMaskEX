@@ -126,7 +126,7 @@ def _should_run_epic(brief_obj, config) -> bool:
     """
     return bool(getattr(brief_obj, 'epic', False)) and bool(config.get('hierarchical_planning', {}).get('enabled', False))
 
-def _finalize_epic_children(merged, epic_wd, child_epics, *, state_dir=None):
+def _finalize_epic_children(merged, epic_wd, child_epics):
     """Canonicalize, dedupe and (optionally) epic-mark reconciled child briefs.
 
     Pure helper: returns a NEW list of NEW child dicts and never mutates the
@@ -145,33 +145,11 @@ def _finalize_epic_children(merged, epic_wd, child_epics, *, state_dir=None):
     A kept child lacking a truthy ``working_dir`` is stamped with ``epic_wd``
     when that is a non-empty str, and ``epic`` is set True when ``child_epics``
     is truthy.
-
-    When ``state_dir`` is truthy, each drop appends one JSON row
-    ``{"event": "epic_child_dropped", "dropped_slug": ..., "reason": ...,
-    "kept_slug": ...}`` to the state_dir-relative journal
-    ``Path(state_dir)/'epic_dedup'/'dropped_children.jsonl'``. Journaling is
-    best-effort (failures are swallowed) and never alters the returned list.
     """
-    import json
-    from pathlib import Path
-
-    def _journal_drop(dropped_slug, reason, kept_slug):
-        if not state_dir:
-            return
-        try:
-            p = Path(state_dir) / 'epic_dedup' / 'dropped_children.jsonl'
-            p.parent.mkdir(parents=True, exist_ok=True)
-            row = {'event': 'epic_child_dropped', 'dropped_slug': dropped_slug, 'reason': reason, 'kept_slug': kept_slug}
-            with open(p, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(row) + chr(10))
-        except OSError:
-            pass
-
     _STOPWORDS = frozenset({'and', 'of', 'the', 'for', 'to', 'a', 'an'})
     finalized = []
     seen = set()
     kept_token_sets = []
-    kept_owner = []
     for child in merged:
         slug = child.get('slug')
         if not slug:
@@ -184,21 +162,12 @@ def _finalize_epic_children(merged, epic_wd, child_epics, *, state_dir=None):
         if not canonical:
             continue
         if canonical in seen:
-            _journal_drop(canonical, 'canonical_duplicate', canonical)
             continue
         child_tokens = frozenset(canonical.split('-')) - _STOPWORDS
-        if child_tokens:
-            survivor = None
-            for ts, owner in zip(kept_token_sets, kept_owner):
-                if child_tokens <= ts or ts <= child_tokens:
-                    survivor = owner
-                    break
-            if survivor is not None:
-                _journal_drop(canonical, 'near_synonym', survivor)
-                continue
+        if child_tokens and any((child_tokens <= ts or ts <= child_tokens for ts in kept_token_sets)):
+            continue
         seen.add(canonical)
         kept_token_sets.append(child_tokens)
-        kept_owner.append(canonical)
         new_child = dict(child)
         new_child['slug'] = canonical
         if isinstance(epic_wd, str) and epic_wd and (not new_child.get('working_dir')):
