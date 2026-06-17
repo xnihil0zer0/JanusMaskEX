@@ -239,6 +239,29 @@ def _sanitize_impl_verification_commands(plan: Dict[str, Any], repo_root: Option
         is_import_smoke = 'python -c' in vcmd and 'import' in vcmd
         if not references_oracle and not is_import_smoke:
             continue
+        # Fix-forward red-pair guard: leave the impl's verification_command
+        # intact when it mirrors the runtime is_fix_forward_redpair predicate
+        # (harness/redpair_acceptance.py) -- a sibling test_authoring oracle
+        # whose mutation_target maps into THIS impl's files_touched, and whose
+        # own authored test file is already named in this vcmd. Rewriting it
+        # here would strip the oracle filename the acceptance gate re-checks,
+        # so the legitimate RED oracle would be wrongly rejected.
+        _impl_files = set(_files_touched(t))
+        _is_fix_forward_redpair = False
+        for _o in tasks:
+            if not isinstance(_o, dict) or not _is_test_authoring(_o):
+                continue
+            _omt = _mutation_target(_o)
+            if (not _omt) or '/' in _omt or '\\' in _omt or '..' in _omt or _omt.endswith('.py'):
+                continue
+            if _module_path(_omt) not in _impl_files:
+                continue
+            _ofiles = [f for f in _files_touched(_o) if isinstance(f, str) and f]
+            if any(of in vcmd for of in _ofiles):
+                _is_fix_forward_redpair = True
+                break
+        if _is_fix_forward_redpair:
+            continue
         modules: List[str] = []
         leaves: List[str] = []
         for f in _files_touched(t):
