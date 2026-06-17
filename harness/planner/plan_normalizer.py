@@ -719,7 +719,21 @@ def _drop_redundant_precommitted_oracles(tasks: List[Dict[str, Any]], repo_root:
                         covered = True
                         break
             if covered and _module_path(target) in impl_paths:
-                drop_ids.add(_task_id(oracle))
+                # Red-pair guard: KEEP an oracle whose paired impl is verified by
+                # the oracle's OWN authored test file (a deliberate fix-forward
+                # red-pair), even when the target module is covered on disk. Only
+                # a genuinely redundant oracle -- one whose impl is verified by a
+                # DIFFERENT, pre-existing committed test (NOT the oracle's own
+                # file) -- is still dropped here.
+                _own_oracle_files = {f for f in own_files if isinstance(f, str) and f}
+                _redpair = any(
+                    (not _is_test_authoring(it))
+                    and isinstance(it.get('verification_command'), str)
+                    and any(of in it['verification_command'] for of in _own_oracle_files)
+                    for it in tasks if isinstance(it, dict)
+                )
+                if not _redpair:
+                    drop_ids.add(_task_id(oracle))
         if not drop_ids:
             return tasks
         survivors = [t for t in tasks if not (isinstance(t, dict) and _task_id(t) in drop_ids)]
@@ -810,6 +824,18 @@ def _drop_committed_module_impls(plan: Dict[str, Any], repo_root: Optional[Any])
                     matched_path = rel
                     break
             if not paired_oracles:
+                continue
+            # Red-pair guard: if this impl is verified by one of its paired
+            # oracles' OWN authored test files, it is a deliberate fix-forward
+            # (red-pair), NOT an accidental cross-brief clobber -- KEEP the impl
+            # and its paired oracle. An accidental clobber (impl verified by a
+            # different/pre-existing test) still drops below.
+            _vc = t.get('verification_command')
+            if isinstance(_vc, str) and any(
+                of in _vc
+                for o in paired_oracles
+                for of in _files_touched(o) if isinstance(of, str) and of
+            ):
                 continue
             drop_ids.add(_task_id(t))
             for o in paired_oracles:
