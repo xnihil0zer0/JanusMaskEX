@@ -15,7 +15,10 @@ vacuous import-smokes are still upgraded.
 """
 import os
 
-from harness.planner.plan_normalizer import _sanitize_impl_verification_commands
+from harness.planner.plan_normalizer import (
+    _enforce_module_first,
+    _sanitize_impl_verification_commands,
+)
 
 
 def _make_repo(tmp_path):
@@ -111,3 +114,82 @@ def test_redpair_carveout_is_idempotent(tmp_path):
     once = _sanitize_impl_verification_commands(plan, repo)
     twice = _sanitize_impl_verification_commands(once, repo)
     assert _impl(once)["verification_command"] == _impl(twice)["verification_command"]
+
+
+# --- _enforce_module_first fix-forward red-pair carve-out -----------------
+#
+# _enforce_module_first flips "oracle-first" pairs to module-first (oracle
+# depends on impl). For a genuine EXISTING-module fix-forward red-pair that
+# inverts the runtime contract: is_fix_forward_redpair needs impl.deps=[oracle]
+# so load_sibling_tasks can link them. The carve-out mirrors that predicate --
+# spared only when the module is on disk AND the impl vcmd names the oracle's
+# own test file. A NEW-module build (module absent) still flips to module-first.
+
+def _deps(tasks, tid):
+    return [t for t in tasks if t["task_id"] == tid][0].get("dependencies")
+
+
+def _redpair_tasks(mutation_target, module_file, impl_vc, oracle_test):
+    return [
+        {"task_id": "o", "meta_task_type": "test_authoring",
+         "mutation_target": mutation_target, "files_touched": [oracle_test],
+         "dependencies": []},
+        {"task_id": "i", "meta_task_type": "harness_self_fix",
+         "files_touched": [module_file], "verification_command": impl_vc,
+         "dependencies": ["o"]},
+    ]
+
+
+def test_enforce_module_first_spares_existing_module_redpair(tmp_path):
+    repo = _make_repo(tmp_path)  # writes harness/planner/cli.py on disk
+    oracle_test = "tests/harness/test_epic_dedup_logging.py"
+    tasks = _redpair_tasks("harness.planner.cli", "harness/planner/cli.py",
+                           "python -m pytest %s -q" % oracle_test, oracle_test)
+    _enforce_module_first(tasks, repo)
+    # oracle-first preserved: impl still depends on the oracle, oracle on nothing
+    assert _deps(tasks, "i") == ["o"]
+    assert not _deps(tasks, "o")
+
+
+def test_enforce_module_first_still_flips_new_module_build(tmp_path):
+    repo = _make_repo(tmp_path)  # does NOT create harness/planner/brandnew.py
+    # impl vcmd names the test, but the module is absent -> NOT a fix-forward
+    # red-pair -> must still flip to module-first.
+    tasks = _redpair_tasks("harness.planner.brandnew", "harness/planner/brandnew.py",
+                           "python -m pytest tests/harness/test_brandnew.py -q",
+                           "tests/harness/test_brandnew.py")
+    _enforce_module_first(tasks, repo)
+    assert _deps(tasks, "o") == ["i"]
+    assert "o" not in (_deps(tasks, "i") or [])
+
+
+def test_enforce_module_first_still_flips_smoke_vcmd_on_existing_module(tmp_path):
+    repo = _make_repo(tmp_path)
+    # existing module but impl vcmd does NOT name the oracle test (smoke import)
+    # -> not a red-pair -> flip.
+    tasks = _redpair_tasks("harness.planner.cli", "harness/planner/cli.py",
+                           'python -c "import harness.planner.cli"',
+                           "tests/harness/test_epic_dedup_logging.py")
+    _enforce_module_first(tasks, repo)
+    assert _deps(tasks, "o") == ["i"]
+    assert "o" not in (_deps(tasks, "i") or [])
+
+
+def test_enforce_module_first_none_repo_root_flips(tmp_path):
+    # repo_root=None (pure mode / unit-test path) -> carve-out inert -> flip.
+    oracle_test = "tests/harness/test_epic_dedup_logging.py"
+    tasks = _redpair_tasks("harness.planner.cli", "harness/planner/cli.py",
+                           "python -m pytest %s -q" % oracle_test, oracle_test)
+    _enforce_module_first(tasks, None)
+    assert _deps(tasks, "o") == ["i"]
+
+
+def test_enforce_module_first_redpair_carveout_idempotent(tmp_path):
+    repo = _make_repo(tmp_path)
+    oracle_test = "tests/harness/test_epic_dedup_logging.py"
+    tasks = _redpair_tasks("harness.planner.cli", "harness/planner/cli.py",
+                           "python -m pytest %s -q" % oracle_test, oracle_test)
+    _enforce_module_first(tasks, repo)
+    _enforce_module_first(tasks, repo)
+    assert _deps(tasks, "i") == ["o"]
+    assert not _deps(tasks, "o")

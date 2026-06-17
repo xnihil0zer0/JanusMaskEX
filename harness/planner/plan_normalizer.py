@@ -139,8 +139,17 @@ def _dedupe_oracles(tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         t['dependencies'] = rewritten
     return survivors
 
-def _enforce_module_first(tasks: List[Dict[str, Any]]) -> None:
-    """Flip oracle-first inversions to module-first, keeping graph acyclic."""
+def _enforce_module_first(tasks: List[Dict[str, Any]], repo_root: Optional[Any]=None) -> None:
+    """Flip oracle-first inversions to module-first, keeping graph acyclic.
+
+    EXCEPTION: a fix-forward red-pair (an EXISTING-module test_authoring oracle
+    whose impl's verification_command names the oracle's own test file) is left
+    oracle-first -- mirrors harness.redpair_acceptance.is_fix_forward_redpair,
+    which is the runtime acceptance contract. ``repo_root`` is required to apply
+    the carve-out (the on-disk existence check distinguishes a fix-forward
+    red-pair on an EXISTING module from a NEW-module build that legitimately
+    needs module-first); when ``repo_root`` is None the behaviour is unchanged.
+    """
     oracles = sorted((t for t in tasks if isinstance(t, dict) and _is_test_authoring(t) and _mutation_target(t)), key=_task_id)
     for oracle in oracles:
         target = _mutation_target(oracle)
@@ -151,6 +160,23 @@ def _enforce_module_first(tasks: List[Dict[str, Any]]) -> None:
         iid = _task_id(impl)
         if not oid or not iid or oid == iid:
             continue
+        # Fix-forward red-pair carve-out -- mirror is_fix_forward_redpair
+        # (harness/redpair_acceptance.py) EXACTLY: an EXISTING-module oracle
+        # (its mutation_target file is on disk) whose impl's
+        # verification_command already names one of THIS oracle's authored
+        # test files is an intentional oracle-first red-pair (oracle RED first,
+        # impl makes it GREEN). Flipping it to module-first strips
+        # impl.dependencies=[oracle], so the runtime acceptance gate
+        # (load_sibling_tasks) can no longer link them and the RED oracle is
+        # wrongly rejected. Leave the authored edge intact. The on-disk check
+        # is what distinguishes this from a NEW-module build, which still flips.
+        _vc = impl.get('verification_command')
+        if repo_root is not None and isinstance(_vc, str) and _vc:
+            from pathlib import Path as _Path
+            if (_Path(repo_root) / _module_path(target)).is_file():
+                _ofiles = [f for f in _files_touched(oracle) if isinstance(f, str) and f]
+                if any(of in _vc for of in _ofiles):
+                    continue
         oracle_deps = oracle.get('dependencies')
         if not isinstance(oracle_deps, list):
             oracle_deps = []
@@ -1092,7 +1118,7 @@ def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[
     tasks = _drop_redundant_precommitted_oracles(tasks, repo_root)
     normalized['tasks'] = tasks
     normalized = _drop_committed_module_impls(normalized, repo_root)
-    _enforce_module_first(tasks)
+    _enforce_module_first(tasks, repo_root)
     _strip_unresolvable_dependencies(tasks)
     normalized = _correct_meta_task_type_by_target(normalized)
     normalized = _canonicalize_oracle_paths(normalized, repo_root)
