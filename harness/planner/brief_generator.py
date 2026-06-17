@@ -44,6 +44,11 @@ def serialize_child_brief_to_markdown(brief_data: dict) -> str:
         frontmatter_lines.append('dependencies:')
         for dep in dependencies:
             frontmatter_lines.append('  - ' + _double_quote(dep))
+    required_task_ids = brief_data.get('required_task_ids')
+    if isinstance(required_task_ids, (list, tuple)) and len(required_task_ids) > 0:
+        frontmatter_lines.append('required_task_ids:')
+        for rtid in required_task_ids:
+            frontmatter_lines.append('  - ' + _double_quote(rtid))
     if isinstance(interfaces, str) and interfaces.strip():
         frontmatter_lines.append('interfaces: ' + _double_quote(interfaces))
     working_dir = brief_data.get('working_dir')
