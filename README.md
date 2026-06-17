@@ -1,4 +1,4 @@
-# JanusMask — Autonomous Code-Generation Factory
+__JANUSMASK_MANIFEST__ = {"README.md": r'''# JanusMask — Autonomous Code-Generation Factory
 
 JanusMask compiles a plain-English **brief** into *verified* working code. Two independent
 LLM agents (Claude + Gemini) each draft a candidate blind to the other; a result is accepted
@@ -93,18 +93,27 @@ The daemon's **two safety boundaries** are both deny-all by default:
 - **`node` / `nvm`** — only for the JS differential target (`autocompiler/js/`), pinned via `~/.nvm/versions/node/<v>/bin`.
 
 ### Python env
-`pip install -r requirements.txt` — `hypothesis`, `pyyaml`, `pytest` (+ `pytest-xdist`, `pytest-testmon`, `pytest-timeout`), `psutil`, `Pygments`. There is **no in-process model SDK**; every model call is a CLI subprocess consumed as NDJSON.
+`pip install -r requirements.txt` — `hypothesis`, `pyyaml`, `pytest` (+ `pytest-xdist`, `pytest-testmon`, `pytest-timeout`), `psutil`, `Pygments`. The current core worker path uses CLI subprocess agents consumed as NDJSON/outbox artifacts. The WebUI/config schema also contains optional API-backed model-provider surfaces (`harness/model_backends.py`, `harness/webui_config_schema.py`) gated on provider credentials and lazy SDK availability; those are not the default autonomous worker path.
 
 > **Interpreter-ABI caveat for external builds:** the daemon may run under conda Python (e.g. 3.13) while an external jail detonates with `/usr/bin/python3` (e.g. 3.10). Compiled-extension wheels installed with one interpreter will not import under the other. External targets must declare/resolve the jail interpreter; keep the host and detonation interpreters ABI-aligned for any external task that installs compiled deps.
 
+### Scripted tests
+The root `Makefile` defines the supported local test tiers:
+- `make test-changed` — testmon impact-selected inner loop. First run warms `.testmondata`; later runs are the quickest feedback.
+- `make test-fast` — parallel screen with known non-hermetic offenders pruned. It is useful for broad smoke feedback but is **not** authoritative.
+- `make test-full` — serial authoritative gate (`python -m pytest -p no:cacheprovider -q`), intended before commit or release decisions.
+
+Known current caveats from focused verification on 2026-06-17: the old smoke replication oracle still expects removed root files `brief_hooks_smoke.md` and `plan_hooks_smoke.json`; `tests/harness/test_sandbox_child_env_external.py` still expects byte-identical self-build `PYTHONPATH` even though `autocompiler.determinism: true` now deliberately prepends `/tmp/janusmask_det_site`; and live D-Bus proxy smoke tests can fail on hosts where `xdg-dbus-proxy` cannot bind the user bus even when the deterministic argv/unit tests pass.
+
 ### Agent backends (how each is configured / authenticated)
-Configured under `harness/config.yaml` `agents:` and `config/` worker settings. One-time `scripts/bootstrap.sh` seeds the gitignored agent configs from their `.template` siblings.
+Configured under `harness/config.yaml` `agents:` and `config/` worker settings. One-time `scripts/bootstrap.sh` is broader than agent config seeding: it creates the gitignored state tree, seeds a comment-only deny-all `auto_promote.allowlist`, initializes `state/impl_progress.jsonl` and `state/STATE.json`, seeds operator memory when available, creates `venv`, installs `requirements.lock`/`requirements.txt`, and warns if the `claude`/`gemini` CLIs or template files are missing.
 
 | Backend | Binary (templated) | Auth | Notes |
 |---|---|---|---|
 | **claude** (default worker) | `${PROJECT_ROOT}/.agents/claude-code/node_modules/.bin/claude` | OAuth/subscription (tmux/PTY backend) **or** API key (headless backend) | `--model opus`, `--tools Read,Glob,Grep,Write`, `--disallowedTools Bash,Edit,Task,NotebookEdit,WebFetch,WebSearch,Skill,ToolSearch`. Hooks via `config/claude_worker.json` + `config/claude_mcp.json`. |
 | **gemini / antigravity** | `${PROJECT_ROOT}/.agents/agy/agy` | `~/.gemini` credentials | args `-p --dangerously-skip-permissions`. Policy in `config/gemini_worker_policy*.toml`. |
 | **claude_fallback** | `${PROJECT_ROOT}/.agents/agy/agy` | as gemini | covers a Claude failure. |
+| **codex** | `/home/xnihil0zer0/.nvm/versions/node/v22.17.0/bin/codex` | Codex CLI auth | selectable in `agents:` and routed through the outbox-style worker path; default `synthesis.active_agents` remains `[claude, gemini]`. |
 
 **Claude worker transport** (`workers.claude_backend`, currently **`tmux`**):
 - `tmux` — a bwrap-jailed **interactive** claude driven over a direct **PTY** (`harness/tmux_worker.py::spawn_claude_tmux`), billed to the Max/OAuth subscription. ("tmux" is historical; the transport is a PTY.) This is the hands-off default.
@@ -114,7 +123,7 @@ Configured under `harness/config.yaml` `agents:` and `config/` worker settings. 
 All of these are **already set** in `harness/config.yaml` (see [§8](#8-configuration-reference)); verify them before a long run:
 
 - `autowork.enabled: true`
-- `autowork.auto_approve_sensitive_harness: true` — gated `harness_self_fix` commits into `harness/**` auto-approve behind the safety stack (no per-task decision file needed).
+- `autowork.auto_approve_sensitive_harness: true` — eligible, non-deny `harness/**` `harness_self_fix` commits may auto-approve behind the content/RO-parent/TOCTOU gates. `config/**`, `scripts/**`, `services/**`, and denied core files still require an explicit operator decision or fail closed.
 - `autowork.auto_approve_ro_gate: true` — RO-checkout rollback protector on that path.
 - `autowork.archive_spent_briefs: true` — green integrate auto-archives the brief+plan.
 - `autowork.wire_up_gate: true` — new modules must be reachable from a live root at accept.
@@ -132,8 +141,11 @@ The supervisor `scripts/run-autowork.sh` **self-starts and self-sustains** the d
 ```bash
 cd /home/xnihil0zer0/JanusMaskJR
 
-# (first time only) seed gitignored agent configs
+# (first time only) seed gitignored state, configs, venv, deps, and memory
 scripts/bootstrap.sh
+
+# only when you intentionally want to resume a previously stopped/paused run
+rm -f state/control/autowork/pause state/control/autowork/full_stop
 
 # start the supervisor (foreground; or wrap with your own setsid/nohup ONCE)
 scripts/run-autowork.sh --state-dir state --logs-dir logs --config harness/config.yaml
@@ -179,6 +191,7 @@ Recognized **frontmatter** keys (`load_brief` reads these; all others are passed
 | `working_dir` | target repo root (see [§5](#5-external-projects-working_dir)). Absent ⇒ build into JanusMask itself. If it resolves *inside* the repo but is not the repo root, the brief is rejected. |
 | `epic` | `true` ⇒ hierarchical decomposition into child briefs. |
 | `required_task_ids` | list (or comma string) of task IDs the plan MUST contain; `validate_plan` rejects a plan that drops one (`missing_required_task`). Use on gated/internal leaves. |
+| `required_child_slugs` | (epic-only) child-brief slugs the decomposition MUST include; `validate_epic_plan` emits a `missing_required_child` error and the epic is **refused** if one is dropped. The epic analogue of `required_task_ids`. |
 | `dependencies` | sibling-**slug** build-order hints (stripped at plan normalization — they are NOT in-plan task IDs; see [§4.4](#44-sequencing--epics)). |
 | `complexity_score`, `interfaces` | advisory. |
 
@@ -190,7 +203,7 @@ Any task that **writes** a path under the sensitive globs
 `harness/**`, `config/**`, `scripts/**`, `services/**` (`_SENSITIVE_APPLY_GLOBS`) **must** be planned as
 `meta_task_type: harness_self_fix`. The plan validator rejects a non-`harness_self_fix` task that lists a sensitive path in `files_touched` (`sensitive_files_touched`), because the accept-time apply-scope gate would refuse the write. So a brief that edits the harness must state `harness_self_fix` intent in its `# Required plan shape`.
 
-A short **irreducible** set is **owner-hand-edit only** and can NEVER auto-approve, regardless of any flag (`_NEVER_AUTO_APPROVE`): `harness/agent_jail.py`, `harness/dbus_proxy.py`, `harness/paths.py`, `harness/git_integration.py`, `harness/orchestrator.py`, `harness/interceptors.py`, `harness/selfheal.py`, `harness/autowork_daemon.py`, `services/**`. A brief targeting these will dead-end; clear with the owner first.
+A short **irreducible** set can NEVER auto-approve, regardless of any flag (`_NEVER_AUTO_APPROVE`): `harness/agent_jail.py`, `harness/dbus_proxy.py`, `harness/paths.py`, `harness/git_integration.py`, `harness/orchestrator.py`, `harness/interceptors.py`, `harness/selfheal.py`, `harness/autowork_daemon.py`, `services/**`. These paths require explicit owner/operator approval through `state/control/decisions/<task_id>.json`; without that decision they fail closed.
 
 ### 4.3 Place it and allowlist it
 
@@ -264,11 +277,11 @@ Notes:
 A brief with `working_dir: "/home/xnihil0zer0/NobleGreedv2"` builds into **that** repo instead of JanusMask.
 
 How it routes and self-protects:
-1. **External-roots allowlist (deny-all):** `working_dir` must resolve to (or under) a prefix in
-   `state/control/autowork/external_roots.allow` (one absolute prefix per line; `#`-comments ignored; **missing/empty ⇒ all external builds denied**). Currently approved: `/home/xnihil0zer0/NobleGreedv2`.
+1. **External-roots allowlist (bootstrap deny-all):** `working_dir` must resolve to (or under) a prefix in
+   `state/control/autowork/external_roots.allow` (one absolute prefix per line; `#`-comments ignored; **missing/empty ⇒ external bootstrap denied**). Currently approved: `/home/xnihil0zer0/NobleGreedv2`.
 2. **Bootstrap before staging** (`harness/target_bootstrap.py::bootstrap_target`, idempotent, best-effort):
    - A brand-new external dir is `git init`-ed and gets a JanusMask ownership marker `.janusmask/bootstrap.json` plus a JM-owned `janusmask/work` branch (your checked-out branch is untouched).
-   - **`BootstrapRefused` (fail-closed) when:** the path is not under an approved root; **the tree is dirty** (uncommitted changes — JM never auto-stashes a user repo); or it is a git repo with **no JM ownership marker** (treated as foreign).
+   - **`BootstrapRefused` when:** the path is not under an approved root; **the tree is dirty** (uncommitted changes — JM never auto-stashes a user repo); or it is a git repo with **no JM ownership marker** (treated as foreign). Current auto-promote logs this as a `silent_skip`/bootstrap failure and may still stage extracted tasks; the later accept path independently refuses dirty external trees, missing external `.venv`, and disabled jail, but does **not** re-check `external_roots.allow`.
 3. **Worker staging** (`orchestrator._auto_commit_accepted`): JM edits the foreign repo only through a **throwaway staging worktree** under `<agent_workroot>/external_staging/`, runs the gates there, then ff-merges into the live external tree. An **EXTERNAL_DIRTY_GATE** re-checks `git status --porcelain` on the live external tree before staging and raises if it is dirty.
 4. **External verify in the target's own venv (`G3_VENV`):** external verification/fuzz must run under the target's `.venv/bin/python`; a missing `.venv` is refused.
 5. **Jail-mandatory (`FLAG2`):** every external candidate spawn (embedded tests, narrow fuzz, verify, baseline, mutant) **requires** the bubblewrap jail; if `agent_sandbox.bwrap` is off, the external task is refused (never run un-jailed against a foreign repo).
@@ -295,6 +308,7 @@ paused = _pause_flag_path(state_dir).exists() or _full_stop_path(state_dir).exis
 | **Resume dispatch** | `rm -f state/control/autowork/pause` | Dispatch re-enabled on the next poll (emits a `resume` row). |
 | **Hard stop (persistent)** | `touch state/control/autowork/full_stop` | Halts promotion AND dispatch, **breaks the daemon loop** (`daemon_stop`), and **stops the supervisor's respawn**. Operator-persistent: never auto-cleared. |
 | **Resume from hard stop** | `rm -f state/control/autowork/full_stop` then start the supervisor again | — |
+| **Stop supervisor** | `touch state/control/autowork/supervisor.stop` | WebUI/supervisor stop sentinel. `scripts/run-autowork.sh` clears stale `supervisor.stop` on fresh start; unlike `full_stop`, it is not operator-persistent. |
 | **Restart the daemon child** | `kill -TERM "$(cat state/control/autowork.pid)"` | Graceful drain; supervisor respawns (needed to pick up harness code changes — see [§12](#12-gaps--steps-still-requiring-a-human)). |
 | **Disable auto-promotion only** | `touch state/control/autowork/auto_promote.disabled` | Stops staging/planning; dispatch of already-staged tasks still runs. |
 
@@ -309,7 +323,7 @@ paused = _pause_flag_path(state_dir).exists() or _full_stop_path(state_dir).exis
 
 ```bash
 tail -F state/impl_progress.jsonl \
-  | grep -E '"event": "(plan_kickoff|extract|launch|launch_sequential|auto_commit|task_blocked|retry_exhausted|verification_failed|planner_hallucination_discarded|plan_timeout|dependency_failed|orphan_unwired|inactivity_watchdog_triggered)"'
+  | grep -E '"event": "(plan_kickoff|extract|launch|launch_sequential|auto_commit|task_blocked|retry_exhausted|verification_failed|planner_hallucination_discarded|planner_validation_rejected|plan_timeout|dependency_failed|orphan_unwired|inactivity_watchdog_triggered)"'
 ```
 
 Key events:
@@ -317,6 +331,7 @@ Key events:
 |---|---|
 | `plan_kickoff` | planner started on an unplanned brief (clean). |
 | `planner_hallucination_discarded` | planner output rejected (empty/too-fast/single-agent/**invalid brief**); `detail` carries the reason + a `stderr_tail`. **Also fires for a malformed brief** — see [§12](#12-gaps--steps-still-requiring-a-human). |
+| `planner_validation_rejected` | a deterministic plan-validation refusal (the planner printed `failed validation`, e.g. a `missing_required_child` / `missing_required_task` violation) — distinct from `planner_hallucination_discarded`; the slug is parked with a `deterministic` plan-attempt marker. |
 | `plan_timeout` | planner exceeded `planner_timeout_sec`; plan park bumped. |
 | `extract` | a plan task was staged into `state/tasks/`. |
 | `launch` / `launch_sequential` | a worker was dispatched. |
@@ -341,6 +356,15 @@ Key events:
 - **`state/tasks/`** (queued `<id>.json`), **`.json.processing`** (claimed), **`blocked/`** (failed + `.retry.json` / `.exhausted` sidecars), **`processed/`** (accepted / no_diff).
 - **`state/output/<id>.{py,files.json,patches.json,no_diff}`** — the worker's emission.
 
+### Drive backup hooks
+`tools/drive_backup/` installs detached git `pre-push` hooks for push-time backups. The hook captures the actual pushed repo in `JM_PUSH_REPO`, launches `python -m tools.drive_backup.hook_runner` in a detached `setsid` subprocess, and always returns `0`, so a backup/upload failure never blocks the push.
+
+Production state lives outside any repo under `~/.janusmask/drive_backup/`: archive output, queued uploads, and `ledger.ndjson`. Upload failures are copied into `queue/` with `*.queued.json` sidecars and can be retried by the drain path. Install/update hooks with:
+
+```bash
+python -m tools.drive_backup.install_hooks
+```
+
 ---
 
 ## 8. Configuration reference
@@ -362,6 +386,9 @@ agents:
   gemini:      { command: ${PROJECT_ROOT}/.agents/agy/agy, args: [-p, --dangerously-skip-permissions] }
   antigravity: { command: ${PROJECT_ROOT}/.agents/agy/agy, args: [-p, --dangerously-skip-permissions] }
   claude_fallback: { command: ${PROJECT_ROOT}/.agents/agy/agy, args: [-p, --dangerously-skip-permissions] }
+  codex: { command: /home/xnihil0zer0/.nvm/versions/node/v22.17.0/bin/codex,
+           args: [exec, --dangerously-bypass-approvals-and-sandbox,
+                  --skip-git-repo-check, --color, never, -p, ""] }
 
 autowork:
   enabled: true
@@ -375,7 +402,7 @@ autowork:
   wire_up_gate: true              # new modules must reach a live root at accept
   selfheal_auto_promote: false    # self-heal briefs do NOT auto-promote (operator decision)
   archive_spent_briefs: true      # green integrate auto-archives the brief+plan
-  auto_approve_sensitive_harness: true  # gated harness_self_fix commits auto-approve
+  auto_approve_sensitive_harness: true  # eligible non-deny harness/** harness_self_fix commits may auto-approve
   auto_approve_ro_gate: true            # RO-checkout rollback protector on that path
   conservative_missing_files: true
   # NOTE: max_total_selfheal_escalations is NOT in this file; the self-heal runaway
@@ -416,7 +443,7 @@ autocompiler:   # MIRROR of the runtime gate; the file actually read is config/a
   js: true           # JS differential dispatch (only fires for language: js tasks)
 ```
 
-> The autocompiler hooks read **`config/autocompiler.yaml`** (`<cwd>/config/autocompiler.yaml`) at runtime, fail-closed — the `autocompiler:` subtree above only mirrors it. Edit `config/autocompiler.yaml` to change runtime behavior; keep both in sync. (One operational consequence: **start the daemon from the repo root**, which `--state-dir state` already forces.)
+> The autocompiler hooks read **`config/autocompiler.yaml`** (`<cwd>/config/autocompiler.yaml`) at runtime, fail-closed — the `autocompiler:` subtree above only mirrors it. Edit `config/autocompiler.yaml` to change runtime behavior; keep both in sync. `scripts/run-autowork.sh` cd's to the repo root before launching; direct `python -m harness.autowork_daemon` invocations must also start from the repo root.
 
 ---
 
@@ -453,7 +480,7 @@ Every task carries a `meta_task_type` (`harness/planner/taxonomies.py::META_TASK
 
 ## 10. Submission formats (what the agent emits)
 
-The agent writes `submission.py`; the harness AST-parses it for **one** top-level assignment.
+Agents write an outbox artifact (`submission.py` in synthesis); hooks also persist canonical JSON records with `code` and `explanation` under `state/sessions/`. The code payload may be `__JANUSMASK_PATCHES__`, `__JANUSMASK_MANIFEST__`, ordinary Python for single-file/test-authoring tasks, or literal non-`.py` content. Multi-file tasks require a manifest.
 
 ### `__JANUSMASK_PATCHES__` — partial-edit / R-anchor symbol patches
 ```python
@@ -475,10 +502,10 @@ __JANUSMASK_MANIFEST__ = {
 - Each value is VERBATIM whole-file source (no diffs). Used for **new modules** and any multi-file task (`len(files_touched) > 1`). Every `files_touched` entry must be a manifest key (`manifest_incomplete` otherwise).
 - Wrap with raw triple-single-quote `r'''...'''` so backslashes/quotes survive.
 
-A `test_authoring` task submits the test file source directly as ordinary Python (neither marker).
+A `test_authoring` task submits the test file source directly as ordinary Python (neither marker). Existing-module red-pair flows are accepted when the RED `test_authoring` task is paired with a sibling implementation task whose `verification_command` uses that authored test; new-module work still needs the wired-oracle/reachability path described above.
 
 ### Acceptance gates a submission must clear (worker lifecycle)
-claim → synthesis (Claude+Gemini) → AST validation (`max_ast_retries`) → differential/stateful fuzz → bypass-fuzzer smoke/embedded/narrow gates (for `bypass_fuzzer` types) → oracle (`verification_command`, RED-before baseline / GREEN-after in staging) → mutation non-vacuity gate (for `test_authoring`) → wire-up (reachable from a live root) → auto-commit (staging worktree → RO-parent verify → ff-merge). Any non-accept rolls back the live tree **scoped strictly to `files_touched`** and routes to `blocked/`.
+claim → synthesis (configured active agents; default Claude+Gemini) → AST validation (`max_ast_retries`) → differential/stateful fuzz → bypass-fuzzer smoke/embedded/narrow gates (for `bypass_fuzzer` types) → oracle (`verification_command`, RED-before baseline / GREEN-after in staging) → mutation non-vacuity gate (for `test_authoring`) → wire-up (reachable from a live root) → auto-commit (staging worktree → RO-parent verify → ff-merge). Any non-accept rolls back the live tree **scoped strictly to `files_touched`** and routes to `blocked/`.
 
 ---
 
@@ -505,7 +532,8 @@ claim → synthesis (Claude+Gemini) → AST validation (`max_ast_retries`) → d
 These are points where the system does **not** fully self-recover and an operator must intervene. They are real defects/footguns, documented honestly:
 
 1. **A malformed brief is silently parked as a deterministic plan failure — indistinguishable from a planner hallucination.**
-   When `load_brief` rejects a brief (missing/empty/decorated heading, bad frontmatter), the planner subprocess exits non-zero with `validation failed`/`missing required field`/`PlanValidationError` in stderr. `_auto_promote` records this as `planner_hallucination_discarded` and writes a **`deterministic` park marker** (`state/control/autowork/plan_attempts/<slug>.json` with `deterministic: true`), which suppresses re-planning for **86400s (24h)** after the first attempt. The operator gets **no distinct "your brief is malformed" signal** — it looks like the LLM hallucinated. **Manual action:** grep the `planner_hallucination_discarded` row's `stderr_tail`; if it names a validation error, fix the brief headings/frontmatter. Re-saving the brief (newer mtime than the marker) clears the park; otherwise delete `state/control/autowork/plan_attempts/<slug>.json`.
+   When `load_brief` rejects a brief (missing/empty/decorated heading, bad frontmatter), the planner subprocess exits non-zero with `failed validation`/`missing required field`/`PlanValidationError` in stderr — the cli actually prints the trigger phrase as `failed validation` (not `validation failed`). A plan-validation refusal now surfaces as the distinct `planner_validation_rejected` event rather than being mislabeled an LLM `planner_hallucination_discarded`; `_auto_promote` writes a **`deterministic` park marker** (`state/control/autowork/plan_attempts/<slug>.json` with `deterministic: true`), which suppresses re-planning for **86400s (24h)** after the first attempt. **Manual action:** grep the `planner_validation_rejected` (or legacy `planner_hallucination_discarded`) row's `stderr_tail`; if it names a validation error, fix the brief headings/frontmatter. Re-saving the brief (newer mtime than the marker) clears the park; otherwise delete `state/control/autowork/plan_attempts/<slug>.json`.
+   - **Note:** B1 (`brief_status`) and B8 (`autowork_daemon`) changes require a daemon child restart (`kill -TERM "$(cat state/control/autowork.pid)"`) to take effect — the daemon caches those symbols at startup.
 
 2. **A blocked task's retry budget is a time-bomb decoupled from the allowlist.**
    `_retry_blocked_tasks` re-stages everything in `state/tasks/blocked/*.json` whose backoff window has elapsed, up to budget 3 (1 for deterministic outcomes) — operating **purely on the blocked sidecars, with no allowlist or brief-eligibility check.** So if you **withdraw a brief's slug from the allowlist** (or archive the brief) while one of its tasks is parked in `blocked/`, the daemon will **still re-fire that task** on the next backoff tick and may re-dispatch a worker for withdrawn work. **Manual action:** to truly stop a withdrawn task, also remove `state/tasks/blocked/<tid>.json` (and its `.retry.json`/`.exhausted` sidecars). Withdrawing from the allowlist alone is insufficient.
@@ -514,10 +542,10 @@ These are points where the system does **not** fully self-recover and an operato
    `autowork_daemon` binds its harness dependencies (`compute_brief_status`, `stage_task`, `can_run_parallel`, the self-heal primitives, and any lazily-imported module after first use) at process start and reuses them from `sys.modules`. A change to the **daemon's own loop / promotion / dispatch / staging / watchdog logic** does NOT take effect in the running process. **Manual action:** after landing such a change, restart the child: `kill -TERM "$(cat state/control/autowork.pid)"` (the supervisor respawns it). Worker/planner/orchestrator code is fresh per subprocess and needs no restart.
 
 4. **Sensitive-path commits to the irreducible set never auto-approve.**
-   The `_NEVER_AUTO_APPROVE` files (`agent_jail.py`, `dbus_proxy.py`, `paths.py`, `git_integration.py`, `orchestrator.py`, `interceptors.py`, `selfheal.py`, `autowork_daemon.py`, `services/**`) are **owner-hand-edit only** — no flag overrides this. A brief targeting them will dead-end at the apply gate. **Manual action:** clear the change with the owner; it cannot be driven through the pipeline.
+   The `_NEVER_AUTO_APPROVE` files (`agent_jail.py`, `dbus_proxy.py`, `paths.py`, `git_integration.py`, `orchestrator.py`, `interceptors.py`, `selfheal.py`, `autowork_daemon.py`, `services/**`) never auto-approve — no flag overrides this. **Manual action:** create an explicit owner/operator decision file `state/control/decisions/<task_id>.json` for the planned task, or the apply gate fails closed.
 
-5. **`harness_self_fix` with `auto_approve_sensitive_harness: false`.**
-   The hands-off posture has this flag `true` (no decision file needed). If it is turned **off**, a sensitive-path commit requires an operator decision file `state/control/decisions/<task_id>.json` with `{"decision":"approve",...}` — and the `task_id` is only known **after** the brief is planned (read it from `plan_hooks_<slug>.json`). This is a manual, per-task step. Keep the flag `true` for unattended operation.
+5. **Sensitive paths outside eligible auto-approve scope.**
+   The hands-off posture has `auto_approve_sensitive_harness: true`, but it only widens eligible non-deny `harness/**` paths after content safety, RO-parent verification, and TOCTOU pinning. `config/**`, `scripts/**`, `services/**`, denylisted core files, a false flag, or a failed safety gate require `state/control/decisions/<task_id>.json` with `{"decision":"approve",...}` — and the `task_id` is only known **after** the brief is planned (read it from `plan_hooks_<slug>.json`). This is a manual, per-task step.
 
 6. **Self-heal is diagnosis-only.**
    The inactivity watchdog and retry-exhaustion escalation spawn a jailed agent that writes a *corrected-spec diagnosis to its outbox* and is forbidden from touching the live repo or the allowlist. **Promotion of any corrective brief is an operator decision** (`selfheal_auto_promote: false`). The system surfaces a fix; it does not apply one.
@@ -537,9 +565,10 @@ state/
 │   ├── decisions/<task_id>.json        # operator approvals (harness_self_fix when auto-approve off)
 │   └── autowork/
 │       ├── auto_promote.allowlist      # slugs the daemon may promote (DENY-ALL if empty)
-│       ├── external_roots.allow        # approved external working_dir roots (DENY-ALL if empty)
+│       ├── external_roots.allow        # approved external bootstrap roots (empty/comment-only denies bootstrap)
 │       ├── pause                       # EXISTENCE pauses dispatch
 │       ├── full_stop                   # EXISTENCE = persistent hard stop (breaks loop + respawn)
+│       ├── supervisor.stop             # WebUI/supervisor stop sentinel; cleared on fresh supervisor start
 │       ├── auto_promote.disabled       # EXISTENCE disables promotion only
 │       ├── plan_attempts/<slug>.json   # plan-park markers (attempts, last_ts, deterministic)
 │       ├── runaway_ceiling.json        # persisted self-heal escalation counter (operator-clear)
@@ -582,3 +611,4 @@ auto-archived to `_autowork_archive/<date>_<label>/` on green integrate.
 
 *JanusMask builds its own tooling through this same pipeline. The discipline is the product: propose
 with LLMs, decide with verifiers, and never let the author grade its own exam.*
+'''}
