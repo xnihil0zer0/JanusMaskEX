@@ -1,0 +1,617 @@
+{
+  "generated": "2026-06-14T22:52:43.285191",
+  "commits": {
+    "total_commits": 1206,
+    "kind_counts": {
+      "intervention": 301,
+      "auto": 905
+    },
+    "intervention_pct": 25.0,
+    "auto_integrate_remediation_payload": 87,
+    "label_counts": {
+      "Integrate validated code": 680,
+      "other/unclassified": 120,
+      "config/flag flip": 83,
+      "owner hand-edit": 59,
+      "declutter/archive sweep": 56,
+      "bugfix/defect": 48,
+      "RED oracle": 45,
+      "blocker/deadlock unblock": 30,
+      "oracle/brief authoring": 25,
+      "Test/oracle commit": 19,
+      "revert/undo": 15,
+      "skeleton/scaffold": 15,
+      "wire-up/orphan": 7,
+      "clobber neutralize/guard": 3,
+      "docs/README": 1
+    },
+    "examples": {
+      "declutter/archive sweep": [
+        "Archive stale root scratch (declutter sweep 2026-06-14)",
+        "Fix drive-backup production wiring: real adapter seams + .diff write",
+        "Add RED oracle for dep-gate A.1 premature-release; update stale no-deadlock cases"
+      ],
+      "Integrate validated code": [
+        "Integrate validated code for stamp-working-dir-blind-draft",
+        "Integrate validated code for strip-stray-mutation-target",
+        "Integrate validated code for drive-backup-repo-fix"
+      ],
+      "Test/oracle commit": [
+        "Test: _spy accepts working_dir kwarg (precursor for blind_draft working_dir threading)",
+        "test: evolution-memory oracle re-homed to the fuzz seam (diff_fuzzer._record_population_sa",
+        "test: wiring oracle for planner dep-strip leaf (satisfies *_wired plan-shape gate)"
+      ],
+      "RED oracle": [
+        "Add RED oracle: collect_agent_draft stamps brief working_dir before draft validation",
+        "Add RED oracle: normalize_plan strips stray mutation_target from non-test_authoring tasks",
+        "test: RED oracle \u2014 project isolation serializes same-external-root tasks, exempts JM self-"
+      ],
+      "bugfix/defect": [
+        "Oracle: drive-backup must back up the pushed repo, not always JanusMask",
+        "Drive-epic prep + A.1/A.2 fix briefs: tighten Wave A plan-shape, resource-hygiene constrai",
+        "RED oracle for A.2: planner must upgrade impl import-smoke to paired committed test"
+      ],
+      "oracle/brief authoring": [
+        "Oracle: PTY backend deliverable must be mode-aware (planning->plan_draft.json)",
+        "Oracle: _path_b_outbox_fallback must accept str work_dir (PTY backend)",
+        "Oracle: PTY claude backend must inject outbox/submission.py deliverable directive + persis"
+      ],
+      "revert/undo": [
+        "Flip workers.claude_backend to tmux (PTY-jailed interactive claude default)",
+        "Revert config-schema-impl (06e2e55) for clean fresh rebuild",
+        "Revert hand-edit half of acc7edb: harness/autowork_daemon.py back to pipeline-blessed stat"
+      ],
+      "config/flag flip": [
+        "Remove broken co-hallucinated tmux_worker module before clean rebuild",
+        "Replace co-hallucinated tmux_worker oracle with real PTY-API contract",
+        "config-schema brief: add explicit test-spec balance to fix planner empty_plan"
+      ],
+      "other/unclassified": [
+        "Update vcmd-sanitize multi-target test for the split-multifile pass",
+        "Plan artifact: live_roots_cleanup leaf (integrated at 7b1f977)",
+        "Wire overseer chat panel frontend: send/resend/mode + transcript render"
+      ],
+      "clobber neutralize/guard": [
+        "Add RED oracle for plan_normalizer._split_multifile_module_tasks",
+        "REV29 Step4 gate-B: deterministic end-to-end self-heal convergence gating test",
+        "REV29 Step0 D-CLOBBER guard: oracle (RED on HEAD)"
+      ],
+      "owner hand-edit": [
+        "Commit RED oracles: planner committed-module dedup + brief-level dep deadlock-breaker",
+        "Wire codex CLI as a selectable synthesis agent (owner-authorized hand-edit)",
+        "fix(daemon): brief-level dependency gating (owner-authorized hand-edit)"
+      ],
+      "wire-up/orphan": [
+        "Add drive_backup CONFIG_WIRED manifest (static wiring data)",
+        "Add RED wiring oracle for gate_runner wired dispatch (leaf 6)",
+        "wire_up_phase: mark epic BUILT (status block)"
+      ],
+      "blocker/deadlock unblock": [
+        "Fix new-module leaf plan-shape: paired test_authoring oracle + integration excuse",
+        "test: RED oracle for normalizer stripping in-plan-unresolvable task deps (epic child slug-",
+        "wire_up_phase leaf 7: wire_report producer plan + brief STATUS update"
+      ],
+      "docs/README": [
+        "docs: README \u2014 measured determinism cost (+32% sandbox-child startup) and the gate-time es"
+      ],
+      "skeleton/scaffold": [
+        "skeleton: JR_tierC (bodies stripped to NotImplementedError)",
+        "skeleton: JR_tierB (bodies stripped to NotImplementedError)",
+        "skeleton: JR_tierB1 (bodies stripped to NotImplementedError)"
+      ]
+    },
+    "by_day": {
+      "2026-05-20": {
+        "auto": 4,
+        "intervention": 0
+      },
+      "2026-05-21": {
+        "auto": 14,
+        "intervention": 0
+      },
+      "2026-05-22": {
+        "auto": 93,
+        "intervention": 0
+      },
+      "2026-05-23": {
+        "auto": 11,
+        "intervention": 0
+      },
+      "2026-05-24": {
+        "auto": 30,
+        "intervention": 0
+      },
+      "2026-05-25": {
+        "auto": 146,
+        "intervention": 3
+      },
+      "2026-05-26": {
+        "auto": 51,
+        "intervention": 2
+      },
+      "2026-05-27": {
+        "auto": 18,
+        "intervention": 2
+      },
+      "2026-05-28": {
+        "auto": 9,
+        "intervention": 4
+      },
+      "2026-05-29": {
+        "auto": 6,
+        "intervention": 28
+      },
+      "2026-05-30": {
+        "auto": 10,
+        "intervention": 13
+      },
+      "2026-05-31": {
+        "auto": 26,
+        "intervention": 7
+      },
+      "2026-06-01": {
+        "auto": 77,
+        "intervention": 20
+      },
+      "2026-06-02": {
+        "auto": 69,
+        "intervention": 24
+      },
+      "2026-06-03": {
+        "auto": 36,
+        "intervention": 19
+      },
+      "2026-06-04": {
+        "auto": 33,
+        "intervention": 27
+      },
+      "2026-06-05": {
+        "auto": 55,
+        "intervention": 33
+      },
+      "2026-06-06": {
+        "auto": 29,
+        "intervention": 10
+      },
+      "2026-06-07": {
+        "auto": 8,
+        "intervention": 3
+      },
+      "2026-06-08": {
+        "auto": 72,
+        "intervention": 28
+      },
+      "2026-06-09": {
+        "auto": 39,
+        "intervention": 31
+      },
+      "2026-06-10": {
+        "auto": 22,
+        "intervention": 19
+      },
+      "2026-06-11": {
+        "auto": 8,
+        "intervention": 3
+      },
+      "2026-06-12": {
+        "auto": 5,
+        "intervention": 11
+      },
+      "2026-06-13": {
+        "auto": 17,
+        "intervention": 9
+      },
+      "2026-06-14": {
+        "auto": 17,
+        "intervention": 5
+      }
+    }
+  },
+  "selfheal": {
+    "events": 109,
+    "outcome_counts": {
+      "auto_commit_failed": 37,
+      "inactivity": 30,
+      "synthesis_or_ast_failed": 28,
+      "smoke_failed": 6,
+      "orphaned": 4,
+      "embedded_tests_failed": 2,
+      "auto_commit_failed_r1": 1,
+      "auto_commit_failed_r2": 1
+    },
+    "top_files_touched": {
+      "ngv2/workers/__init__.py": 6,
+      "ngv2/workers/hunt.py": 3,
+      "harness/depth_validator.py": 2,
+      "harness/git_integration.py": 2,
+      "harness/rebuild/target.py": 2,
+      "ngv2/mff_root_cause.py": 2,
+      "ngv2/mff_variant_generator.py": 2,
+      "ngv2/session_db.py": 2,
+      "harness/planner/blind_draft.py": 2,
+      "harness/autowork_daemon.py": 1,
+      "harness/diff_fuzzer.py": 1,
+      "harness/planner/staging.py": 1,
+      "tests/test_brief_hooks_e2e_acceptance_test.py": 1,
+      "ngv2/detonation.py": 1,
+      "tests/harness/test_staging_resolve_interfaces.py": 1
+    },
+    "distinct_tasks": 75,
+    "retried_tasks": 6,
+    "retried_examples": {
+      "RB_JanusMask_check_true_depth": [
+        "auto_commit_failed",
+        "auto_commit_failed"
+      ],
+      "RB_JR_ast_merge_future_imports_placement": [
+        "orphaned",
+        "orphaned"
+      ],
+      "RB_jr_slice_TargetDescriptor___post_init__": [
+        "auto_commit_failed",
+        "auto_commit_failed"
+      ],
+      "daemon_inactivity_stuck": [
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity",
+        "inactivity"
+      ],
+      "t1_hunt_impl": [
+        "synthesis_or_ast_failed",
+        "synthesis_or_ast_failed"
+      ],
+      "stamp-working-dir-blind-draft": [
+        "synthesis_or_ast_failed",
+        "synthesis_or_ast_failed"
+      ]
+    }
+  },
+  "allowlist": {
+    "snapshot_files": 4,
+    "distinct_entries_ever": 90,
+    "current_active_entries": 8,
+    "entries_ever": [
+      "concurrency_isolation",
+      "daemon_brief_dep_gate",
+      "fix_ast_merge_main_guard",
+      "fix_ast_verifier_restore",
+      "fix_external_partial_edit_prompt",
+      "fix_planner_redundant_oracle_dedupe",
+      "fix_planner_slug_sanitize",
+      "fix_planner_validation_external_and_cd",
+      "fix_planner_verification_path",
+      "fix_rebuild_shell_quote",
+      "fix_rebuild_testcmd_quote",
+      "fix_spine_c_gaps",
+      "integration_smoke_gate",
+      "live-bounty-regression-fixes",
+      "live_bounty_sourcing_and_learning",
+      "ngv2-worker-spawn-entrypoint",
+      "ngv2_artifact_harvester",
+      "ngv2_autonomous_bounty_fsm",
+      "ngv2_bounty_target_contracts",
+      "ngv2_classify_precedence",
+      "ngv2_classify_reconcile",
+      "ngv2_cloner",
+      "ngv2_codeql_orchestrate",
+      "ngv2_codeql_preflight",
+      "ngv2_codeql_runner_output_file",
+      "ngv2_codeql_runner_subprocess_factory",
+      "ngv2_confidence_signals_taint_merge",
+      "ngv2_corpus_stats_null_payout",
+      "ngv2_demand_source_merge",
+      "ngv2_detonation_evidence_gate",
+      "ngv2_entrypoint_scan",
+      "ngv2_entrypoint_sigs_data",
+      "ngv2_fix_advance_surface",
+      "ngv2_fix_audit_log_arity",
+      "ngv2_fix_classify_phase",
+      "ngv2_fix_detonation_semantic_gate",
+      "ngv2_fix_gate_transition_backcompat",
+      "ngv2_fix_gateresult_fields",
+      "ngv2_fix_persist_submission_sessiondb",
+      "ngv2_fix_session_api_envelopes",
+      "ngv2_fix_session_api_now_fn",
+      "ngv2_fix_session_api_persistence",
+      "ngv2_fix_session_gate_bind_reconciliation",
+      "ngv2_fix_session_gate_field_import",
+      "ngv2_fix_source_hunt_qualify_arity",
+      "ngv2_fix_submission_readiness_import",
+      "ngv2_gadget_auditor",
+      "ngv2_gate_executor",
+      "ngv2_harvester_all_phases",
+      "ngv2_hunt_automation",
+      "ngv2_hunt_conductor",
+      "ngv2_huntr_cache_loader",
+      "ngv2_huntr_client",
+      "ngv2_llm_client",
+      "ngv2_oracle_materializer",
+      "ngv2_p71_verdict_ingester",
+      "ngv2_p72a_verdict_feedback",
+      "ngv2_p72b_verdict_reweight",
+      "ngv2_p72c_novelty_corpus",
+      "ngv2_pathtrav_catalog_wire",
+      "ngv2_pathtrav_detect",
+      "ngv2_poc_authenticity_gate",
+      "ngv2_pytest_testpaths",
+      "ngv2_reachability_triage",
+      "ngv2_reconcile_sessiondb_contract",
+      "ngv2_requirements_pins",
+      "ngv2_selection_ranker",
+      "ngv2_session_gate_reachability_triage",
+      "ngv2_sink_classes_data",
+      "ngv2_sink_presence_gate",
+      "ngv2_sink_reachability_gate",
+      "ngv2_source_sink_prefilter",
+      "ngv2_ssrf_catalog_wire",
+      "ngv2_ssrf_detect",
+      "ngv2_stage_command_map",
+      "ngv2_submission_package_reconcile",
+      "ngv2_taint_path_signal",
+      "ngv2_transition_planner",
+      "ngv2_treesitter_verifier",
+      "ngv2_z3_solver_adapter",
+      "partial_edit_r_anchor_prompt",
+      "planner_one_file_per_task",
+      "report-harvester-align",
+      "seq_worker_env_propagation",
+      "spine_api_mcp",
+      "spine_detonation",
+      "spine_state_core",
+      "spine_token_roi",
+      "srcdrive_poc_writer_source",
+      "strip_stray_muttarget"
+    ],
+    "per_snapshot_counts": {
+      "auto_promote.allowlist.full.63cdda4.bak": 84,
+      "auto_promote.allowlist.bak.1781395200": 3,
+      "auto_promote.allowlist": 8,
+      "auto_promote.allowlist.bak.epic_srcdrive": 6
+    }
+  },
+  "blocker_dirs": {
+    "quarantine": {
+      "count": 2,
+      "names": [
+        "brief_hooks_normalizer_vcmd_sanitize.md",
+        "brief_hooks_symbol_ledger_module.md"
+      ]
+    },
+    "selfheal_skip": {
+      "count": 86,
+      "names": [
+        "B2",
+        "MFF-1-ROOT-CAUSE",
+        "MFF-2-VARIANT-GENERATOR",
+        "PI-2",
+        "T1_rlcf_export_module",
+        "TSL-1-recon-contract",
+        "ac-flags-reader",
+        "ac_selection_p_ucb",
+        "adversarial_scoring_impl",
+        "bashval-001-contract-extraction",
+        "cloner-wired-oracle",
+        "conductor-loop-impl",
+        "conductor-loop-test-authoring",
+        "confidence-signals-oracle",
+        "crash-analyzer-impl",
+        "e2e-acceptance-test",
+        "exploit-detonate-worker-oracle",
+        "exploit-poc-worker-oracle",
+        "gated-advance-impl",
+        "gated-advance-test-authoring",
+        "hcg-oracle",
+        "hrt-01-extract-frozen-interface",
+        "hunt-worker-test-authoring",
+        "huntr_client_oracle",
+        "impl-masf-tool-composer",
+        "impl_poc_runner",
+        "integration_smoke_accept_gate",
+        "kg-schema-impl",
+        "mc-1-distil-contract",
+        "md_d_01_extract_class_interface",
+        "mff-pure-family-constraint-gate",
+        "mff-scorer-impl",
+        "model-backends-impl",
+        "ngv2-agy-default-hunt-impl",
+        "ngv2-batch-qualify-impl",
+        "ngv2-codebase-graph-extract-impl",
+        "ngv2-dedup-impl",
+        "ngv2-detonation-chamber",
+        "ngv2-kg-config-impl",
+        "ngv2-log-watcher"
+      ]
+    },
+    "plan_attempts": {
+      "count": 38,
+      "names": [
+        "ast-constraint.json",
+        "autocompiler.json",
+        "conductor-glue.json",
+        "conductor-seams.json",
+        "crash-analyzer-leaf.json",
+        "e2e_acceptance_test.json",
+        "fix_planner_redundant_oracle_dedupe.json",
+        "integration-smoke-accept-gate.json",
+        "integration-smoke-classifiers.json",
+        "integration-smoke-config-flag.json",
+        "integration-smoke-plan-validation.json",
+        "log-watcher.json",
+        "ngv2-confidence.json",
+        "ngv2-fsm-source-qualify-gate.json",
+        "ngv2-session-api-surface.json",
+        "ngv2-worker-registry.json",
+        "ngv2-worker-spawn-entrypoint.json",
+        "ngv2_bounty_target_contracts.json",
+        "ngv2_fix_classify_phase.json",
+        "ngv2_fix_session_api_persistence.json",
+        "ngv2_huntr_cache_loader.json",
+        "ngv2_poc_repair_loop.json",
+        "ngv2_triage_verify_wire.json",
+        "ngv2_triage_verify_wire2.json",
+        "planner-strip-unresolvable-deps.json",
+        "planner_depth_and_recursion.json",
+        "portfolio-intel-leaf.json",
+        "portfolio-intel.json",
+        "qualification-seams.json",
+        "report-harvester-align.json",
+        "revenue-accelerator.json",
+        "spine_token_roi.json",
+        "stage-workers.json",
+        "state-persistence.json",
+        "token-logger.json",
+        "triage-worker.json",
+        "webui-model-backends.json",
+        "workers-base.json"
+      ]
+    },
+    "selfheal_provenance": {
+      "count": 33,
+      "names": [
+        "selfheal_MFF-1-ROOT-CAUSE.json",
+        "selfheal_MFF-2-VARIANT-GENERATOR.json",
+        "selfheal_PI-2.json",
+        "selfheal_TSL-1-recon-contract.json",
+        "selfheal_adversarial_scoring_impl.json",
+        "selfheal_bashval-001-contract-extraction.json",
+        "selfheal_crash-analyzer-impl.json",
+        "selfheal_e2e-acceptance-test.json",
+        "selfheal_hrt-01-extract-frozen-interface.json",
+        "selfheal_impl-masf-tool-composer.json",
+        "selfheal_impl_poc_runner.json",
+        "selfheal_kg-schema-impl.json",
+        "selfheal_mc-1-distil-contract.json",
+        "selfheal_md_d_01_extract_class_interface.json",
+        "selfheal_mff-pure-family-constraint-gate.json",
+        "selfheal_mff-scorer-impl.json",
+        "selfheal_ngv2-batch-qualify-impl.json",
+        "selfheal_ngv2-codebase-graph-extract-impl.json",
+        "selfheal_ngv2-detonation-chamber.json",
+        "selfheal_ngv2-kg-config-impl.json",
+        "selfheal_ngv2-log-watcher.json",
+        "selfheal_ngv2-phase-runner-impl.json",
+        "selfheal_ngv2-repo-complexity.json",
+        "selfheal_ngv2-web-framework-detect.json",
+        "selfheal_ngv2-work-intent-tracking.json",
+        "selfheal_ngv2_report_impl.json",
+        "selfheal_ngv2_submission_readiness_impl.json",
+        "selfheal_ops-analytics-impl.json",
+        "selfheal_selfheal_02_harvest_diagnosis_brief.json",
+        "selfheal_tl-impl-token-logger.json",
+        "selfheal_tool_registry_impl.json",
+        "selfheal_wcd-001-implement-module.json",
+        "selfheal_wire_resolve_interfaces_staging_seam.json"
+      ]
+    },
+    "plan_attempt_reasons": {},
+    "plan_attempt_counts": [
+      [
+        "integration-smoke-classifiers.json",
+        5
+      ],
+      [
+        "conductor-seams.json",
+        5
+      ],
+      [
+        "integration-smoke-plan-validation.json",
+        5
+      ],
+      [
+        "integration-smoke-config-flag.json",
+        5
+      ],
+      [
+        "stage-workers.json",
+        3
+      ],
+      [
+        "ngv2-fsm-source-qualify-gate.json",
+        3
+      ],
+      [
+        "report-harvester-align.json",
+        2
+      ],
+      [
+        "integration-smoke-accept-gate.json",
+        2
+      ],
+      [
+        "token-logger.json",
+        2
+      ],
+      [
+        "planner_depth_and_recursion.json",
+        2
+      ],
+      [
+        "portfolio-intel-leaf.json",
+        2
+      ],
+      [
+        "portfolio-intel.json",
+        2
+      ],
+      [
+        "ngv2_triage_verify_wire.json",
+        1
+      ],
+      [
+        "ngv2-worker-registry.json",
+        1
+      ],
+      [
+        "fix_planner_redundant_oracle_dedupe.json",
+        1
+      ],
+      [
+        "ngv2_huntr_cache_loader.json",
+        1
+      ],
+      [
+        "ngv2_bounty_target_contracts.json",
+        1
+      ],
+      [
+        "ngv2_poc_repair_loop.json",
+        1
+      ],
+      [
+        "ngv2_triage_verify_wire2.json",
+        1
+      ],
+      [
+        "triage-worker.json",
+        1
+      ]
+    ]
+  }
+}

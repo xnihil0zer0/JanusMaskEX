@@ -1,0 +1,1219 @@
+{
+  "files_analyzed": 2730,
+  "sessions": 2730,
+  "malformed_lines_skipped": 0,
+  "total_tool_use": 24998,
+  "total_interventions": 10088,
+  "total_exploration_readonly": 12025,
+  "intervention_pct": 40.36,
+  "category_counts": {
+    "EXPLORATION_READONLY": 10865,
+    "OTHER": 2885,
+    "OTHER_BASH": 2150,
+    "MANUAL_PIPELINE_DRIVING": 1518,
+    "MANUAL_TEST_RUN": 1312,
+    "MANUAL_PRODUCTION_EDIT": 1259,
+    "DOC_NOTETAKING": 1160,
+    "PLAN_BRIEF_SHEPHERDING": 686,
+    "OTHER_FS_OP": 582,
+    "ORACLE_TEST_AUTHORING": 449,
+    "GIT_RECOVERY": 396,
+    "AGY_SPAWN": 373,
+    "ALLOWLIST_CONFIG_EDIT": 370,
+    "DAEMON_CONTROL": 364,
+    "STATE_SIDECAR_CLEANUP": 352,
+    "GIT_PUSH": 153,
+    "CLOBBER_NEUTRALIZE": 94,
+    "OTHER_EDIT": 30
+  },
+  "tool_counts": {
+    "Bash": 12100,
+    "Read": 5376,
+    "Edit": 1724,
+    "Write": 1664,
+    "Grep": 1061,
+    "Agent": 802,
+    "TaskUpdate": 685,
+    "TaskCreate": 404,
+    "ToolSearch": 317,
+    "Glob": 181,
+    "AskUserQuestion": 142,
+    "mcp__janusmask__execute": 141,
+    "ScheduleWakeup": 115,
+    "Monitor": 82,
+    "mcp__codebase-memory-mcp__index_status": 55,
+    "TaskStop": 19,
+    "TaskGet": 17,
+    "mcp__codebase-memory-mcp__list_projects": 14,
+    "mcp__codebase-memory-mcp__get_architecture": 10,
+    "mcp__codebase-memory-mcp__search_graph": 9,
+    "mcp__codebase-memory-mcp__index_repository": 9,
+    "mcp__playwright__browser_navigate": 8,
+    "mcp__playwright__browser_evaluate": 7,
+    "mcp__codebase-memory-mcp__query_graph": 6,
+    "TaskList": 6,
+    "mcp__playwright__browser_wait_for": 5,
+    "WebFetch": 4,
+    "mcp__janusmask__daemon_health": 4,
+    "WebSearch": 3,
+    "mcp__janusmask__work_queue": 3,
+    "mcp__janusmask__event_log": 3,
+    "mcp__janusmask__agent_state": 3,
+    "mcp__codebase-memory-mcp__search_code": 3,
+    "mcp__janusmask__lock_inspect": 2,
+    "Skill": 2,
+    "ExitPlanMode": 2,
+    "Workflow": 2,
+    "mcp__codebase-memory-mcp__trace_call_path": 2,
+    "mcp__codebase-memory-mcp__delete_project": 1,
+    "mcp__janusmask__lock_release": 1,
+    "mcp__janusmask__agent_restart": 1,
+    "TaskOutput": 1,
+    "mcp__claude_ai_Google_Drive__authenticate": 1,
+    "EnterPlanMode": 1
+  },
+  "examples_by_category": {
+    "EXPLORATION_READONLY": [
+      {
+        "cmd": "Read /home/xnihil0zer0/JanusMaskJR/harness/orchestrator.py",
+        "n": 312
+      },
+      {
+        "cmd": "Read /home/xnihil0zer0/JanusMaskJR/harness/git_integration.py",
+        "n": 251
+      },
+      {
+        "cmd": "Read /home/xnihil0zer0/JanusMaskJR/harness/autowork_daemon.py",
+        "n": 249
+      },
+      {
+        "cmd": "true",
+        "n": 138
+      },
+      {
+        "cmd": "Read /home/xnihil0zer0/JanusMaskJR/harness/rebuild/target.py",
+        "n": 125
+      },
+      {
+        "cmd": "Read /home/xnihil0zer0/JanusMaskJR/harness/orchestrator_worker.py",
+        "n": 120
+      },
+      {
+        "cmd": "Read /home/xnihil0zer0/.claude/projects/-home-xnihil0zer0-JanusMaskJR/memory/MEMORY.md",
+        "n": 107
+      },
+      {
+        "cmd": "Read /home/xnihil0zer0/JanusMaskJR/harness/diff_fuzzer.py",
+        "n": 91
+      },
+      {
+        "cmd": "Read /home/xnihil0zer0/JanusMaskJR/harness/rebuild/strip.py",
+        "n": 78
+      },
+      {
+        "cmd": "Read /home/xnihil0zer0/JanusMaskJR/harness/config.yaml",
+        "n": 62
+      },
+      {
+        "cmd": "Read /home/xnihil0zer0/JanusMaskJR/harness/rebuild/harvest.py",
+        "n": 50
+      },
+      {
+        "cmd": "Read /home/xnihil0zer0/JanusMaskJR/state/control/autowork/auto_promote.allowlist",
+        "n": 44
+      }
+    ],
+    "OTHER": [
+      {
+        "cmd": "TaskUpdate",
+        "n": 637
+      },
+      {
+        "cmd": "AskUserQuestion",
+        "n": 142
+      },
+      {
+        "cmd": "mcp__janusmask__execute submit_code",
+        "n": 136
+      },
+      {
+        "cmd": "ScheduleWakeup",
+        "n": 115
+      },
+      {
+        "cmd": "ToolSearch select:mcp__janusmask__execute",
+        "n": 100
+      },
+      {
+        "cmd": "mcp__codebase-memory-mcp__index_status",
+        "n": 55
+      },
+      {
+        "cmd": "ToolSearch select:TaskCreate,TaskUpdate",
+        "n": 27
+      },
+      {
+        "cmd": "ToolSearch select:Monitor",
+        "n": 21
+      },
+      {
+        "cmd": "TaskStop",
+        "n": 19
+      },
+      {
+        "cmd": "ToolSearch select:TaskUpdate",
+        "n": 17
+      },
+      {
+        "cmd": "TaskGet",
+        "n": 17
+      },
+      {
+        "cmd": "ToolSearch select:TaskCreate",
+        "n": 15
+      }
+    ],
+    "OTHER_BASH": [
+      {
+        "cmd": "/tmp/ngv2e4_runwatch.sh",
+        "n": 3
+      },
+      {
+        "cmd": "cd ~/.claude/projects/-home-xnihil0zer0-JanusMaskJR/; python3 - <<'PY' import json def text(m): c=m.get('content') if isinstance(c,str): return c if isinstance(c,list): return ' '.join(b.get('text',''",
+        "n": 3
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR timeout 90 python3 -c \" import os, subprocess, time from pathlib import Path from harness import agent_jail from harness.dbus_proxy import proxied_session_bus WD='/tmp",
+        "n": 3
+      },
+      {
+        "cmd": "/tmp/ngv2e4_watch.sh 2>&1 | grep -avE '\"type\":\"stream_event\"|\"type\":\"assistant\"|\"type\":\"user\"|\"type\":\"result\"|tool_use|tool_result' | head -14",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; if grep -q DONE state/sweep_after_p10a.log 2>/dev/null; then echo \"TARGETED:\"; sed -n '1,4p' /tmp/claude-1000/-home-xnihil0zer0-JanusMaskJR/e8bf5eb0-3675-44f1-a32d-88",
+        "n": 2
+      },
+      {
+        "cmd": "python3 - <<'EOF' p = 'autocompiler_research/phase_b_reference/determinism.py' src = open(p).read() old = \"\"\"def _mock_sleep(seconds): try: _state['now'] += max(0.0, float(seconds)) except (TypeError,",
+        "n": 2
+      },
+      {
+        "cmd": "python3 -c \" import yaml, subprocess cur = yaml.safe_load(open('harness/config.yaml')) head = yaml.safe_load(subprocess.run(['git','show','HEAD:harness/config.yaml'],capture_output=True,text=True).std",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; echo \"RESULT_MARKER\"; python -c \"import ast; ast.parse(open('tests/integration/test_phase_m_merge_reliability.py').read()); print('PARSE OK')\" 2>&1; echo \"LINECOUNT=$",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR base=72e8c8c pid=$(cat /tmp/overseer_daemon_pid.txt) for i in $(seq 1 39); do # up to ~13 min sleep 20 if ! ps -p $pid >/dev/null 2>&1; then echo \"EVENT=daemon_dead it",
+        "n": 2
+      },
+      {
+        "cmd": "python3 -c \" from pathlib import Path files = ['harness/test_scoper.py', 'harness/orchestrator.py', 'tests/test_test_scoper.py'] root = Path('/home/xnihil0zer0/JanusMaskJR') out = Path('/home/xnihil0z",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR grep \"verification_failed\" state/impl_progress.jsonl | tail -1 | python3 -c \"import sys,json d=json.loads(sys.stdin.read()); print('STDOUT:'); print(d.get('stdout_tail",
+        "n": 2
+      },
+      {
+        "cmd": "python -c \" import sys sys.path.insert(0, 'scratch') from test_under_review import _ast_merge try: r = _ast_merge('', '') print('OK:', repr(r)) except Exception as e: print(f'FAIL: {type(e).__name__}:",
+        "n": 2
+      }
+    ],
+    "MANUAL_PIPELINE_DRIVING": [
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR source venv/bin/activate 2>/dev/null python - <<'PY' import json from pathlib import Path from harness.planner.plan_normalizer import normalize_plan from harness.plann",
+        "n": 7
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; source venv/bin/activate 2>/dev/null; python3 - <<'PY' import json, pathlib from harness.planner.plan_normalizer import normalize_plan from harness.planner.staging im",
+        "n": 5
+      },
+      {
+        "cmd": "python -m py_compile harness/orchestrator_worker.py harness/autowork_daemon.py",
+        "n": 4
+      },
+      {
+        "cmd": "echo \"=== full_stop ===\" && ls -la state/control/autowork/full_stop 2>&1 && cat state/control/autowork/full_stop 2>&1; echo; echo \"=== allowlist ===\" && cat state/control/auto_promote.allowlist 2>&1 |",
+        "n": 4
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR NG=/home/xnihil0zer0/NobleGreedv2; PY=/home/xnihil0zer0/miniconda3/bin/python rm -f state/output/mop-tool-registry.* state/tasks/blocked/mop-tool-registry.* state/task",
+        "n": 3
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR python3 -c \" from pathlib import Path from harness.planner.staging import stage_task print('STAGED ->', stage_task(Path('plan_hooks_enforcement-integration.json'), 'ed",
+        "n": 3
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR TID=ngv2-detonation-chamber rm -f state/output/$TID.* state/tasks/processed/$TID.json state/tasks/blocked/$TID.* state/tasks/$TID.json.processing state/tasks/current_t",
+        "n": 3
+      },
+      {
+        "cmd": "timeout 60 python -m harness.planner.cli brief_hooks_overseer_chat.md --dry-run; echo \"EXIT=$?\"",
+        "n": 3
+      },
+      {
+        "cmd": "ls /home/xnihil0zer0/JanusMaskJR/harness/ | head -50; echo \"---\"; wc -l /home/xnihil0zer0/JanusMaskJR/harness/orchestrator_worker.py 2>/dev/null",
+        "n": 2
+      },
+      {
+        "cmd": "python -m py_compile harness/orchestrator_worker.py harness/autowork_daemon.py && echo \"COMPILE_OK\"",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; source venv/bin/activate 2>/dev/null; python -m harness.planner.cli brief_hooks_wire_up_sweep.md --dry-run; echo \"DRY-RUN EXIT=$?\"",
+        "n": 2
+      },
+      {
+        "cmd": "sed -n '1,30p' /home/xnihil0zer0/JanusMaskJR/harness/orchestrator_worker.py",
+        "n": 2
+      }
+    ],
+    "MANUAL_TEST_RUN": [
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; pgrep -f \"pytest -q -p no:cacheprovider\" >/dev/null && echo \"RUNNING ($(ps -o etimes= -p $(pgrep -f 'pytest -q -p no:cacheprovider'|head -1) 2>/dev/null)s)\" || { echo",
+        "n": 19
+      },
+      {
+        "cmd": "python -m pytest tests/test_autowork_daemon.py -q",
+        "n": 8
+      },
+      {
+        "cmd": "python -m pytest tests/test_autowork_daemon.py -q 2>&1 | tail -30",
+        "n": 6
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; if grep -q DONE state/sweep_after_2c.log 2>/dev/null; then echo \"TARGETED:\"; sed -n '1,6p' /tmp/claude-1000/-home-xnihil0zer0-JanusMaskJR/e8bf5eb0-3675-44f1-a32d-882e",
+        "n": 3
+      },
+      {
+        "cmd": "source .venv/bin/activate 2>/dev/null; python -m pytest tests/test_orchestrator.py tests/test_commit_lock_reclaim.py tests/adversarial/test_nonpy_manifest_routing.py tests/adversarial/test_prepare_tas",
+        "n": 3
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR tail -3 /tmp/jm_sweep_parta.log 2>/dev/null; pgrep -f \"pytest -p no:cacheprovider\" >/dev/null && echo \"STILL RUNNING\" || echo \"DONE\"",
+        "n": 3
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR if grep -q EXIT= /tmp/gatefix_sweep.txt 2>/dev/null; then echo \"=== DONE ===\"; grep -E \"passed|failed\" /tmp/gatefix_sweep.txt | tail -1 grep \"^FAILED\" /tmp/gatefix_swe",
+        "n": 3
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; pgrep -f \"pytest -q -p no:cacheprovider\" >/dev/null && echo RUNNING || { echo DONE; tail -8 /tmp/claude-1000/-home-xnihil0zer0-JanusMaskJR/f4f9bbf8-b6f9-43ec-99ba-5c9",
+        "n": 3
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR echo \"=== SEC3_SMOKE result ===\"; tail -2 ~/janusmask_briefs/run_SEC3_SMOKE.log; git log --oneline -1 ls state/tasks/blocked/*SEC3_SMOKE* 2>/dev/null && echo \"BLOCKED\"",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR { echo \"### plan json valid? ###\" .venv/bin/python -c \"import json; d=json.load(open('plan_hooks_guard_degenerate_escalation.json')); print('ok tasks=', len(d['tasks']",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; if grep -q DONE state/sweep_after_s3b.log 2>/dev/null; then grep -E \"passed|failed\" state/sweep_after_s3b.log|tail -1; echo \"fails:\"; grep FAILED state/sweep_after_s3",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR grep -E \"auto_commit|reject\" state/impl_progress.jsonl | grep overseer-tmux-seams | tail -1 echo \"--- module + green? ---\" [ -f overseer/tmux_seams.py ] && python -m p",
+        "n": 2
+      }
+    ],
+    "DOC_NOTETAKING": [
+      {
+        "cmd": "Edit /home/xnihil0zer0/.claude/projects/-home-xnihil0zer0-JanusMaskJR/memory/MEMORY.md",
+        "n": 203
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/JANUSMASKJR_CONTINUATION_PLAN_REV18.md",
+        "n": 60
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/JANUSMASKJR_CONTINUATION_PLAN_REV25.md",
+        "n": 48
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/JanusMaskJR_restoration_plan.md",
+        "n": 27
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/JANUSMASKJR_CONTINUATION_PLAN_REV8.md",
+        "n": 27
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/README.md",
+        "n": 26
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/JANUSMASKJR_GAP_REMEDIATION_PLAN.md",
+        "n": 25
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/JANUSMASKJR_CONTINUATION_PLAN_REV20.md",
+        "n": 22
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/JANUSMASKJR_CONTINUATION_PLAN_REV13.md",
+        "n": 21
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/JANUSMASKJR_CONTINUATION_PLAN_REV3.md",
+        "n": 21
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/JANUSMASKJR_CONTINUATION_PLAN_REV22.md",
+        "n": 20
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/JANUSMASKJR_CONTINUATION_PLAN_REV26.md",
+        "n": 18
+      }
+    ],
+    "OTHER_FS_OP": [
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR /home/xnihil0zer0/miniconda3/bin/python - <<'PY' import json, time, calendar, re now=time.time(); WIN=6*3600; cutoff=now-WIN def ep(t): if isinstance(t,(int,float)): r",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; source venv/bin/activate 2>/dev/null; timeout 115 python3 - <<'PY' from pathlib import Path from harness.wire_up import sweep_modules, discover_live_roots root=Path('",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; source venv/bin/activate 2>/dev/null; timeout 115 python3 - <<'PY' from pathlib import Path from harness.wire_up import sweep_modules, discover_live_roots rep = sweep",
+        "n": 2
+      },
+      {
+        "cmd": "/home/xnihil0zer0/JanusMaskJR/.venv/bin/python --version",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; B=$(wc -l < state/impl_progress.jsonl); for i in $(seq 1 90); do EV=$(awk -v b=\"$B\" 'NR>b' state/impl_progress.jsonl | grep -E '\"task_id\": \"A[45]_' | grep -E '\"event\"",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; source venv/bin/activate 2>/dev/null; python3 -c \" import re def newpat(stem): s = re.escape(stem) return re.compile(r'(?<![\\w.])' + s + r'\\.py\\b' # stem.py path r'|(",
+        "n": 2
+      },
+      {
+        "cmd": "cp /tmp/oraclecheck/harness/depth_validator.py /home/xnihil0zer0/JanusMaskJR/.tmp_oracle_orig.py 2>&1; echo \"done\"",
+        "n": 1
+      },
+      {
+        "cmd": "python3 -c \" import json d = json.load(open('state/sessions/claude_round1_RB_JanusMask_check_true_depth-compose-reviewed_submission.json')) print('KEYS:', list(d.keys())) for k,v in d.items(): if isin",
+        "n": 1
+      },
+      {
+        "cmd": "rm -f /home/xnihil0zer0/JanusMaskJR/.tmp_read_orig.py /home/xnihil0zer0/JanusMaskJR/.tmp_oracle_orig.py; echo cleaned",
+        "n": 1
+      },
+      {
+        "cmd": "/home/xnihil0zer0/JanusMaskJR/.venv/bin/python - <<'PY' def relative_base(importing_rel, level): package_parts = importing_rel.split('/')[:-1] cut = len(package_parts) - (level - 1) if cut < 0: return",
+        "n": 1
+      },
+      {
+        "cmd": "grep -n \"smoke-verify .venv/bin/python resolves under the jail\" JANUSMASKJR_CONTINUATION_PLAN_REV18.md",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR echo \"=== numstat ===\" git show --numstat 623e4a6 | grep -E \"orchestrator|git_integration\" echo \"=== _auto_commit_accepted line count BEFORE (parent) vs AFTER ===\" git",
+        "n": 1
+      }
+    ],
+    "MANUAL_PRODUCTION_EDIT": [
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/harness/orchestrator.py",
+        "n": 57
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/harness/config.yaml",
+        "n": 46
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/harness/autowork_daemon.py",
+        "n": 34
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/harness/orchestrator_worker.py",
+        "n": 31
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/harness/git_integration.py",
+        "n": 25
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/harness/agent_jail.py",
+        "n": 16
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/_autowork_scratch/ngv2_fsm/poc_writer.py",
+        "n": 15
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/_autowork_scratch/pty_jail_proof.py",
+        "n": 14
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/harness/planner/blind_draft.py",
+        "n": 10
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/NobleGreedv2/ngv2/poc_writer.py",
+        "n": 9
+      },
+      {
+        "cmd": "Edit /tmp/ngv2e4_watch.sh",
+        "n": 7
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/scripts/flip_autowork_flags.sh",
+        "n": 7
+      }
+    ],
+    "PLAN_BRIEF_SHEPHERDING": [
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/brief_hooks_overseer_chat.md",
+        "n": 17
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/brief_hooks_EX_fix.md",
+        "n": 9
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/brief_hooks_autocompiler.md",
+        "n": 6
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/.claude/projects/-home-xnihil0zer0-JanusMaskJR/memory/brief-staleness-reconciler.md",
+        "n": 5
+      },
+      {
+        "cmd": "Write /home/xnihil0zer0/JanusMaskJR/brief_hooks_EX_fix.md",
+        "n": 5
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/brief_hooks_overseer_procedure_gates.md",
+        "n": 5
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/brief_hooks_spine_state_core.md",
+        "n": 5
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/brief_hooks_srcdrive_source_localize.md",
+        "n": 5
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/autocompiler_research/brief_hooks_autocompiler.md",
+        "n": 5
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/janusmask_briefs/WFDRIFT/WFDRIFT_taskspec.json",
+        "n": 4
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/scripts/brief_status.py",
+        "n": 3
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/brief_hooks_wire_up_phase.md",
+        "n": 3
+      }
+    ],
+    "ALLOWLIST_CONFIG_EDIT": [
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/state/control/autowork/auto_promote.allowlist",
+        "n": 29
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/config/autocompiler.yaml",
+        "n": 4
+      },
+      {
+        "cmd": "Write /home/xnihil0zer0/JanusMaskJR/state/control/autowork/auto_promote.allowlist",
+        "n": 3
+      },
+      {
+        "cmd": "cat /home/xnihil0zer0/JanusMaskJR/state/control/autowork/auto_promote.allowlist 2>/dev/null; echo \"---EXIT:$?---\"",
+        "n": 2
+      },
+      {
+        "cmd": "cat /home/xnihil0zer0/JanusMaskJR/state/control/autowork/auto_promote.allowlist 2>/dev/null; echo \"---EXIT $?---\"",
+        "n": 2
+      },
+      {
+        "cmd": "ls -la state/control/autowork/ 2>/dev/null && echo \"---ALLOWLIST---\" && cat state/control/autowork/auto_promote.allowlist 2>/dev/null",
+        "n": 2
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/tests/adversarial/test_agent_command_tool_allowlist.py",
+        "n": 2
+      },
+      {
+        "cmd": "Write /home/xnihil0zer0/JanusMaskJR/brief_hooks_kickoff_autopromote_allowlist.md",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR D=~/janusmask_briefs/rev23_exec/EXTERNAL_ROOTS_ALLOWLIST cp $D/EXTERNAL_ROOTS_ALLOWLIST_oracle.py tests/adversarial/test_external_roots_allowlist.py echo \"=== RED chec",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR echo \"=== SCOPE ===\" git show --stat --oneline 416caa7 | head echo \"=== GREEN ===\" python -m pytest -p no:cacheprovider -q \"tests/adversarial/test_external_roots_allow",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR D=~/janusmask_briefs/rev23_exec/BRIEF_LOAD_GUARD cp $D/BRIEF_LOAD_GUARD_oracle.py tests/adversarial/test_brief_load_guard.py if python -m pytest -p no:cacheprovider -q",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR git show --numstat 3b4c431 | grep orchestrator python -m pytest -p no:cacheprovider -q \"tests/adversarial/test_g3_venv.py\" \"tests/security/test_cred_exfil_execpath.py\"",
+        "n": 1
+      }
+    ],
+    "GIT_RECOVERY": [
+      {
+        "cmd": "echo \"=== HEAD ===\" && git log --oneline -6 && echo \"=== STATUS (short) ===\" && git status --short | head -40 && echo \"=== WORKTREES ===\" && git worktree list && echo \"=== STASHES ===\" && git stash li",
+        "n": 4
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/NobleGreedv2 && cp /tmp/ngv2_fsm_verify/tests/test_conductor_seams_threading.py tests/test_conductor_seams_threading.py && git add tests/test_conductor_seams_threading.py && git c",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR git add JANUSMASKJR_CONTINUATION_PLAN_REV23.md git commit -q -m \"REV23.1: apply Claude adversarial-review corrections inline (13 \u00a7C# at \u22653/5 consensus) 5 reviewers (4 ",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR D=~/janusmask_briefs/rev23_exec/MCP_RELAX cp $D/MCP_RELAX_oracle.py tests/adversarial/test_mcp_relax.py echo \"=== RED check (must FAIL) ===\" if python -m pytest -p no:",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR echo \"=== GREEN with production fix + corrected oracle ===\" python -m pytest -p no:cacheprovider -q \"tests/adversarial/test_mcp_relax.py\" \"tests/adversarial/test_mcp_s",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR D=~/janusmask_briefs/rev23_exec/STAGING_REROOT cp $D/STAGING_REROOT_oracle.py tests/adversarial/test_staging_reroot.py if python -m pytest -p no:cacheprovider -q tests",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR BASE=$(python3 -c \"import ast;t=ast.parse(open('harness/orchestrator.py').read());print(next(n.end_lineno-n.lineno+1 for n in ast.walk(t) if isinstance(n,ast.FunctionD",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR D=~/janusmask_briefs/rev23_exec/COMMIT_REROOT cp $D/COMMIT_REROOT_oracle.py tests/adversarial/test_commit_reroot.py if python -m pytest -p no:cacheprovider -q tests/ad",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR echo \"_auto_commit_accepted baseline:\" ; python3 -c \"import ast;t=ast.parse(open('harness/orchestrator.py').read());print(next(n.end_lineno-n.lineno+1 for n in ast.wal",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR python3 - <<'PY' import ast,json res={} for f,syms in [(\"harness/orchestrator.py\",[\"spawn_agent\"]),(\"harness/autowork_daemon.py\",[\"_maybe_push_and_rebase_pin\"])]: t=as",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR echo \"run_pipeline baseline:\"; python3 -c \"import ast;t=ast.parse(open('harness/orchestrator.py').read());print(next(n.end_lineno-n.lineno+1 for n in ast.walk(t) if is",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR python3 - <<'PY' import ast,json res={} for f,syms in [(\"harness/embedded_test_runner.py\",[\"run_embedded_tests\"]),(\"harness/narrow_fuzz/validation.py\",[\"_exec_module\"]",
+        "n": 1
+      }
+    ],
+    "AGY_SPAWN": [
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR agy --dangerously-skip-permissions --model \"Gemini 3.5 Flash (Medium)\" --print-timeout 20m --add-dir /home/xnihil0zer0/janusmask_briefs/rev29_sec -p \"$(cat /home/xnihi",
+        "n": 5
+      },
+      {
+        "cmd": "agy --dangerously-skip-permissions --model \"Gemini 3.5 Flash (Medium)\" --print-timeout 20m --add-dir /home/xnihil0zer0/janusmask_briefs/rev29b_exec -p \"$(cat /home/xnihil0zer0/janusmask_briefs/rev29b_",
+        "n": 3
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; echo \"=== P10A1 authoring ===\"; if grep -q \"agy P10A1 rc=\" /tmp/claude-1000/-home-xnihil0zer0-JanusMaskJR/e8bf5eb0-3675-44f1-a32d-882ed7da03fe/tasks/b7t3hv1g9.output ",
+        "n": 2
+      },
+      {
+        "cmd": "nohup agy --dangerously-skip-permissions --print-timeout 35m --add-dir /home/xnihil0zer0/JanusMaskJR --add-dir /home/xnihil0zer0/janusmask_briefs -p \"Read and execute the instructions in /home/xnihil0",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0 nohup agy --dangerously-skip-permissions --print-timeout 35m --add-dir /home/xnihil0zer0/JanusMaskJR --add-dir /home/xnihil0zer0/janusmask_briefs -p \"Read and execute /home/xnihil",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR python3 - <<'PY' import json, hashlib from pathlib import Path ref = Path(\"_autowork_scratch/tmux_worker_ref.py\").read_text() oracle = Path(\"tests/harness/test_tmux_wo",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR echo \"=== how was agy invoked? (head of run log) ===\" head -25 ~/janusmask_briefs/review_rev23/agy_run.log 2>/dev/null echo \"=== agy binary/wrapper? ===\" which agy ant",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR agy -p \"Read /home/xnihil0zer0/janusmask_briefs/review_rev24/AGY_PROMPT.md in full and follow it EXACTLY: run the 4-area (R1-R4) READ-ONLY adversarial review panel and",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR echo \"=== agy exit + reports ===\" tail -5 /tmp/claude-1000/-home-xnihil0zer0-JanusMaskJR/d0c3c4b0-16bc-4c56-8af2-3ef8e0c3c7a4/tasks/bpqeffzsv.output ls -la ~/janusmask",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR echo \"=== _commit_accepted_output_multi escape guard + rel_str (agy :890) ===\" grep -n \"def _commit_accepted_output_multi\\|def _commit_accepted_output_patches\\|relativ",
+        "n": 1
+      },
+      {
+        "cmd": "echo \"=== HEAD ===\" && git rev-parse --short HEAD && echo \"=== upstream ===\" && git rev-parse --short @{u} 2>/dev/null && echo \"=== flag ===\" && cat state/control/orchestrator.flag 2>/dev/null && echo",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR echo \"=== JM production tree integrity (no unexpected .py changes) ===\" && git status --short | grep -vE '\\.md$|HANDOFF|_autowork|NGV2|REPORT|^\\?\\? brief_hooks|nexus|p",
+        "n": 1
+      }
+    ],
+    "STATE_SIDECAR_CLEANUP": [
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; python3 - <<'EOF' import json fn='plan_hooks_spine_state_core.json' p=json.load(open(fn)); tasks=p.get('tasks') or p.get('plan',{}).get('tasks') t=[x for x in tasks i",
+        "n": 3
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; python3 - <<'EOF' import json fn='plan_hooks_spine_api_mcp.json' p=json.load(open(fn)); tasks=p.get('tasks') or p.get('plan',{}).get('tasks') t=[x for x in tasks if x",
+        "n": 3
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR pkill -9 -x agy 2>/dev/null mv state/tasks/processed/rev26_p5b_config_keys.json state/tasks/rev26_p5b_config_keys.json 2>/dev/null cp /home/xnihil0zer0/janusmask_brief",
+        "n": 3
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR rm -f state/output/rev28_selfheal_synth_plan.patches.json state/output/rev28_selfheal_synth_plan.py mv state/tasks/processed/rev28_selfheal_synth_plan.json state/tasks",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR rm -f state/tasks/blocked/A4_debate_router_entropy.json state/tasks/blocked/A4_debate_router_entropy.retry.json state/tasks/blocked/A5_ast_verifier_marker.json state/t",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; echo \"pause\" > state/control/orchestrator.flag python3 -c \" import pathlib; p=pathlib.Path('state/control/autowork/auto_promote.allowlist') out=[l for l in p.read_tex",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/NobleGreedv2; cp /home/xnihil0zer0/JanusMaskJR/state/output/C1.py ngv2/session_api.py 2>/dev/null && python -m pytest tests/ngv2/test_session_api_wired.py -q 2>&1 | grep -E \"FAILE",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR pkill -9 -x agy 2>/dev/null; sleep 1 mv state/tasks/processed/rev26_p5b_config_keys.json state/tasks/rev26_p5b_config_keys.json 2>/dev/null cp /home/xnihil0zer0/janusm",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR git add tests/adversarial/test_relax_predicate.py git commit -q -m \"RELAX_PREDICATE oracle (REV23 \u00a71a): G2 relax must fail-closed for JM-tree targets, RED on HEAD Co-A",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR D=~/janusmask_briefs/rev23_exec/BRIEF_ZOMBIE_RECLAMATION cp $D/BRIEF_ZOMBIE_RECLAMATION_oracle.py tests/adversarial/test_brief_zombie_reclamation.py echo \"=== RED chec",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR echo \"=== reset the bad integrate (keep oracle commit), confirm ===\" git log --oneline -3 git reset --hard 623e4a6^ >/dev/null 2>&1 git log --oneline -2 echo \"=== _aut",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR echo \"=== confirm tree clean (orchestrator reverted reject) + oracle commit present ===\" git status --short | grep -v '^??' | grep -v '.claude/worktrees' git log --one",
+        "n": 1
+      }
+    ],
+    "GIT_PUSH": [
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR git push origin master 2>&1 | tail -2",
+        "n": 6
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR git push origin master 2>&1 | tail -3",
+        "n": 4
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR git push origin master 2>&1 | tail -3 git log --oneline -3",
+        "n": 4
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; git push origin master 2>&1 | tail -2",
+        "n": 3
+      },
+      {
+        "cmd": "git push origin master 2>&1 | tail -15",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR git push origin master 2>&1 | tail -2 echo \"=== pushed $(git rev-parse --short HEAD) ===\"",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR git push origin master 2>&1 | tail -5 git log --oneline -3",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR git add harness/mcp_server.py tests/adversarial/test_mcp_relax.py git commit -q -m \"MCP_RELAX (REV23 \u00a71b) HAND-EDIT: thread relax_external_constructs via shared predic",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR git push origin master 2>&1 | tail -2 git log --oneline -3",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR git add harness/git_integration.py harness/orchestrator.py git commit -q -m \"COMMIT_REROOT (REV23 \u00a73-3/\u00a73-6/\u00a72a) HAND-EDIT: external commit re-root + containment + unt",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR echo \"merge_staging_to_parent baseline:\"; python3 -c \"import ast;t=ast.parse(open('harness/git_integration.py').read());print(next(n.end_lineno-n.lineno+1 for n in ast",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR git add tests/integration/test_external_capability_e2e.py git commit -q -m \"INTEGRATION_TEST (REV23 \u00a73-9): gating external-capability e2e suite (cases A-K + \u00a71a) 25 te",
+        "n": 1
+      }
+    ],
+    "ORACLE_TEST_AUTHORING": [
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/tests/test_orchestrator.py",
+        "n": 12
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/tests/adversarial/test_agent_jail.py",
+        "n": 8
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/tests/adversarial/test_daemon_control_isolation_hooks.py",
+        "n": 7
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/tests/integration/test_webui_control_autobrief.py",
+        "n": 6
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/tests/adversarial/test_P2_mutation_kill.py",
+        "n": 5
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/tests/adversarial/test_worker_timeout_budget_paths.py",
+        "n": 5
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/tests/adversarial/test_planning_outbox_fallback_adversarial.py",
+        "n": 5
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/tests/harness/test_worker_reap_wiring.py",
+        "n": 4
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/tests/adversarial/test_webui_autobrief_adversarial.py",
+        "n": 4
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/tests/adversarial/test_planner_model_upgrade_adversarial.py",
+        "n": 4
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/tests/planner/test_plan_normalizer_vcmd_sanitize.py",
+        "n": 4
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/tests/harness/test_tmux_worker.py",
+        "n": 4
+      }
+    ],
+    "DAEMON_CONTROL": [
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR TID=ngv2-detonation-chamber rm -f state/output/$TID.* state/tasks/processed/$TID.json state/tasks/blocked/$TID.* state/tasks/$TID.json.processing state/tasks/current_t",
+        "n": 3
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR TID=overseer-web-api-impl rm -f state/output/$TID.* state/tasks/blocked/$TID.* state/tasks/processed/$TID.json state/control/autowork/git_commit.lock python3 -c \"from ",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR echo \"=== pause daemon ===\" DPID=$(cat /tmp/ngv2e4_daemon.pid) for c in $(pgrep -P $DPID 2>/dev/null); do args=$(ps -o args= -p $c 2>/dev/null); case \"$args\" in *plann",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR printf run > state/control/orchestrator.flag nohup /home/xnihil0zer0/miniconda3/bin/python -m harness.autowork_daemon --state-dir state > /tmp/ngv2e4_daemon.log 2>&1 &",
+        "n": 2
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR echo \"=== AW11: does _auto_promote have kill-switch / staleness / allowlist? ===\" grep -nE \"def _auto_promote|allowlist|brief_mtime|staleness|kill.?switch|disabled|sho",
+        "n": 1
+      },
+      {
+        "cmd": "echo \"waiting for A.1 worker + A.2 planner\"; while kill -0 $(pgrep -f \"orchestrator_worker --state-dir state --task-id dep_gate_no_premature_release\" | head -1) 2>/dev/null; do sleep 15; done; echo \"A",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR while kill -0 $(pgrep -f \"orchestrator_worker --state-dir state --task-id archiver-impl\" | head -1) 2>/dev/null; do sleep 20; done echo \"=== archiver-impl re-run DONE ",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR while kill -0 $(pgrep -f \"orchestrator_worker --state-dir state --task-id uploader-impl\" | head -1) 2>/dev/null; do sleep 20; done echo \"B DONE\"; git log --oneline -1;",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR while kill -0 $(pgrep -f \"orchestrator_worker --state-dir state --task-id uploader-impl\" | head -1) 2>/dev/null; do sleep 20; done echo \"B DONE\"; tail -3 _autowork_scr",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR while kill -0 $(pgrep -f \"task-id hook-runner-impl\" | head -1) 2>/dev/null; do sleep 20; done echo \"C2 DONE\"; tail -2 _autowork_scratch/driveC_worker.log; git log --on",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR while kill -0 $(pgrep -f \"task-id installer-impl\" | head -1) 2>/dev/null; do sleep 20; done echo \"D DONE\"; tail -2 _autowork_scratch/driveD_worker.log; git log --oneli",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR while kill -0 $(pgrep -f \"task-id installer-impl\" | head -1) 2>/dev/null; do sleep 20; done echo \"D2 DONE\"; tail -2 _autowork_scratch/driveD_worker.log; git log --onel",
+        "n": 1
+      }
+    ],
+    "OTHER_EDIT": [
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/requirements.txt",
+        "n": 2
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/NobleGreedv2/.gitignore",
+        "n": 2
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/pytest.ini",
+        "n": 2
+      },
+      {
+        "cmd": "Write /home/xnihil0zer0/JanusMaskJR/Makefile",
+        "n": 2
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/Makefile",
+        "n": 2
+      },
+      {
+        "cmd": "Write /home/xnihil0zer0/JanusMaskJR/state/_probe_test.txt",
+        "n": 1
+      },
+      {
+        "cmd": "Write /home/xnihil0zer0/JanusMaskJR/hierarchical_planner_design/AGY_MASTER_PROMPT.txt",
+        "n": 1
+      },
+      {
+        "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/tools/webui_static/app.js",
+        "n": 1
+      },
+      {
+        "cmd": "Write /home/xnihil0zer0/JanusMaskJR/.gitignore",
+        "n": 1
+      },
+      {
+        "cmd": "Write /home/xnihil0zer0/JanusMaskJR/autocompiler/js/js_runner.js",
+        "n": 1
+      },
+      {
+        "cmd": "Write /home/xnihil0zer0/JanusMaskJR/build_test_no_newline.txt",
+        "n": 1
+      },
+      {
+        "cmd": "Write /home/xnihil0zer0/JanusMaskJR/_manifest_header.txt",
+        "n": 1
+      }
+    ],
+    "CLOBBER_NEUTRALIZE": [
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; ps -p 1709286 -o pid,etime --no-headers 2>/dev/null || echo \"PLANNER EXITED\"; echo \"---PLAN?---\"; ls -la plan_hooks_webui_brief_editor_input_clobber*.json 2>/dev/null",
+        "n": 2
+      },
+      {
+        "cmd": "Write /home/xnihil0zer0/JanusMaskJR/state/workdirs/claude/claude-r1-RB_jr_slice_materialize_skeleton-29e939b9/outbox/submission.py",
+        "n": 1
+      },
+      {
+        "cmd": "Write /home/xnihil0zer0/JanusMaskJR/tests/test_selfheal_promote_skip_done_stale.py",
+        "n": 1
+      },
+      {
+        "cmd": "Write /home/xnihil0zer0/janusmask_briefs/rev28_exec/prompt_SH2A.txt",
+        "n": 1
+      },
+      {
+        "cmd": "Write /home/xnihil0zer0/janusmask_briefs/rev29_exec/prompt_S0.txt",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; echo \"=== Step 0 dispatch ===\"; if grep -q \"DISPATCH_EXIT=\" state/dispatch_s0.log 2>/dev/null; then grep -E \"reached processed|accepted.*auto_commit|verification_fail",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; echo \"=== BASELINE ===\"; grep -E \"passed|failed\" state/rev29_baseline.log | tail -1; echo \"--- failures ---\"; grep \"FAILED\" state/rev29_baseline.log | sed 's#tests/##",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; if grep -q \"DISPATCH_EXIT=\" state/dispatch_s0.log 2>/dev/null; then echo \"TERMINAL:\"; grep -E \"reached processed|accepted.*auto_commit|verification_failed|patch apply",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; echo \"=== dispatch_s0.log full ===\"; cat state/dispatch_s0.log 2>/dev/null | head -20; echo \"=== orchestrator procs ===\"; pgrep -af \"harness.orchestrator\" | grep -v g",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; echo \"=== ast_validation_failed detail in ledger ===\"; grep '\"task_id\": \"rev29_clobber_guard\"' state/impl_progress.jsonl | grep -iE \"ast_validation_failed|validation|",
+        "n": 1
+      },
+      {
+        "cmd": "Write /home/xnihil0zer0/janusmask_briefs/rev29_exec/prompt_S0split.txt",
+        "n": 1
+      },
+      {
+        "cmd": "cd /home/xnihil0zer0/JanusMaskJR; grep -E \"reached processed|accepted.*auto_commit|Integrate rev29_clobber_guard_ap|Rejecting\" state/dispatch_s0b.log | tail -3; echo \"HEAD: $(git log --oneline -1|cat)",
+        "n": 1
+      }
+    ]
+  },
+  "top_other_raw": [
+    {
+      "cmd": "cd ~/.claude/projects/-home-xnihil0zer0-JanusMaskJR/; python3 - <<'PY' import json def text(m): c=m.get('content') if isinstance(c,str): return c if isinstance(c,list): return ' '.join(b.get('text',''",
+      "n": 4
+    },
+    {
+      "cmd": "/tmp/ngv2e4_runwatch.sh",
+      "n": 3
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/JanusMaskJR timeout 90 python3 -c \" import os, subprocess, time from pathlib import Path from harness import agent_jail from harness.dbus_proxy import proxied_session_bus WD='/tmp",
+      "n": 3
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/JanusMaskJR /home/xnihil0zer0/miniconda3/bin/python - <<'PY' import json, time, calendar, re now=time.time(); WIN=6*3600; cutoff=now-WIN def ep(t): if isinstance(t,(int,float)): r",
+      "n": 2
+    },
+    {
+      "cmd": "/tmp/ngv2e4_watch.sh 2>&1 | grep -avE '\"type\":\"stream_event\"|\"type\":\"assistant\"|\"type\":\"user\"|\"type\":\"result\"|tool_use|tool_result' | head -14",
+      "n": 2
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/JanusMaskJR; source venv/bin/activate 2>/dev/null; timeout 115 python3 - <<'PY' from pathlib import Path from harness.wire_up import sweep_modules, discover_live_roots root=Path('",
+      "n": 2
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/JanusMaskJR; source venv/bin/activate 2>/dev/null; timeout 115 python3 - <<'PY' from pathlib import Path from harness.wire_up import sweep_modules, discover_live_roots rep = sweep",
+      "n": 2
+    },
+    {
+      "cmd": "/home/xnihil0zer0/JanusMaskJR/.venv/bin/python --version",
+      "n": 2
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/JanusMaskJR; if grep -q DONE state/sweep_after_p10a.log 2>/dev/null; then echo \"TARGETED:\"; sed -n '1,4p' /tmp/claude-1000/-home-xnihil0zer0-JanusMaskJR/e8bf5eb0-3675-44f1-a32d-88",
+      "n": 2
+    },
+    {
+      "cmd": "python3 - <<'EOF' p = 'autocompiler_research/phase_b_reference/determinism.py' src = open(p).read() old = \"\"\"def _mock_sleep(seconds): try: _state['now'] += max(0.0, float(seconds)) except (TypeError,",
+      "n": 2
+    },
+    {
+      "cmd": "python3 -c \" import yaml, subprocess cur = yaml.safe_load(open('harness/config.yaml')) head = yaml.safe_load(subprocess.run(['git','show','HEAD:harness/config.yaml'],capture_output=True,text=True).std",
+      "n": 2
+    },
+    {
+      "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/requirements.txt",
+      "n": 2
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/JanusMaskJR; echo \"RESULT_MARKER\"; python -c \"import ast; ast.parse(open('tests/integration/test_phase_m_merge_reliability.py').read()); print('PARSE OK')\" 2>&1; echo \"LINECOUNT=$",
+      "n": 2
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/JanusMaskJR base=72e8c8c pid=$(cat /tmp/overseer_daemon_pid.txt) for i in $(seq 1 39); do # up to ~13 min sleep 20 if ! ps -p $pid >/dev/null 2>&1; then echo \"EVENT=daemon_dead it",
+      "n": 2
+    },
+    {
+      "cmd": "python3 -c \" from pathlib import Path files = ['harness/test_scoper.py', 'harness/orchestrator.py', 'tests/test_test_scoper.py'] root = Path('/home/xnihil0zer0/JanusMaskJR') out = Path('/home/xnihil0z",
+      "n": 2
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/JanusMaskJR grep \"verification_failed\" state/impl_progress.jsonl | tail -1 | python3 -c \"import sys,json d=json.loads(sys.stdin.read()); print('STDOUT:'); print(d.get('stdout_tail",
+      "n": 2
+    },
+    {
+      "cmd": "python -c \" import sys sys.path.insert(0, 'scratch') from test_under_review import _ast_merge try: r = _ast_merge('', '') print('OK:', repr(r)) except Exception as e: print(f'FAIL: {type(e).__name__}:",
+      "n": 2
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/JanusMaskJR; B=$(wc -l < state/impl_progress.jsonl); for i in $(seq 1 90); do EV=$(awk -v b=\"$B\" 'NR>b' state/impl_progress.jsonl | grep -E '\"task_id\": \"A[45]_' | grep -E '\"event\"",
+      "n": 2
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/JanusMaskJR grep \"ngv2-handlers-oracle\" state/impl_progress.jsonl 2>/dev/null | tail -5 | python3 -c \" import sys,json for l in sys.stdin: try: d=json.loads(l); e={k:d[k] for k in",
+      "n": 2
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/.claude/projects cat > /tmp/scan2.py <<'PY' import json, glob, os, re roots = [ \"/home/xnihil0zer0/.claude/projects/-home-xnihil0zer0-JanusMaskJR\", \"/home/xnihil0zer0/.claude/proj",
+      "n": 2
+    },
+    {
+      "cmd": "Edit /home/xnihil0zer0/NobleGreedv2/.gitignore",
+      "n": 2
+    },
+    {
+      "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/pytest.ini",
+      "n": 2
+    },
+    {
+      "cmd": "Write /home/xnihil0zer0/JanusMaskJR/Makefile",
+      "n": 2
+    },
+    {
+      "cmd": "Edit /home/xnihil0zer0/JanusMaskJR/Makefile",
+      "n": 2
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/JanusMaskJR; python -c \" import json from harness.planner.plan_validator import validate_plan p=json.load(open('plan_hooks_kickoff_autopromote_allowlist.json')) ts=p.get('tasks',[",
+      "n": 2
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/JanusMaskJR; kill -0 $(cat /tmp/ngv2_worker.pid) 2>/dev/null && echo \"building ($(ps -o etimes= -p $(cat /tmp/ngv2_worker.pid) 2>/dev/null)s)\" || echo \"WORKER DONE\"",
+      "n": 2
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/JanusMaskJR; kill -0 $(cat /tmp/ngv2_worker.pid) 2>/dev/null && echo \"building ($(ps -o etimes= -p $(cat /tmp/ngv2_worker.pid) 2>/dev/null)s)\" || echo \"DONE\"",
+      "n": 2
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/JanusMaskJR; source venv/bin/activate 2>/dev/null; python3 -c \" import re def newpat(stem): s = re.escape(stem) return re.compile(r'(?<![\\w.])' + s + r'\\.py\\b' # stem.py path r'|(",
+      "n": 2
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/JanusMaskJR WF=/home/xnihil0zer0/.claude/projects/-home-xnihil0zer0-JanusMaskJR/dc1281af-e41c-44d6-85cb-8ad8664763cf/subagents/workflows/wf_1ae15bd6-abd echo \"agents: $(ls \"$WF\"/a",
+      "n": 2
+    },
+    {
+      "cmd": "cd /home/xnihil0zer0/JanusMaskJR scripts/impl_dispatch_once.sh sec_inv9_content_gate state 1800 2>&1 | tail -12",
+      "n": 2
+    }
+  ],
+  "ngv2_touching_interventions": {
+    "OTHER_BASH": 430,
+    "MANUAL_PIPELINE_DRIVING": 286,
+    "MANUAL_TEST_RUN": 158,
+    "PLAN_BRIEF_SHEPHERDING": 116,
+    "DAEMON_CONTROL": 107,
+    "MANUAL_PRODUCTION_EDIT": 107,
+    "OTHER_FS_OP": 101,
+    "STATE_SIDECAR_CLEANUP": 88,
+    "ORACLE_TEST_AUTHORING": 83,
+    "ALLOWLIST_CONFIG_EDIT": 67,
+    "GIT_RECOVERY": 55,
+    "CLOBBER_NEUTRALIZE": 26,
+    "AGY_SPAWN": 20,
+    "GIT_PUSH": 14,
+    "OTHER_EDIT": 2
+  },
+  "ngv2_intervention_total": 1660,
+  "timeline": {
+    "2026-05-21": {
+      "interventions": 57,
+      "tool_use": 244
+    },
+    "2026-05-22": {
+      "interventions": 174,
+      "tool_use": 782
+    },
+    "2026-05-23": {
+      "interventions": 208,
+      "tool_use": 1416
+    },
+    "2026-05-24": {
+      "interventions": 4,
+      "tool_use": 54
+    },
+    "2026-05-26": {
+      "interventions": 192,
+      "tool_use": 1119
+    },
+    "2026-05-27": {
+      "interventions": 139,
+      "tool_use": 1210
+    },
+    "2026-05-28": {
+      "interventions": 342,
+      "tool_use": 1959
+    },
+    "2026-05-29": {
+      "interventions": 723,
+      "tool_use": 2022
+    },
+    "2026-05-30": {
+      "interventions": 341,
+      "tool_use": 1025
+    },
+    "2026-05-31": {
+      "interventions": 267,
+      "tool_use": 669
+    },
+    "2026-06-01": {
+      "interventions": 473,
+      "tool_use": 1226
+    },
+    "2026-06-02": {
+      "interventions": 351,
+      "tool_use": 882
+    },
+    "2026-06-03": {
+      "interventions": 430,
+      "tool_use": 838
+    },
+    "2026-06-04": {
+      "interventions": 553,
+      "tool_use": 1070
+    },
+    "2026-06-05": {
+      "interventions": 879,
+      "tool_use": 1462
+    },
+    "2026-06-06": {
+      "interventions": 867,
+      "tool_use": 1731
+    },
+    "2026-06-07": {
+      "interventions": 317,
+      "tool_use": 549
+    },
+    "2026-06-08": {
+      "interventions": 864,
+      "tool_use": 1438
+    },
+    "2026-06-09": {
+      "interventions": 777,
+      "tool_use": 1393
+    },
+    "2026-06-10": {
+      "interventions": 520,
+      "tool_use": 966
+    },
+    "2026-06-11": {
+      "interventions": 123,
+      "tool_use": 277
+    },
+    "2026-06-12": {
+      "interventions": 185,
+      "tool_use": 503
+    },
+    "2026-06-13": {
+      "interventions": 330,
+      "tool_use": 533
+    },
+    "2026-06-14": {
+      "interventions": 875,
+      "tool_use": 1459
+    },
+    "2026-06-15": {
+      "interventions": 97,
+      "tool_use": 171
+    }
+  }
+}

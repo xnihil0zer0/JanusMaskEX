@@ -1,0 +1,362 @@
+{
+  "files_scanned": 1261,
+  "archive_session_dirs": 21,
+  "archive_session_names": [
+    "2026-06-05",
+    "2026-06-07_root_metadata_sweep",
+    "2026-06-08",
+    "2026-06-08_overseer_build_declutter",
+    "2026-06-08_overseer_pillars_and_fsm",
+    "2026-06-09_ngv2_wireup_epic",
+    "2026-06-09_p6_hook_registration",
+    "2026-06-10_autocompiler_phases_bcd",
+    "2026-06-10_bugfix_sweep",
+    "2026-06-11_bounty_fsm_pruned",
+    "2026-06-12_live_bounty_decompose_prune",
+    "2026-06-13_ngv2_spawn_entrypoint_complete",
+    "2026-06-14_backend_epics_complete",
+    "2026-06-14_root_declutter",
+    "ngv2_epic4_mopup",
+    "ngv2_epic4_priorrun_partial",
+    "overseer_decompose_prune",
+    "overseer_no_output_evidence",
+    "overseer_session_verification",
+    "phase2_symbol_ledger_attempt1",
+    "stale_briefs_2026-06-08"
+  ],
+  "decision_files_total": 231,
+  "decision_files_scanned_in_corpus": 0,
+  "manual_drive_recipe_files": 51,
+  "manual_drive_recipe_file_list": [
+    "EPIC_source_driving_poc_synthesis.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/brief_hooks/MANIFEST_B.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/brief_hooks/brief_hooks_harden_sanitize_vcmd.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/brief_hooks/brief_hooks_staging_config_fix.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/brief_hooks/brief_hooks_submit_code_mutation_coverage.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/docs/JANUSMASKJR_CONTINUATION_PLAN_REV29.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/docs/NGV2_EPIC4_CONTINUATION_HANDOFF_REV3.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/docs/NGV2_EPIC4_HANDOFF.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/docs/NOBLEGREEDV2_REBUILD_HANDOFF.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/docs/PHASE2_FIX1_HANDOFF.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/docs/PHASE2_HANDOFF_PROMPT.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/plan_hooks/MANIFEST_plan_hooks.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_briefs/brief_hooks_epic_child_subset_dedup.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_docs/JANUSMASKJR_PHASE2_HANDOFF.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_docs/NGV2_EPIC1_RUN_HANDOFF.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_docs/NGV2_EPIC2_HANDOFF.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_docs/NGV2_EPIC3_HANDOFF.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_docs/NGV2_EPIC3_RESUME_HANDOFF.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_docs/NGV2_EPIC4_CONTINUATION_HANDOFF.md",
+    "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_docs/NGV2_EPIC4_CONTINUATION_HANDOFF_REV2.md",
+    "_autowork_archive/2026-06-08_overseer_build_declutter/briefs/brief_hooks_interactive-driver-and-actions.md",
+    "_autowork_archive/2026-06-08_overseer_build_declutter/epic_run_generated/brief_hooks_overseer-interactive-core.md",
+    "_autowork_archive/2026-06-14_root_declutter/HANDOFF_P6_procedure_hook_registration.md",
+    "_autowork_archive/2026-06-14_root_declutter/HANDOFF_drive_epic_harness_hardening_and_concurrent_live_hunt.md",
+    "_autowork_archive/2026-06-14_root_declutter/HANDOFF_factory_clobber_fix_and_ngv2_worker_rework.md",
+    "_autowork_archive/2026-06-14_root_declutter/HANDOFF_multifile_nonpython_edits.md",
+    "_autowork_archive/2026-06-14_root_declutter/HANDOFF_ngv2_bounty_fsm_completion.md",
+    "_autowork_archive/2026-06-14_root_declutter/HANDOFF_ngv2_bounty_hunt_continuation.md",
+    "_autowork_archive/2026-06-14_root_declutter/HANDOFF_planless_briefs_investigation.md",
+    "_autowork_archive/2026-06-14_root_declutter/HANDOFF_verify_harden_and_live_5poc_e2e.md",
+    "_autowork_archive/2026-06-14_root_declutter/HANDOFF_webui_config_model_backends_and_drive_backup_adversarial_continuation.md",
+    "_autowork_archive/2026-06-14_root_declutter/HANDOFF_webui_config_schema_rootcause_and_continuation.md",
+    "_autowork_archive/2026-06-14_root_declutter/JANUSMASK_HARDENING_REPORT.md",
+    "_autowork_archive/2026-06-14_root_declutter/NGV2_PIPELINE_EXECUTION_HANDOFF.md",
+    "_autowork_archive/2026-06-14_root_declutter/NGV2_POC_WRITER_DESIGN.md",
+    "_autowork_archive/2026-06-14_root_declutter/NGV2_WIREUP_SESSION_HANDOFF.md",
+    "_autowork_archive/2026-06-14_root_declutter/OVERSEER_CHAT_BUILD_HANDOFF.md",
+    "_autowork_archive/2026-06-14_root_declutter/WIRE_UP_HANDOFF.md",
+    "_autowork_archive/2026-06-14_root_declutter/WIRE_UP_SWEEP_REPORT.md",
+    "_autowork_archive/2026-06-14_root_declutter/brief_hooks_hook-rpc-wiring.md",
+    "_autowork_archive/2026-06-14_root_declutter/brief_hooks_overseer_chat.md",
+    "_autowork_archive/2026-06-14_root_declutter/brief_hooks_wire_up_phase.md",
+    "_autowork_archive/2026-06-14_root_declutter/brief_hooks_wire_up_remediation.md",
+    "_autowork_archive/2026-06-14_root_declutter/brief_hooks_wire_up_sweep.md",
+    "_autowork_archive/2026-06-14_root_declutter/wire_up_recommendations.md",
+    "_autowork_archive/2026-06-14_root_declutter/wire_up_research_2_reachability.md",
+    "_autowork_archive/overseer_session_verification/agent_4_decisions_remaining.md",
+    "_autowork_scratch/FACTORY_ORIENTATION.md",
+    "_phase_prep/phase4/RUN_PLAN.md",
+    "adversarial_test_plans/04_planning_webui_interceptors_state.md",
+    "held_briefs_selfheal_build/authoring/brief_hooks_selfheal_loop_closure.HARDENED.md"
+  ],
+  "blocker_class_frequency": {
+    "jail_sandbox_security_fix": 265,
+    "ast_partial_edit_truncation_or_classmethod": 161,
+    "external_build_smoke_retry": 138,
+    "external_root_target_resolution": 91,
+    "blind_worker_clobber": 63,
+    "implementation_not_wired_orphan": 58,
+    "daemon_pause_clobber_hazard": 55,
+    "nonpy_multifile_apply_routing": 55,
+    "planner_ignores_verification_command": 53,
+    "poc_writer_template_or_confirm_gap": 50,
+    "new_module_must_be_whole_file": 50,
+    "stale_existing_test_assertions": 40,
+    "epic_decompose_hallucination": 35,
+    "stale_sidecar_precedence": 31,
+    "vcmd_vacuous_import_bomb": 31,
+    "dep_gate_leak_or_wedge": 28,
+    "no_output_stream_parse": 18,
+    "decompose_false_block": 16,
+    "planner_stray_mutation_target": 2
+  },
+  "blocker_class_in_decision_files": {
+    "jail_sandbox_security_fix": 57,
+    "external_root_target_resolution": 18,
+    "ast_partial_edit_truncation_or_classmethod": 9,
+    "dep_gate_leak_or_wedge": 5,
+    "nonpy_multifile_apply_routing": 4,
+    "external_build_smoke_retry": 3,
+    "implementation_not_wired_orphan": 3,
+    "planner_ignores_verification_command": 3,
+    "blind_worker_clobber": 3,
+    "stale_sidecar_precedence": 2,
+    "stale_existing_test_assertions": 2,
+    "epic_decompose_hallucination": 2,
+    "vcmd_vacuous_import_bomb": 1,
+    "new_module_must_be_whole_file": 1
+  },
+  "intervention_type_frequency": {
+    "harness_self_fix_decision": 216,
+    "hand_author_oracle": 209,
+    "owner_hand_edit_gated": 146,
+    "config_or_allowlist_hand_edit": 55,
+    "gemini_solo_or_backend_swap": 54,
+    "adversarial_verification_pass": 33,
+    "daemon_pause_resume_intervention": 17,
+    "quarantine_or_prune_clobber": 17,
+    "manual_drive_recipe": 13,
+    "revert_then_manual_rebuild": 4
+  },
+  "blocker_class_sample_files": {
+    "jail_sandbox_security_fix": [
+      "_autowork_archive/2026-06-09_p6_hook_registration/reconciled/plan_hooks_make_seams_hook_registration.json",
+      "_autowork_archive/overseer_session_verification/agent_3_repo_state_safety.md",
+      "_autowork_archive/overseer_session_verification/agent_1_oracle_quality.md",
+      "_autowork_archive/overseer_session_verification/agent_4_decisions_remaining.md",
+      "_autowork_archive/2026-06-14_backend_epics_complete/brief_hooks_tmux_jailed_claude_backend.md",
+      "_autowork_archive/phase2_symbol_ledger_attempt1/symbol-ledger-module.json"
+    ],
+    "ast_partial_edit_truncation_or_classmethod": [
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_brief_reaper_v2.json",
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_ov-transcript.md",
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_brief_reaper_v2.md",
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_ov-manifest-routing.md",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_ov-webui-control.json",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_ov-manifest-routing.json"
+    ],
+    "external_build_smoke_retry": [
+      "_autowork_archive/overseer_session_verification/agent_3_repo_state_safety.md",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/MANIFEST.md",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/plans/plan_external_leaf_stdlib_determinism.json",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/plans/plan_fix_smoke_import_external_paths.json",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/plans/plan_fix_smoke_failed_retry_budget.json",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/plans/plan_inject_credential_naming_constraint.json"
+    ],
+    "external_root_target_resolution": [
+      "_autowork_archive/2026-06-09_ngv2_wireup_epic/reconciled/wire-up-gate-staging-tree.json",
+      "_autowork_archive/2026-06-09_ngv2_wireup_epic/reconciled/wire-up-external-rootless.json",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/plans/plan_external_leaf_stdlib_determinism.json",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/plans/plan_fix_epic_pipeline_working_dir.json",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/plans/plan_fix_smoke_import_external_paths.json",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/plans/plan_fix_sandbox_child_env_external.json"
+    ],
+    "blind_worker_clobber": [
+      "_autowork_archive/overseer_session_verification/agent_1_oracle_quality.md",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_brief_reaper_v2.json",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_ov-frontend.json",
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_brief_reaper_v2.md",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_overseer_chat_clear_mode.json",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_overseer-webui-frontend.json"
+    ],
+    "implementation_not_wired_orphan": [
+      "_autowork_archive/2026-06-14_backend_epics_complete/brief_hooks_tmux_jailed_claude_backend.md",
+      "_autowork_archive/2026-06-09_ngv2_wireup_epic/reconciled/wire-up-gate-staging-tree.json",
+      "_autowork_archive/2026-06-09_ngv2_wireup_epic/reconciled/wire-up-external-rootless.json",
+      "_autowork_archive/2026-06-13_ngv2_spawn_entrypoint_complete/brief_hooks_ngv2_hunt_automation.md",
+      "_autowork_archive/2026-06-13_ngv2_spawn_entrypoint_complete/plan_hooks_ngv2_hunt_automation.json",
+      "_autowork_archive/2026-06-14_root_declutter/plan_hooks_live_bounty_sourcing_and_learning.json"
+    ],
+    "daemon_pause_clobber_hazard": [
+      "_autowork_archive/overseer_session_verification/agent_3_repo_state_safety.md",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_procedure-substrate.json",
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_procedure-substrate.md",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_followup-procedures.json",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/brief_hooks/MANIFEST_A.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/brief_hooks/brief_hooks_handsoff_item1_commit_lock.md"
+    ],
+    "nonpy_multifile_apply_routing": [
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_ov-manifest-routing.md",
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_ov-config.md",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_ov-config.json",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_ov-manifest-routing.json",
+      "_autowork_archive/2026-06-09_ngv2_wireup_epic/reconciled/wire-up-gate-staging-tree.json",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/pinned_superseded_by_epic/brief_hooks_fix-normalize-meta-by-target.md"
+    ],
+    "planner_ignores_verification_command": [
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_procedure-substrate.md",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/plans/plan_external_leaf_stdlib_determinism.json",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/plans/plan_inject_credential_naming_constraint.json",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/plans/plan_epic_child_subset_dedup.json",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/pinned_superseded_by_epic/plan_hooks_fix-normalize-meta-by-target.json",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/brief_hooks/brief_hooks_depth_gate_leaf_fix.md"
+    ],
+    "poc_writer_template_or_confirm_gap": [
+      "_autowork_archive/2026-06-07_root_metadata_sweep/docs/NGV2_LEGACY_METADATA_HARVEST_HANDOFF.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/docs/NGV2_RUN_REPORT.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_docs/NGV2_EPIC4_CONTINUATION_HANDOFF_REV2.md",
+      "_autowork_archive/2026-06-13_ngv2_spawn_entrypoint_complete/brief_hooks_ngv2_hunt_automation.md",
+      "_autowork_archive/2026-06-13_ngv2_spawn_entrypoint_complete/plan_hooks_ngv2_hunt_automation.json",
+      "_autowork_archive/2026-06-14_root_declutter/plan_hooks_ngv2_poc_repair_loop.json"
+    ],
+    "new_module_must_be_whole_file": [
+      "_autowork_archive/2026-06-07_root_metadata_sweep/docs/JANUSMASKJR_CONTINUATION_PLAN_REV29.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_docs/NGV2_EPIC3_HANDOFF.md",
+      "_autowork_archive/2026-06-13_ngv2_spawn_entrypoint_complete/plan_hooks_planner_one_file_per_task.json",
+      "_autowork_archive/2026-06-14_root_declutter/plan_hooks_ngv2_p72b_verdict_reweight.json",
+      "_autowork_archive/2026-06-14_root_declutter/plan_hooks_validator-existing-edit.json",
+      "_autowork_archive/2026-06-14_root_declutter/brief_hooks_ngv2_classify_reconcile.md"
+    ],
+    "stale_existing_test_assertions": [
+      "_autowork_archive/2026-06-14_root_declutter/plan_hooks_ngv2_gate_wire_signals.json",
+      "_autowork_archive/2026-06-14_root_declutter/plan_hooks_ngv2_p72b_verdict_reweight.json",
+      "_autowork_archive/2026-06-14_root_declutter/brief_hooks_ngv2_classify_reconcile.md",
+      "_autowork_archive/2026-06-14_root_declutter/HANDOFF_poc_writer_real_claimable_pocs.md",
+      "_autowork_archive/2026-06-14_root_declutter/plan_hooks_ngv2_fix_advance_surface.json",
+      "_autowork_archive/2026-06-14_root_declutter/plan_hooks_ngv2_corpus_stats_null_payout.json"
+    ],
+    "epic_decompose_hallucination": [
+      "_autowork_archive/2026-06-07_root_metadata_sweep/brief_hooks/brief_hooks_accept_single_agent_leaf.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/brief_hooks/MANIFEST_A.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/docs/PHASE2_HANDOFF_PROMPT.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/docs/NGV2_EPIC4_HANDOFF.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/docs/NGV2_EPIC4_CONTINUATION_HANDOFF_REV3.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/docs/NGV2_HARVEST_MANIFEST.md"
+    ],
+    "stale_sidecar_precedence": [
+      "_autowork_archive/overseer_session_verification/agent_4_decisions_remaining.md",
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_ov-manifest-routing.md",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_ov-manifest-routing.json",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/docs/PHASE2_FIX1_HANDOFF.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/docs/PHASE2_HANDOFF_PROMPT.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/docs/NOBLEGREEDV2_REBUILD_HANDOFF.md"
+    ],
+    "vcmd_vacuous_import_bomb": [
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_brief_reaper.md",
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_brief_status.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/brief_hooks/brief_hooks_selfheal_ngv2-phase-runner-impl.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/brief_hooks/MANIFEST_A.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/brief_hooks/brief_hooks_selfheal_ngv2_report_impl.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/brief_hooks/brief_hooks_selfheal_impl_poc_runner.md"
+    ],
+    "dep_gate_leak_or_wedge": [
+      "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_docs/NGV2_EPIC1_RUN_HANDOFF.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_docs/NGV2_EPIC2_HANDOFF.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_docs/NGV2_EPIC1_BRIEF.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_docs/JANUSMASKJR_PHASE2_HANDOFF.md",
+      "_autowork_archive/2026-06-14_root_declutter/brief_hooks_dep-gate-leak-fix.md",
+      "_autowork_archive/2026-06-14_root_declutter/brief_hooks_planner-strip-unresolvable-deps.md"
+    ],
+    "no_output_stream_parse": [
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_overseer_mode_on_send.json",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_overseer_driver_headless.json",
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_overseer_driver_headless.md",
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_overseer_driver_stream_parse.md",
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_overseer_mode_on_send.md",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/plans/plan_hooks_webui-backend-integration.json"
+    ],
+    "decompose_false_block": [
+      "_autowork_archive/overseer_session_verification/agent_4_decisions_remaining.md",
+      "_autowork_archive/overseer_session_verification/agent_2_built_code.md",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/plans/plan_external_leaf_stdlib_determinism.json",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/plans/plan_inject_credential_naming_constraint.json",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/plans/plan_epic_child_subset_dedup.json",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_plan_hooks/plan_hooks_phase2_hierarchical.json"
+    ],
+    "planner_stray_mutation_target": [
+      "_autowork_archive/2026-06-14_root_declutter/plan_hooks_strip_stray_muttarget.json",
+      "_autowork_archive/2026-06-14_root_declutter/brief_hooks_strip_stray_muttarget.md"
+    ]
+  },
+  "intervention_type_sample_files": {
+    "harness_self_fix_decision": [
+      "_autowork_archive/overseer_session_verification/agent_3_repo_state_safety.md",
+      "_autowork_archive/overseer_session_verification/agent_4_decisions_remaining.md",
+      "_autowork_archive/2026-06-14_backend_epics_complete/brief_hooks_tmux_jailed_claude_backend.md",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_wire_reaper_worker.json",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_complete_reaper_wiring.json",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_ov-actions.json"
+    ],
+    "hand_author_oracle": [
+      "_autowork_archive/2026-06-09_p6_hook_registration/reconciled/plan_hooks_make_seams_hook_registration.json",
+      "_autowork_archive/2026-06-09_p6_hook_registration/reconciled/plan_hooks_procedure_hook_env_phase.json",
+      "_autowork_archive/phase2_symbol_ledger_attempt1/symbol-ledger-module.json",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_wire_reaper_worker.json",
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_overseer_web_api_history.md",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_overseer_web_api_history.json"
+    ],
+    "owner_hand_edit_gated": [
+      "_autowork_archive/overseer_session_verification/agent_3_repo_state_safety.md",
+      "_autowork_archive/overseer_session_verification/agent_4_decisions_remaining.md",
+      "_autowork_archive/phase2_symbol_ledger_attempt1/symbol-ledger-module.json",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_symbol_ledger_module.json",
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_complete_reaper_wiring.md",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/epic_run_generated/brief_hooks_overseer-ui-fidelity-sweep.md"
+    ],
+    "config_or_allowlist_hand_edit": [
+      "_autowork_archive/overseer_session_verification/agent_4_decisions_remaining.md",
+      "_autowork_archive/2026-06-14_backend_epics_complete/brief_hooks_tmux_jailed_claude_backend.md",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_overseer_driver_headless.json",
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_ov-config.md",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_ov-config.json",
+      "_autowork_archive/2026-06-08/reconciled/plan_hooks_ov-manifest-routing.json"
+    ],
+    "gemini_solo_or_backend_swap": [
+      "_autowork_archive/2026-06-14_backend_epics_complete/brief_hooks_tmux_jailed_claude_backend.md",
+      "_autowork_archive/2026-06-08_overseer_build_declutter/plans/plan_epic_child_subset_dedup.json",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/docs/PHASE2_HANDOFF_PROMPT.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/docs/NGV2_LEGACY_METADATA_HARVEST_HANDOFF.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_plan_hooks/plan_hooks_retry_budget_grace_backoff.json",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_docs/NGV2_EPIC4_CONTINUATION_HANDOFF.md"
+    ],
+    "adversarial_verification_pass": [
+      "_autowork_archive/overseer_session_verification/agent_1_oracle_quality.md",
+      "_autowork_archive/overseer_session_verification/agent_4_decisions_remaining.md",
+      "_autowork_archive/overseer_session_verification/agent_2_built_code.md",
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_brief_reaper_v2.md",
+      "_autowork_archive/2026-06-08/reconciled/brief_hooks_complete_reaper_wiring.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/docs/NGV2_EPIC4_HANDOFF.md"
+    ],
+    "daemon_pause_resume_intervention": [
+      "_autowork_archive/overseer_session_verification/agent_3_repo_state_safety.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/docs/JANUSMASKJR_CONTINUATION_PLAN_REV29.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/plan_hooks/plan_hooks_trace-parser.json",
+      "_autowork_archive/2026-06-14_root_declutter/HANDOFF_poc_writer_real_claimable_pocs.md",
+      "_autowork_archive/2026-06-14_root_declutter/SESSION_ADVERSARIAL_AUDIT_HANDOFF.md",
+      "_autowork_archive/2026-06-14_root_declutter/HANDOFF_webui_config_schema_rootcause_and_continuation.md"
+    ],
+    "quarantine_or_prune_clobber": [
+      "_autowork_archive/overseer_session_verification/agent_4_decisions_remaining.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/tracked_docs/NGV2_EPIC2_HANDOFF.md",
+      "_autowork_archive/2026-06-07_root_metadata_sweep/plan_hooks/plan_hooks_safety-framework-leaf.json",
+      "_autowork_archive/2026-06-14_root_declutter/HANDOFF_poc_writer_real_claimable_pocs.md",
+      "_autowork_archive/2026-06-14_root_declutter/SESSION_ADVERSARIAL_AUDIT_HANDOFF.md",
+      "_autowork_archive/2026-06-14_root_declutter/brief_hooks_spine_detonation.md"
+    ],
+    "manual_drive_recipe": [
+      "_autowork_archive/2026-06-07_root_metadata_sweep/docs/NGV2_EPIC4_CONTINUATION_HANDOFF_REV3.md",
+      "_autowork_archive/2026-06-14_root_declutter/HANDOFF_ngv2_bounty_fsm_completion.md",
+      "_autowork_archive/2026-06-14_root_declutter/NGV2_PIPELINE_EXECUTION_HANDOFF.md",
+      "_autowork_archive/2026-06-14_root_declutter/HANDOFF_multifile_nonpython_edits.md",
+      "_autowork_archive/2026-06-14_root_declutter/HANDOFF_factory_clobber_fix_and_ngv2_worker_rework.md",
+      "_autowork_archive/2026-06-14_root_declutter/brief_hooks_wire_up_phase.md"
+    ],
+    "revert_then_manual_rebuild": [
+      "_autowork_archive/2026-06-14_root_declutter/HANDOFF_webui_config_model_backends_and_drive_backup_adversarial_continuation.md",
+      "_autowork_archive/2026-06-14_root_declutter/HANDOFF_drive_epic_harness_hardening_and_concurrent_live_hunt.md",
+      "_autowork_scratch/PHV_config_schema.md",
+      "_autowork_scratch/ADVERSARIAL_VERIFY_FINDINGS.md"
+    ]
+  }
+}

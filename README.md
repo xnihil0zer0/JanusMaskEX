@@ -1,563 +1,584 @@
-# JanusMaskJR
+# JanusMask — Autonomous Code-Generation Factory
 
-**An autonomous code-generation factory.** JanusMaskJR compiles a high-level brief into *verified* working code by running two independent LLM agents (Claude + Gemini), accepting a result only when the two are proven **differentially equivalent** under a property-based fuzzer, AST-valid, and reachable from a live entry point — then committing it through an isolated git worktree behind a read-only-parent verification gate. A self-driving daemon decomposes briefs into plans, plans into tasks, dispatches workers, and retries or self-heals on failure, all behind an explicit operator control surface.
+JanusMask compiles a plain-English **brief** into *verified* working code. Two independent
+LLM agents (Claude + Gemini) each draft a candidate blind to the other; a result is accepted
+only when the two are proven **differentially equivalent** under a property-based fuzzer, are
+AST-valid, pass a pre-committed pytest oracle, and are reachable from a live entry point — then
+it is committed through an isolated git worktree behind a read-only-parent gate.
 
-The design principle throughout: **correctness is enforced by *withholding and checking*, never by prompting.** Agents are jailed, blinded to each other, and gated by pure deterministic verifiers. The LLMs only *propose*; the harness *decides*.
+A self-driving **daemon** promotes briefs, runs the planner, stages tasks, dispatches workers,
+retries failures, and self-heals — all behind an explicit operator control surface. The system
+builds **its own harness** through this same pipeline, and builds/edits **external repos** (e.g.
+`/home/xnihil0zer0/NobleGreedv2`) through an isolated staging worktree.
 
-> **Status (2026-06-10):** Core pipeline, autowork daemon, hierarchical (epic) planning, and the dual-sandbox safety model are live and in daily use. The `autocompiler/` package (population-based evolutionary compilation) is **fully built through Phase D and now ON by default** — all four capability flags (`population`, `determinism`, `decode`, `js`) ship `true` in the runtime gate `config/autocompiler.yaml`, so the fuzz-seam population memory, the sandbox determinism layer, the decode telemetry, and JS differential dispatch are all **live — verified on the production worker path, not just under pytest** (daemon cwd → worker cwd → in-process hooks); `ac_enabled()` stays fail-closed on any parse error. The **full serial test suite is green** (as of 2026-06-10 — the former "known pre-existing baseline" was root-caused and eliminated). The unattended-autonomy posture is **ON**: `auto_approve_sensitive_harness` + `auto_approve_ro_gate` are `true`, so gated `harness_self_fix` commits auto-approve behind the E/F/G/H safety stack. A **harness-distillation / metadata-ablation research layer** (measure which metadata earns its keep; distill heuristics lost under ablation into permanent deterministic gates) is designed and prototyped under `autocompiler_research/` — see [the self-evolving metadata-ablation layer](#the-self-evolving-metadata-ablation-layer-harness-distillation). ~650 test modules.
+**Design principle: correctness is enforced by *withholding and checking*, never by prompting.**
+The LLMs only *propose*; pure deterministic verifiers *decide*.
+
+This README is an **operator reference for running the pipeline completely hands-off**, for both
+**internal** (factory fixing its own `harness/**`) and **external** (factory building another repo)
+work. It documents the real system as it runs today — including the places that still need a human
+(see [Gaps / steps still requiring a human](#gaps--steps-still-requiring-a-human)).
 
 ---
 
 ## Table of contents
 
-- [The idea in one diagram](#the-idea-in-one-diagram)
-- [Why it's built this way](#why-its-built-this-way)
-- [Repository layout](#repository-layout)
-- [Quick start](#quick-start)
-- [The brief → working-code pipeline](#the-brief--working-code-pipeline)
-- [The autowork daemon](#the-autowork-daemon)
-- [Epic / hierarchical planning](#epic--hierarchical-planning)
-- [The safety model](#the-safety-model)
-- [`meta_task_type` taxonomy](#meta_task_type-taxonomy)
-- [Configuration](#configuration)
-- [Operating it: a complete runbook](#operating-it-a-complete-runbook)
-- [Observability](#observability)
-- [State directory layout](#state-directory-layout)
-- [Testing](#testing)
-- [The autocompiler subproject](#the-autocompiler-subproject)
-- [The self-evolving metadata-ablation layer (harness distillation)](#the-self-evolving-metadata-ablation-layer-harness-distillation)
-- [Glossary](#glossary)
-- [Troubleshooting & known gotchas](#troubleshooting--known-gotchas)
+1. [What the system is — lifecycle](#1-what-the-system-is--lifecycle)
+2. [Requirements / prerequisites](#2-requirements--prerequisites)
+3. [How to start it hands-off](#3-how-to-start-it-hands-off)
+4. [How to feed work: authoring a brief](#4-how-to-feed-work-authoring-a-brief)
+5. [External projects (`working_dir`)](#5-external-projects-working_dir)
+6. [Pause / resume / stop](#6-pause--resume--stop)
+7. [Monitoring (autonomous)](#7-monitoring-autonomous)
+8. [Configuration reference](#8-configuration-reference)
+9. [`meta_task_type` taxonomy](#9-meta_task_type-taxonomy)
+10. [Submission formats](#10-submission-formats-what-the-agent-emits)
+11. [Troubleshooting](#11-troubleshooting)
+12. [Gaps / steps still requiring a human](#12-gaps--steps-still-requiring-a-human)
+13. [State directory layout](#13-state-directory-layout)
+14. [Glossary](#14-glossary)
 
 ---
 
-## The idea in one diagram
+## 1. What the system is — lifecycle
 
 ```
-   brief_hooks_<slug>.md                         (a markdown+YAML spec you write)
-            │
-            ▼
-   ┌──────────────────┐   blind dual-agent draft → diff → reconcile → adversarial
-   │     PLANNER      │   review → auto-amend → validate → normalize
-   │ harness/planner  │
-   └──────────────────┘
-            │  emits a PLAN: a list of tasks (each with its own oracle)
-            ▼
-   ┌──────────────────┐   one task at a time, claimed atomically
-   │ ORCHESTRATOR     │
-   │   _WORKER        │   ┌─ Claude  ─┐
-   └──────────────────┘   │            ├─► two candidate implementations
-            │             └─ Gemini  ─┘
-            ▼
-      ╔═══════════════ ACCEPTANCE GATES (pure, deterministic) ═══════════════╗
-      ║ AST validity (ast_enforcer)  ·  differential fuzz equivalence        ║
-      ║ (diff_fuzzer)  ·  the pre-committed oracle  ·  wired-ness            ║
-      ║ (wire_up)  ·  apply-scope + RO-parent (git_integration)             ║
-      ╚════════════════════════════════════════════════════════════════════╝
-            │ pass → AST-merge into a staging worktree → ff-merge to live → commit
-            │ fail → roll back the live tree, route to blocked/, retry or self-heal
-            ▼
-   a real commit on your branch
+  brief_hooks_<slug>.md            (markdown + YAML frontmatter — the ONLY hand-authored artifact)
+        │  placed at repo ROOT; <slug> added to the allowlist
+        ▼
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │ AUTOWORK DAEMON  (harness/autowork_daemon.py, supervised by run-autowork.sh)│
+  │  each iteration:                                                            │
+  │   reap workers → retry blocked → block dead-dep tasks → harvest self-heal   │
+  │   → AUTO-PROMOTE (stage unstaged plan tasks; plan ≤1 unplanned brief)       │
+  │   → DECIDE (rank dispatchable tasks; gate on pause/full_stop) → dispatch    │
+  └──────────────────────────────────────────────────────────────────────────┘
+        │  promote: only for ALLOWLISTED slugs (deny-all by default)
+        ▼
+  ┌──────────────────┐  blind Claude draft  ┐
+  │     PLANNER      │  blind Gemini draft  ├─► diff → reconcile → adversarial review
+  │ harness/planner  │                      ┘     → auto-amend → validate → normalize
+  └──────────────────┘
+        │  emits plan_hooks_<slug>.json  — a list of TASKS (each with its own oracle)
+        ▼
+  ┌──────────────────┐  one task claimed atomically (<id>.json → <id>.json.processing)
+  │ ORCHESTRATOR     │   ┌─ Claude ─┐
+  │   _WORKER        │   │           ├─► two candidate implementations (blind to each other)
+  └──────────────────┘   └─ Gemini ─┘
+        ▼
+   ╔══════════════ ACCEPTANCE GATES (pure, deterministic) ══════════════╗
+   ║ AST validity · differential-fuzz equivalence · pre-committed oracle ║
+   ║ (verification_command) · wired-ness · apply-scope + RO-parent gate  ║
+   ╚════════════════════════════════════════════════════════════════════╝
+        │ PASS → AST-merge winner into staging worktree → verify vs RO parent → ff-merge → commit
+        │ FAIL → roll back live tree (declared files only) → route to blocked/ → retry / self-heal
+        ▼
+   a real commit on your branch  (and the spent brief+plan auto-archived to _autowork_archive/)
 ```
 
-A **daemon** (`harness/autowork_daemon.py`) drives this loop unattended: it discovers briefs, kicks off the planner, stages tasks, and dispatches up to `parallel_cap` workers — but only for slugs you have explicitly placed on an allowlist, and only while the orchestrator flag is `resume`.
+The daemon's **two safety boundaries** are both deny-all by default:
+- **`state/control/autowork/auto_promote.allowlist`** — which brief slugs may be promoted.
+- **`state/control/autowork/external_roots.allow`** — which filesystem roots an external `working_dir` may target.
 
 ---
 
-## Why it's built this way
+## 2. Requirements / prerequisites
 
-A single LLM that writes code and also judges its own code is unreliable: it rationalizes its mistakes. JanusMaskJR removes that conflict of interest structurally.
+### OS / binaries on PATH
+- **Linux** (kernel namespaces required for the sandboxes).
+- **`bwrap`** (bubblewrap) + **`libseccomp`** — the agent jail and the fuzz sandbox. `agent_sandbox.bwrap: true` is set, so agent spawns are **fail-closed**: if `bwrap` is missing the spawn aborts rather than running un-jailed.
+- **`git`** — staging worktrees, commit, ff-merge.
+- **`xdg-dbus-proxy`** — filtered D-Bus. **Fail-closed startup guard:** if the host has `DBUS_SESSION_BUS_ADDRESS` set but `xdg-dbus-proxy` is absent and `JANUSMASK_ALLOW_HOSTBUS` is unset, the daemon **raises and refuses to start** (it will not bind the unfiltered host bus into the jail).
+- **`python`** (3.10+) — the conda/venv interpreter the daemon and workers run under.
+- **`node` / `nvm`** — only for the JS differential target (`autocompiler/js/`), pinned via `~/.nvm/versions/node/<v>/bin`.
 
-- **Two authors, one judge that is neither.** Claude and Gemini each produce a candidate *blind to the other*. Agreement is not textual — it is **behavioral**: the two candidates must return identical outputs across hundreds-to-thousands of fuzzer-generated inputs (Popperian: one counterexample is a hard disproof; *N* clean rounds is a soft proof). A clean near-miss is still rejected — the verifier is load-bearing.
-- **The test author is not the implementer.** Oracle tests run in a separate session (`harness/test_author.py`), and an oracle is only trusted if it **fails** a stripped `NotImplementedError` stub (non-vacuity) — so an agent cannot launder a stub past its own test.
-- **The agent cannot reach what it isn't allowed to change.** Synthesis happens inside a bubblewrap jail (`harness/agent_jail.py`) that bind-mounts the repo read-only; fuzz execution happens inside a seccomp sandbox (`harness/sandbox.py`) that blocks `execve`/`fork`/`socket`. Containment is kernel-enforced, not hook-enforced.
-- **Sensitive code is gated in tiers.** Free packages auto-commit; `harness/**`, `config/**`, `scripts/**`, `services/**` require an explicit operator decision file; a short irreducible list of files is owner-hand-edit only.
+### Python env
+`pip install -r requirements.txt` — `hypothesis`, `pyyaml`, `pytest` (+ `pytest-xdist`, `pytest-testmon`, `pytest-timeout`), `psutil`, `Pygments`. There is **no in-process model SDK**; every model call is a CLI subprocess consumed as NDJSON.
+
+> **Interpreter-ABI caveat for external builds:** the daemon may run under conda Python (e.g. 3.13) while an external jail detonates with `/usr/bin/python3` (e.g. 3.10). Compiled-extension wheels installed with one interpreter will not import under the other. External targets must declare/resolve the jail interpreter; keep the host and detonation interpreters ABI-aligned for any external task that installs compiled deps.
+
+### Agent backends (how each is configured / authenticated)
+Configured under `harness/config.yaml` `agents:` and `config/` worker settings. One-time `scripts/bootstrap.sh` seeds the gitignored agent configs from their `.template` siblings.
+
+| Backend | Binary (templated) | Auth | Notes |
+|---|---|---|---|
+| **claude** (default worker) | `${PROJECT_ROOT}/.agents/claude-code/node_modules/.bin/claude` | OAuth/subscription (tmux/PTY backend) **or** API key (headless backend) | `--model opus`, `--tools Read,Glob,Grep,Write`, `--disallowedTools Bash,Edit,Task,NotebookEdit,WebFetch,WebSearch,Skill,ToolSearch`. Hooks via `config/claude_worker.json` + `config/claude_mcp.json`. |
+| **gemini / antigravity** | `${PROJECT_ROOT}/.agents/agy/agy` | `~/.gemini` credentials | args `-p --dangerously-skip-permissions`. Policy in `config/gemini_worker_policy*.toml`. |
+| **claude_fallback** | `${PROJECT_ROOT}/.agents/agy/agy` | as gemini | covers a Claude failure. |
+
+**Claude worker transport** (`workers.claude_backend`, currently **`tmux`**):
+- `tmux` — a bwrap-jailed **interactive** claude driven over a direct **PTY** (`harness/tmux_worker.py::spawn_claude_tmux`), billed to the Max/OAuth subscription. ("tmux" is historical; the transport is a PTY.) This is the hands-off default.
+- `headless` — `claude -p` streamed subprocess, **API-billed**. Switch to this if a PTY regression appears.
+
+### Config flags that must hold for unattended operation
+All of these are **already set** in `harness/config.yaml` (see [§8](#8-configuration-reference)); verify them before a long run:
+
+- `autowork.enabled: true`
+- `autowork.auto_approve_sensitive_harness: true` — gated `harness_self_fix` commits into `harness/**` auto-approve behind the safety stack (no per-task decision file needed).
+- `autowork.auto_approve_ro_gate: true` — RO-checkout rollback protector on that path.
+- `autowork.archive_spent_briefs: true` — green integrate auto-archives the brief+plan.
+- `autowork.wire_up_gate: true` — new modules must be reachable from a live root at accept.
+- `hierarchical_planning.enabled: true` — epics decompose; allowlisting an epic transitively admits its children.
+- `agent_sandbox.bwrap: true` — kernel-enforced jail.
 
 ---
 
-## Repository layout
+## 3. How to start it hands-off
 
-| Path | Purpose |
-|------|---------|
-| `harness/` | The core engine (~22k LOC): orchestrator, worker, fuzzer, AST enforcer, git-integration, sandboxes, daemon, wire-up gate. |
-| `harness/planner/` | Brief loading, blind dual-agent drafting, diff/reconciliation, plan validation + normalization, epic decomposition. |
-| `harness/hooks/` | Claude/Gemini PreToolUse/PostToolUse hook implementations that confine agent tool use. |
-| `overseer/` | Multi-turn supervisory agent scaffolding, procedure state machines, pure gate idioms (`GateResult`), web API. |
-| `autocompiler/` | **Phase A** evolutionary-compilation package (population/Elo/selection/crossover/fitness/containment/vacuity/loop). Pure, default-OFF. |
-| `tools/` | Small CLI utilities (e.g. brief reaper). |
-| `scripts/` | Operator entry points: `run-autowork.sh`, `run-webui.sh`, `bootstrap.sh`, `brief_status.py`, maintenance tools. |
-| `services/` | Long-running service processes (irreducible-trust tier). |
-| `config/` | `harness/config.yaml` plus agent worker configs (`claude_*.json`, `gemini_*.toml`), and `autocompiler.yaml`. |
-| `webui/` | Browser dashboard for status/approvals (loopback-only, token-authed). |
-| `tests/` | ~650 test modules: `harness/`, `planner/`, `overseer/`, `autocompiler/`, `integration/`, `e2e/`, `adversarial/`. |
-| `state/` | All runtime state (tasks, control flags, output, planning, telemetry). Not source — see [State directory layout](#state-directory-layout). |
-
----
-
-## Quick start
+The supervisor `scripts/run-autowork.sh` **self-starts and self-sustains** the daemon: it launches
+`python -m harness.autowork_daemon` under `setsid`, writes the supervised PID to
+`state/control/autowork.pid`, and **respawns the child** with capped exponential backoff if it dies.
 
 ```bash
-# 1. Environment
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+cd /home/xnihil0zer0/JanusMaskJR
 
-# 2. One-time bootstrap (creates the state tree, allowlist, telemetry ledger, agent settings)
+# (first time only) seed gitignored agent configs
 scripts/bootstrap.sh
 
-# 3. System dependencies (for the sandboxes):
-#    - bubblewrap (bwrap) + libseccomp   — agent jail and fuzz sandbox
-#    - git                                — commit/apply
-#    - the `claude` and `gemini` CLIs     — the two synthesis agents (configured under config/)
-
-# 4. Sanity-check the test suite
-make test-changed        # fast, impact-selected
-
-# 5. Drive one brief (see the runbook below for the full hands-off flow)
+# start the supervisor (foreground; or wrap with your own setsid/nohup ONCE)
+scripts/run-autowork.sh --state-dir state --logs-dir logs --config harness/config.yaml
 ```
+Options: `--state-dir` (default `state`), `--logs-dir` (`logs`), `--config` (`harness/config.yaml`),
+`--max-backoff` (respawn cap, default 60s), `--once` (single iteration, no respawn).
+Logs append to `logs/autowork.log`.
 
-**Prerequisites in detail**
+### CRITICAL — supervisor model (do not break it)
+- The **supervisor** is the long-lived process. The **daemon is its child** (`python -m harness.autowork_daemon`).
+- To restart the daemon (e.g. after a harness change — see [§11/§12](#12-gaps--steps-still-requiring-a-human)), **kill the child PID** in `state/control/autowork.pid`; the supervisor respawns it:
+  ```bash
+  kill -TERM "$(cat state/control/autowork.pid)"     # supervised graceful drain (≤30s), then respawn
+  ```
+- **NEVER `nohup`/launch a second daemon.** Two daemons race the queue and clobber state. There is exactly one supervised child at a time.
+- The daemon installs its own SIGTERM handler and **drains workers** (grace 30s) before exiting; the supervisor forwards SIGINT/SIGTERM to the daemon's process group.
 
-- **Python 3.10+** (modern type hints, walrus, `from __future__ import annotations`).
-- **`requirements.txt`**: `hypothesis`, `pyyaml`, `pytest` + `pytest-xdist` + `pytest-testmon` + `pytest-timeout`, `psutil`, `Pygments`.
-- **External agent CLIs**: the harness shells out to `claude` and `gemini` as subprocesses (there is **no in-process model SDK** — every model call is a CLI subprocess consumed as NDJSON). Their flags, MCP config, and hook settings live under `config/` (`claude_worker.json`, `claude_mcp.json`, `claude_worker_*hooks.json`, `gemini_settings.json`, `gemini_worker_policy*.toml`).
-- **System**: `bwrap` (bubblewrap) and `libseccomp` for isolation; `git`; optionally `xdg-dbus-proxy` for D-Bus filtering inside the jail; `node`/`nvm` only for the (future) JS target path.
+### Polling cadence
+When there is work, the daemon polls every `poll_interval_sec` (5s). When idle, it sleeps `heartbeat_sec` (1800s) but **wakes early** on an allowlist edit or a new/changed `brief_hooks_*.md` (emits `idle_wake`) — so dropping in a brief takes effect within seconds, not 30 minutes.
 
 ---
 
-## The brief → working-code pipeline
+## 4. How to feed work: authoring a brief
 
-### 1. The brief
+A brief is the **only** hand-authored artifact. Everything downstream (plan, tasks, oracles, code) is produced by the pipeline.
 
-A brief is a markdown file named `brief_hooks_<slug>.md` at the repo root, with YAML frontmatter and five **required sections** (parsed by `harness/planner/brief_loader.py`):
+### 4.1 The load schema (HARD requirement — `harness/planner/brief_loader.py`)
+
+`load_brief` parses YAML frontmatter (between `---` fences) plus markdown `# Heading` sections. It enforces **five REQUIRED_SECTIONS**:
+
+```
+title   scope   non_goals   inputs   deliverables
+```
+
+Each must appear **either** as a frontmatter key **or** as a bare `# Heading` section (heading match is case/`-`/space-insensitive → e.g. `# Non-Goals` → `non_goals`), **and be non-empty**. A missing or empty section raises `BriefValidationError` and the brief is **rejected at load**.
+
+> **Heading gotcha:** the loader matches the *bare* normalized name. A decorated heading like `# Inputs (do not rebuild)` does **NOT** match `inputs` → the brief fails validation. Keep the five headings bare (`# Inputs`, `# Scope`, …).
+
+Recognized **frontmatter** keys (`load_brief` reads these; all others are passed through as prose only):
+| Key | Meaning |
+|---|---|
+| `title`,`scope`,`non_goals`,`inputs`,`deliverables` | the five required sections (frontmatter form). |
+| `working_dir` | target repo root (see [§5](#5-external-projects-working_dir)). Absent ⇒ build into JanusMask itself. If it resolves *inside* the repo but is not the repo root, the brief is rejected. |
+| `epic` | `true` ⇒ hierarchical decomposition into child briefs. |
+| `required_task_ids` | list (or comma string) of task IDs the plan MUST contain; `validate_plan` rejects a plan that drops one (`missing_required_task`). Use on gated/internal leaves. |
+| `dependencies` | sibling-**slug** build-order hints (stripped at plan normalization — they are NOT in-plan task IDs; see [§4.4](#44-sequencing--epics)). |
+| `complexity_score`, `interfaces` | advisory. |
+
+> **`meta_task_type`, `files_touched`, `verification_command` are NOT load_brief fields.** They are author *intent* expressed in `interfaces` prose and/or a `# Required plan shape` body section that the planner reads when shaping the plan. The planner assigns the actual task `meta_task_type` from the [taxonomy](#9-meta_task_type-taxonomy). In particular **`meta_task_type: implementation` is not a valid taxonomy value** — it appears in some external briefs purely as a hint; the planner coerces the real type. Always describe the intended type and constraints in the body so the planner shapes the plan correctly.
+
+### 4.2 When `harness_self_fix` is mandatory
+
+Any task that **writes** a path under the sensitive globs
+`harness/**`, `config/**`, `scripts/**`, `services/**` (`_SENSITIVE_APPLY_GLOBS`) **must** be planned as
+`meta_task_type: harness_self_fix`. The plan validator rejects a non-`harness_self_fix` task that lists a sensitive path in `files_touched` (`sensitive_files_touched`), because the accept-time apply-scope gate would refuse the write. So a brief that edits the harness must state `harness_self_fix` intent in its `# Required plan shape`.
+
+A short **irreducible** set is **owner-hand-edit only** and can NEVER auto-approve, regardless of any flag (`_NEVER_AUTO_APPROVE`): `harness/agent_jail.py`, `harness/dbus_proxy.py`, `harness/paths.py`, `harness/git_integration.py`, `harness/orchestrator.py`, `harness/interceptors.py`, `harness/selfheal.py`, `harness/autowork_daemon.py`, `services/**`. A brief targeting these will dead-end; clear with the owner first.
+
+### 4.3 Place it and allowlist it
+
+```bash
+# 1. Write the brief at the REPO ROOT (filename stem == slug):
+#    /home/xnihil0zer0/JanusMaskJR/brief_hooks_my_feature.md
+
+# 2. Allowlist the slug (one per line; '#' comments and blanks ignored; DENY-ALL if empty).
+echo "my_feature" >> state/control/autowork/auto_promote.allowlist
+```
+The daemon promotes the **oldest-mtime, allowlisted** brief younger than `brief_max_age_seconds` (7 days), and kicks off the planner for **at most one** unplanned brief per iteration (size must be `< brief_max_size_bytes` = 50000). Task extraction from already-planned briefs is unbounded per iteration.
+
+### 4.4 Sequencing & epics
+
+- `epic: true` (with `hierarchical_planning.enabled: true`) makes the planner draft a **child-brief set**, write each as its own `brief_hooks_<child>.md` at the root, and persist `plan_hooks_<slug>.json` (`plan_kind: "epic"`, `child_slugs:[...]`). Because the parent epic slug is allowlisted, children are admitted **transitively** — you do not allowlist each child. Nesting caps at `max_planner_depth` (4).
+- **Cross-brief ordering is brief-level, not task-level.** A child's frontmatter `dependencies: [sibling-slug]` is a *slug*, stripped at normalization; the daemon's brief-dependency gate holds a child's tasks until every depended-on sibling brief is fully **accepted**. Sequence siblings by holding briefs back (don't write/allowlist a child until its prerequisites land), not by intra-plan task deps.
+
+### 4.5 Copy-pasteable minimal valid brief (passes `load_brief`)
+
+A SINGLE-file internal harness fix. This is the smallest brief that loads cleanly and shapes a one-task plan:
 
 ```markdown
 ---
-epic: false            # optional: true triggers hierarchical decomposition
-interfaces: "..."      # optional: an API contract hint
-working_dir: "..."     # optional: build into an external repo
-dependencies: [...]    # optional
+working_dir: "/home/xnihil0zer0/JanusMaskJR"
+required_task_ids:
+  - fix-my-defect
+interfaces: "harness/foo.py::do_thing — EDIT existing. Replace ONLY the function do_thing so it returns sorted output. Additive/fail-soft: signature unchanged."
 ---
 
 # Title
-One-paragraph statement of what to build.
+Fix do_thing to return sorted output
 
 # Scope
-What is in bounds.
-
-# Non-Goals
-What is explicitly out of bounds. (For an EDIT task, include the literal word
-"integration" here to excuse the integration-test requirement.)
+EDIT the EXISTING file `harness/foo.py` (READ it first). SINGLE FILE — emit a
+`__JANUSMASK_PATCHES__` SYMBOL patch replacing ONLY `do_thing`. Touch NO other
+function or file. This is a sensitive-path edit, so the task is `harness_self_fix`.
 
 # Inputs
-Fixed inputs to reuse — do NOT rebuild these.
+READ `harness/foo.py`. VERIFIED current code: <quote the exact function body / point
+at a pre-committed RED oracle as the source of truth>.
+
+# Non-Goals
+Integration is out of scope (the word `integration` MUST appear here to excuse the
+integration-test requirement). Do NOT change any other symbol or file. Do NOT
+author tests beyond the one oracle.
 
 # Deliverables
-The concrete artifacts and the behavior that proves them done.
+`harness/foo.py` with `do_thing` returning sorted output, GREEN under the scoped
+verification_command, with no regression.
+
+# Required plan shape
+Emit EXACTLY ONE task.
+- task_id MUST be exactly `fix-my-defect`.
+- meta_task_type: harness_self_fix
+- files_touched: ["harness/foo.py"]
+- Emit a `__JANUSMASK_PATCHES__` SYMBOL patch (do NOT emit `__JANUSMASK_MANIFEST__`).
+- OMIT mutation_target. spec_author: null if the oracle is pre-committed.
+- verification_command: `python -m pytest tests/harness/test_foo_do_thing.py -q`
+- non_goals MUST contain the literal word `integration`; regression_tests >= 2.
 ```
 
-> **Heading gotcha:** the loader matches the bare section names (`# Inputs`, `# Scope`, …). A *decorated* heading like `# Inputs (do not rebuild)` is **not** recognized and the brief fails validation (`BriefValidationError`, surfaced as a discarded "hallucinated" plan). Keep the five headings bare.
-
-### 2. The planner (`harness/planner/cli.py`)
-
-The planner turns a brief into a **plan** (a JSON list of tasks) through an ordered pipeline:
-
-1. **`load_brief`** — validate sections, compute a content SHA-256 for provenance.
-2. **blind drafts** (`blind_draft.py`) — Claude and Gemini each draft a plan *independently*; neither sees the other.
-3. **diff** (`diff_extractor.py`) — structurally compare the two drafts.
-4. **reconcile** (`reconciliation.py`) — merge into one plan, resolving conflicts.
-5. **adversarial review** (`adversarial_review.py`) — a critique pass flags infeasible or unsafe decompositions.
-6. **auto-amend** (`auto_amend.py`) — optionally rewrite per the critique.
-7. **validate** (`plan_validator.py`) — enforce plan shape (see below).
-8. **normalize** (`plan_normalizer.py`) — dedupe oracles, enforce module-first ordering, inject committed oracle sources, **strip dependencies that name no in-plan task** (so cross-brief slug references can't wedge dispatch).
-
-**Plan-shape rules the validator enforces** (`plan_validator.py`): unique `task_id`s; a valid `meta_task_type` from the taxonomy; ≥2 `edge_cases` mirrored in regression/property tests; for any task that **edits a non-test `.py` file**, a wiring oracle (a `*_wired` test named in its `verification_command`) *or* a paired `test_authoring` sibling; integration tests required **unless** the literal word `integration` appears in the task's `non_goals`.
-
-### 3. Synthesis & acceptance (`harness/orchestrator_worker.py`, `harness/orchestrator.py`)
-
-A worker claims one task (atomic rename to `<id>.json.processing`) and runs:
-
-1. **Dual-agent synthesis** — `run_both_agents()` spawns Claude and Gemini in parallel; each emits a candidate. (`claude_fallback` covers a Claude failure.)
-2. **AST validation** — `ast_enforcer.validate_code()` rejects syntax errors, nondeterminism (`random`, wall-clock), and dangerous calls (`eval`/`exec`); up to `max_ast_retries` retries.
-3. **Differential fuzzing** — `diff_fuzzer.differential_fuzz()` generates type-aware inputs (Hypothesis), runs both candidates in the seccomp sandbox, and compares outputs. `FuzzResult.equivalent == True` is the gate. A single divergent input fails the candidate; the cap is 20 recorded failures.
-4. **The oracle** — the task's pre-committed `verification_command` (a pytest file) must pass.
-5. **Wired-ness** — `wire_up.check_wired()` confirms the new module is reachable from a **live root** (`orchestrator.py`, `orchestrator_worker.py`, `autowork_daemon.py`, `planner/cli.py`) — or referenced from `config/**` (dynamic wiring), which is how a new package registers before it is imported. (Configurable via `autowork.wire_up_gate`, currently **on**.)
-6. **Commit** — `git_integration.commit_accepted_output()` AST-merges the winner into a **staging worktree**, verifies it against a read-only archive of the parent commit (the **RO-parent gate**), enforces the apply-scope policy, then fast-forward-merges to the live tree and commits.
-
-On any **non-accept** outcome the worker rolls the live tree back (`_rollback_live_tree()`, scoped strictly to the task's declared files) and routes the task to `blocked/`.
+Notes:
+- The **`integration` excuse**: the plan validator requires an integration test for a `.py`-editing task **unless** the literal word `integration` appears in the task's `non_goals`. Put it in the brief's `# Non-Goals` and restate it in `# Required plan shape`.
+- A **new module/file** cannot use `__JANUSMASK_PATCHES__` (patches only *replace* existing symbols). Emit it **whole-file** via `__JANUSMASK_MANIFEST__`, keep the task to **one file**, and ensure a `*_wired` oracle (named in `verification_command`) or a paired `test_authoring` sibling exists so the wire-up gate passes (see [§10](#10-submission-formats-what-the-agent-emits)).
+- If your patch emits `"""` docstrings via the blind partial-edit, add a `# NESTED-QUOTE HAZARD` note instructing the agent to emit `"""` (not `'''`) and never backslash-escape quotes.
 
 ---
 
-## The autowork daemon
+## 5. External projects (`working_dir`)
 
-`harness/autowork_daemon.py` is the unattended driver. Each iteration:
+A brief with `working_dir: "/home/xnihil0zer0/NobleGreedv2"` builds into **that** repo instead of JanusMask.
 
-1. **Reaps** finished worker pidfiles and reclaims orphaned `*.processing` tasks.
-2. **Retries** blocked tasks whose backoff has elapsed; **terminally blocks** tasks whose dependencies failed.
-3. **Harvests** self-heal briefs (if `selfheal_auto_promote` is on).
-4. **Auto-promotes** (`_auto_promote` → `_auto_promote_brief_eligible`): for each brief, if its slug is **allowlisted** and it is younger than `brief_max_age_seconds`, the daemon stages any unstaged plan tasks and — for at most one unplanned brief per iteration — kicks off the planner.
-5. **Decides** (`collect_dispatchable_tasks`): ranks tasks whose dependencies are all *accepted* and that don't conflict on files, then dispatches up to `parallel_cap` workers.
+How it routes and self-protects:
+1. **External-roots allowlist (deny-all):** `working_dir` must resolve to (or under) a prefix in
+   `state/control/autowork/external_roots.allow` (one absolute prefix per line; `#`-comments ignored; **missing/empty ⇒ all external builds denied**). Currently approved: `/home/xnihil0zer0/NobleGreedv2`.
+2. **Bootstrap before staging** (`harness/target_bootstrap.py::bootstrap_target`, idempotent, best-effort):
+   - A brand-new external dir is `git init`-ed and gets a JanusMask ownership marker `.janusmask/bootstrap.json` plus a JM-owned `janusmask/work` branch (your checked-out branch is untouched).
+   - **`BootstrapRefused` (fail-closed) when:** the path is not under an approved root; **the tree is dirty** (uncommitted changes — JM never auto-stashes a user repo); or it is a git repo with **no JM ownership marker** (treated as foreign).
+3. **Worker staging** (`orchestrator._auto_commit_accepted`): JM edits the foreign repo only through a **throwaway staging worktree** under `<agent_workroot>/external_staging/`, runs the gates there, then ff-merges into the live external tree. An **EXTERNAL_DIRTY_GATE** re-checks `git status --porcelain` on the live external tree before staging and raises if it is dirty.
+4. **External verify in the target's own venv (`G3_VENV`):** external verification/fuzz must run under the target's `.venv/bin/python`; a missing `.venv` is refused.
+5. **Jail-mandatory (`FLAG2`):** every external candidate spawn (embedded tests, narrow fuzz, verify, baseline, mutant) **requires** the bubblewrap jail; if `agent_sandbox.bwrap` is off, the external task is refused (never run un-jailed against a foreign repo).
+6. The daemon never pushes/rebases the JanusMask repo for external work (`external_noop`), and external commits skip untracked-file auto-detection so JM never commits stray files into the foreign repo.
 
-**The allowlist is the safety boundary.** `state/control/autowork/auto_promote.allowlist` is one slug per line; an empty/comment-only file is **deny-all** (the daemon dispatches nothing). For an epic, allowlisting the epic slug transitively admits its children (via `hierarchical_planning`).
-
-**Control surface:**
-
-| File | Effect |
-|------|--------|
-| `state/control/orchestrator.flag` | `resume` / `pause` the whole loop. |
-| `state/control/autowork/auto_promote.allowlist` | Which brief slugs the daemon may act on. Deny-all by default. |
-| `state/control/autowork/full_stop` | Operator-persistent hard stop (never auto-cleared). |
-| `state/control/decisions/<task_id>.json` | `{"decision":"approve"}` — required to commit a `harness_self_fix` task into a sensitive path. |
-
----
-
-## Epic / hierarchical planning
-
-A brief with `epic: true` (and `hierarchical_planning.enabled: true`, currently on) is decomposed instead of built directly. `_run_epic_pipeline` (`planner/cli.py`) has both agents draft a **child-brief set**, reconciles it, writes each child as its own `brief_hooks_<child-slug>.md` at the repo root, and persists an epic record `plan_hooks_<slug>.json` (`plan_kind: "epic"`, `child_slugs: [...]`). On the next daemon iterations the children are discovered, planned, and built like any leaf — and because the parent epic slug is allowlisted, the children are admitted transitively. Nesting is capped at `max_planner_depth` (4).
-
-**You (the planner) decide the tree.** The epic brief *suggests* a decomposition; the agents produce the actual child set. Sequencing between children is a **brief-level** concern (build order, held briefs) — not intra-plan task dependencies. (A child whose frontmatter lists sibling *slugs* as dependencies will have those stripped at normalization, since a slug is not an in-plan `task_id`; ordering siblings is done by holding briefs back until their dependencies have landed.)
+To approve a new external root:
+```bash
+echo "/abs/path/to/target_repo" >> state/control/autowork/external_roots.allow
+```
 
 ---
 
-## The safety model
+## 6. Pause / resume / stop
 
-### Write-policy tiers (`harness/git_integration.py`, `harness/orchestrator.py`)
+**The dispatch gate is the EXISTENCE of a file, not a string.** (`harness/autowork_daemon.py::_decide`):
 
-| Tier | Paths | What's required to commit |
-|------|-------|---------------------------|
-| **Free** | anything *not* under the sensitive globs | RO-parent gate only — auto-commits. A new top-level package (e.g. `autocompiler/`, `overseer/`) is free. |
-| **Sensitive** | `harness/**`, `config/**`, `scripts/**`, `services/**` (`_SENSITIVE_APPLY_GLOBS`) | `meta_task_type: harness_self_fix`, **plus approval**: with `autowork.auto_approve_sensitive_harness: true` (current posture) the approval is automatic behind the unattended-safety stack — content/capability gate, TOCTOU artifact pin, and the RO-checkout rollback protector (`auto_approve_ro_gate`); with the flag `false`, an operator decision file `state/control/decisions/<task_id>.json` is required instead. |
-| **Irreducible** | `agent_jail.py`, `dbus_proxy.py`, `paths.py`, `git_integration.py`, `orchestrator.py`, `interceptors.py`, `selfheal.py`, `autowork_daemon.py`, `services/**` (`_NEVER_AUTO_APPROVE`) | **Owner hand-edit only.** No gate or flag overrides this floor. |
+```python
+paused = _pause_flag_path(state_dir).exists() or _full_stop_path(state_dir).exists()
+```
 
-The cardinal rule: **never hand-edit production outside the pipeline.** Free and sensitive code is built by the pipeline; only oracles/tests are hand-authored; the irreducible set is cleared with the owner first.
+| Action | Command | Effect |
+|---|---|---|
+| **Pause dispatch** | `touch state/control/autowork/pause` | Daemon keeps polling/promoting but dispatches **no new workers**. In-flight workers finish. Auto-clears nothing — remove the file to resume. |
+| **Resume dispatch** | `rm -f state/control/autowork/pause` | Dispatch re-enabled on the next poll (emits a `resume` row). |
+| **Hard stop (persistent)** | `touch state/control/autowork/full_stop` | Halts promotion AND dispatch, **breaks the daemon loop** (`daemon_stop`), and **stops the supervisor's respawn**. Operator-persistent: never auto-cleared. |
+| **Resume from hard stop** | `rm -f state/control/autowork/full_stop` then start the supervisor again | — |
+| **Restart the daemon child** | `kill -TERM "$(cat state/control/autowork.pid)"` | Graceful drain; supervisor respawns (needed to pick up harness code changes — see [§12](#12-gaps--steps-still-requiring-a-human)). |
+| **Disable auto-promotion only** | `touch state/control/autowork/auto_promote.disabled` | Stops staging/planning; dispatch of already-staged tasks still runs. |
 
-### The two sandboxes (do not conflate them)
-
-1. **Agent-synthesis jail** — `agent_jail.py::build_jail_argv` — bubblewrap. The repo is bind-mounted **read-only**; only the agent's work dir and session dirs are writable; `--unshare-net --unshare-ipc` on the execute path; D-Bus is filtered through `xdg-dbus-proxy`. The agent *cannot* write `harness/*.py` — the kernel forbids it.
-2. **Fuzz execution sandbox** — `sandbox.py::Sandbox.execute` — `Popen` under rlimits + a libseccomp filter that **blocks `execve`, `fork`, `socket`**, with per-input `os.fork()` isolation. (Consequence: a Node process needs `execve`+`fork`, which this sandbox forbids — JS execution would have to route through the bwrap jail, which is why the JS target is a *later* phase.)
-
-### Author ≠ implementer
-
-`test_author.py` runs the oracle author in its own session dir (`author_session_dir`) with `JANUSMASK_*` env scrubbed, and accepts an oracle only if it is **non-vacuous** (`oracle_is_non_vacuous`: it must fail a `NotImplementedError` stub). The author sees the reference source but is structurally not the blind implementer.
+> **`state/control/orchestrator.flag` does NOT gate the daemon.** It is referenced in `config.yaml` (`control.pause_flag_path`) and consumed by `harness/control_gate.py` / the WebUI, but `autowork_daemon._decide` never reads it. Use the `pause` / `full_stop` **files** above to control the daemon. (Earlier docs that say "set `orchestrator.flag` to `resume`/`pause`" are wrong for the daemon.)
 
 ---
 
-## `meta_task_type` taxonomy
+## 7. Monitoring (autonomous)
 
-Every task declares a `meta_task_type` (`harness/planner/taxonomies.py`) that selects its verification policy. Key flags: `bypass_fuzzer` (skip differential fuzzing — for data/config/orchestration where it's ineffective), `skip_structural_decomp` (don't auto-split on divergence), `skip_smoke_gates` (skip the import/narrow pre-gates), `stateful_fuzz` (sequence-based fuzzing).
+### The real ledger
+**`state/impl_progress.jsonl`** is the master append-only telemetry ledger. (There is **no** `state/ledger` — that path does not exist.) Each row: `{"ts","phase","task_id","event","detail",...}`.
 
-| Type | Typical use |
-|------|-------------|
-| `data_model` | Pure data structures / dataclasses (bypass fuzzer). |
-| `config_schema` | Config readers / schema (bypass fuzzer, skip smoke). |
-| `validation` | Pure gate/validator functions. |
-| `planner_tooling` | Planner-side pure helpers. |
-| `orchestration` | Coordination logic over injected seams. |
-| `harness_plumbing` | Internal harness glue (bypass fuzzer). |
-| `io_adapter` / `state_machine` | Side-effecting / stateful (stateful fuzz). |
-| `cli_tooling`, `refactor`, `logging_observability` | Standard fuzzed code. |
-| `test_authoring` | Authors an oracle for a module-under-test (`mutation_target`). |
-| `test_unit/integration/e2e/acceptance` | Test code (self-verifying). |
-| `harness_self_fix` | A gated repair to a sensitive harness path (needs a decision file). |
-| `epic_planning` | Decomposition only, no code. |
-| `docs_writing`, `hooks_integration`, `mcp_*`, `sandbox_infra` | As named. |
+```bash
+tail -F state/impl_progress.jsonl \
+  | grep -E '"event": "(plan_kickoff|extract|launch|launch_sequential|auto_commit|task_blocked|retry_exhausted|verification_failed|planner_hallucination_discarded|plan_timeout|dependency_failed|orphan_unwired|inactivity_watchdog_triggered)"'
+```
+
+Key events:
+| Event | Meaning |
+|---|---|
+| `plan_kickoff` | planner started on an unplanned brief (clean). |
+| `planner_hallucination_discarded` | planner output rejected (empty/too-fast/single-agent/**invalid brief**); `detail` carries the reason + a `stderr_tail`. **Also fires for a malformed brief** — see [§12](#12-gaps--steps-still-requiring-a-human). |
+| `plan_timeout` | planner exceeded `planner_timeout_sec`; plan park bumped. |
+| `extract` | a plan task was staged into `state/tasks/`. |
+| `launch` / `launch_sequential` | a worker was dispatched. |
+| `auto_commit` (`phase: accepted`) | a task LANDED; `commit_sha` + `files` included. The authoritative "done" signal. |
+| `verification_failed` | the oracle (`verification_command`) failed in staging → rolled back. |
+| `task_blocked` | a non-accept terminal routed to `blocked/`; `outcome` field carries the reason. |
+| `retry_exhausted` | blocked-retry budget spent; `.exhausted` marker written; self-heal escalation fired. |
+| `dependency_failed` | a task terminally blocked because a dependency died. |
+| `orphan_unwired` | a new module was unreachable from a live root → rolled back fail-closed. |
+| `inactivity_watchdog_triggered` | >20 min with unfinished allowlisted work and no worker event → a diagnosis-only self-heal agent was spawned. |
+
+`outcome` strings on a `task_blocked` row (also written to the retry sidecar's `last_outcome`):
+`synthesis_or_ast_failed`, `embedded_tests_failed`, `narrow_fuzz_failed`, `stateful_fuzz_divergence`,
+`smoke_failed`, `fuzz_error_r{n}`, `auto_commit_failed[_r{n}]`, `worker_crash_orphan`,
+`dependency_failed`, `orphan_unwired`. The deterministic ones
+(`synthesis_or_ast_failed`, `embedded_tests_failed`, `narrow_fuzz_failed`) get a retry budget of **1** (re-trying a deterministic failure is futile); others get **3**.
+
+### Other observability
+- **`state/planning/planner_progress.jsonl`** — per-stage planner lifecycle (blind draft / diff / reconcile / validate / normalize).
+- **`scripts/brief_status.py`** — ground-truth sweep classifying every brief/plan as `unplanned`/`planned`/`queued`/`in_flight`/`blocked`/`zombie`/`complete` by running each oracle against the current tree.
+- **`logs/autowork.log`** — daemon poll/promote/dispatch decisions. **`logs/harness.log`** — orchestrator phases.
+- **`state/tasks/`** (queued `<id>.json`), **`.json.processing`** (claimed), **`blocked/`** (failed + `.retry.json` / `.exhausted` sidecars), **`processed/`** (accepted / no_diff).
+- **`state/output/<id>.{py,files.json,patches.json,no_diff}`** — the worker's emission.
 
 ---
 
-## Configuration
+## 8. Configuration reference
 
-`harness/config.yaml` is the master knob file. Current values of the load-bearing keys:
+`harness/config.yaml` is the master knob file. Current operationally-relevant values:
 
 ```yaml
+agent_sandbox:
+  bwrap: true                 # bubblewrap jail for agent spawns (fail-closed)
+
+agents:
+  claude:
+    command: ${PROJECT_ROOT}/.agents/claude-code/node_modules/.bin/claude
+    args: [-p, --model, opus, --output-format, stream-json, --verbose,
+           --include-partial-messages, --settings, ${CONFIG_DIR}/claude_worker.json,
+           --mcp-config, ${CONFIG_DIR}/claude_mcp.json, --strict-mcp-config,
+           --setting-sources, '', --tools, Read,Glob,Grep,Write,
+           --disallowedTools, Bash,Edit,Task,NotebookEdit,WebFetch,WebSearch,Skill,ToolSearch]
+  gemini:      { command: ${PROJECT_ROOT}/.agents/agy/agy, args: [-p, --dangerously-skip-permissions] }
+  antigravity: { command: ${PROJECT_ROOT}/.agents/agy/agy, args: [-p, --dangerously-skip-permissions] }
+  claude_fallback: { command: ${PROJECT_ROOT}/.agents/agy/agy, args: [-p, --dangerously-skip-permissions] }
+
 autowork:
   enabled: true
-  parallel_cap: 5             # max workers dispatched at once (clamped 1–16)
-  poll_interval_sec: 5        # task-queue poll cadence when active
-  heartbeat_sec: 1800         # idle sleep
-  planner_timeout_sec: 1800   # planner wall-clock budget
+  parallel_cap: 5             # max concurrent workers (clamped 1–16)
+  poll_interval_sec: 5        # poll cadence when active
+  heartbeat_sec: 1800         # idle sleep (wakes early on allowlist/brief change)
+  planner_timeout_sec: 1800   # planner wall-clock budget (rc=124 → plan_timeout)
+  planner_min_wall_sec: 10.0  # a sub-10s planner run is treated as a hallucination
   brief_max_age_seconds: 604800   # 7 days; older briefs are not auto-promoted
-  wire_up_gate: true          # enforce reachability on new modules at accept
-  selfheal_auto_promote: false
-  archive_spent_briefs: false # archive a brief's paperwork once its task is accepted
-  auto_approve_sensitive_harness: true  # gated self-fix commits auto-approve (E/F/G/H stack)
+  brief_max_size_bytes: 50000     # briefs at/above this are not planned (brief_too_large)
+  wire_up_gate: true              # new modules must reach a live root at accept
+  selfheal_auto_promote: false    # self-heal briefs do NOT auto-promote (operator decision)
+  archive_spent_briefs: true      # green integrate auto-archives the brief+plan
+  auto_approve_sensitive_harness: true  # gated harness_self_fix commits auto-approve
   auto_approve_ro_gate: true            # RO-checkout rollback protector on that path
-
-hierarchical_planning:
-  enabled: true               # epic decomposition on
-  max_planner_depth: 4
-  failure_propagation: true
+  conservative_missing_files: true
+  # NOTE: max_total_selfheal_escalations is NOT in this file; the self-heal runaway
+  #       ceiling defaults to 50 (persisted in state/control/autowork/runaway_ceiling.json).
 
 synthesis:
   active_agents: [claude, gemini]
   max_ast_retries: 3
+  accept_single_agent_leaf_plans: true
+  enable_single_agent_promotion: true
+  single_agent_promotion_ceiling: 3
+  timeout_seconds: 1800
+  verification_timeout_seconds: 1200
 
-autocompiler:                 # MIRROR of the runtime gate (see note below); default-ON
-  enabled: true               # master gate — a hook fires only when this AND its sub-key are true
-  population: true            # evolutionary near-miss memory at the fuzz seam
-  determinism: true           # value-entropy virtualization in the fuzz sandbox child env
-  decode: true                # post-decode schema-validation telemetry at the worker accept chokepoint
-  js: true                    # JS differential dispatch in diff_fuzzer (only fires for language: js tasks)
+workers:
+  claude_backend: tmux        # jailed interactive claude over a PTY (subscription-billed); 'headless' = -p API
+  agy_pool: { enabled: false, size: 8 }   # if enabled, size MUST be >= autowork.parallel_cap
+
+hierarchical_planning:
+  enabled: true
+  max_planner_depth: 4
+  failure_propagation: true
+  symbol_ledger: true
+
+control:
+  autobrief_default_agent: claude
+  decisions_dir: state/control/decisions
+  pause_flag_path: state/control/orchestrator.flag   # NOT consulted by the daemon (see §6)
+
+sandbox:        { cpu_time_limit_seconds: 10, memory_limit_mb: 256, network: false, filesystem_root: /tmp/janusmask_sandbox }
+fuzzing:        { engine: hypothesis, seed: 42, function_level_inputs: 2000, program_level_inputs: 1000, timeout_per_input_ms: 5000, float_tolerance: 1.0e-09 }
+
+autocompiler:   # MIRROR of the runtime gate; the file actually read is config/autocompiler.yaml
+  enabled: true
+  population: true   # near-miss memory at the fuzz seam
+  determinism: true  # value-entropy virtualization in the sandbox child env
+  decode: true       # post-decode schema-validation telemetry
+  js: true           # JS differential dispatch (only fires for language: js tasks)
 ```
 
-> **The autocompiler flags above are documented in `harness/config.yaml`, but the file `ac_enabled()` actually reads at runtime is `config/autocompiler.yaml`.** Edit that file to enable/disable a capability; keep the `harness/config.yaml` mirror in sync for the docs/oracle. `ac_enabled()` is fail-closed (a parse error or missing key ⇒ that hook stays off).
-
-Flip the four security-gated autonomy flags only via the owner script — it is a targeted, comment-preserving line edit with a `--check` preflight:
-
-```bash
-scripts/flip_autowork_flags.sh --status     # current values
-scripts/flip_autowork_flags.sh --check      # verify the E/F/G/H safety stack is present first
-scripts/flip_autowork_flags.sh enable|disable <key>
-```
-
-(Agent commands, sandbox limits, fuzzing budgets, hook mode, and the overseer live in the same file; see comments inline.)
+> The autocompiler hooks read **`config/autocompiler.yaml`** (`<cwd>/config/autocompiler.yaml`) at runtime, fail-closed — the `autocompiler:` subtree above only mirrors it. Edit `config/autocompiler.yaml` to change runtime behavior; keep both in sync. (One operational consequence: **start the daemon from the repo root**, which `--state-dir state` already forces.)
 
 ---
 
-## Operating it: a complete runbook
+## 9. `meta_task_type` taxonomy
 
-### Hands-off: dispatch one brief via the daemon
+Every task carries a `meta_task_type` (`harness/planner/taxonomies.py::META_TASK_POLICY`) selecting its verification policy. Policy flags: `bypass_fuzzer` (skip differential fuzzing), `skip_structural_decomp` (don't auto-split on divergence), `skip_smoke_gates` (skip import/narrow pre-gates), `stateful_fuzz` (sequence-based fuzzing).
 
-```bash
-cd /path/to/JanusMaskJR
+| meta_task_type | bypass_fuzzer | notable | typical use |
+|---|---|---|---|
+| `data_model` | yes | skip decomp | dataclasses / pure structures |
+| `config_schema` | yes | skip smoke | config readers / schema |
+| `validation` | yes | — | pure gate/validator functions |
+| `planner_tooling` | yes | skip decomp | planner-side helpers |
+| `orchestration` | yes | skip decomp | coordination over injected seams |
+| `harness_plumbing` | yes | skip decomp+smoke | internal harness glue |
+| `mcp_plumbing` | yes | skip decomp | MCP glue |
+| `mcp_server_change` | yes | skip smoke | MCP server edits |
+| `hooks_integration` | yes | skip smoke | hook wiring |
+| `docs_writing` | yes | skip smoke | docs |
+| `epic_planning` | yes | skip decomp+smoke | decomposition only, no code |
+| `cli_tooling` | no | — | standard fuzzed CLI code |
+| `refactor` | no | — | pure-edit refactor |
+| `logging_observability` | no | — | logging/metrics |
+| `io_adapter` | no | skip decomp | side-effecting I/O |
+| `state_machine` | no | stateful_fuzz | stateful logic |
+| `sandbox_infra` | yes | skip decomp | sandbox infra |
+| `test_unit`/`test_integration`/`test_e2e`/`test_acceptance` | yes | skip smoke | test code (self-verifying) |
+| `test_authoring` | no | skip decomp, skip interface fuzz | authors an oracle for a `mutation_target` module |
+| **`harness_self_fix`** | yes | skip decomp+smoke | **REQUIRED** for any write under `harness/**` `config/**` `scripts/**` `services/**` |
 
-# 1. Place your brief at the repo root.
-#    brief_hooks_my_feature.md   (epic: true for a decomposed build)
-
-# 2. Allowlist its slug (the brief_hooks_<slug>.md stem). Deny-all otherwise.
-echo "my_feature" >> state/control/autowork/auto_promote.allowlist
-
-# 3. Make sure the loop is resumed and not full-stopped.
-echo "resume" > state/control/orchestrator.flag
-rm -f state/control/autowork/full_stop
-
-# 4. (If a prior run died) clear any stale lock.
-rm -f state/control/autowork/git_commit.lock
-
-# 5. Start the daemon (auto-respawning supervisor).
-scripts/run-autowork.sh --state-dir state --logs-dir logs --config harness/config.yaml
-```
-
-The daemon plans the brief, stages its tasks, and dispatches workers. Watch progress in `state/impl_progress.jsonl` (see [Observability](#observability)).
-
-**Daemon flags:** `--state-dir`, `--logs-dir`, `--config`, `--once` (single iteration, no respawn), `--max-backoff`. PID → `state/control/autowork.pid`; logs → `logs/autowork.log`.
-
-**Stop it:**
-```bash
-echo "pause" > state/control/orchestrator.flag     # drain then idle
-touch state/control/autowork/full_stop              # operator-persistent hard stop
-kill -TERM "$(cat state/control/autowork.pid)"      # supervised shutdown (≤30s drain)
-```
-
-### Building into a sensitive path (`harness_self_fix`)
-
-A task that edits `harness/**`/`config/**`/`scripts/**`/`services/**` must declare `meta_task_type: harness_self_fix`. Under the current posture (`auto_approve_sensitive_harness: true`) the commit auto-approves behind the content/capability gate, TOCTOU pin, and RO-checkout protector — just allowlist the slug and let the daemon run it. With the flag `false`, an operator decision file is required; the `task_id` is only known after the brief is planned, so:
-
-1. Allowlist the fix brief's slug; let the daemon plan it.
-2. Read the staged `task_id` from `plan_hooks_<slug>.json`.
-3. Write `state/control/decisions/<task_id>.json`:
-   ```json
-   {"decision": "approve", "task_id": "<task_id>", "reason": "...", "operator": "you"}
-   ```
-4. The worker commits on the next dispatch.
-
-(A decision file is also accepted, harmlessly, when the flag is on. The `_NEVER_AUTO_APPROVE` irreducible list is a floor that no flag overrides.)
-
-### Manual drive (no daemon)
-
-```bash
-# Plan
-python -m harness.planner.cli brief_hooks_my_feature.md \
-  --output-plan plan_hooks_my_feature.json --config harness/config.yaml
-
-# Stage one task (in-process API), then run the worker on it
-python -m harness.orchestrator_worker --state-dir state --task-id <task_id> --config harness/config.yaml
-```
-
-### Web dashboard
-
-```bash
-scripts/run-webui.sh                  # starts WebUI (+ orchestrator); loopback only
-# prints: WebUI ready at http://127.0.0.1:8765/?token=<token>
-```
-Flags: `--webui-only`, `--orchestrator-only`, `--port`, `--host`, `--foreground`. The auth token is written to `state/control/operator_token`.
+`BYPASS_FUZZER_TYPES`, `SIDE_EFFECT_META_TYPES`, `SKIP_SMOKE_GATE_TYPES` are derived from this table. **`implementation` is not a member** — if a brief hints it, the planner coerces a real type.
 
 ---
 
-## Observability
+## 10. Submission formats (what the agent emits)
 
-Monitor a run **cheaply** by tailing the telemetry ledger rather than the agent logs:
+The agent writes `submission.py`; the harness AST-parses it for **one** top-level assignment.
 
-- **`state/impl_progress.jsonl`** — append-only JSONL. Each row: `{"ts", "phase", "task_id", "event", "detail", ...}`. The events you care about:
-  - `plan_kickoff` — the planner started on a brief.
-  - `planner_hallucination_discarded` — a draft was rejected (empty/too-fast/invalid); `detail` carries the reason.
-  - `launch` / `launch_sequential` — a worker was dispatched.
-  - `auto_commit` (`phase: accepted`) — a task landed; `commit_sha` + `files` included.
-  - `task_blocked` / `retry_exhausted` / `dependency_failed` — failure paths.
+### `__JANUSMASK_PATCHES__` — partial-edit / R-anchor symbol patches
+```python
+__JANUSMASK_PATCHES__ = [
+  {'file': 'harness/foo.py', 'kind': 'symbol', 'name': 'do_thing', 'code': r'''def do_thing(...): ...'''},
+]
+```
+- `kind: 'symbol'` replaces exactly one EXISTING top-level `def`/`async def`/`class` (or dotted `Outer.method`). `kind: 'region'` replaces only the lines between a `# JANUSMASK_REGION:<S>` … `# JANUSMASK_ENDREGION:<S>` sentinel pair.
+- Used for an EDIT to an existing file (`partial_edit`, or a `bypass_fuzzer` type), single-file, target already on disk.
+- **Cannot create a file or a brand-new top-level symbol** — `_apply_symbol_patch` raises `KeyError` if `name` is absent. To **add** a symbol, use the **R-ANCHOR additive** pattern: one `symbol` entry whose `name` is an existing anchor and whose `code` reproduces that anchor verbatim **plus** the new symbol(s); the harness inserts the extras before the anchor.
 
-  A tight watch:
-  ```bash
-  tail -F state/impl_progress.jsonl \
-    | grep -E '"event": "(plan_kickoff|auto_commit|task_blocked|planner_hallucination_discarded|retry_exhausted)"'
-  ```
-- **`scripts/brief_status.py`** — ground-truth sweep classifying every brief/plan as EPIC / DONE / PENDING / NEEDS-PLAN / ORPHAN by running each oracle against the current tree. `--archive <stamp>` moves completed paperwork to `_autowork_archive/`.
-- **`logs/autowork.log`** — daemon poll/promote/dispatch decisions. **`logs/harness.log`** — orchestrator phases (synthesis/fuzz/commit).
-- **`state/output/<task_id>.*`** — the worker's emission: `.py` (single file), `.files.json` (whole-file map), `.patches.json` (symbol patches), `.no_diff` (already-satisfied marker).
-- **`state/tasks/`, `state/tasks/blocked/`, `state/tasks/processed/`** — queue, failures (+ `.retry.json` sidecars), and completed tasks.
+### `__JANUSMASK_MANIFEST__` — whole-file / multi-file
+```python
+__JANUSMASK_MANIFEST__ = {
+  'harness/newmod.py': r'''<entire file source>''',
+  'tests/harness/test_newmod_wired.py': r'''<entire file source>''',
+}
+```
+- Each value is VERBATIM whole-file source (no diffs). Used for **new modules** and any multi-file task (`len(files_touched) > 1`). Every `files_touched` entry must be a manifest key (`manifest_incomplete` otherwise).
+- Wrap with raw triple-single-quote `r'''...'''` so backslashes/quotes survive.
+
+A `test_authoring` task submits the test file source directly as ordinary Python (neither marker).
+
+### Acceptance gates a submission must clear (worker lifecycle)
+claim → synthesis (Claude+Gemini) → AST validation (`max_ast_retries`) → differential/stateful fuzz → bypass-fuzzer smoke/embedded/narrow gates (for `bypass_fuzzer` types) → oracle (`verification_command`, RED-before baseline / GREEN-after in staging) → mutation non-vacuity gate (for `test_authoring`) → wire-up (reachable from a live root) → auto-commit (staging worktree → RO-parent verify → ff-merge). Any non-accept rolls back the live tree **scoped strictly to `files_touched`** and routes to `blocked/`.
 
 ---
 
-## State directory layout
+## 11. Troubleshooting
+
+| Symptom | Cause / recovery |
+|---|---|
+| **Daemon does nothing.** | Check: no `state/control/autowork/full_stop`, no `state/control/autowork/pause`, slug is in `auto_promote.allowlist` (deny-all when empty/comment-only), brief younger than 7 days, no `auto_promote.disabled`. The supervised child PID is in `state/control/autowork.pid`. |
+| **Brief rejected / `planner_hallucination_discarded`.** | Often a malformed brief. Ensure the five headings are **bare**, each non-empty; an EDIT task's `non_goals` contains the literal word `integration`; a module-creating task names a `*_wired` oracle in `verification_command`. A `stderr_tail` containing `validation failed`/`missing required field` ⇒ deterministic brief defect (see [§12](#12-gaps--steps-still-requiring-a-human)). |
+| **`plan_timeout`.** | Planner exceeded `planner_timeout_sec` (1800s); the partial plan is deleted and the slug parked with escalating backoff (300s → 3600s → 86400s). Re-saving the brief (newer mtime) clears a non-deterministic park. |
+| **`empty_plan` / single-agent discard.** | Planner produced no tasks or only un-reconciled Gemini tasks. Tighten the `# Required plan shape`; ensure a real RED oracle exists for a standalone test. |
+| **Task keeps failing identically.** | A deterministic outcome (`synthesis_or_ast_failed`/`embedded_tests_failed`/`narrow_fuzz_failed`) retries only **once**. A stale `state/output/<id>.{patches,files}.json` sidecar can mis-route the accept path; the worker purges them on non-accept, but if you re-stage by hand, clear them too. |
+| **`auto_commit_failed` on a new file.** | The patches path cannot CREATE files — emit a new module **whole-file** (`__JANUSMASK_MANIFEST__`), keep the task to ONE file, and don't list non-target files in `files_touched`. |
+| **`orphan_unwired`.** | A new module is unreachable from a live root. Import it from a live root or register its dotted path under `config/**`; or include a `*_wired` oracle. |
+| **`verification_failed`.** | The oracle failed in staging. The vcmd runs RED-before (baseline) and must pass GREEN-after; check `stdout_tail`/`stderr_tail` on the ledger row. |
+| **External build refused.** | `BootstrapRefused`/`EXTERNAL_DIRTY_GATE` — the external tree is dirty (commit/clean it; JM never auto-stashes), or the root is not in `external_roots.allow`, or it's a foreign git repo with no JM marker, or `bwrap` is off (FLAG2). |
+| **Stale `git_commit.lock`.** | A daemon that died mid-commit can leave `state/control/autowork/git_commit.lock`. The worker acquisition is a bounded PID-stamped `LOCK_NB` retry (a dead holder fails cleanly → `auto_commit_failed`), but removing a stale lock by hand before restart is safe and fastest. |
+| **A harness change isn't taking effect.** | The daemon caches its code at startup — **restart the child** (see [§12](#12-gaps--steps-still-requiring-a-human)). Workers/planner are fresh subprocesses and pick up changes immediately. |
+
+---
+
+## 12. Gaps / steps still requiring a human
+
+These are points where the system does **not** fully self-recover and an operator must intervene. They are real defects/footguns, documented honestly:
+
+1. **A malformed brief is silently parked as a deterministic plan failure — indistinguishable from a planner hallucination.**
+   When `load_brief` rejects a brief (missing/empty/decorated heading, bad frontmatter), the planner subprocess exits non-zero with `validation failed`/`missing required field`/`PlanValidationError` in stderr. `_auto_promote` records this as `planner_hallucination_discarded` and writes a **`deterministic` park marker** (`state/control/autowork/plan_attempts/<slug>.json` with `deterministic: true`), which suppresses re-planning for **86400s (24h)** after the first attempt. The operator gets **no distinct "your brief is malformed" signal** — it looks like the LLM hallucinated. **Manual action:** grep the `planner_hallucination_discarded` row's `stderr_tail`; if it names a validation error, fix the brief headings/frontmatter. Re-saving the brief (newer mtime than the marker) clears the park; otherwise delete `state/control/autowork/plan_attempts/<slug>.json`.
+
+2. **A blocked task's retry budget is a time-bomb decoupled from the allowlist.**
+   `_retry_blocked_tasks` re-stages everything in `state/tasks/blocked/*.json` whose backoff window has elapsed, up to budget 3 (1 for deterministic outcomes) — operating **purely on the blocked sidecars, with no allowlist or brief-eligibility check.** So if you **withdraw a brief's slug from the allowlist** (or archive the brief) while one of its tasks is parked in `blocked/`, the daemon will **still re-fire that task** on the next backoff tick and may re-dispatch a worker for withdrawn work. **Manual action:** to truly stop a withdrawn task, also remove `state/tasks/blocked/<tid>.json` (and its `.retry.json`/`.exhausted` sidecars). Withdrawing from the allowlist alone is insufficient.
+
+3. **The daemon caches its own code at startup — a harness change is not live until a supervisor-respawn restart.**
+   `autowork_daemon` binds its harness dependencies (`compute_brief_status`, `stage_task`, `can_run_parallel`, the self-heal primitives, and any lazily-imported module after first use) at process start and reuses them from `sys.modules`. A change to the **daemon's own loop / promotion / dispatch / staging / watchdog logic** does NOT take effect in the running process. **Manual action:** after landing such a change, restart the child: `kill -TERM "$(cat state/control/autowork.pid)"` (the supervisor respawns it). Worker/planner/orchestrator code is fresh per subprocess and needs no restart.
+
+4. **Sensitive-path commits to the irreducible set never auto-approve.**
+   The `_NEVER_AUTO_APPROVE` files (`agent_jail.py`, `dbus_proxy.py`, `paths.py`, `git_integration.py`, `orchestrator.py`, `interceptors.py`, `selfheal.py`, `autowork_daemon.py`, `services/**`) are **owner-hand-edit only** — no flag overrides this. A brief targeting them will dead-end at the apply gate. **Manual action:** clear the change with the owner; it cannot be driven through the pipeline.
+
+5. **`harness_self_fix` with `auto_approve_sensitive_harness: false`.**
+   The hands-off posture has this flag `true` (no decision file needed). If it is turned **off**, a sensitive-path commit requires an operator decision file `state/control/decisions/<task_id>.json` with `{"decision":"approve",...}` — and the `task_id` is only known **after** the brief is planned (read it from `plan_hooks_<slug>.json`). This is a manual, per-task step. Keep the flag `true` for unattended operation.
+
+6. **Self-heal is diagnosis-only.**
+   The inactivity watchdog and retry-exhaustion escalation spawn a jailed agent that writes a *corrected-spec diagnosis to its outbox* and is forbidden from touching the live repo or the allowlist. **Promotion of any corrective brief is an operator decision** (`selfheal_auto_promote: false`). The system surfaces a fix; it does not apply one.
+
+7. **A planner that genuinely needs `> brief_max_size_bytes` (50000) or `> planner_timeout_sec` (1800s)** will be parked (`brief_too_large` / `plan_timeout`). Split the brief into an epic, or raise the limits in `harness/config.yaml` and restart the daemon.
+
+---
+
+## 13. State directory layout
 
 ```
 state/
-├── impl_progress.jsonl              # master telemetry ledger (JSONL)
-├── STATE.json                       # flock-protected orchestrator working state
+├── impl_progress.jsonl                 # MASTER telemetry ledger (the real one; NOT state/ledger)
 ├── control/
-│   ├── orchestrator.flag            # "resume" / "pause"
-│   ├── autowork.pid                 # supervised daemon PID
-│   ├── autowork/
-│   │   ├── auto_promote.allowlist   # slugs the daemon may act on (deny-all if empty)
-│   │   ├── full_stop                # operator-persistent hard stop
-│   │   └── running/<task_id>.pid    # live worker pidfiles
-│   └── decisions/<task_id>.json     # operator approvals for harness_self_fix
+│   ├── autowork.pid                    # supervised daemon child PID
+│   ├── orchestrator.flag               # WebUI/control_gate flag — NOT read by the daemon
+│   ├── decisions/<task_id>.json        # operator approvals (harness_self_fix when auto-approve off)
+│   └── autowork/
+│       ├── auto_promote.allowlist      # slugs the daemon may promote (DENY-ALL if empty)
+│       ├── external_roots.allow        # approved external working_dir roots (DENY-ALL if empty)
+│       ├── pause                       # EXISTENCE pauses dispatch
+│       ├── full_stop                   # EXISTENCE = persistent hard stop (breaks loop + respawn)
+│       ├── auto_promote.disabled       # EXISTENCE disables promotion only
+│       ├── plan_attempts/<slug>.json   # plan-park markers (attempts, last_ts, deterministic)
+│       ├── runaway_ceiling.json        # persisted self-heal escalation counter (operator-clear)
+│       ├── auto_approve_count.json     # persisted widened-approve counter
+│       ├── git_commit.lock             # bounded commit lock
+│       └── running/<task_id>.pid       # live worker pidfiles
 ├── tasks/
-│   ├── <task_id>.json               # staged (pending)
-│   ├── <task_id>.json.processing    # claimed by a worker
-│   ├── blocked/<task_id>.json       # failed (+ .retry.json, .exhausted sidecars)
-│   └── processed/<task_id>.json     # accepted / no_diff
+│   ├── <task_id>.json                  # staged / pending
+│   ├── <task_id>.json.processing       # claimed by a worker
+│   ├── blocked/<task_id>.json          # failed (+ .retry.json, .exhausted sidecars)
+│   └── processed/<task_id>.json        # accepted / no_diff
 ├── output/<task_id>.{py,files.json,patches.json,no_diff}
 ├── planning/
-│   ├── merged_plan.json             # final plan from the planner
-│   ├── planner_progress.jsonl       # planner stage lifecycle
-│   └── sessions/                    # per-agent blind drafts
-└── sessions/                        # canonical per-task submission records
+│   ├── merged_plan.json                # final plan
+│   ├── planner_progress.jsonl          # planner stage lifecycle
+│   └── sessions/                       # per-agent blind drafts
+└── autocompiler/<task_id>/             # population near-miss memory (if population: true)
 ```
 
----
-
-## Testing
-
-```bash
-make test-changed   # impact-selected (testmon), hermetic inner loop — fastest
-make test-fast      # parallel screen (xdist, ~4–8 workers). NOT a gate: a class of
-                    #   non-hermetic tests (shared on-disk state) flakes under -n auto.
-make test-full      # serial authoritative gate — zero flake, slower
-```
-
-Layout: `tests/harness/`, `tests/planner/`, `tests/overseer/`, `tests/autocompiler/`, `tests/integration/`, `tests/e2e/`, `tests/adversarial/`, plus top-level module tests (~650 modules total). `make test-fast` is a **screen**, not a gate — reconfirm anything it flags with `make test-full` before trusting it.
-
-> **The serial suite is fully green** (7696 pass / 12 skip / 5 xfail as of 2026-06-10; ~15–17 min with the autocompiler layer ON). The long-standing "known pre-existing baseline" of ~10 failures was root-caused and eliminated; there is no tolerated-failure list anymore — a red `make test-full` means a real regression.
-
-> **No Hypothesis deadlines.** `tests/conftest.py` loads a suite-wide `janusmask_no_deadline` profile (`deadline=None`). Hypothesis's default 200ms per-example wall-clock deadline flakes under full-suite load (the first example pays import/fixture warm-up — observed 456ms once vs 0.92ms on replay → `DeadlineExceeded` → `FlakyFailure`). Real performance guards in this suite are explicit elapsed-time asserts; a test that genuinely wants a deadline sets `deadline=...` in its own `@settings` and keeps it.
-
-> **Wall-clock bound policy.** Timing asserts (`assert elapsed < X`) exist to catch a *regression class* (O(n²) blowup, unbounded hang, broken pooling), not to microbenchmark. Pick `X` ≫ the isolated-run nominal and ≪ the regression magnitude, and say which regression the bound guards in a comment. The autocompiler determinism layer adds ~+32% to every sandbox-child startup, so bounds sized to a quiet box flake on a loaded one (the 2026-06-10 hardening pass in `2f3e396` is the worked example).
-
-> **Hermeticity rule (learned the hard way, twice):** tests must never touch live repo state. `tests/unit/test_webui.py` used to POST against the real Flask app globals, silently **rewriting the live `harness/config.yaml`** (comments stripped, keys re-sorted, fixture values injected) and **deleting the real deny-all allowlist** on every full sweep — fixed by monkeypatching every module-level path global into `tmp_path` (autouse `_hermetic_paths` fixture there). Then, with `population: true` shipped on, any test driving a real non-equivalent fuzz round started writing durable population DBs into the live `state/autocompiler/<task_id>/` — fixed by the session-scoped `_hermetic_population_state` fixture in `tests/conftest.py`, which redirects only the hook's `state_dir=None` default into a session tmp dir. When a new always-on hook writes under `state/` by default, add the same treatment.
+`brief_hooks_<slug>.md` and `plan_hooks_<slug>.json` live at the **repo root** while active and are
+auto-archived to `_autowork_archive/<date>_<label>/` on green integrate.
 
 ---
 
-## The autocompiler subproject
+## 14. Glossary
 
-`autocompiler/` is an in-progress reframing of the factory from *single-shot-or-die* into a **memory-bearing evolutionary compiler**: instead of discarding a clean near-miss when one of ≤20 fuzz inputs diverges, candidates accumulate in a rated **population**, near-misses are *scored* (not thrown away), and selection + crossover steer the generation budget toward the promising lineage — while every existing correctness gate stays load-bearing. (Inspired by the AlphaProof "Nexus" design: population DB + Elo + P-UCB selection + AST crossover, translated onto JanusMaskJR's real seams.)
-
-**Status: ALL FOUR PHASES BUILT and ON by default (2026-06-10).** Phase A (the nine pure modules below), Phase B (determinism layer, post-decode validator, and the JS beachhead under `autocompiler/js/`), Phase C (the harness wiring — `sandbox_child_env` determinism mount, `_print_json_line` decode telemetry, and the `fuzz_from_task` JS-dispatch + population-memory hooks, each a fail-safe `ac_enabled()`-gated bridge), and Phase D (the owner-hand-edited pinned-node jail mount in `build_jail_argv`) are all landed with pre-committed oracles in `tests/autocompiler/`. The four capability flags now ship `true` in the runtime gate (`config/autocompiler.yaml`); `ac_enabled()` remains fail-closed, so a parse error or a removed key disables a hook rather than crashing the pipeline.
-
-> **Where the gate actually lives.** `ac_enabled()` reads **`config/autocompiler.yaml`** (resolved as `<cwd>/config/autocompiler.yaml`), *not* `harness/config.yaml`. The `autocompiler:` subtree in `harness/config.yaml` mirrors it for the documented config surface and the `test_config_tree` oracle, but flipping that file alone does **not** change runtime behavior — edit `config/autocompiler.yaml` to enable/disable a capability, and keep the two in sync. (This split was a latent inconsistency from the Phase-C build; the runtime gate is the source of truth.)
-
-> **Verified live on the production path (2026-06-10).** The `<cwd>` resolution is not a pytest-only artifact: the daemon runs at the repo root, both worker `Popen` spawn sites inherit its cwd (neither passes `cwd=`), and the four hooks execute in-process in the trusted worker — so `ac_enabled()` finds the gate file in production, not just under pytest. `config/autocompiler.yaml` is git-tracked, so staging worktrees carry it too. The one operational dependency this creates: **start the daemon from the repo root** (its relative `--state-dir state` argument already forces this).
-
-### Using it
-
-Each capability is an independent, fail-safe hook gated on `ac_enabled('<key>')` — which requires **both** `autocompiler.enabled: true` **and** the sub-key `true` in the runtime gate `config/autocompiler.yaml` (any error, missing key, or non-bool reads as `false`). All four ship `true`; set a key `false` there to turn a single capability off, or `enabled: false` to disable the whole layer:
-
-| Flag | What turns on | Where it hooks |
-|------|---------------|----------------|
-| `population` | Near-miss **memory**: a NON-equivalent differential-fuzz round records both candidates as rated `Candidate`s in a durable `PopulationDB` under **`state/autocompiler/<task_id>/`**, instead of being discarded. The DB is cross-attempt persistent and grows one child per recorded round — watch that directory once real builds fuzz non-equivalently (no retention policy yet). Tests are hermeticized away from it (see the Testing section). | `diff_fuzzer._record_population_safe`, called at the end of every fuzz run. |
-| `determinism` | Value-level entropy virtualization (`time.time`/`time_ns`, `datetime`, `random`, `os.urandom`, `uuid`) injected via a sitecustomize mount into the fuzz-sandbox child env, reducing differential-run flakiness. **Never** patches `time.monotonic`/`perf_counter`/`sleep` (see the runner-safety invariant below). **Measured cost:** ~+32% per sandbox-child startup (sitecustomize import/virtualize), which lengthens the serial sweep (~857s→~1145s); it buys production fuzz stability, not test-suite value — set it `false` in `config/autocompiler.yaml` if gate time matters more. | `sandbox.sandbox_child_env` → `_maybe_determinism_env`. |
-| `decode` | Post-decode schema validation telemetry on agent submissions (reasoning-field-first schema, truncated-JSON repair, incomplete-edit drops) — observability first, never raises into the accept path. | `orchestrator_worker._print_json_line` accept chokepoint. |
-| `js` | JS differential dispatch: a task with `language: "js"` routes both candidates through `execute_js_batch` (per-batch `child_process.fork`, FD-3 results channel, sentinel codec for `undefined`/`NaN`/`Infinity`/`null`) instead of the Python sandbox. Requires a pinned nvm node (`autocompiler/js/node_version.py` resolves it; the Phase-D jail mount binds **only** `~/.nvm/versions/node/<v>/bin`, read-only, fail-closed on pin escapes). | `diff_fuzzer.fuzz_from_task` language dispatch. |
-
-The shipped runtime gate (`config/autocompiler.yaml`) is all-on:
-
-```yaml
-autocompiler:
-  enabled: true
-  population: true     # near-miss memory at the fuzz seam
-  determinism: true    # value-entropy virtualization in the sandbox child env
-  decode: true         # post-decode schema-validation telemetry
-  js: true             # JS differential dispatch (only fires for language: js tasks)
-```
-
-To run memory-only (observe what the population layer keeps without the other hooks), set `determinism`/`decode`/`js` to `false` and leave `population: true`.
-
-**What is deliberately NOT live yet:** the full generation loop. `loop.py` (one select→operate→run→rate transition), `selection.py` (P-UCB), `crossover.py` (AST recombination via the `_ast_merge` seam), and `elo.py` are built and oracle-tested as pure modules over injected seams, and the fuzz seam now *feeds* the population — but the worker does not yet drive selection/crossover in production, and no real pairwise **rater** model is connected to the Elo seam. Those are the remaining wiring leaves (`ac-wire-evolution`, `ac-wire-rater` in the epic plan); until they land, the population layer is a memory, not an optimizer. The acceptance invariant when they do land is already fixed: a population winner is committed **only** through the unchanged `_auto_commit_accepted` gate (staging worktree + RO-parent), never around it. The full target architecture (task-scoped population DB, matchmaker queue, flash-tier rater pool, Plackett-Luce Elo) is specified in `nexus_integration_system_blueprint.md`.
-
-> **Runner-safety invariant (learned 2026-06-10):** the determinism layer virtualizes only *value-level* entropy (`time.time`/`time_ns`, `datetime`, `random`, `os.urandom`, `uuid`). It must never patch `time.monotonic`/`perf_counter`/`sleep` — those are the fuzz-sandbox runner's own deadline primitives, and virtualizing them spuriously times out one side of a differential run.
-
-| Module | Role |
-|--------|------|
-| `flags.py` | `ac_enabled(key)` — fail-closed reader for the `autocompiler:` config subtree. |
-| `population.py` | `Candidate` + `PopulationDB` — durable JSON candidate store under an injected `state_dir`. |
-| `fitness.py` | `compute_fitness(...)` — pure fitness vector; error/hard-disproof/vacuous/failed-gate ⇒ prune-floor; near-miss ⇒ rated, not pruned. |
-| `elo.py` | `expected_score`/`update_elo`/`tournament_round` — pairwise Elo via an injected rater seam. |
-| `selection.py` | `p_ucb(...)` — P-UCB selection (unseen candidates explored first; deterministic ties). |
-| `crossover.py` | `ast_crossover`/`file_crossover` — recombine candidates via an injected `_ast_merge` seam (no real git). |
-| `containment.py` | `extract_evolve_ranges` + `check_write_containment` — confine edits to `# JM-EVOLVE-BLOCK` ranges. |
-| `vacuity.py` | stub / complexity-floor / exception-swallow gates returning `GateResult`. |
-| `loop.py` | `step(db, seams)` — one select→operate→run→fitness→insert→rate transition; never spawns a process or model. |
-
-Design notes and the full epic brief live under `autocompiler_research/`.
-
----
-
-## The self-evolving metadata-ablation layer (harness distillation)
-
-JanusMaskJR steers its agents almost entirely through **metadata** — brief prose, plan-task specs, type/signature constraints, edge-case lists, retry diagnostics injected into corrected specs. That metadata is expensive (tokens, latency) and its value is unmeasured: nobody knows which fields actually *cause* correct synthesis and which are dead weight. The ablation layer exists to answer that empirically, and then to make the harness **grow its own verifiers** from what it learns.
-
-The loop, end to end:
-
-1. **Ablate** — re-run reference tasks with one class of metadata deliberately removed. Four configurations are defined (`codebase_metadata_analysis.md` §4): *baseline* (untouched), *brief-prose ablation* (empty `spec.objective`/`functional_requirements`/`acceptance_criteria`), *constraint/signature ablation* (strip `function_signature` and type constraints so the fuzzer falls back to generic strategies), and *retry/feedback ablation* (suppress diagnostic stack traces and fuzz logs in self-heal retries). The runner design stages each variant as a normal `state/tasks/<id>.json` and drives a single orchestrator iteration per trial, reading accept/reject from `impl_progress.jsonl`; the hand-authored reference tasks under `epic4_handauthored_reference/` are the trial corpus.
-2. **Diff** — compare the rich-metadata run's accepted code against the ablated run's submission. The prototype distiller `autocompiler_research/distill_harness_rules.py` does this at the AST level: it detects *lost heuristics* — e.g. a function that was real logic under rich metadata collapsing to a vacuous stub (`ConstantReturn`, `NotImplementedError`) under ablation — and emits a structured record of exactly what behavior the missing metadata was carrying.
-3. **Distill** — convert each lost heuristic into a **permanent deterministic gate**, so the rule survives even when the prose that taught it is gone (`codebase_metadata_analysis.md` §5): banned-construct expansions and signature assertions compile into `ast_enforcer` rules; divergence-triggering inputs pre-seed the Hypothesis strategies in `diff_fuzzer`; divergence *reasons* (e.g. `length_mismatch`) become structural assertions in the fuzz comparison. `autocompiler_research/synthesized_calculate_hash_digest_checker.py` is a worked example of a checker synthesized this way.
-4. **Re-ablate** — with the distilled gate in place, the ablated configuration should now pass too: the heuristic has moved from *prompt* to *harness*. Each iteration makes the system cheaper to run (less metadata needed) and harder to fool (more behavior enforced by verifiers instead of prose). This is the same design principle as the rest of the repo — *correctness by withholding and checking, never by prompting* — applied to the harness's own evolution.
-
-**Status: designed and prototyped, not yet wired.** The analysis, the four-configuration experiment design, the distillation methodology (including the literature survey and the AlphaProof-Nexus analysis it draws on), and the AST-diff distiller prototype are complete; the ablation runner is not yet a `harness/` module and no synthesized checker has been landed into `ast_enforcer` through the pipeline. When it is built, each piece follows the normal write-tiers: the runner and distiller are free-tier research tooling, while landing a synthesized rule into `ast_enforcer.py`/`diff_fuzzer.py` is a sensitive-path `harness_self_fix` like any other.
-
-| Artifact | Role |
-|----------|------|
-| `codebase_metadata_analysis.md` | Full map of every metadata→behavior mechanism in the harness; the 4-configuration ablation runner design (§4); the distillation pathways into `ast_enforcer`/`diff_fuzzer` (§5). |
-| `academic_harness_distillation_research.md` | Literature review (behavior distillation, prompt compression, checker synthesis) + the harness-distillation methodology and its AlphaProof-Nexus grounding. |
-| `autocompiler_research/distill_harness_rules.py` | Prototype distiller: AST-diffs rich vs ablated submissions, flags vacuous-stub collapses and lost heuristics, scaffolds checker synthesis. |
-| `autocompiler_research/synthesized_calculate_hash_digest_checker.py` | Example output: a static checker synthesized from one distilled failure. |
-| `nexus_integration_system_blueprint.md` | The population/Elo/matchmaker architecture the ablation layer's evolutionary framing plugs into. |
-| `epic4_handauthored_reference/` | The reference task corpus the ablation trials run against. |
-
----
-
-## Glossary
-
-- **Brief** — a markdown+YAML spec (`brief_hooks_<slug>.md`); the unit of work you author.
-- **Plan** — the planner's JSON output: an ordered list of tasks, each with an oracle.
+- **Brief** — `brief_hooks_<slug>.md`; the only hand-authored artifact.
+- **Slug** — the brief filename stem; what goes in the allowlist.
+- **Plan** — the planner's `plan_hooks_<slug>.json`: a list of tasks, each with an oracle.
 - **Task** — one atomic build unit (one file / one symbol), claimed and built by a worker.
-- **Epic** — a brief that decomposes into child briefs (`epic: true`).
-- **Oracle** — a pre-committed pytest file that is a task's authoritative contract; RED before the build, GREEN after.
+- **Epic** — a brief (`epic: true`) that decomposes into child briefs.
+- **Oracle** — a pre-committed pytest file (the task's `verification_command`); RED before, GREEN after.
 - **Differential equivalence** — two candidates returning identical outputs across all fuzz inputs; the acceptance signal.
-- **Live root** — an entrypoint module the wired-ness gate seeds reachability from.
-- **Staging worktree / RO-parent gate** — an isolated git worktree where the candidate is verified against a read-only snapshot of the parent commit before it touches the live tree.
-- **Decision file** — an operator approval (`state/control/decisions/<task_id>.json`) authorizing a sensitive-path commit.
-- **Allowlist** — `auto_promote.allowlist`; the slugs the daemon is permitted to act on. Deny-all by default.
+- **Live root** — an entry-point module (`orchestrator.py`, `orchestrator_worker.py`, `autowork_daemon.py`, `planner/cli.py`) the wire-up gate seeds reachability from.
+- **Staging worktree / RO-parent gate** — isolated git worktree where the candidate is verified against a read-only snapshot of the parent commit before it touches the live tree.
+- **Decision file** — `state/control/decisions/<task_id>.json`; operator approval for a sensitive-path commit.
+- **Allowlist / external-roots allowlist** — deny-all safety boundaries (`auto_promote.allowlist`, `external_roots.allow`).
 
 ---
 
-## Troubleshooting & known gotchas
-
-- **Daemon does nothing.** Check `state/control/orchestrator.flag` is `resume`, the slug is in `auto_promote.allowlist`, no `full_stop` sentinel exists, and the brief is younger than 7 days. The allowlist is **deny-all** when empty.
-- **Brief rejected as a "hallucinated"/empty plan.** Usually a malformed brief: ensure the five section headings are **bare** (`# Inputs`, not `# Inputs (...)`), and that an EDIT task's `non_goals` contains the literal word `integration`, and that a module-creating task names a `*_wired` oracle in its `verification_command`.
-- **A retry keeps failing identically.** A stale emission sidecar in `state/output/` can mis-route the accept path; the worker now purges them on non-accept outcomes. If you re-stage manually, also clear `<task_id>.{patches,files}.json`.
-- **New module rejected as an orphan** by the wire-up gate. Either import it from a live root, or register its dotted path under `config/**` (the gate's sanctioned dynamic-wiring classification) until real wiring lands.
-- **`auto_commit_failed` on a new file.** The patches path cannot *create* files — emit a new module **whole-file**, and keep a task to **one file**. Don't list non-target files (e.g. a config you only register) in `files_touched`.
-- **Stale `git_commit.lock`.** A daemon that died mid-commit can leave `state/control/autowork/git_commit.lock`. Since the §4b hand-edit (2026-06-10) the worker-side acquisition is a bounded, PID-stamped `LOCK_NB` retry, so a dead holder fails the attempt cleanly instead of wedging the worker — but removing a stale lock by hand before restarting is still safe and still the fastest fix.
-- **A test fails in the full sweep but passes alone.** Triage in this order: (1) rerun it in isolation — a pass means load flake or cross-test state, a deterministic fail means a real bug; (2) if it's a wall-clock assert, apply the bound policy in the Testing section; (3) if it's Hypothesis `DeadlineExceeded`, the no-deadline profile should have caught it — check the test doesn't set its own tight `deadline=`; (4) check for live-state pollution: anything freshly written under `state/` during a sweep (`find state -newer <some file>`) means a test escaped its `tmp_path` and the *next* sweep may behave differently. Two sweeps failing *different* single tests is the signature of a flake class, not two bugs — find the class.
-
----
-
-*JanusMaskJR builds its own tooling through this same pipeline. The discipline is the product: propose with LLMs, decide with verifiers, and never let the author grade its own exam.*
+*JanusMask builds its own tooling through this same pipeline. The discipline is the product: propose
+with LLMs, decide with verifiers, and never let the author grade its own exam.*

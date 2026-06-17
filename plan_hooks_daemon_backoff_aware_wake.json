@@ -1,0 +1,116 @@
+{
+  "tasks": [
+    {
+      "task_id": "daemon-wake-impl",
+      "title": "Implement _next_pending_wake and cap idle sleep in run_daemon (R-anchor patch)",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/autowork_daemon.py"
+      ],
+      "acceptance_criteria": [
+        "Single-file change to harness/autowork_daemon.py only; no other source or manifest is touched.",
+        "Adds pure helper _next_pending_wake(state_dir, config, now=None) -> float that mirrors _retry_blocked_tasks eligibility EXACTLY (exhausted skip, sidecar defaults, _DETERMINISTIC_OUTCOMES/effective_max, attempts>=effective_max skip, tiers 300/3600/86400).",
+        "Helper result == min(heartbeat, max(1.0, min(remaining over still-retryable tasks))); returns heartbeat when there are no still-retryable blocked tasks; never < 1.0 or > heartbeat; now defaults to time.time(); heartbeat from _heartbeat_interval(config).",
+        "C2 wiring: the single line 2406 'sleep_target = heartbeat if is_idle else poll' is replaced by 'sleep_target = _next_pending_wake(state_dir, config) if is_idle else poll'; everything else in run_daemon (mtime-watch 0.5s loop 2408-2415, drain, watchdog) is byte-identical.",
+        "Landed via __JANUSMASK_PATCHES__ with ONE symbol patch on run_daemon (verbatim except line 2406) carrying _next_pending_wake as an R-anchor extra node inserted before run_daemon. No __JANUSMASK_MANIFEST__ emitted; no whole-file rewrite.",
+        "Operator decision file state/control/decisions/daemon-wake-impl.json is present (harness/autowork_daemon.py is _NEVER_AUTO_APPROVE trust-core).",
+        "After landing, the daemon is restarted (supervisor-respawn) so the new idle-sleep cap is live.",
+        "verification_command python -m pytest tests/test_daemon_backoff_wake.py -q passes; anti-seesaw selection stays green."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/test_daemon_backoff_wake.py -q",
+      "spec": {
+        "objective": "Make submitting work sufficient for a self-pacing idle daemon: add the pure helper _next_pending_wake and cap run_daemon's idle sleep at the soonest pending timed (blocked-retry) event, so the daemon wakes exactly when a retry becomes eligible \u2014 never sooner (no hammering), never a heartbeat too late.",
+        "functional_requirements": [
+          "Define _next_pending_wake(state_dir, config, now=None) -> float in harness/autowork_daemon.py as a PURE helper (no side effects); when now is None use time.time(); read heartbeat via _heartbeat_interval(config).",
+          "Scan state_dir/tasks/blocked/*.json skipping names ending '.retry.json'; if blocked/ is absent return heartbeat.",
+          "For each tid: skip if blocked/<tid>.exhausted exists; read blocked/<tid>.retry.json into {attempts,ts,last_outcome} with defaults (0, 0.0, '') on absent/corrupt, mirroring lines 914-925.",
+          "_DETERMINISTIC_OUTCOMES=('synthesis_or_ast_failed','embedded_tests_failed','narrow_fuzz_failed'); effective_max = 1 if last_outcome in _DETERMINISTIC_OUTCOMES else max_attempts (default 3); skip tasks with attempts >= effective_max.",
+          "Backoff threshold: attempts<=1 -> 300.0, attempts==2 -> 3600.0, else 86400.0; remaining = threshold - (now - ts); result = min(heartbeat, max(1.0, min(remaining over still-retryable tasks))); heartbeat when none retryable.",
+          "C2: replace ONLY line 2406 with 'sleep_target = _next_pending_wake(state_dir, config) if is_idle else poll'; keep the rest of run_daemon byte-identical.",
+          "Land via __JANUSMASK_PATCHES__: one symbol patch on run_daemon plus _next_pending_wake as an R-anchor extra node before run_daemon; no __JANUSMASK_MANIFEST__, no whole-file rewrite; provide operator decision file state/control/decisions/daemon-wake-impl.json and restart the daemon (supervisor-respawn) after landing."
+        ],
+        "interfaces": "harness/autowork_daemon.py \u2014 new module-level pure function _next_pending_wake(state_dir: pathlib.Path, config: dict, now: float | None = None) -> float inserted before run_daemon; run_daemon's idle branch calls it. Uses already-imported time, json, pathlib and the existing _heartbeat_interval(config).",
+        "edge_cases": [
+          "blocked/ missing or unreadable (OSError on glob) -> return heartbeat.",
+          "Corrupt/missing sidecar -> defaults (0, 0.0, '') -> 300.0 tier.",
+          "attempts already past effective_max (incl. deterministic outcome at attempts>=1) -> excluded from the min.",
+          "All remaining negative (overdue) -> floored to 1.0.",
+          "Large backoff (86400s) when heartbeat is 1800 -> capped to heartbeat.",
+          "Several tasks where some are excluded -> only still-retryable ones contribute to min; if all excluded -> heartbeat."
+        ],
+        "non_goals": [
+          "No integration rewrite of run_daemon beyond the single line 2406; the mtime-watch loop, drain, and watchdog stay byte-identical (the word integration is named only to disclaim a cross-module integration test).",
+          "Does NOT change _retry_blocked_tasks, the backoff tiers, the heartbeat/poll config, or the mtime-watch wake \u2014 it only CAPS the idle sleep duration.",
+          "Does NOT touch any file other than harness/autowork_daemon.py; no manifest, no whole-file daemon rewrite.",
+          "Out of scope: plan-park backoff (_recently_failed_to_plan) wake-awareness and brief-resubmit auto-clean (separate follow-up briefs)."
+        ],
+        "implementation_notes": "Emit __JANUSMASK_PATCHES__ ONLY (OMIT mutation_target, OMIT __JANUSMASK_MANIFEST__). The patch is a single symbol patch targeting run_daemon (autowork_daemon.py:2297-2431) reproduced VERBATIM except line 2406, which becomes 'sleep_target = _next_pending_wake(state_dir, config) if is_idle else poll'; attach _next_pending_wake as an R-anchor extra node inserted immediately before run_daemon. Mirror eligibility from _retry_blocked_tasks (883-971): exhausted skip 911-912, sidecar read+defaults 913-925, _DETERMINISTIC_OUTCOMES+effective_max 926-927, attempts>=effective_max skip 928-951, tiers 952-957. harness/autowork_daemon.py is _NEVER_AUTO_APPROVE trust-core, so write operator decision file state/control/decisions/daemon-wake-impl.json approving the land, then restart the daemon (supervisor-respawn) so the new idle-sleep cap goes live."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_helper_absent_blocked_returns_heartbeat"
+          },
+          {
+            "name": "test_helper_attempts1_now_returns_300"
+          },
+          {
+            "name": "test_helper_partial_elapsed_returns_remaining"
+          },
+          {
+            "name": "test_helper_overdue_floored_to_1"
+          },
+          {
+            "name": "test_helper_attempts2_returns_3600_capped_at_heartbeat"
+          },
+          {
+            "name": "test_helper_exhausted_and_deterministic_excluded"
+          },
+          {
+            "name": "test_run_daemon_idle_sleep_capped_by_helper"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_helper_result_within_floor_and_cap"
+          },
+          {
+            "name": "test_helper_pure_no_state_mutation"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_retry_blocked_backoff_semantics_unchanged"
+          },
+          {
+            "name": "test_idle_classification_and_mtime_wake_unchanged"
+          },
+          {
+            "name": "test_blocked_retry_anti_seesaw_selection_green"
+          }
+        ],
+        "minimum_test_count": 11,
+        "test_data_requirements": "Reuse tests/test_daemon_backoff_wake.py from daemon-wake-oracle as the gate. Anti-seesaw: python -m pytest tests/ -k \"retry_blocked or blocked_retry or backoff or daemon_idle or autowork_daemon\" -q must keep all currently-green selections green. tmp_path blocked/ fixtures with retry.json sidecars and exhausted markers; config with autowork.heartbeat_sec."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 150,
+        "note": "Small single-file R-anchor change (one new helper + one wired line); tests already authored by the oracle leaf, so test budget covers regression/anti-seesaw verification."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_daemon_backoff_aware_wake.md",
+  "source_brief_sha256": "74bd72ec58bb338358abcfcc51964b4d157e2799ae8dae12802a2ce5b192a0c3",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR"
+}
