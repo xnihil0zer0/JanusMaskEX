@@ -71,7 +71,7 @@ def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
         queued = [tid for tid in task_ids if (state_dir / 'tasks' / f'{tid}.json').exists()]
         processing = [tid for tid in task_ids if (state_dir / 'tasks' / 'processing' / f'{tid}.json').exists() or (state_dir / 'tasks' / f'{tid}.json.processing').exists()]
         processed_unaccepted = [tid for tid in task_ids if (state_dir / 'tasks' / 'processed' / f'{tid}.json').exists() and tid not in accepted_map]
-        blocked = [tid for tid in task_ids if (state_dir / 'tasks' / 'blocked' / f'{tid}.json').exists()]
+        blocked = [tid for tid in task_ids if ((state_dir / 'tasks' / 'blocked' / f'{tid}.json').exists() or (state_dir / 'tasks' / 'blocked' / f'{tid}.exhausted').exists() or (state_dir / 'control' / 'autowork' / 'selfheal_skip' / tid).exists()) and tid not in accepted_map]
         if not has_plan:
             state = 'unplanned'
         elif not task_ids:
@@ -169,6 +169,34 @@ def compute_autowork_eligibility(repo_root: Path, state_dir: Path, now=None, max
 def compute_epic_status(repo_root: Path, state_dir: Path, config=None) -> list[dict]:
     records = compute_brief_status(repo_root, state_dir)
     index = {r['slug']: r['state'] for r in records}
+    accepted_map: dict = {}
+    ledger_path = state_dir / 'impl_progress.jsonl'
+    if ledger_path.exists():
+        try:
+            with open(ledger_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    try:
+                        row = json.loads(line)
+                        if not isinstance(row, dict):
+                            continue
+                        tid = row.get('task_id')
+                        if not tid:
+                            continue
+                        if row.get('phase') == 'accepted' and row.get('event') == 'auto_commit':
+                            accepted_map[tid] = True
+                        elif row.get('event') in ('reject_rollback', 'task_blocked'):
+                            accepted_map.pop(tid, None)
+                    except json.JSONDecodeError:
+                        pass
+        except OSError:
+            pass
+
+    def _child_slug_marker_failed(cs) -> bool:
+        if not isinstance(cs, str) or not cs:
+            return False
+        if cs in accepted_map:
+            return False
+        return (state_dir / 'tasks' / 'blocked' / f'{cs}.json').exists() or (state_dir / 'tasks' / 'blocked' / f'{cs}.exhausted').exists() or (state_dir / 'control' / 'autowork' / 'selfheal_skip' / cs).exists()
     failure_propagation = False
     if isinstance(config, dict):
         hp = config.get('hierarchical_planning')
@@ -189,9 +217,10 @@ def compute_epic_status(repo_root: Path, state_dir: Path, config=None) -> list[d
             epic_slug = p.stem.removeprefix('plan_hooks_')
         child_slugs = rec.get('child_slugs') or []
         children = [{'slug': cs, 'state': index.get(cs, 'unplanned')} for cs in child_slugs]
+        direct_failed = any(_child_slug_marker_failed(cs) for cs in child_slugs)
         if not children:
             state = 'planned'
-        elif any((c['state'] in {'blocked', 'zombie'} for c in children)):
+        elif direct_failed or any((c['state'] in {'blocked', 'zombie'} for c in children)):
             state = 'blocked'
         elif all((c['state'] == 'complete' for c in children)):
             state = 'complete'
