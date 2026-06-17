@@ -108,6 +108,14 @@ def persist_plan(plan, out_path, brief_obj=None):
         pe = getattr(brief_obj, 'parent_epic_slug', None)
         if isinstance(pe, str) and pe and ('parent_epic_slug' not in plan):
             plan['parent_epic_slug'] = pe
+        rcs = getattr(brief_obj, 'required_child_slugs', ()) or ()
+        if (
+            plan.get('plan_kind') == 'epic'
+            and isinstance(rcs, (list, tuple))
+            and rcs
+            and 'required_child_slugs' not in plan
+        ):
+            plan['required_child_slugs'] = list(rcs)
         if plan.get('plan_kind') == 'epic' and 'epic_slug' not in plan:
             sp2 = getattr(brief_obj, 'source_path', None)
             if isinstance(sp2, str):
@@ -435,6 +443,14 @@ def _stamp_brief_metadata(plan, brief_obj):
     pe = getattr(brief_obj, 'parent_epic_slug', None)
     if isinstance(pe, str) and pe and ('parent_epic_slug' not in plan):
         plan['parent_epic_slug'] = pe
+    rcs = getattr(brief_obj, 'required_child_slugs', ()) or ()
+    if (
+        plan.get('plan_kind') == 'epic'
+        and isinstance(rcs, (list, tuple))
+        and rcs
+        and 'required_child_slugs' not in plan
+    ):
+        plan['required_child_slugs'] = list(rcs)
     return plan
 if __name__ == '__main__':
     main()
