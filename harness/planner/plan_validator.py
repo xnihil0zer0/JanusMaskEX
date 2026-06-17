@@ -317,6 +317,61 @@ def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]
     return violations
 _SHA256_HEX_CHARS = set('0123456789abcdef')
 
+def compute_epic_coverage(deliverables_text: str, child_briefs: list) -> dict:
+    """Compute how epic deliverable lines map onto declared child briefs.
+
+    Considers only genuine deliverable lines: those matching a bullet marker
+    (``^\\s*[-*+]\\s``) or an ordinal marker (``^\\s*\\d+[.)]\\s``); every other line
+    (prose, blank, headings) is ignored. Each candidate line is lowercased,
+    split on non-alphanumeric runs, and the stopword set
+    ``{the, a, an, and, or, of, to, for, with, in, on}`` is dropped. A line is
+    matched to a child brief when the size of the intersection between the
+    line tokens and that child's slug tokens is at least the fixed threshold
+    of 1.
+
+    Returns ``{'covered': [...], 'uncovered': [...], 'ambiguous': [...]}`` where
+    a line is covered when it matched exactly one child, uncovered when it
+    matched no child, and ambiguous when it matched more than one child. The
+    lists preserve the source line order (no sets leak into output ordering),
+    so the result is deterministic. The helper is side-effect-free and tolerates
+    non-str / None ``deliverables_text`` and non-list ``child_briefs`` by
+    returning empty lists rather than raising.
+    """
+    result = {'covered': [], 'uncovered': [], 'ambiguous': []}
+    if not isinstance(deliverables_text, str) or not isinstance(child_briefs, list):
+        return result
+    stopwords = {'the', 'a', 'an', 'and', 'or', 'of', 'to', 'for', 'with', 'in', 'on'}
+    threshold = 1
+
+    def _tokenize(text: Any) -> set:
+        if not isinstance(text, str):
+            return set()
+        return {tok for tok in re.split('[^a-z0-9]+', text.lower()) if tok and tok not in stopwords}
+    slug_token_sets = []
+    for entry in child_briefs:
+        if isinstance(entry, dict):
+            slug = entry.get('slug')
+        else:
+            slug = entry
+        slug_token_sets.append(_tokenize(slug))
+    bullet_re = re.compile('^\\s*[-*+]\\s')
+    ordinal_re = re.compile('^\\s*\\d+[.)]\\s')
+    for raw_line in deliverables_text.split('\n'):
+        if not (bullet_re.match(raw_line) or ordinal_re.match(raw_line)):
+            continue
+        line_tokens = _tokenize(raw_line)
+        match_count = 0
+        for slug_tokens in slug_token_sets:
+            if slug_tokens and len(line_tokens & slug_tokens) >= threshold:
+                match_count += 1
+        line_value = raw_line.strip()
+        if match_count == 0:
+            result['uncovered'].append(line_value)
+        elif match_count == 1:
+            result['covered'].append(line_value)
+        else:
+            result['ambiguous'].append(line_value)
+    return result
 def validate_child_brief_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]:
     """Validate the child-brief schema for epic-decomposition plans.
 
@@ -419,6 +474,19 @@ def validate_epic_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViola
         epic_slug = plan.get('epic_slug')
         if not isinstance(epic_slug, str) or not epic_slug.strip():
             violations.append(PlanViolation('invalid_epic_slug', 'plan.epic_slug', 'epic_slug must be a non-empty string'))
+    required_child = plan.get('required_child_slugs')
+    if isinstance(required_child, list):
+        declared_child_slugs = plan.get('child_slugs')
+        if not isinstance(declared_child_slugs, list):
+            declared_child_slugs = []
+        for required_slug in required_child:
+            if required_slug not in declared_child_slugs:
+                violations.append(PlanViolation('missing_required_child', 'plan.child_slugs', f'required child slug {required_slug!r} is declared in required_child_slugs but absent from child_slugs'))
+    coverage_check = plan.get('coverage_check')
+    if isinstance(coverage_check, dict):
+        uncovered = coverage_check.get('uncovered')
+        if isinstance(uncovered, list) and len(uncovered) > 0:
+            violations.append(PlanViolation('coverage_gap_warning', 'plan.coverage_warnings', f'{len(uncovered)} deliverable line(s) are not covered by any child brief: {uncovered}', severity='advisory'))
     return violations
 
 def validate_draft(plan: Union[Dict[str, Any], str, Path], mode: str='leaf') -> List[PlanViolation]:
