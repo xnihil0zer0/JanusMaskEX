@@ -2965,6 +2965,16 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                     return False
                 raise
             _nm_oracle = _new_module_red_by_absence(task, worktree_root, verify_exit, (verify_stdout or '') + '\n' + (verify_stderr or ''))
+            if not _nm_oracle and verify_exit not in (None, 0):
+                # Fix-forward red-pair: accept a RED test_authoring oracle for an EXISTING
+                # module when a paired impl in the plan is verified by the oracle's OWN
+                # authored test file. RED-before is proven by the verify_exit guard; the
+                # paired impl must later pass the normal gate (GREEN-after) on its own.
+                try:
+                    from harness.redpair_acceptance import is_fix_forward_redpair, load_sibling_tasks
+                    _nm_oracle = is_fix_forward_redpair(task, worktree_root, load_sibling_tasks(state_dir, task, task_id))
+                except Exception:
+                    pass
             if verify_exit != 0 and not _nm_oracle:
                 cmd_preview = vcmd if len(vcmd) <= 200 else vcmd[:200] + '...(truncated)'
                 logger.warning('verification_failed: task=%s exit=%s timeout=%s cmd=%s', task_id, verify_exit, timed_out, cmd_preview)
