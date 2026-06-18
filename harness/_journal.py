@@ -25,12 +25,9 @@ def write_jsonl_row(
     line = json.dumps(row) + "\n"
 
     if lock_path is None:
-        with path.open("a", encoding="utf-8") as f:
-            f.write(line)
-            f.flush()
-            os.fsync(f.fileno())
-        return
+        lock_path = path.with_suffix(path.suffix + ".lock")
 
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a", encoding="utf-8") as lock_fd:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
         try:
