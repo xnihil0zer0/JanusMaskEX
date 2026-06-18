@@ -267,6 +267,9 @@ def test_e2e_orphaned_plan_and_foreign_coexist_without_cross_contamination(tmp_p
     workdir.mkdir(parents=True, exist_ok=True)
     (workdir / 'file.txt').write_text('content', encoding='utf-8')
     os.utime(workdir, (now - 3600.0, now - 3600.0))
+    cfg_dir = root / 'harness'
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / 'config.yaml').write_text('autowork:\n  state_reconcile: true\n', encoding='utf-8')
     _reclaim_zombie_briefs(root, root / 'state', running=root / 'state' / 'running')
     assert not workdir.exists()
     assert (root / 'products' / 'task_foreign.json').exists()
