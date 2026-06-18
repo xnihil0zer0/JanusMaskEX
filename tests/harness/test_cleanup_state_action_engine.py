@@ -35,16 +35,18 @@ import random
 import time
 from pathlib import Path
 import pytest
-from harness.state_reconciler import cleanup_state, classify_product, ProductStatus
+from harness.state_reconciler import cleanup_state
+from harness.state_reconciler import classify_product
+from harness.state_reconciler import ProductStatus
 _OLD_SEC = 10000.0
 
 def _running_dir(root: Path) -> Path:
-    d = Path(root) / 'state' / 'running'
+    d = Path(root) / 'state' / 'control' / 'autowork' / 'running'
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 def _products_dir(root: Path) -> Path:
-    d = Path(root) / 'products'
+    d = Path(root) / 'state' / 'plans'
     d.mkdir(parents=True, exist_ok=True)
     return d
 

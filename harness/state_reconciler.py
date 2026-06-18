@@ -198,7 +198,7 @@ def _classify_pidfile_is_live(root, tid) -> bool:
     import errno
     if not tid:
         return False
-    pid_path = Path(root) / 'state' / 'running' / (str(tid) + '.pid')
+    pid_path = _running_dir(root) / (str(tid) + '.pid')
     try:
         raw = pid_path.read_text(encoding='utf-8').strip()
     except OSError:
@@ -360,18 +360,22 @@ def cleanup_state(root, *, mode='report') -> 'WorkspaceStatus':
     if mode not in ('report', 'apply'):
         raise ValueError("mode must be 'report' or 'apply', got %r" % (mode,))
     root_path = Path(root)
-    products_dir = root_path / 'products'
     archive_dir = root_path / '_autowork_archive'
     now = time.time()
     archivable = frozenset((ProductStatus.PLANNED, ProductStatus.UNPLANNED, ProductStatus.CORRUPT))
+    products = []
     try:
-        entries = sorted(products_dir.iterdir())
+        for entry in sorted(root_path.glob('brief_hooks_*.md')):
+            products.append((entry, entry.stem[len('brief_hooks_'):]))
     except OSError:
-        entries = []
+        pass
+    try:
+        for entry in sorted((root_path / 'state' / 'plans').iterdir()):
+            products.append((entry, entry.stem))
+    except OSError:
+        pass
     outcomes = []
-    for entry in entries:
-        product_path = entry
-        tid = product_path.stem
+    for product_path, tid in products:
         status = None
         blocker = None
         ready = True
@@ -539,7 +543,7 @@ def external_staging_root(root):
     REFUSED by the orphaned-workdir rmtree sweep (fail-closed). Pure path
     computation -- never created here.
     """
-    return agent_workroot(root) / '_external_staging'
+    return agent_workroot(root) / 'external_staging'
 
 def git_worktree_list(root):
     """Return the registered worktree paths from ``git worktree list``.
@@ -627,7 +631,7 @@ def reap_orphaned_workdirs(root, *, now=None, grace=60.0):
     aw = agent_workroot(root)
     staging = external_staging_root(root)
     worktrees = _reap_worktree_set(root)
-    running_dir = Path(root) / 'state' / 'running'
+    running_dir = _running_dir(root)
     reaped = []
     try:
         agent_dirs = sorted(aw.iterdir())
@@ -935,6 +939,7 @@ def prepare_workspace(root, *, mode='apply') -> WorkspaceStatus:
         status = WorkspaceStatus(root, mode, [])
         status.ready = False
         return status
+
 def _reconcile_stale_ledger_heads(root) -> None:
     """Append a literal ``event == 'task_blocked'`` pop-row for every accepted
     tid whose recorded ``commit_sha`` is NOT an ancestor of HEAD.
@@ -1008,3 +1013,14 @@ def _reconcile_stale_ledger_heads(root) -> None:
         ledger_path.write_text(payload, encoding='utf-8')
     except OSError:
         return
+
+def _running_dir(root) -> Path:
+    """Canonical autowork running-pidfile directory for ``root``.
+
+    Both reaper sites (:func:`_classify_pidfile_is_live` and
+    :func:`reap_orphaned_workdirs`) resolve their pidfile dir through this ONE
+    location -- ``<root>/state/control/autowork/running`` -- so liveness checks
+    and the orphaned-workdir sweep never diverge onto a stale path. Pure path
+    computation; never created here.
+    """
+    return Path(root) / 'state' / 'control' / 'autowork' / 'running'

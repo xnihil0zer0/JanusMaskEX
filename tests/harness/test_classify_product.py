@@ -52,7 +52,7 @@ def _label(status) -> str:
 def _make_root(tmp_path: Path) -> Path:
     """Build a hermetic, JM-owned workspace root under the test's own tmp_path."""
     root = tmp_path / 'ws'
-    (root / 'state' / 'running').mkdir(parents=True)
+    (root / 'state' / 'control' / 'autowork' / 'running').mkdir(parents=True)
     (root / 'state' / 'output').mkdir(parents=True)
     (root / '.janusmask').mkdir(parents=True)
     (root / '.janusmask' / 'bootstrap.json').write_text(json.dumps({'root': str(root)}), encoding='utf-8')
@@ -64,7 +64,7 @@ def _set_mtime(path: Path, mtime: float) -> None:
 
 def _live_pidfile(root: Path, tid: str) -> Path:
     """Stamp ``running/<tid>.pid`` with OUR pid (provably live via os.kill(pid,0))."""
-    pid_path = root / 'state' / 'running' / f'{tid}.pid'
+    pid_path = root / 'state' / 'control' / 'autowork' / 'running' / f'{tid}.pid'
     pid_path.write_text(str(os.getpid()), encoding='utf-8')
     return pid_path
 

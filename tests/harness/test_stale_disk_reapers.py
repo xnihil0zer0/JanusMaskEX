@@ -61,7 +61,7 @@ def _state_dir(root):
     return Path(root) / 'state'
 
 def _running_dir(root):
-    return _state_dir(root) / 'running'
+    return _state_dir(root) / 'control' / 'autowork' / 'running'
 
 def _ledger_path(root):
     return _state_dir(root) / 'impl_progress.jsonl'
