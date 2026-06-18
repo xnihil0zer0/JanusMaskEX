@@ -74,7 +74,9 @@ def test_lock_not_acquired_when_lock_path_none(tmp_path):
     with patch("harness._journal.fcntl.flock") as mock_flock:
         write_jsonl_row(target, {"x": 1}, lock_path=None)
 
-    mock_flock.assert_not_called()
+    assert mock_flock.call_count == 2
+    assert mock_flock.call_args_list[0][0][1] == fcntl.LOCK_EX
+    assert mock_flock.call_args_list[1][0][1] == fcntl.LOCK_UN
 
 
 def test_fsync_called_on_target_fd(tmp_path):
