@@ -40,6 +40,7 @@ def reap_for_task(repo_root, task_id, *, stamp, archive=True) -> list[str]:
     plan's verification_command. Returns the archived brief slugs (0 or 1).
     Fully fail-safe: any error returns [] and never raises.
     """
+
     def _plan_is_epic(data) -> bool:
         if not isinstance(data, dict):
             return False
@@ -100,23 +101,12 @@ def reap_for_task(repo_root, task_id, *, stamp, archive=True) -> list[str]:
             matches.append((slug, data))
         return matches[0] if len(matches) == 1 else (None, None)
 
-    def _move_no_clobber(src: Path, dst_dir: Path, repo: Path) -> bool:
+    def _move_no_clobber(src: Path, dst_dir: Path) -> bool:
         dst = dst_dir / src.name
         if dst.exists():
             return False
-        try:
-            proc = subprocess.run(['git', 'mv', str(src), str(dst)], cwd=str(repo), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if proc.returncode == 0:
-                return True
-        except (OSError, subprocess.SubprocessError):
-            pass
         shutil.move(str(src), str(dst))
-        try:
-            subprocess.run(['git', 'add', str(dst)], cwd=str(repo), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except (OSError, subprocess.SubprocessError):
-            pass
         return True
-
     try:
         root = Path(repo_root)
         if not root.exists() or not root.is_dir():
@@ -136,17 +126,21 @@ def reap_for_task(repo_root, task_id, *, stamp, archive=True) -> list[str]:
             return []
         integrated = _integrated_task_ids(root)
         integrated.add(task_id)
-        if not all(tid in integrated for tid in plan_ids):
+        if not all((tid in integrated for tid in plan_ids)):
             return []
         if not archive:
             return [slug]
-        dest = root / '_autowork_archive' / stamp / 'reconciled'
-        dest.mkdir(parents=True, exist_ok=True)
         plan_path = root / f'plan_hooks_{slug}.json'
-        if brief_path.exists():
-            _move_no_clobber(brief_path, dest, root)
-        if plan_path.exists():
-            _move_no_clobber(plan_path, dest, root)
+        state_dir = root / 'state'
+        with state_reconcile_lock(state_dir):
+            dest = root / '_autowork_archive' / stamp / 'reconciled'
+            dest.mkdir(parents=True, exist_ok=True)
+            if brief_path.exists():
+                _move_no_clobber(brief_path, dest)
+            if plan_path.exists():
+                _move_no_clobber(plan_path, dest)
         return [slug]
     except Exception:
         return []
+from harness.state_reconciler import state_reconcile_lock
+'Archive-on-integrate reaper for brief + plan paperwork.\n\nThis stdlib-only module exposes a single public helper,\n:func:`reap_for_task`, the targeted half of archive-on-integrate: when a\nbuild task lands, it archives that task\'s ``brief_hooks_<slug>.md`` and\n``plan_hooks_<slug>.json`` from the repository root IFF the whole plan is\nnow integrated. "Integrated" is decided from GROUND-TRUTH evidence -- the\nreaped task plus the integration ledger ``state/impl_progress.jsonl`` -- and\nNEVER by re-running a plan\'s verification_command.\n\nThe archive move serializes on the single dedicated ``state_reconcile.lock``\n(see :func:`harness.state_reconciler.state_reconcile_lock`) so this third\nmutating path joins the in-loop sweep and the standalone apply on the ONE\nshared lock; the slow destructive section is never held under the short\n``git_commit.lock``. The move is a MOVE (never a delete), never uses ``git\nmv``, and never rewrites brief bytes or touches the brief mtime.\n\nThe function runs on the worker\'s hot accept path and is therefore fully\nfail-safe: ANY unexpected error results in an empty list and never\npropagates.\n'
