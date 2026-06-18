@@ -354,29 +354,33 @@ def _looks_like_hardcoded_credential(name: str, value: str) -> bool:
     """Return True only when *name* names a credential-ish field AND *value*
     looks like a real hardcoded secret rather than a benign identifier string.
 
-    NAME gate: at least one underscore/case-boundary segment of *name* equals a
-    known credential token (``password|secret|key|token|passwd|pwd|api_key``),
-    matched case-insensitively. The name is split on underscores AND on case
-    boundaries (camelCase / PascalCase / ACRONYMCase) and each segment is tested
-    for equality -- this is a word/segment match, NOT an arbitrary substring
-    (so e.g. ``monkey`` / ``keyword`` do not match ``key``).
-
-    VALUE gate: ``len(value) >= 8`` AND *value* is not a pure-lowercase
-    ``[a-z_]`` identifier -- i.e. it must contain an uppercase letter, a digit,
-    or a character outside ``[a-z0-9_]``.
+    NAME tokens are stratified: STRONG tokens
+    (``password|passwd|pwd|secret|token``) flag any non-empty value; the WEAK
+    token (``key``) only flags numeric values, or values of length >= 8 that
+    are not pure-lowercase ``[a-z_]`` identifiers. The name is split on
+    underscores AND on case boundaries and each segment is tested for equality
+    (word/segment match, NOT arbitrary substring).
     """
-    _credential_tokens = {'password', 'secret', 'key', 'token', 'passwd', 'pwd', 'api_key'}
+    _strong_tokens = {'password', 'secret', 'token', 'passwd', 'pwd'}
+    _weak_tokens = {'key'}
     segments: list[str] = []
     for chunk in name.split('_'):
         for piece in re.findall('[A-Z]+(?![a-z])|[A-Z][a-z]*|[a-z]+|[0-9]+', chunk):
             segments.append(piece.lower())
-    if not any((seg in _credential_tokens for seg in segments)):
+    has_strong = any(seg in _strong_tokens for seg in segments)
+    has_weak = any(seg in _weak_tokens for seg in segments)
+    if not (has_strong or has_weak):
         return False
-    if len(value) < 8:
+    if not value:
         return False
-    if re.fullmatch('[a-z_]+', value):
-        return False
-    return True
+    if has_strong:
+        return True
+    # For weak tokens (e.g. variable name contains "key" but no strong token):
+    if value.isdigit():
+        return True
+    if len(value) >= 8 and not re.fullmatch('[a-z_]+', value):
+        return True
+    return False
 def _dump_annotation(node: ast.expr) -> str:
     """Deterministic string form of an annotation for comparison."""
     return ast.dump(node, annotate_fields=False, include_attributes=False)
