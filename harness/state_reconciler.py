@@ -472,9 +472,25 @@ def state_reconcile_lock(state_dir, *, timeout: float=60.0, poll: float=0.05):
     which point a :class:`TimeoutError` is raised. The lock is removed in a
     ``finally`` block so it is released even if the wrapped body raises.
     """
+    import threading
+    global _local_locks
+    if '_local_locks' not in globals():
+        _local_locks = threading.local()
+    if not hasattr(_local_locks, 'active'):
+        _local_locks.active = {}
     sd = Path(state_dir)
     sd.mkdir(parents=True, exist_ok=True)
     lock_path = sd / LOCK_FILENAME
+    resolved_path = str(lock_path.resolve())
+    if resolved_path in _local_locks.active:
+        _local_locks.active[resolved_path] += 1
+        try:
+            yield lock_path
+        finally:
+            _local_locks.active[resolved_path] -= 1
+            if _local_locks.active[resolved_path] <= 0:
+                _local_locks.active.pop(resolved_path, None)
+        return
     deadline = time.monotonic() + max(0.0, float(timeout))
     fd = None
     while True:
@@ -485,6 +501,7 @@ def state_reconcile_lock(state_dir, *, timeout: float=60.0, poll: float=0.05):
             if time.monotonic() >= deadline:
                 raise TimeoutError(f'timed out acquiring {lock_path}')
             time.sleep(max(0.0, float(poll)))
+    _local_locks.active[resolved_path] = 1
     try:
         try:
             os.write(fd, str(os.getpid()).encode('ascii'))
@@ -492,6 +509,7 @@ def state_reconcile_lock(state_dir, *, timeout: float=60.0, poll: float=0.05):
             pass
         yield lock_path
     finally:
+        _local_locks.active.pop(resolved_path, None)
         try:
             os.close(fd)
         except OSError:
@@ -836,6 +854,87 @@ def reap_stale_disk(root, *, now=None):
         except Exception:
             results['archive'] = []
     return results
+from harness import target_bootstrap
+
+def is_owned(root) -> bool:
+    try:
+        return target_bootstrap._read_valid_marker(Path(root)) is not None
+    except Exception:
+        return False
+
+def is_allowlisted(root) -> bool:
+    try:
+        return target_bootstrap._working_dir_allowed(Path(root))
+    except Exception:
+        return False
+
+def has_staged_or_unmerged(root) -> bool:
+    import subprocess
+    try:
+        proc = subprocess.run(['git', 'status', '--porcelain'], cwd=str(root), capture_output=True, text=True, check=True)
+        for line in proc.stdout.splitlines():
+            if len(line) >= 2:
+                x = line[0]
+                if x not in (' ', '?', '!'):
+                    return True
+        return False
+    except Exception:
+        return True
+
+def prepare_workspace(root, *, mode='apply') -> WorkspaceStatus:
+    try:
+        if not is_owned(root):
+            status = WorkspaceStatus(root, mode, [])
+            status.ready = False
+            return status
+        if not is_allowlisted(root):
+            status = WorkspaceStatus(root, mode, [])
+            status.ready = False
+            return status
+        git_dir = Path(root) / '.git'
+        if not git_dir.exists():
+            status = WorkspaceStatus(root, mode, [])
+            status.ready = False
+            return status
+        if target_bootstrap._is_dirty(Path(root)):
+            status = WorkspaceStatus(root, mode, [])
+            status.ready = False
+            return status
+        if has_staged_or_unmerged(root):
+            status = WorkspaceStatus(root, mode, [])
+            status.ready = False
+            return status
+    except Exception:
+        status = WorkspaceStatus(root, mode, [])
+        status.ready = False
+        return status
+    state_dir = Path(root) / 'state'
+    try:
+        with state_reconcile_lock(state_dir):
+            staging = external_staging_root(root)
+            if staging.exists() and staging.is_dir():
+                worktrees = _reap_worktree_set(root)
+                try:
+                    entries = sorted(staging.iterdir())
+                except OSError:
+                    entries = []
+                for entry in entries:
+                    try:
+                        if entry.is_symlink() or not entry.is_dir():
+                            continue
+                    except OSError:
+                        continue
+                    if _reap_resolve(entry) not in worktrees:
+                        import shutil
+                        try:
+                            shutil.rmtree(str(entry), onerror=_reap_rmtree_onerror)
+                        except OSError:
+                            continue
+            return cleanup_state(root, mode=mode)
+    except Exception:
+        status = WorkspaceStatus(root, mode, [])
+        status.ready = False
+        return status
 def _reconcile_stale_ledger_heads(root) -> None:
     """Append a literal ``event == 'task_blocked'`` pop-row for every accepted
     tid whose recorded ``commit_sha`` is NOT an ancestor of HEAD.
