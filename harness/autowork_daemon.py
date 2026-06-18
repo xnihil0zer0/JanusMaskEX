@@ -1932,6 +1932,17 @@ def _reclaim_zombie_briefs(repo_root: pathlib.Path, state_dir: pathlib.Path, run
     state_dir = pathlib.Path(state_dir)
     reclaimed = 0
     slugs: list[str] = []
+    # Gate ARM 2 behind the DEFAULT-OFF autowork.state_reconcile flag. The
+    # state-tree config is checked FIRST (state_dir.parent/'harness'/config.yaml)
+    # with a cwd fallback; the whole lookup is fail-closed -> any error => OFF.
+    _state_reconcile_on = False
+    try:
+        _cfg_path = state_dir.parent / 'harness' / 'config.yaml'
+        if not _cfg_path.is_file():
+            _cfg_path = pathlib.Path('harness/config.yaml')
+        _state_reconcile_on = bool(_autowork_section(_load_config(_cfg_path)).get('state_reconcile', False))
+    except Exception:
+        _state_reconcile_on = False
     try:
         records = compute_brief_status(repo_root, state_dir)
     except Exception:
@@ -1991,6 +2002,8 @@ def _reclaim_zombie_briefs(repo_root: pathlib.Path, state_dir: pathlib.Path, run
                 fresh = True
         except OSError:
             fresh = False
+        if not _state_reconcile_on:
+            fresh = True
         if not fresh:
             try:
                 from harness.state_reconciler import state_reconcile_lock, _archive_move_collision_safe
