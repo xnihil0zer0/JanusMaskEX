@@ -337,11 +337,13 @@ def cleanup_state(root, *, mode='report') -> 'WorkspaceStatus':
     :func:`_archive_move_collision_safe` primitive (a plain move -- NEVER
     ``git mv``); the classification is identical to report mode (report-first),
     so a second report after apply is convergent on the NON-LIVE subset. apply
-    mode additionally runs :func:`_reconcile_stale_ledger_heads`, appending a
-    literal ``task_blocked`` pop-row (with a separate ``reconcile_reason``
-    provenance field) for every accepted tid whose recorded ``commit_sha`` is no
-    longer an ancestor of HEAD; that pass is fail-closed and idempotent and
-    compacts (never wipes) the ledger.
+    mode additionally runs the disk reapers (orphaned-workdir rmtree under
+    :func:`agent_workroot`, log/drain age-out, impl_progress.jsonl locked-atomic
+    compaction, and ``_autowork_archive`` retention prune) via
+    :func:`reap_stale_disk` -- all under ``state_reconcile_lock`` and NEVER under
+    ``git_commit.lock`` across the slow op -- followed by
+    :func:`_reconcile_stale_ledger_heads`; both passes are fail-closed and
+    idempotent and compact (never wipe) the ledger.
 
     FAIL-CLOSED / MOVE-NEVER-DELETE invariants:
 
@@ -393,6 +395,10 @@ def cleanup_state(root, *, mode='report') -> 'WorkspaceStatus':
             ready = False
         outcomes.append(_CleanupProduct(task_id=tid, path=product_path, status=status if status is not None else 'UNKNOWN', ready=ready, blocker=blocker, archived_to=archived_to))
     if mode == 'apply':
+        try:
+            reap_stale_disk(root_path, now=now)
+        except Exception:
+            pass
         try:
             _reconcile_stale_ledger_heads(root_path)
         except Exception:
@@ -495,6 +501,341 @@ def state_reconcile_lock(state_dir, *, timeout: float=60.0, poll: float=0.05):
         except OSError:
             pass
 
+def agent_workroot(root):
+    """Return the sibling agent work-root that PEERS the repo at ``root``.
+
+    The live disk leak is the sibling ``<repo>.parent/<repo>_agentwork`` tree
+    (e.g. ``.../JanusMaskJR_agentwork``) that lives OUTSIDE the repo and holds
+    the per-agent ``<agent>/<workdir>`` worktrees the reaper sweeps. The path is
+    derived purely from ``root`` so callers and the reaper agree on one location;
+    it is never created here (pure path computation).
+    """
+    p = Path(root)
+    return p.parent / (p.name + '_agentwork')
+
+def external_staging_root(root):
+    """Return the external staging root, a PEER of the agent dirs under
+    :func:`agent_workroot`.
+
+    Dirs at/under this path are reclaimed only via the worktree path and are
+    REFUSED by the orphaned-workdir rmtree sweep (fail-closed). Pure path
+    computation -- never created here.
+    """
+    return agent_workroot(root) / '_external_staging'
+
+def git_worktree_list(root):
+    """Return the registered worktree paths from ``git worktree list``.
+
+    Fail-closed: any subprocess/parse error or non-zero return yields an empty
+    list (the reaper then relies on the external-staging guard alone). Parsed
+    from ``--porcelain`` ``worktree <path>`` lines. Exposed at module scope so
+    it can be substituted in unit tests.
+    """
+    import subprocess
+    try:
+        proc = subprocess.run(['git', '-C', str(root), 'worktree', 'list', '--porcelain'], capture_output=True, text=True)
+    except (OSError, ValueError):
+        return []
+    if getattr(proc, 'returncode', 1) != 0:
+        return []
+    paths = []
+    for line in (proc.stdout or '').splitlines():
+        if line.startswith('worktree '):
+            paths.append(line[len('worktree '):].strip())
+    return paths
+
+def _reap_resolve(p):
+    """Normalised real path used for symlink/relative-proof guard comparison."""
+    try:
+        return os.path.normpath(os.path.realpath(str(p)))
+    except (OSError, ValueError):
+        return os.path.normpath(str(p))
+
+def _reap_is_at_or_under(child, parent):
+    """True iff resolved ``child`` is ``parent`` itself or nested beneath it."""
+    c = _reap_resolve(child)
+    pa = _reap_resolve(parent)
+    if c == pa:
+        return True
+    return c.startswith(pa + os.sep)
+
+def _reap_rmtree_onerror(func, path, exc_info):
+    """``shutil.rmtree`` onerror handler: swallow per-entry races/permission
+    errors so a single failure never aborts the whole reaper (fail-closed)."""
+    return None
+
+def _reap_worktree_set(root):
+    """Resolved set of registered worktree paths, tolerant of the
+    :func:`git_worktree_list` substitution arity."""
+    fn = git_worktree_list
+    try:
+        listed = fn(root)
+    except TypeError:
+        try:
+            listed = fn()
+        except Exception:
+            listed = []
+    except Exception:
+        listed = []
+    out = set()
+    for w in listed or []:
+        try:
+            out.add(_reap_resolve(w))
+        except Exception:
+            continue
+    return out
+
+def reap_orphaned_workdirs(root, *, now=None, grace=60.0):
+    """rmtree orphaned ``<agent>/<workdir>`` dirs under :func:`agent_workroot`.
+
+    For every workdir under each agent dir, the dir is rmtree'd (with an onerror
+    handler) ONLY when ALL of the following hold:
+
+    * it is NOT at/under :func:`external_staging_root` (REFUSED -- reclaimed via
+      the worktree path),
+    * it is NOT a registered ``git worktree list`` path (REFUSED),
+    * NO live ``running/*.pid`` has a PARSED task_id EXACTLY EQUAL to the
+      workdir's parsed task_id (substring/prefix pid matches are still eligible),
+    * the workdir mtime is older than ``grace`` (``now - mtime > grace``).
+
+    Paths are resolved before the guard comparison so symlinks/relatives cannot
+    bypass it; symlinked agent/workdirs are skipped. Each rmtree is contained so
+    a permission/race error on one workdir never aborts the sweep. Returns the
+    list of reaped workdir paths (idempotent: a second run reaps nothing).
+    """
+    import shutil
+    if now is None:
+        now = time.time()
+    aw = agent_workroot(root)
+    staging = external_staging_root(root)
+    worktrees = _reap_worktree_set(root)
+    running_dir = Path(root) / 'state' / 'running'
+    reaped = []
+    try:
+        agent_dirs = sorted(aw.iterdir())
+    except OSError:
+        return reaped
+    for agent_dir in agent_dirs:
+        try:
+            if agent_dir.is_symlink() or not agent_dir.is_dir():
+                continue
+        except OSError:
+            continue
+        if _reap_is_at_or_under(agent_dir, staging):
+            continue
+        try:
+            workdirs = sorted(agent_dir.iterdir())
+        except OSError:
+            continue
+        for workdir in workdirs:
+            try:
+                if workdir.is_symlink() or not workdir.is_dir():
+                    continue
+            except OSError:
+                continue
+            if _reap_is_at_or_under(workdir, staging):
+                continue
+            if _reap_resolve(workdir) in worktrees:
+                continue
+            task_id = parse_session_slug(workdir.name)
+            if task_id and task_id_has_live_pidfile(running_dir, task_id):
+                continue
+            try:
+                mtime = workdir.stat().st_mtime
+            except OSError:
+                continue
+            if now - mtime <= grace:
+                continue
+            try:
+                shutil.rmtree(str(workdir), onerror=_reap_rmtree_onerror)
+                reaped.append(str(workdir))
+            except OSError:
+                continue
+    return reaped
+
+def compact_impl_progress_ledger(root, *, allow=None):
+    """Locked-atomic compaction of ``<root>/state/impl_progress.jsonl``.
+
+    Retains the consumer-allowlist rows -- every well-formed dict row carrying a
+    non-empty string ``task_id`` (plus any row whose ``event``/``phase`` is in an
+    explicit ``allow`` set, when provided) -- and DROPS malformed/non-dict/blank
+    lines fail-closed. The surviving rows are written into a temp file in the
+    ledger's own dir under a continuously-held per-target flock and swapped in
+    with :func:`os.replace`, so the rewrite is atomic and consistent with the
+    jsonl appenders.
+
+    NEVER wipes the ledger: if nothing would survive the file is left intact, and
+    an already-clean ledger is left byte-for-byte untouched (idempotent). Returns
+    True iff a compacting rewrite was performed.
+    """
+    import json
+    import fcntl
+    import tempfile
+    ledger_path = Path(root) / 'state' / 'impl_progress.jsonl'
+    lock_path = Path(str(ledger_path) + '.lock')
+    try:
+        text = ledger_path.read_text(encoding='utf-8')
+    except OSError:
+        return False
+    retained = []
+    dropped = False
+    for line in text.splitlines():
+        s = line.strip()
+        if not s:
+            dropped = True
+            continue
+        try:
+            obj = json.loads(s)
+        except ValueError:
+            dropped = True
+            continue
+        if not isinstance(obj, dict):
+            dropped = True
+            continue
+        tid = obj.get('task_id')
+        keep = isinstance(tid, str) and bool(tid)
+        if not keep and allow is not None:
+            keep = obj.get('event') in allow or obj.get('phase') in allow
+        if keep:
+            retained.append(obj)
+        else:
+            dropped = True
+    if not retained:
+        return False
+    if not dropped:
+        return False
+    payload = '\n'.join((json.dumps(r) for r in retained)) + '\n'
+    lock_fd = None
+    try:
+        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 420)
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        except OSError:
+            pass
+        fd, tmp = tempfile.mkstemp(dir=str(ledger_path.parent), prefix='.impl_progress.', suffix='.tmp')
+        try:
+            os.write(fd, payload.encode('utf-8'))
+            try:
+                os.fsync(fd)
+            except OSError:
+                pass
+        finally:
+            os.close(fd)
+        os.replace(tmp, str(ledger_path))
+        return True
+    except OSError:
+        return False
+    finally:
+        if lock_fd is not None:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+            try:
+                os.close(lock_fd)
+            except OSError:
+                pass
+
+def age_out_logs(root, *, now=None, max_age_sec=1209600.0):
+    """Age-out log/drain files older than ``max_age_sec`` under known log dirs.
+
+    Scans ``<root>/state/logs``, ``<root>/state/drain`` and ``<root>/logs`` and
+    unlinks plain files whose mtime is older than the age-out window; missing
+    dirs and per-file errors are skipped fail-closed. Directories are left
+    untouched. Returns the list of removed file paths.
+    """
+    if now is None:
+        now = time.time()
+    removed = []
+    candidates = [Path(root) / 'state' / 'logs', Path(root) / 'state' / 'drain', Path(root) / 'logs']
+    for d in candidates:
+        try:
+            entries = sorted(d.iterdir())
+        except OSError:
+            continue
+        for e in entries:
+            try:
+                if e.is_dir() and (not e.is_symlink()):
+                    continue
+                mtime = e.stat().st_mtime
+            except OSError:
+                continue
+            if now - mtime > max_age_sec:
+                try:
+                    e.unlink()
+                    removed.append(str(e))
+                except OSError:
+                    continue
+    return removed
+
+def prune_autowork_archive(root, *, now=None, max_age_sec=1209600.0):
+    """Prune ``<root>/_autowork_archive`` entries beyond the retention bound.
+
+    Removes archive entries (files via unlink, dirs via rmtree with the onerror
+    handler) whose mtime is older than ``max_age_sec``; freshly archived entries
+    stay within the bound and are kept. Missing archive dir and per-entry errors
+    are skipped fail-closed. Returns the list of pruned entry paths.
+    """
+    import shutil
+    if now is None:
+        now = time.time()
+    archive_dir = Path(root) / '_autowork_archive'
+    removed = []
+    try:
+        entries = sorted(archive_dir.iterdir())
+    except OSError:
+        return removed
+    for e in entries:
+        try:
+            mtime = e.stat().st_mtime
+        except OSError:
+            continue
+        if now - mtime <= max_age_sec:
+            continue
+        try:
+            if e.is_dir() and (not e.is_symlink()):
+                shutil.rmtree(str(e), onerror=_reap_rmtree_onerror)
+            else:
+                e.unlink()
+            removed.append(str(e))
+        except OSError:
+            continue
+    return removed
+
+def reap_stale_disk(root, *, now=None):
+    """Run the disk reapers for one workspace ``root`` under the shared lock.
+
+    The entire slow section -- orphaned-workdir rmtree, impl_progress.jsonl
+    locked-atomic compaction, log/drain age-out, and ``_autowork_archive``
+    retention prune -- is held under :func:`state_reconcile_lock` and NEVER under
+    ``git_commit.lock`` (a multi-GB rmtree under the commit lock would blow the
+    60s accept deadline). Each reaper is individually contained so one failure
+    never aborts the others; the pass is fail-closed and idempotent. Returns a
+    dict summarising what each reaper did.
+    """
+    if now is None:
+        now = time.time()
+    root_path = Path(root)
+    state_dir = root_path / 'state'
+    results = {'workdirs': [], 'ledger_compacted': False, 'logs': [], 'archive': []}
+    with state_reconcile_lock(state_dir):
+        try:
+            results['workdirs'] = reap_orphaned_workdirs(root_path, now=now)
+        except Exception:
+            results['workdirs'] = []
+        try:
+            results['ledger_compacted'] = compact_impl_progress_ledger(root_path)
+        except Exception:
+            results['ledger_compacted'] = False
+        try:
+            results['logs'] = age_out_logs(root_path, now=now)
+        except Exception:
+            results['logs'] = []
+        try:
+            results['archive'] = prune_autowork_archive(root_path, now=now)
+        except Exception:
+            results['archive'] = []
+    return results
 def _reconcile_stale_ledger_heads(root) -> None:
     """Append a literal ``event == 'task_blocked'`` pop-row for every accepted
     tid whose recorded ``commit_sha`` is NOT an ancestor of HEAD.
