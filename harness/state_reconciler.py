@@ -42,6 +42,149 @@ class ProductStatus:
 
 _WRITE_SETTLE_GRACE_SEC = 60.0
 
+def pid_is_live(pid) -> bool:
+    """True iff ``pid`` names a currently running, signalable process.
+
+    Probes with ``os.kill(pid, 0)``: a missing/non-numeric/non-positive pid is
+    not live; ``ESRCH`` means the process is gone; ``EPERM`` means it is alive
+    but owned by someone else, which still counts as live (fail-closed -- never
+    treat a running task's product as dead).
+    """
+    import errno
+    try:
+        pid_int = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid_int <= 0:
+        return False
+    try:
+        os.kill(pid_int, 0)
+    except OSError as exc:
+        return getattr(exc, 'errno', None) == errno.EPERM
+    return True
+
+def _pidfile_task_id(stem):
+    """Extract the exact encoded task id from a pidfile *stem* (no ``.pid``).
+
+    Handles two stem shapes and returns ``None`` for anything unparseable:
+
+    * regular ``<task_id>`` -- the stem *is* the task id (returned verbatim).
+    * self-heal ``selfheal_<agent>_<task_id>_<pid>`` -- strip the ``selfheal_``
+      prefix and the trailing numeric ``_<pid>`` segment, then peel the leading
+      ``<agent>_`` segment, leaving the exact task id. Returning the parsed task
+      id (rather than substring-scanning the raw stem) is what makes the
+      equality check substring-proof, e.g. ``t1`` never matches ``t12``.
+    """
+    import re
+    if not stem:
+        return None
+    if stem.startswith('selfheal_'):
+        body = stem[len('selfheal_'):]
+        m = re.match('^(?P<core>.+)_(?P<pid>\\d+)$', body)
+        if m is None:
+            return None
+        core = m.group('core')
+        if '_' not in core:
+            return None
+        _agent, task_id = core.split('_', 1)
+        return task_id or None
+    return stem
+
+def task_id_has_live_pidfile(running_dir, task_id) -> bool:
+    """True iff some ``*.pid`` under ``running_dir`` names ``task_id`` AND is live.
+
+    Each pidfile stem is parsed to its *exact* encoded task id (regular or
+    self-heal) and compared for full equality against ``task_id`` -- never a
+    substring -- so ``t1`` is not confused with ``t12`` and the self-heal agent
+    or trailing pid segment can never be mistaken for the task id. Only a stem
+    that matches exactly *and* whose pid is signalable counts.
+    """
+    if not task_id:
+        return False
+    d = Path(running_dir)
+    try:
+        entries = list(d.iterdir())
+    except OSError:
+        return False
+    for entry in entries:
+        if entry.suffix != '.pid':
+            continue
+        encoded = _pidfile_task_id(entry.stem)
+        if encoded is None or encoded != task_id:
+            continue
+        try:
+            raw = entry.read_text(encoding='utf-8').strip()
+        except OSError:
+            continue
+        if pid_is_live(raw):
+            return True
+    return False
+
+def task_id_in_ledger(ledger_path, task_id) -> bool:
+    """True iff ``task_id`` has been recorded (exact match) in the JSONL ledger.
+
+    Reads the symbol/impl-progress ledger one JSON object per line; malformed
+    lines are skipped silently. A row counts only when its ``task_id`` field is
+    *exactly* equal to ``task_id`` (substring-proof: ``t1`` does not match
+    ``t12``).
+    """
+    import json
+    if not task_id:
+        return False
+    try:
+        text = Path(ledger_path).read_text(encoding='utf-8')
+    except OSError:
+        return False
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and row.get('task_id') == task_id:
+            return True
+    return False
+
+def worktree_is_reachable(workdir, registered) -> bool:
+    """True iff ``workdir`` is still a registered Git worktree.
+
+    ``registered`` is the list of currently registered worktree paths (as
+    produced by ``git worktree list``). Reachability is decided purely by
+    membership: ``workdir`` is reachable iff its normalised, real path equals
+    the normalised real path of one of the registered entries. A workdir absent
+    from ``registered`` is unreachable.
+    """
+    if not workdir:
+        return False
+
+    def _norm(p):
+        try:
+            return os.path.normpath(os.path.realpath(str(p)))
+        except (OSError, ValueError):
+            return os.path.normpath(str(p))
+    target = _norm(workdir)
+    for entry in registered or []:
+        if _norm(entry) == target:
+            return True
+    return False
+
+def parse_session_slug(slug):
+    """Extract the exact ``task_id`` from ``<agent>-r<n>-<task_id>-<uuid8>``.
+
+    The trailing token is an 8-char hex uuid and the round marker is ``r<n>``;
+    everything between the round marker and the uuid -- hyphens included -- is
+    the task id, returned verbatim. Returns ``None`` for a slug that does not
+    match the expected shape.
+    """
+    import re
+    if not isinstance(slug, str):
+        return None
+    m = re.match('^(?P<agent>.+?)-r(?P<round>\\d+)-(?P<task_id>.+)-(?P<uuid>[0-9a-fA-F]{8})$', slug)
+    if m is None:
+        return None
+    return m.group('task_id')
 def _classify_pidfile_is_live(root, tid) -> bool:
     """True iff ``<root>/state/running/<tid>.pid`` names a live process.
 
