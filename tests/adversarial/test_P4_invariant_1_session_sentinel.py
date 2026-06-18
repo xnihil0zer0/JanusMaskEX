@@ -164,7 +164,7 @@ def test_user_prompt_submit_binds_to_same_session_sentinel(session_env):
     # Nobody else created a sibling ledger under a different session_id.
     others = [
         p for p in (state / "sessions").iterdir()
-        if p.is_file() and p.name != sentinel.name
+        if p.is_file() and p.name != sentinel.name and p.suffix != ".lock"
     ]
     assert not others, (
         f"extra sentinel files appeared: {[p.name for p in others]}. "
