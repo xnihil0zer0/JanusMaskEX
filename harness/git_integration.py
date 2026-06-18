@@ -5,16 +5,7 @@ import pathlib
 import subprocess
 import shutil
 import logging
-
-# AGENT-ISOLATION §1b: apply-path target-scoping. Any accepted manifest/patch
-# whose target lands under one of these globs is a harness/config/script
-# rewrite — the exact rogue-edit incident vector. It is committed ONLY when the
-# task is a sanctioned ``harness_self_fix`` AND an operator-approval gate fired
-# (see harness/orchestrator.py:_apply_approval_granted). This guard is
-# independent of every CWD/shell isolation control and defends the
-# submission-application boundary regardless of agent isolation.
 _SENSITIVE_APPLY_GLOBS: tuple[str, ...] = ('harness/**', 'config/**', 'scripts/**', 'services/**')
-
 
 def _matches_sensitive(rel_str: str, globs: tuple[str, ...]) -> bool:
     """True iff ``rel_str`` is inside one of the protected ``globs``.
@@ -24,11 +15,6 @@ def _matches_sensitive(rel_str: str, globs: tuple[str, ...]) -> bool:
     beneath it" via an explicit prefix test; any other glob falls back to
     plain ``fnmatch`` matching.
     """
-    # GAP_H2: normalize ('./', '..', '//') AND casefold before the prefix test
-    # so 'Harness/x.py' / 'HARNESS/x.py' / './harness/x.py' cannot evade the
-    # protected-root gate while still writing the real (lowercase-ASCII) dir on a
-    # case-insensitive FS. Protected roots are lowercase ASCII, so casefolding the
-    # glob base is safe and preserves the existing '**'-prefix-boundary semantics.
     p = os.path.normpath(rel_str.replace('\\', '/')).replace('\\', '/').casefold()
     for g in globs:
         if g.endswith('/**'):
@@ -39,10 +25,7 @@ def _matches_sensitive(rel_str: str, globs: tuple[str, ...]) -> bool:
             return True
     return False
 
-
-def _enforce_apply_scope(rel_strs, *, allowed_files, meta_task_type, approval_ok,
-                         sensitive_globs: tuple[str, ...] = _SENSITIVE_APPLY_GLOBS,
-                         widened_auto_approve: bool = False):
+def _enforce_apply_scope(rel_strs, *, allowed_files, meta_task_type, approval_ok, sensitive_globs: tuple[str, ...]=_SENSITIVE_APPLY_GLOBS, widened_auto_approve: bool=False):
     """Return an error string if any rel path violates apply-path policy, else None.
 
     AGENT-ISOLATION §1b. Two independent constraints:
@@ -63,11 +46,7 @@ def _enforce_apply_scope(rel_strs, *, allowed_files, meta_task_type, approval_ok
       under the widened branch (defense-in-depth — a deny-list path can never
       auto-approve regardless of the widened signal).
     """
-    # GAP_H1: normalize ('./', '..', '//') BOTH sides before the membership
-    # compare. The candidate rel-path is derived from a .resolve()d relative_to
-    # (already collapsed), so an un-normalized files_touched member like
-    # './pkg/mod.py' or 'pkg/../pkg/mod.py' must be collapsed too or a LEGITIMATE
-    # commit is falsely locked out. Keep rel-vs-rel (do NOT resolve to absolute).
+
     def _norm(s):
         return os.path.normpath(str(s).replace('\\', '/')).replace('\\', '/')
     allowed = None
@@ -76,29 +55,19 @@ def _enforce_apply_scope(rel_strs, *, allowed_files, meta_task_type, approval_ok
     for rel in rel_strs:
         reln = _norm(rel)
         if allowed is not None and reln not in allowed:
-            return (f'apply-path scope violation: {reln} is not a member of the '
-                    f'declared files_touched {sorted(allowed)}')
+            return f'apply-path scope violation: {reln} is not a member of the declared files_touched {sorted(allowed)}'
         if _matches_sensitive(reln, sensitive_globs):
-            ok_strict = (meta_task_type == 'harness_self_fix' and approval_ok)
+            ok_strict = meta_task_type == 'harness_self_fix' and approval_ok
             ok_widened = False
             if widened_auto_approve and approval_ok:
-                # Defense-in-depth: re-check the irreducible deny-list here so a
-                # widened grant can NEVER auto-approve a _NEVER_AUTO_APPROVE path.
                 try:
                     from harness.orchestrator import _NEVER_AUTO_APPROVE
                 except Exception:
                     _NEVER_AUTO_APPROVE = ()
                 ok_widened = not _matches_sensitive(reln, _NEVER_AUTO_APPROVE)
             if not (ok_strict or ok_widened):
-                return (f'apply-path scope violation: {reln} targets a protected path '
-                        f'(harness/**, config/**, scripts/**); requires '
-                        f'meta_task_type=harness_self_fix + operator approval '
-                        f'(or a widened autowork.enabled auto-approve grant for a '
-                        f'non-deny harness/** path) '
-                        f'(got meta_task_type={meta_task_type!r}, approval_ok={approval_ok}, '
-                        f'widened_auto_approve={widened_auto_approve})')
+                return f'apply-path scope violation: {reln} targets a protected path (harness/**, config/**, scripts/**); requires meta_task_type=harness_self_fix + operator approval (or a widened autowork.enabled auto-approve grant for a non-deny harness/** path) (got meta_task_type={meta_task_type!r}, approval_ok={approval_ok}, widened_auto_approve={widened_auto_approve})'
     return None
-
 
 def _ast_merge(output_code: str, target_code: str) -> str:
     """Merge output_code into target_code at the top level by name.
@@ -595,7 +564,7 @@ def _is_tracked(file_path: str, cwd: str) -> bool:
     except Exception:
         return False
 
-def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Path, worktree_root: pathlib.Path | None=None, *, allowed_files=None, meta_task_type=None, approval_ok: bool=False, working_dir: str | None = None, widened_auto_approve: bool=False) -> dict:
+def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Path, worktree_root: pathlib.Path | None=None, *, allowed_files=None, meta_task_type=None, approval_ok: bool=False, working_dir: str | None=None, widened_auto_approve: bool=False) -> dict:
     """Copy validated output to target, then commit it scoped to target_file.
 
     Args:
@@ -623,12 +592,6 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
     absent; otherwise falls through to the legacy singular path,
     byte-identical to pre-G19a-2.
     """
-    # COMMIT_REROOT (REV23 §3-3/§3-6/§2a/b): lazy in-body import of the self/
-    # external classifier + the re-rooting helper. For EXTERNAL targets
-    # (not _target_is_self(working_dir)) parent_root / the write-containment
-    # escape guard re-root onto effective_target_root(working_dir), untracked
-    # auto-detection is skipped, and the JM sensitive globs are bypassed. SELF
-    # targets (absent/None working_dir -> _target_is_self True) stay byte-identical.
     from harness.paths import _target_is_self, effective_target_root
     _is_self = _target_is_self(working_dir)
     result = {'committed': False, 'sha': None, 'error': None, 'target': target_file}
@@ -643,63 +606,47 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
             parent_root = pathlib.Path(parent_output.stdout.strip()).resolve()
         else:
             parent_root = effective_target_root(working_dir).resolve()
-        # REV26 punb2a: the partial_edit patches sidecar is AUTHORITATIVE. Detect
-        # it BEFORE the _is_self untracked-synthesis block so the synthesized
-        # files.json is never seeded from the raw __JANUSMASK_PATCHES__ literal
-        # at state/output/<task_id>.py, and so the patches dispatch wins
-        # precedence over the files.json dispatch below.
         patches_sidecar_exists = (state_dir / 'output' / f'{task_id}.patches.json').exists()
-        # Remedy A/B (PHASE_M2_GAPFILL): initialize untracked_files BEFORE the try
-        # block so a porcelain-scan exception cannot leave it unbound (NameError) at
-        # the multi dispatch below.
-        # COMMIT_REROOT (§2a/b): for EXTERNAL targets, skip untracked auto-detect
-        # entirely so an agent-generated untracked test inside the staging worktree
-        # is never auto-committed into a foreign repo; untracked_files stays [].
         untracked_files = []
         if _is_self:
-          try:
-            untracked_output = _run_streamed_command(['git', 'status', '--porcelain', 'tests/'], cwd=str(worktree_root), timeout=30, check=True)
-            import fnmatch
-            for line in untracked_output.stdout.splitlines():
-                line = line.strip()
-                if line.startswith('?? '):
-                    filepath = line[3:].strip().strip('"\'')
-                    if fnmatch.fnmatch(filepath, 'tests/test_*.py'):
-                        untracked_files.append(filepath)
-            if untracked_files and not patches_sidecar_exists:
-                import json
-                sidecar_path = state_dir / 'output' / f'{task_id}.files.json'
-                manifest = {}
-                if sidecar_path.exists():
-                    try:
-                        manifest = json.loads(sidecar_path.read_text(encoding='utf-8'))
-                    except Exception:
-                        manifest = {}
-                else:
-                    target_path = pathlib.Path(target_file).resolve()
-                    try:
-                        rel_target = target_path.relative_to(parent_root)
-                    except ValueError:
+            try:
+                untracked_output = _run_streamed_command(['git', 'status', '--porcelain', 'tests/'], cwd=str(worktree_root), timeout=30, check=True)
+                import fnmatch
+                for line in untracked_output.stdout.splitlines():
+                    line = line.strip()
+                    if line.startswith('?? '):
+                        filepath = line[3:].strip().strip('"\'')
+                        if fnmatch.fnmatch(filepath, 'tests/test_*.py'):
+                            untracked_files.append(filepath)
+                if untracked_files and (not patches_sidecar_exists):
+                    import json
+                    sidecar_path = state_dir / 'output' / f'{task_id}.files.json'
+                    manifest = {}
+                    if sidecar_path.exists():
                         try:
-                            rel_target = target_path.relative_to(worktree_root)
+                            manifest = json.loads(sidecar_path.read_text(encoding='utf-8'))
+                        except Exception:
+                            manifest = {}
+                    else:
+                        target_path = pathlib.Path(target_file).resolve()
+                        try:
+                            rel_target = target_path.relative_to(parent_root)
                         except ValueError:
-                            rel_target = pathlib.Path(target_file)
-                    output_file = state_dir / 'output' / f'{task_id}.py'
-                    if output_file.exists():
-                        manifest[str(rel_target)] = output_file.read_text(encoding='utf-8')
-                for filepath in untracked_files:
-                    file_in_worktree = worktree_root / filepath
-                    if file_in_worktree.exists():
-                        manifest[filepath] = file_in_worktree.read_text(encoding='utf-8')
-                sidecar_path.parent.mkdir(parents=True, exist_ok=True)
-                sidecar_path.write_text(json.dumps(manifest, indent=2), encoding='utf-8')
-          except Exception as e:
-            logging.getLogger(__name__).warning('Failed to auto-detect and commit untracked test files: %s', e)
-        # REV26 punb2a: PATCHES sidecar takes precedence over the files.json
-        # sidecar. The patches dispatch is checked FIRST so a partial_edit task's
-        # named symbol/region patch is applied via _commit_accepted_output_patches
-        # rather than letting any synthesized files.json win and write the raw
-        # __JANUSMASK_PATCHES__ literal verbatim into the target.
+                            try:
+                                rel_target = target_path.relative_to(worktree_root)
+                            except ValueError:
+                                rel_target = pathlib.Path(target_file)
+                        output_file = state_dir / 'output' / f'{task_id}.py'
+                        if output_file.exists():
+                            manifest[str(rel_target)] = output_file.read_text(encoding='utf-8')
+                    for filepath in untracked_files:
+                        file_in_worktree = worktree_root / filepath
+                        if file_in_worktree.exists():
+                            manifest[filepath] = file_in_worktree.read_text(encoding='utf-8')
+                    sidecar_path.parent.mkdir(parents=True, exist_ok=True)
+                    sidecar_path.write_text(json.dumps(manifest, indent=2), encoding='utf-8')
+            except Exception as e:
+                logging.getLogger(__name__).warning('Failed to auto-detect and commit untracked test files: %s', e)
         patches_sidecar = state_dir / 'output' / f'{task_id}.patches.json'
         if patches_sidecar.exists():
             return _commit_accepted_output_patches(task_id, patches_sidecar, state_dir, worktree_root, result, allowed_files=allowed_files, meta_task_type=meta_task_type, approval_ok=approval_ok, working_dir=working_dir, widened_auto_approve=widened_auto_approve)
@@ -710,11 +657,6 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
                 effective_allowed = set(allowed_files) | set(untracked_files)
             return _commit_accepted_output_multi(task_id, sidecar_path, state_dir, worktree_root, result, allowed_files=effective_allowed, meta_task_type=meta_task_type, approval_ok=approval_ok, working_dir=working_dir, widened_auto_approve=widened_auto_approve)
         target_path = pathlib.Path(target_file).resolve()
-        # COMMIT_REROOT (§3-6): capture the ORIGINAL resolved target before the
-        # parent->staging remap so the EXTERNAL containment CHECK can verify the
-        # agent's declared target lies strictly within effective_target_root
-        # (rejecting ../symlink escape, resolve() both sides). SELF keeps the
-        # post-remap relative_to(worktree_root) guard byte-identical.
         _orig_target_path = target_path
         if worktree_root is not None:
             if _is_self:
@@ -727,11 +669,6 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
                 target_path = (worktree_root / rel).resolve()
             except ValueError:
                 pass
-        # COMMIT_REROOT (§3-6): the write-containment escape CHECK re-points at
-        # effective_target_root(working_dir) for EXTERNAL targets (validated
-        # against the ORIGINAL declared target); SELF keeps relative_to(worktree_root)
-        # byte-identical. The rel-string fed to git add/commit below STAYS
-        # relative_to(worktree_root) (the staging path).
         if _is_self:
             try:
                 target_path.relative_to(worktree_root)
@@ -764,13 +701,6 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
                         final_code = tgt_code
                     else:
                         final_code = _ast_merge(out_code, tgt_code)
-                        # PHASE_WHOLE_FILE_DRIFT_GUARD: a legacy (partial_edit:false)
-                        # whole-file submission is only allowed to MODIFY at most one
-                        # existing top-level symbol. _ast_merge legitimately ADDS new
-                        # symbols and PRESERVES omitted ones, so only the intersection
-                        # of pre-merge target and post-merge result whose ast.dump
-                        # differs counts as drift; rewriting >1 existing symbol is
-                        # rejected fail-closed without touching the target on disk.
                         try:
                             before = {}
                             for n in ast.parse(tgt_code).body:
@@ -780,12 +710,12 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
                             for n in ast.parse(final_code).body:
                                 if getattr(n, 'name', None) is not None:
                                     after[n.name] = ast.dump(n)
-                            changed = {name for name in (set(before) & set(after)) if before[name] != after[name]}
+                            changed = {name for name in set(before) & set(after) if before[name] != after[name]}
                             if len(changed) > 1:
                                 logging.getLogger(__name__).error('commit_accepted_output: %s rejected whole_file_drift: modified %d existing top-level symbols %s', task_id, len(changed), sorted(changed))
                                 result['committed'] = False
                                 result['sha'] = None
-                                result['error'] = f"whole_file_drift: legacy whole-file submission modified {len(changed)} existing top-level symbols {sorted(changed)}; use partial-edit or multi-file"
+                                result['error'] = f'whole_file_drift: legacy whole-file submission modified {len(changed)} existing top-level symbols {sorted(changed)}; use partial-edit or multi-file'
                                 return result
                         except SyntaxError:
                             pass
@@ -793,10 +723,6 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
                     final_code = ast.unparse(ast.parse(out_code))
                 target_path.write_text(final_code, encoding='utf-8')
             except Exception as merge_exc:
-                # Fail-CLOSED (M3): a whole-file shutil.copy2 fallback would
-                # silently discard the target's other top-level symbols on a
-                # transient parse/merge error (data loss). Refuse the commit
-                # instead of overwriting; the target on disk is left untouched.
                 logging.getLogger(__name__).error('commit_accepted_output: AST merge failed for %s (%s); refusing whole-file copy fallback (fail-closed)', task_id, merge_exc)
                 result['committed'] = False
                 result['sha'] = None
@@ -888,7 +814,7 @@ def _apply_file_to_target(out_code: str, target_path: pathlib.Path, task_id: str
     else:
         target_path.write_text(out_code, encoding='utf-8')
 
-def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, state_dir: pathlib.Path, worktree_root: pathlib.Path, result: dict, *, allowed_files=None, meta_task_type=None, approval_ok: bool=False, working_dir: str | None = None, widened_auto_approve: bool=False) -> dict:
+def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, state_dir: pathlib.Path, worktree_root: pathlib.Path, result: dict, *, allowed_files=None, meta_task_type=None, approval_ok: bool=False, working_dir: str | None=None, widened_auto_approve: bool=False) -> dict:
     """Multi-file commit driven by a state/output/<task_id>.files.json sidecar.
 
     Reads the sidecar (JSON dict mapping rel-path -> source-code string),
@@ -898,10 +824,6 @@ def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, stat
     commit_accepted_output. All failure modes return committed=False with
     a descriptive error string and never invoke git commit.
     """
-    # COMMIT_REROOT (§3-6): lazy in-body import of the self/external classifier +
-    # re-rooting helper. For EXTERNAL targets the JM sensitive globs are bypassed
-    # (empty set) and the write-containment escape CHECK validates against
-    # effective_target_root(working_dir); SELF stays byte-identical.
     from harness.paths import _target_is_self, effective_target_root
     _is_self = _target_is_self(working_dir)
     try:
@@ -919,9 +841,6 @@ def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, stat
         return result
     rel_targets: list[str] = []
     tracked_flags: list[bool] = []
-    # Atomicity: validate (worktree-escape + apply-scope) ALL entries FIRST so a
-    # scope violation on a later entry cannot leave earlier entries already
-    # written to the worktree. Only after every entry passes do we apply writes.
     validated: list[tuple[str, pathlib.Path]] = []
     for rel, src in manifest.items():
         if not isinstance(rel, str) or not isinstance(src, str):
@@ -930,18 +849,6 @@ def _commit_accepted_output_multi(task_id: str, sidecar_path: pathlib.Path, stat
             result['error'] = f'sidecar entry has non-string key/value: {rel!r}'
             return result
         target_path = (worktree_root / rel).resolve()
-        # COMMIT_REROOT (§3-6): the manifest rels are worktree(staging)-relative, so
-        # containment within worktree_root is the meaningful escape guard for both
-        # self and external (worktree_root IS the staging copy of the external repo,
-        # itself under external_staging_root). For external we additionally accept
-        # effective_target_root(working_dir) as an allowed root (union); self stays
-        # byte-identical (relative_to(worktree_root) only).
-        # COMMIT_CONTAINMENT_FIX: track WHICH root contained target_path so the
-        # rel_str below is computed relative to that root. An external-contained
-        # target lies under effective_target_root(working_dir) but NOT under
-        # worktree_root, so an unconditional relative_to(worktree_root) would raise
-        # ValueError and crash the orchestrator. SELF keeps _containing_root =
-        # worktree_root, so its behaviour is byte-identical.
         _contained = True
         _containing_root = worktree_root
         try:
@@ -1027,10 +934,17 @@ def _parse_patches(code: str) -> list[dict] | None:
       * ``kind == 'symbol'`` requires ``'name'`` and ``'code'``;
       * ``kind == 'region'`` requires ``'marker'`` and ``'code'``.
 
+    ALSO accepts the nested-dict encoding ``{relpath: {symbol: code}}``
+    (an ``ast.Dict`` value): each outer ``ast.Constant`` string key is a
+    relpath whose ``ast.Dict`` value maps ``ast.Constant`` string symbol
+    names -> ``ast.Constant`` string replacement source, normalized to the
+    SAME flat ``list[dict]`` of ``{'file', 'kind', 'name', 'code'}`` symbol
+    entries (one per ``(file, symbol)`` pair) the flat-list form produces.
+
     Returns ``None`` (never raises) on: ``SyntaxError``; no/wrong-name/
-    multi-target ``Assign``; non-``List`` value; any non-``Dict`` element;
-    any non-string-``Constant`` key or value; missing required key; or
-    unknown ``kind``. Mirrors ``_parse_manifest``'s None-on-malformed
+    multi-target ``Assign``; non-``List``/non-``Dict`` value; any non-``Dict``
+    element; any non-string-``Constant`` key or value; missing required key;
+    or unknown ``kind``. Mirrors ``_parse_manifest``'s None-on-malformed
     discipline. ``__JANUSMASK_PATCHES__`` keys strictly on the target name,
     so it never collides with ``__JANUSMASK_MANIFEST__``.
     """
@@ -1048,30 +962,45 @@ def _parse_patches(code: str) -> list[dict] | None:
             continue
         if target.id != '__JANUSMASK_PATCHES__':
             continue
-        if not isinstance(node.value, ast.List):
-            return None
         result: list[dict] = []
-        for element in node.value.elts:
-            if not isinstance(element, ast.Dict):
-                return None
-            entry: dict[str, str] = {}
-            for k, v in zip(element.keys, element.values):
-                if not isinstance(k, ast.Constant) or not isinstance(k.value, str):
+        if isinstance(node.value, ast.List):
+            for element in node.value.elts:
+                if not isinstance(element, ast.Dict):
                     return None
-                if not isinstance(v, ast.Constant) or not isinstance(v.value, str):
+                entry: dict[str, str] = {}
+                for k, v in zip(element.keys, element.values):
+                    if not isinstance(k, ast.Constant) or not isinstance(k.value, str):
+                        return None
+                    if not isinstance(v, ast.Constant) or not isinstance(v.value, str):
+                        return None
+                    entry[k.value] = v.value
+                if 'file' not in entry or 'kind' not in entry:
                     return None
-                entry[k.value] = v.value
-            if 'file' not in entry or 'kind' not in entry:
-                return None
-            kind = entry['kind']
-            if kind not in ('symbol', 'region'):
-                return None
-            if kind == 'symbol' and ('name' not in entry or 'code' not in entry):
-                return None
-            if kind == 'region' and ('marker' not in entry or 'code' not in entry):
-                return None
-            result.append(entry)
-        return result
+                kind = entry['kind']
+                if kind not in ('symbol', 'region'):
+                    return None
+                if kind == 'symbol' and ('name' not in entry or 'code' not in entry):
+                    return None
+                if kind == 'region' and ('marker' not in entry or 'code' not in entry):
+                    return None
+                result.append(entry)
+            return result
+        elif isinstance(node.value, ast.Dict):
+            for outer_key, outer_val in zip(node.value.keys, node.value.values):
+                if not isinstance(outer_key, ast.Constant) or not isinstance(outer_key.value, str):
+                    return None
+                if not isinstance(outer_val, ast.Dict):
+                    return None
+                relpath = outer_key.value
+                for inner_key, inner_val in zip(outer_val.keys, outer_val.values):
+                    if not isinstance(inner_key, ast.Constant) or not isinstance(inner_key.value, str):
+                        return None
+                    if not isinstance(inner_val, ast.Constant) or not isinstance(inner_val.value, str):
+                        return None
+                    result.append({'file': relpath, 'kind': 'symbol', 'name': inner_key.value, 'code': inner_val.value})
+            return result
+        else:
+            return None
     return None
 
 def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
@@ -1124,9 +1053,6 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
         return isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
 
     def _primary_assign_name(n: ast.AST):
-        # The bound name of a top-level AnnAssign (``Name`` target) or a
-        # single-Name ``Assign`` (exactly one ``Name`` target), else None.
-        # Tuple/list-unpacking and multi-target assigns are NOT primaries.
         if isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name):
             return n.target.id
         if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
@@ -1139,10 +1065,6 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
                 located = n
                 break
         if located is None:
-            # No def/class match -> admit a top-level AnnAssign / single-Name
-            # Assign as the PRIMARY, keyed on the assigned name. Enforce that
-            # exactly ONE top-level statement binds leaf_name (an ambiguous
-            # name bound by >1 statement is rejected, never silently resolved).
             assign_matches = [n for n in tree.body if _primary_assign_name(n) == leaf_name]
             if len(assign_matches) > 1:
                 raise KeyError(qualname)
@@ -1183,7 +1105,6 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
     primary = primaries[0]
     extras = [n for n in nb_tree.body if n is not primary]
     if not extras:
-        # No-extras path: byte-identical to HEAD (verbatim single-block replace).
         new_target_text = new_block
         extras_text = ''
     else:
@@ -1230,10 +1151,7 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
                 name = ex.target.id
                 if name == leaf_name or name in existing_names:
                     raise ValueError(f'extra node name collides with an existing top-level symbol: {name!r}')
-        extras_text = '\n\n'.join(ast.unparse(ex) for ex in extras) + '\n'
-        # Slice ONLY the primary def's own text out of new_block so the agent's
-        # exact formatting of the primary is preserved; same lineno / decorator
-        # extension as the located-target splice below.
+        extras_text = '\n\n'.join((ast.unparse(ex) for ex in extras)) + '\n'
         nb_lines = new_block.splitlines(keepends=True)
         p_start = primary.lineno
         p_decorators = getattr(primary, 'decorator_list', None)
@@ -1294,7 +1212,7 @@ def _apply_region_patch(source: str, sentinel: str, new_region: str) -> str:
         new_text += '\n'
     return ''.join(before) + new_text + ''.join(after)
 
-def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, worktree_root, result, *, allowed_files=None, meta_task_type=None, approval_ok=False, working_dir: str | None = None, widened_auto_approve: bool=False):
+def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, worktree_root, result, *, allowed_files=None, meta_task_type=None, approval_ok=False, working_dir: str | None=None, widened_auto_approve: bool=False):
     """Partial-edit commit driven by a ``state/output/<task_id>.patches.json`` sidecar.
 
     Modeled on ``_commit_accepted_output_multi``: loads the JSON list of
@@ -1315,10 +1233,6 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
     read/write are converted to ``committed=False`` with a descriptive error;
     git commit is never invoked on failure.
     """
-    # COMMIT_REROOT (§3-6): lazy in-body import of the self/external classifier +
-    # re-rooting helper. For EXTERNAL targets the JM sensitive globs are bypassed
-    # (empty set) and the write-containment escape CHECK additionally accepts
-    # effective_target_root(working_dir); SELF stays byte-identical.
     from harness.paths import _target_is_self, effective_target_root
     _is_self = _target_is_self(working_dir)
     try:
@@ -1355,23 +1269,9 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
         grouped[rel].append(entry)
     rel_targets: list[str] = []
     tracked_flags: list[bool] = []
-    # Atomicity: validate (worktree-escape + apply-scope) ALL rels FIRST so a
-    # scope violation on a later entry cannot leave earlier entries already
-    # written to the worktree. Only after every rel passes do we apply patches.
     validated: list[tuple[str, str, pathlib.Path]] = []
     for rel in order:
         target_path = (worktree_root / rel).resolve()
-        # COMMIT_REROOT (§3-6): patch rels are worktree(staging)-relative, so
-        # containment within worktree_root is the meaningful escape guard for both
-        # self and external. For external we additionally accept
-        # effective_target_root(working_dir) as an allowed root (union); self stays
-        # byte-identical (relative_to(worktree_root) only).
-        # COMMIT_CONTAINMENT_FIX: track WHICH root contained target_path so the
-        # rel_str below is computed relative to that root. An external-contained
-        # target lies under effective_target_root(working_dir) but NOT under
-        # worktree_root, so an unconditional relative_to(worktree_root) would raise
-        # ValueError and crash the orchestrator. SELF keeps _containing_root =
-        # worktree_root, so its behaviour is byte-identical.
         _contained = True
         _containing_root = worktree_root
         try:
@@ -1491,10 +1391,6 @@ def create_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
         parent_root_obj = pathlib.Path(parent_root).resolve()
     cwd_str = str(parent_root_obj)
     if staging_path_obj.parent != parent_root_obj.parent:
-        # The sibling-of-repository-root rule did not hold. Before rejecting,
-        # accept placement directly under the external staging root. The
-        # external_staging_root helper is imported lazily in-body (no new
-        # module-level import) to avoid circular-import issues.
         ext_root_obj = None
         try:
             from harness.target_bootstrap import external_staging_root
@@ -1529,12 +1425,6 @@ def create_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
     try:
         subprocess.run(cmd, cwd=cwd_str, check=True, capture_output=True, text=True)
         logger.info(f'Created staging worktree at {staging_path}')
-        # UNTRACKED_TESTS_WORKTREE: best-effort copy of untracked tests/** files
-        # from the parent repo into the new staging worktree so that
-        # operator/planner-authored oracle tests (not yet committed) are
-        # available to the PRE-verification pytest run. This never git-adds or
-        # commits, and any failure is logged but must not break worktree
-        # creation.
         try:
             status_res = subprocess.run(['git', 'status', '--porcelain', '-u'], cwd=cwd_str, check=True, capture_output=True, text=True)
             for line in status_res.stdout.splitlines():
@@ -1670,7 +1560,8 @@ def _verify_from_ro_parent(repo_root, parent_head_sha, staging_path, gate_test_p
     finally:
         if tmp_dir is not None:
             shutil.rmtree(tmp_dir, ignore_errors=True)
-def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Path | None = None, *, working_dir: str | None = None) -> None:
+
+def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Path | None=None, *, working_dir: str | None=None) -> None:
     """Merges the HEAD commit from staging_path back to the parent repository.
 
     MERGE_REROOT: for EXTERNAL tasks (``not _target_is_self(working_dir)``) the
@@ -1689,16 +1580,12 @@ def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Pat
     import logging
     import time
     logger = logging.getLogger(__name__)
-
-    # 1. Get HEAD commit of staging
     try:
         res = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=str(staging_path), check=True, capture_output=True, text=True)
         staging_sha = res.stdout.strip()
     except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to get staging HEAD: {e.stderr}")
-        raise RuntimeError(f"Failed to get staging HEAD: {e.stderr}")
-
-    # 2. Get parent repo root
+        logger.error(f'Failed to get staging HEAD: {e.stderr}')
+        raise RuntimeError(f'Failed to get staging HEAD: {e.stderr}')
     if parent_root is None:
         try:
             res_common = subprocess.run(['git', 'rev-parse', '--git-common-dir'], cwd=str(staging_path), check=True, capture_output=True, text=True)
@@ -1708,115 +1595,67 @@ def merge_staging_to_parent(staging_path: pathlib.Path, parent_root: pathlib.Pat
             if git_common.name == '.git':
                 parent_root = git_common.parent
             else:
-                # Inside git worktrees structure: .git/worktrees/<name>
                 parent_root = git_common.parent.parent
         except Exception:
             parent_root = pathlib.Path(__file__).resolve().parent.parent
-
-    logger.info(f"Merging staging commit {staging_sha} into parent repo at {parent_root}")
-
-    # MERGE_REROOT: classify the target. For EXTERNAL tasks bypass the local
-    # stash / fast-forward merge / reset / stash-pop sequence entirely and do a
-    # pure ref-update on the parent repo. _target_is_self is imported lazily
-    # in-body (no new module-level import); working_dir None / self -> True.
+    logger.info(f'Merging staging commit {staging_sha} into parent repo at {parent_root}')
     from harness.paths import _target_is_self
     if not _target_is_self(working_dir):
-        # EXTERNAL: pure ref-update onto the parent repo. Equivalent to
-        # `git push . HEAD:refs/heads/janusmask/work` from staging, but the
-        # captured staging HEAD SHA is pushed explicitly (no --force) because
-        # this runs in parent_root, where HEAD resolves to the parent's branch,
-        # not staging's. No checkout / working-tree merge / stash occurs, so the
-        # user's active branch and working tree are never modified.
         try:
             subprocess.run(['git', 'push', '.', f'{staging_sha}:refs/heads/janusmask/work'], cwd=str(parent_root), check=True, capture_output=True, text=True)
-            logger.info(f"Ref-update push of {staging_sha} to refs/heads/janusmask/work successful (external task).")
-            # EXTERNAL_MASTER_ADVANCE (NGv2 gap #2): for a JM-OWNED external repo
-            # (valid .janusmask/bootstrap.json marker) ALSO fast-forward the
-            # checked-out branch to the accepted commit so DEPENDENT children --
-            # whose staging worktree detaches from the checked-out HEAD -- build on
-            # prior accepted output. Gated on the marker so a FOREIGN repo's branch
-            # is NEVER advanced; ff-only + the EXTERNAL_DIRTY_GATE (clean tree) make
-            # it non-destructive (staging_sha descends from the current HEAD).
-            # Best-effort: a non-ff/failed advance logs and leaves janusmask/work as
-            # the source of truth without failing the accepted task.
+            logger.info(f'Ref-update push of {staging_sha} to refs/heads/janusmask/work successful (external task).')
             try:
                 from harness.target_bootstrap import _read_valid_marker
                 if _read_valid_marker(pathlib.Path(parent_root)) is not None:
                     _adv = subprocess.run(['git', 'merge', '--ff-only', staging_sha], cwd=str(parent_root), capture_output=True, text=True)
                     if _adv.returncode == 0:
-                        logger.info(f"Fast-forwarded checked-out branch to {staging_sha} (JM-owned external task).")
+                        logger.info(f'Fast-forwarded checked-out branch to {staging_sha} (JM-owned external task).')
                     else:
-                        logger.warning(f"Skipped checked-out-branch fast-forward to {staging_sha}: {_adv.stderr.strip()}")
+                        logger.warning(f'Skipped checked-out-branch fast-forward to {staging_sha}: {_adv.stderr.strip()}')
             except Exception as _adv_exc:
-                logger.warning(f"Checked-out-branch fast-forward skipped: {_adv_exc!r}")
+                logger.warning(f'Checked-out-branch fast-forward skipped: {_adv_exc!r}')
         except subprocess.CalledProcessError as e:
-            logger.error(f"Ref-update push failed: {e.stderr}")
-            raise RuntimeError(f"Ref-update push failed: {e.stderr}")
+            logger.error(f'Ref-update push failed: {e.stderr}')
+            raise RuntimeError(f'Ref-update push failed: {e.stderr}')
         finally:
             remove_staging_worktree(str(staging_path), parent_root=parent_root)
         return
-
     stashed = False
     try:
-        # M-b/M-c: WHOLE-TREE stash (no pathspec). If the parent working tree
-        # has ANY local changes, stash the entire tree -- including untracked
-        # files (-u) -- so the fast-forward merge can never collide with dirty
-        # or untracked content ('untracked working tree files would be
-        # overwritten by merge'). Detect dirtiness with a pathspec-less
-        # `git status --porcelain`.
         res_status = subprocess.run(['git', 'status', '--porcelain'], cwd=str(parent_root), capture_output=True, text=True, check=False)
         if res_status.stdout.strip():
-            logger.info("Parent repository working tree is dirty; stashing whole tree before merge.")
+            logger.info('Parent repository working tree is dirty; stashing whole tree before merge.')
             cmd_stash = ['git', 'stash', 'push', '-u', '-m', f'janusmask-pre-merge-{int(time.time())}']
             try:
                 stash_res = subprocess.run(cmd_stash, cwd=str(parent_root), capture_output=True, text=True, check=True)
             except subprocess.CalledProcessError as stash_exc:
-                # Fail-closed: do NOT swallow the stash failure and proceed into
-                # a doomed merge. Raise BEFORE any merge is attempted; the
-                # finally below removes the staging worktree on the way out.
-                logger.error(f"Failed to stash parent repository working tree before merge: {stash_exc.stderr}")
-                raise RuntimeError(f"Failed to stash parent repository working tree before merge: {stash_exc.stderr}")
-            if "No local changes to save" not in stash_res.stdout:
+                logger.error(f'Failed to stash parent repository working tree before merge: {stash_exc.stderr}')
+                raise RuntimeError(f'Failed to stash parent repository working tree before merge: {stash_exc.stderr}')
+            if 'No local changes to save' not in stash_res.stdout:
                 stashed = True
-
-        # M3 EDIT 1: capture the parent's pre-merge HEAD BEFORE the FF advances
-        # it, so the fail-closed path can restore the tree to a clean pre-merge
-        # state (HEAD is no longer a safe reset target once the FF moves it).
         pre_merge_sha = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=str(parent_root), capture_output=True, text=True, check=False).stdout.strip()
         subprocess.run(['git', 'merge', '--ff-only', staging_sha], cwd=str(parent_root), check=True, capture_output=True, text=True)
-        logger.info("Fast-forward merge successful.")
+        logger.info('Fast-forward merge successful.')
     except subprocess.CalledProcessError as e:
-        logger.error(f"Fast-forward merge failed: {e.stderr}")
-        raise RuntimeError(f"Fast-forward merge failed: {e.stderr}")
+        logger.error(f'Fast-forward merge failed: {e.stderr}')
+        raise RuntimeError(f'Fast-forward merge failed: {e.stderr}')
     finally:
         reset_failed = False
         reset_res = None
         if stashed:
-            logger.info("Restoring parent repository local changes from stash.")
+            logger.info('Restoring parent repository local changes from stash.')
             pop = subprocess.run(['git', 'stash', 'pop'], cwd=str(parent_root), capture_output=True, text=True, check=False)
             if pop.returncode != 0:
-                # G-M-POPCONFLICT: the local stash conflicts with the just-merged
-                # commit. The merged commit content WINS; discard the conflicted
-                # partial pop and drop the stranded stash so we never hand back an
-                # unmerged (UU) tree or an orphaned stash.
-                logger.error(f"Stash pop conflicted after merge; resolving to merged content (stash dropped): {pop.stderr}")
+                logger.error(f'Stash pop conflicted after merge; resolving to merged content (stash dropped): {pop.stderr}')
                 reset_res = subprocess.run(['git', 'reset', '--hard', 'HEAD'], cwd=str(parent_root), capture_output=True, text=True, check=False)
                 if reset_res.returncode != 0:
-                    # G-M2-RESET-UNCHECKED: the conflict-resolution reset itself
-                    # failed -> the tree is still UU and HEAD has already moved.
-                    # FAIL-CLOSED: do NOT drop the stash; restore the parent to the
-                    # captured pre-merge sha (a clean tree), defer the raise until
-                    # AFTER remove_staging_worktree so the worktree is not leaked,
-                    # and route the task to blocked/ via the raise.
-                    logger.error(f"Conflict-resolution `git reset --hard HEAD` failed (rc={reset_res.returncode}); restoring parent to pre-merge sha {pre_merge_sha} and failing closed: {reset_res.stderr}")
+                    logger.error(f'Conflict-resolution `git reset --hard HEAD` failed (rc={reset_res.returncode}); restoring parent to pre-merge sha {pre_merge_sha} and failing closed: {reset_res.stderr}')
                     subprocess.run(['git', 'reset', '--hard', pre_merge_sha], cwd=str(parent_root), capture_output=True, text=True, check=False)
                     reset_failed = True
                 else:
-                    # M3-b (G-M2-UNTRACKED-DROP): record what the dropped stash
-                    # contained before discarding it, for an audit trail.
                     show = subprocess.run(['git', 'stash', 'show', '--include-untracked', '--name-only'], cwd=str(parent_root), capture_output=True, text=True, check=False)
-                    logger.warning(f"Dropping conflicted pre-merge stash; discarded paths:\n{show.stdout}")
+                    logger.warning(f'Dropping conflicted pre-merge stash; discarded paths:\n{show.stdout}')
                     subprocess.run(['git', 'stash', 'drop'], cwd=str(parent_root), capture_output=True, text=True, check=False)
         remove_staging_worktree(str(staging_path), parent_root=parent_root)
         if reset_failed:
-            raise RuntimeError(f"Stash-pop conflict recovery failed: `git reset --hard HEAD` returned {reset_res.returncode}; restored parent to pre-merge sha {pre_merge_sha} and removed staging worktree, routing to blocked/: {reset_res.stderr}")
+            raise RuntimeError(f'Stash-pop conflict recovery failed: `git reset --hard HEAD` returned {reset_res.returncode}; restored parent to pre-merge sha {pre_merge_sha} and removed staging worktree, routing to blocked/: {reset_res.stderr}')
