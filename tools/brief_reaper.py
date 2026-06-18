@@ -67,27 +67,6 @@ def reap_for_task(repo_root, task_id, *, stamp, archive=True) -> list[str]:
             return None
         return data if isinstance(data, dict) else None
 
-    def _integrated_task_ids(root: Path) -> set:
-        ids: set = set()
-        try:
-            text = (root / 'state' / 'impl_progress.jsonl').read_text(encoding='utf-8')
-        except OSError:
-            return ids
-        for line in text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                row = json.loads(line)
-            except ValueError:
-                continue
-            if not isinstance(row, dict):
-                continue
-            tid = row.get('task_id')
-            if isinstance(tid, str) and tid and (row.get('phase') == 'accepted' or row.get('event') == 'no_diff'):
-                ids.add(tid)
-        return ids
-
     def _find_brief_paired_plan(root: Path, tid: str):
         matches = []
         for plan_path in sorted(root.glob('plan_hooks_*.json')):
@@ -144,3 +123,41 @@ def reap_for_task(repo_root, task_id, *, stamp, archive=True) -> list[str]:
         return []
 from harness.state_reconciler import state_reconcile_lock
 'Archive-on-integrate reaper for brief + plan paperwork.\n\nThis stdlib-only module exposes a single public helper,\n:func:`reap_for_task`, the targeted half of archive-on-integrate: when a\nbuild task lands, it archives that task\'s ``brief_hooks_<slug>.md`` and\n``plan_hooks_<slug>.json`` from the repository root IFF the whole plan is\nnow integrated. "Integrated" is decided from GROUND-TRUTH evidence -- the\nreaped task plus the integration ledger ``state/impl_progress.jsonl`` -- and\nNEVER by re-running a plan\'s verification_command.\n\nThe archive move serializes on the single dedicated ``state_reconcile.lock``\n(see :func:`harness.state_reconciler.state_reconcile_lock`) so this third\nmutating path joins the in-loop sweep and the standalone apply on the ONE\nshared lock; the slow destructive section is never held under the short\n``git_commit.lock``. The move is a MOVE (never a delete), never uses ``git\nmv``, and never rewrites brief bytes or touches the brief mtime.\n\nThe function runs on the worker\'s hot accept path and is therefore fully\nfail-safe: ANY unexpected error results in an empty list and never\npropagates.\n'
+
+def _integrated_task_ids(root: Path) -> set:
+    """Tids that count as integrated from an ORDERED scan of the ledger.
+
+    Hoisted to MODULE scope (lifted out of :func:`reap_for_task`) so
+    ``tools.brief_reaper._integrated_task_ids(root)`` resolves as a module
+    attribute. A tid is COUNTED when an ``accepted`` (or ``no_diff``) row for it
+    is seen and UN-COUNTED again when a LATER ``reject_rollback`` or
+    ``task_blocked`` row for the SAME tid is seen during the ordered scan, so a
+    tid whose accepted commit was subsequently reverted no longer counts as
+    integrated. Matching is exact (substring-proof: ``t1`` never matches
+    ``t12``). Reads are fail-soft: a missing ledger yields the empty set and
+    malformed / non-dict lines are skipped.
+    """
+    ids: set = set()
+    try:
+        text = (root / 'state' / 'impl_progress.jsonl').read_text(encoding='utf-8')
+    except OSError:
+        return ids
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        tid = row.get('task_id')
+        if not (isinstance(tid, str) and tid):
+            continue
+        event = row.get('event')
+        if row.get('phase') == 'accepted' or event == 'no_diff':
+            ids.add(tid)
+        elif event in ('reject_rollback', 'task_blocked'):
+            ids.discard(tid)
+    return ids

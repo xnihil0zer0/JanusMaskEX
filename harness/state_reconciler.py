@@ -39,7 +39,6 @@ class ProductStatus:
     UNPLANNED = 'UNPLANNED'
     CORRUPT = 'CORRUPT'
     PLANNED = 'PLANNED'
-
 _WRITE_SETTLE_GRACE_SEC = 60.0
 
 def pid_is_live(pid) -> bool:
@@ -185,6 +184,7 @@ def parse_session_slug(slug):
     if m is None:
         return None
     return m.group('task_id')
+
 def _classify_pidfile_is_live(root, tid) -> bool:
     """True iff ``<root>/state/running/<tid>.pid`` names a live process.
 
@@ -336,7 +336,12 @@ def cleanup_state(root, *, mode='report') -> 'WorkspaceStatus':
     ``<root>/_autowork_archive/`` via the collision-safe
     :func:`_archive_move_collision_safe` primitive (a plain move -- NEVER
     ``git mv``); the classification is identical to report mode (report-first),
-    so a second report after apply is convergent on the NON-LIVE subset.
+    so a second report after apply is convergent on the NON-LIVE subset. apply
+    mode additionally runs :func:`_reconcile_stale_ledger_heads`, appending a
+    literal ``task_blocked`` pop-row (with a separate ``reconcile_reason``
+    provenance field) for every accepted tid whose recorded ``commit_sha`` is no
+    longer an ancestor of HEAD; that pass is fail-closed and idempotent and
+    compacts (never wipes) the ledger.
 
     FAIL-CLOSED / MOVE-NEVER-DELETE invariants:
 
@@ -387,7 +392,13 @@ def cleanup_state(root, *, mode='report') -> 'WorkspaceStatus':
             blocker = '%s: %s' % (type(exc).__name__, exc)
             ready = False
         outcomes.append(_CleanupProduct(task_id=tid, path=product_path, status=status if status is not None else 'UNKNOWN', ready=ready, blocker=blocker, archived_to=archived_to))
+    if mode == 'apply':
+        try:
+            _reconcile_stale_ledger_heads(root_path)
+        except Exception:
+            pass
     return WorkspaceStatus(root=str(root_path), mode=mode, products=outcomes)
+
 def classify_product(root, product_path, *, now=None) -> 'ProductStatus':
     """Single shared status resolver consumed by both report and apply.
 
@@ -443,6 +454,7 @@ def classify_product(root, product_path, *, now=None) -> 'ProductStatus':
     if not isinstance(data.get('tasks'), list):
         return ProductStatus.CORRUPT
     return ProductStatus.PLANNED
+
 @contextmanager
 def state_reconcile_lock(state_dir, *, timeout: float=60.0, poll: float=0.05):
     """Acquire/release the single dedicated ``state_reconcile.lock``.
@@ -482,3 +494,77 @@ def state_reconcile_lock(state_dir, *, timeout: float=60.0, poll: float=0.05):
             os.unlink(str(lock_path))
         except OSError:
             pass
+
+def _reconcile_stale_ledger_heads(root) -> None:
+    """Append a literal ``event == 'task_blocked'`` pop-row for every accepted
+    tid whose recorded ``commit_sha`` is NOT an ancestor of HEAD.
+
+    The pop-row's ``event`` is the literal ``'task_blocked'`` token consumed by
+    ``compute_brief_status`` replay (a ``'reconcile_revert'`` name would be
+    inert); the head-revert provenance rides on a SEPARATE ``reconcile_reason``
+    field, never renaming or repurposing an existing replay event. The ledger
+    is COMPACTED (malformed/non-dict lines dropped) and rewritten with the
+    surviving rows plus the appended pop-rows -- it is NEVER wiped to empty.
+    The pass is FAIL-CLOSED (any error is contained; the ledger is left intact)
+    and IDEMPOTENT (a tid already carrying a ``task_blocked`` pop-row is never
+    popped again, so a re-run appends no duplicate).
+    """
+    import json
+    import subprocess
+    import datetime
+    root_path = Path(root)
+    ledger_path = root_path / 'state' / 'impl_progress.jsonl'
+    try:
+        text = ledger_path.read_text(encoding='utf-8')
+    except OSError:
+        return
+    rows = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            rows.append(obj)
+    already_blocked = set()
+    for r in rows:
+        if r.get('event') == 'task_blocked':
+            tid = r.get('task_id')
+            if isinstance(tid, str) and tid:
+                already_blocked.add(tid)
+    accepted = {}
+    for r in rows:
+        if r.get('phase') == 'accepted':
+            tid = r.get('task_id')
+            sha = r.get('commit_sha')
+            if isinstance(tid, str) and tid and isinstance(sha, str) and sha and (tid not in accepted):
+                accepted[tid] = sha
+
+    def _is_ancestor_returncode(sha):
+        try:
+            proc = subprocess.run(['git', '-C', str(root_path), 'merge-base', '--is-ancestor', sha, 'HEAD'], capture_output=True, text=True)
+        except (OSError, ValueError):
+            return None
+        return proc.returncode
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    new_pops = []
+    for tid, sha in accepted.items():
+        if tid in already_blocked:
+            continue
+        rc = _is_ancestor_returncode(sha)
+        if rc == 1:
+            new_pops.append({'ts': ts, 'phase': 'autowork', 'task_id': tid, 'event': 'task_blocked', 'reconcile_reason': 'head_revert: accepted commit_sha %s is not an ancestor of HEAD' % sha, 'commit_sha': sha})
+            already_blocked.add(tid)
+    if not new_pops:
+        return
+    out_rows = rows + new_pops
+    payload = '\n'.join((json.dumps(r) for r in out_rows)) + '\n'
+    if not payload.strip():
+        return
+    try:
+        ledger_path.write_text(payload, encoding='utf-8')
+    except OSError:
+        return
