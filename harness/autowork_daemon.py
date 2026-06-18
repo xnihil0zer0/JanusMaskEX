@@ -1886,18 +1886,47 @@ def resume_parallel_workers(state_dir: pathlib.Path) -> None:
     _suspended_pids.clear()
     _suspension_start_times.clear()
 
-def _reclaim_zombie_briefs(repo_root: pathlib.Path, state_dir: pathlib.Path) -> dict:
-    """Quarantine zombie briefs so they are never re-dispatched (slot reclamation).
+def _reclaim_zombie_briefs(repo_root: pathlib.Path, state_dir: pathlib.Path, running=None) -> dict:
+    """Reclaim zombie briefs + enforce sha-staleness / orphaned-plan reaping.
 
-    A "zombie" brief (per :func:`compute_brief_status`) is one whose tasks were
-    all processed yet none accepted -- left alone it sits forever, holding a
-    daemon slot and risking endless re-dispatch. For each ``state == 'zombie'``
-    record this moves the brief file into ``state/control/autowork/quarantine/``,
-    unlinks the parked ``tasks/processed/<tid>.json`` markers for the record's
-    ``processed_unaccepted`` task ids, and emits a ``zombie_reclaimed`` telemetry
-    row via a LAZY ``write_jsonl_row`` import (no new module-level imports). Every
-    per-record action is wrapped in try/except so one bad record never aborts the
-    sweep -- best-effort, never raises. Returns ``{'reclaimed': n, 'slugs': [...]}``.
+    Two arms, both best-effort and FAIL-CLOSED (a per-record or lock error is
+    swallowed so the sweep can never abort the daemon loop):
+
+    1. EXISTING zombie-quarantine arm (behaviour unchanged): for each
+       ``state == 'zombie'`` record (per :func:`compute_brief_status`) move the
+       brief file into ``state/control/autowork/quarantine/``, unlink the parked
+       ``tasks/processed/<tid>.json`` markers and emit a ``zombie_reclaimed``
+       telemetry row via a LAZY ``write_jsonl_row`` import.
+
+    2. NEW sha-staleness enforcement arm (the slow op). Throttled behind a
+       dedicated ``sha_staleness_sweep.marker`` (a fresh marker short-circuits
+       the whole arm) and serialized under the shared
+       ``state_reconcile_lock(state_dir)`` -- NEVER the ``git_commit.lock`` -- so
+       the slow/destructive section never spans the commit latch and a contended
+       lock simply skips the arm this loop. Under the lock it:
+
+       * Archives PLANNED_STALE briefs by RE-READING the raw
+         ``plan_hooks_<slug>.json`` and comparing its stamped
+         ``source_brief_sha256`` ONLY against
+         ``hashlib.sha256(brief.read_bytes()).hexdigest()`` (mtime is never
+         consulted; ``record['plan_stale']`` / ``record['plan_filename']`` are
+         mtime-tainted / None when stale and are NOT trusted). A pure-sha
+         mismatch marks the brief PLANNED_STALE. Landed-aware: a sha-stale plan
+         whose every task_id is accepted (``auto_commit`` in
+         ``impl_progress.jsonl``) is NOT archived. Archival uses the
+         collision-safe move primitive from ``harness/state_reconciler.py`` (no
+         git mv, no byte rewrite, no mtime touch). A plan lacking
+         ``source_brief_sha256`` / missing / unreadable / corrupt is fail-closed
+         toward KEEPING the brief.
+
+       * Independently globs ``plan_hooks_*.json`` for ORPHANED_PLAN (a plan with
+         no matching ``brief_hooks_<slug>.md``) and reaps orphaned workdirs under
+         ``running/`` keyed by an EXACT task_id absent from every live plan,
+         using exact string equality and NEVER substring matching.
+
+    ``running`` is the workdir root (a path to a directory of per-task-id
+    workdirs); when it is not a directory path (e.g. the daemon's live-task-id
+    set) the workdir reap is skipped. Returns ``{'reclaimed': n, 'slugs': [...]}``.
     """
     repo_root = pathlib.Path(repo_root)
     state_dir = pathlib.Path(state_dir)
@@ -1906,7 +1935,7 @@ def _reclaim_zombie_briefs(repo_root: pathlib.Path, state_dir: pathlib.Path) -> 
     try:
         records = compute_brief_status(repo_root, state_dir)
     except Exception:
-        return {'reclaimed': 0, 'slugs': []}
+        records = []
     for rec in records or []:
         try:
             if not isinstance(rec, dict):
@@ -1946,6 +1975,171 @@ def _reclaim_zombie_briefs(repo_root: pathlib.Path, state_dir: pathlib.Path) -> 
                 slugs.append(slug)
         except Exception:
             continue
+    # ------------------------------------------------------------------
+    # NEW: sha-staleness enforcement arm + orphaned-plan workdir reap.
+    # Slow / destructive -> throttled behind a dedicated marker and serialized
+    # under the shared state_reconcile_lock (NEVER git_commit.lock). Wholly
+    # wrapped so any error (lock contention included) is swallowed.
+    # ------------------------------------------------------------------
+    try:
+        control_dir = state_dir / 'control' / 'autowork'
+        throttle_marker = control_dir / 'sha_staleness_sweep.marker'
+        throttle_sec = 300.0
+        fresh = False
+        try:
+            if throttle_marker.exists() and (time.time() - throttle_marker.stat().st_mtime) < throttle_sec:
+                fresh = True
+        except OSError:
+            fresh = False
+        if not fresh:
+            try:
+                from harness.state_reconciler import state_reconcile_lock, _archive_move_collision_safe
+            except Exception:
+                state_reconcile_lock = None
+                _archive_move_collision_safe = None
+            if state_reconcile_lock is not None:
+                try:
+                    with state_reconcile_lock(state_dir):
+                        import hashlib as _hashlib
+                        # Accepted (landed) task ids from the impl_progress ledger.
+                        accepted_ids: set = set()
+                        ledger_path = state_dir / 'impl_progress.jsonl'
+                        try:
+                            with open(ledger_path, 'r', encoding='utf-8') as _lf:
+                                for _line in _lf:
+                                    try:
+                                        _row = json.loads(_line)
+                                    except Exception:
+                                        continue
+                                    if isinstance(_row, dict) and _row.get('phase') == 'accepted' and _row.get('event') == 'auto_commit':
+                                        _tid = _row.get('task_id')
+                                        if isinstance(_tid, str):
+                                            accepted_ids.add(_tid)
+                        except OSError:
+                            pass
+                        archive_dir = repo_root / '_archive'
+                        try:
+                            _archive_resolved = archive_dir.resolve()
+                        except OSError:
+                            _archive_resolved = archive_dir
+                        # ---- PLANNED_STALE archival (sha-only, landed-aware) ----
+                        try:
+                            briefs = list(repo_root.glob('brief_hooks_*.md'))
+                        except OSError:
+                            briefs = []
+                        for brief in briefs:
+                            try:
+                                try:
+                                    if _archive_resolved in brief.resolve().parents:
+                                        continue
+                                except OSError:
+                                    pass
+                                stem = brief.stem
+                                if stem.startswith('brief_hooks_'):
+                                    slug = stem[len('brief_hooks_'):]
+                                else:
+                                    slug = stem
+                                plan_path = repo_root / f'plan_hooks_{slug}.json'
+                                try:
+                                    plan_data = json.loads(plan_path.read_text(encoding='utf-8'))
+                                except Exception:
+                                    continue
+                                if not isinstance(plan_data, dict):
+                                    continue
+                                stamped = plan_data.get('source_brief_sha256')
+                                if not isinstance(stamped, str) or not stamped:
+                                    continue
+                                try:
+                                    current_sha = _hashlib.sha256(brief.read_bytes()).hexdigest()
+                                except OSError:
+                                    continue
+                                if stamped == current_sha:
+                                    continue
+                                plan_tasks = plan_data.get('tasks')
+                                task_ids: list = []
+                                if isinstance(plan_tasks, list):
+                                    for _t in plan_tasks:
+                                        if isinstance(_t, dict) and isinstance(_t.get('task_id'), str):
+                                            task_ids.append(_t['task_id'])
+                                fully_landed = bool(task_ids) and all(_tid in accepted_ids for _tid in task_ids)
+                                if fully_landed:
+                                    continue
+                                if _archive_move_collision_safe is not None:
+                                    try:
+                                        _archive_move_collision_safe(brief, archive_dir)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                continue
+                        # ---- orphaned-plan glob + EXACT task_id workdir reap ----
+                        running_dir = None
+                        if isinstance(running, (str, pathlib.Path)):
+                            try:
+                                _rp = pathlib.Path(running)
+                                if _rp.is_dir():
+                                    running_dir = _rp
+                            except OSError:
+                                running_dir = None
+                        if running_dir is not None:
+                            try:
+                                plan_paths = list(repo_root.glob('plan_hooks_*.json'))
+                            except OSError:
+                                plan_paths = []
+                            live_task_ids: set = set()
+                            orphaned_task_ids: set = set()
+                            for _pp in plan_paths:
+                                try:
+                                    _pstem = _pp.stem
+                                    if _pstem.startswith('plan_hooks_'):
+                                        _pslug = _pstem[len('plan_hooks_'):]
+                                    else:
+                                        _pslug = _pstem
+                                    _has_brief = (repo_root / f'brief_hooks_{_pslug}.md').exists()
+                                    try:
+                                        _pdata = json.loads(_pp.read_text(encoding='utf-8'))
+                                    except Exception:
+                                        continue
+                                    if not isinstance(_pdata, dict):
+                                        continue
+                                    _ptasks = _pdata.get('tasks')
+                                    _tids: list = []
+                                    if isinstance(_ptasks, list):
+                                        for _t in _ptasks:
+                                            if isinstance(_t, dict) and isinstance(_t.get('task_id'), str):
+                                                _tids.append(_t['task_id'])
+                                    if _has_brief:
+                                        live_task_ids.update(_tids)
+                                    else:
+                                        orphaned_task_ids.update(_tids)
+                                except Exception:
+                                    continue
+                            reap_ids = orphaned_task_ids - live_task_ids
+                            if reap_ids:
+                                try:
+                                    entries = list(running_dir.iterdir())
+                                except OSError:
+                                    entries = []
+                                for entry in entries:
+                                    try:
+                                        if not entry.is_dir():
+                                            continue
+                                        if entry.name in reap_ids:
+                                            import shutil as _shutil
+                                            _shutil.rmtree(entry, ignore_errors=True)
+                                    except Exception:
+                                        continue
+                        # Stamp the throttle marker only after holding the lock.
+                        try:
+                            control_dir.mkdir(parents=True, exist_ok=True)
+                            throttle_marker.write_text(str(time.time()), encoding='utf-8')
+                        except OSError:
+                            pass
+                except TimeoutError:
+                    pass
+                except Exception:
+                    pass
+    except Exception:
+        pass
     return {'reclaimed': reclaimed, 'slugs': slugs}
 def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dry_run: bool, config: dict | None=None) -> dict:
     running = _reap_running(state_dir)
@@ -1985,7 +2179,7 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
     except Exception as exc:
         _emit_telemetry(state_dir, '', 'skip', f'reclaim_orphan error: {exc!r}')
     try:
-        _reclaim_zombie_briefs(repo_root, state_dir)
+        _reclaim_zombie_briefs(repo_root, state_dir, running)
     except Exception as exc:
         _emit_telemetry(state_dir, '', 'skip', f'reclaim_zombie error: {exc!r}')
     promote_summary: dict = {'extracts': 0, 'plan_kickoffs': 0, 'discarded': 0}
