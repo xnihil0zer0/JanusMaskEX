@@ -2330,6 +2330,7 @@ def _auto_approve_content_safe(state_dir, task_id) -> bool:
     ``os.system`` / ``os.popen`` / ``pty.spawn``; any ``ast.Call`` on the
     ``subprocess`` module carrying a ``shell=True`` keyword.
     """
+    import textwrap
     output_dir = Path(state_dir) / 'output'
     patches_path = output_dir / f'{task_id}.patches.json'
     files_path = output_dir / f'{task_id}.files.json'
@@ -2370,7 +2371,7 @@ def _auto_approve_content_safe(state_dir, task_id) -> bool:
     _dangerous_names = {'eval', 'exec', 'compile', '__import__'}
     for src in sources:
         try:
-            tree = ast.parse(src)
+            tree = ast.parse(textwrap.dedent(src))
         except Exception:
             return False
         for node in ast.walk(tree):
