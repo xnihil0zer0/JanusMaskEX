@@ -28,10 +28,10 @@ EXPECTED_REPORT = {'task_live': ('LIVE', False, False), 'task_foreign': ('FOREIG
 def _make_hermetic_tree(tmp_path: Path, monkeypatch, now: float) -> tuple[Path, bytes]:
     root = tmp_path / 'ws'
     root.mkdir(parents=True, exist_ok=True)
-    products_dir = root / 'products'
+    products_dir = root / 'state' / 'plans'
     products_dir.mkdir(parents=True, exist_ok=True)
     state_dir = root / 'state'
-    running_dir = state_dir / 'running'
+    running_dir = state_dir / 'control' / 'autowork' / 'running'
     running_dir.mkdir(parents=True, exist_ok=True)
     janusmask_dir = root / '.janusmask'
     janusmask_dir.mkdir(parents=True, exist_ok=True)
@@ -90,7 +90,7 @@ def _apply_patches(monkeypatch):
     orig_iterdir = Path.iterdir
 
     def mock_iterdir(self):
-        if self.name == 'products':
+        if self.name == 'plans':
             return [self / 'task_live.json', self / 'task_foreign.json', self / 'task_orphaned.json', self / 'task_staged.json', self / 'task_blocked.json', self / 'task_accepted.json', self / 'task_unplanned.json', self / 'task_corrupt.json', self / 'task_planned.json', self / 'task_collision.json', self / 'task_collision_dup.json', self / 'task_symlink.json']
         return orig_iterdir(self)
     monkeypatch.setattr(Path, 'iterdir', mock_iterdir)
@@ -114,15 +114,15 @@ def test_synthesize_one_product_per_status_tree_is_hermetic(tmp_path, monkeypatc
     now = time.time()
     root, accepted_payload = _make_hermetic_tree(tmp_path, monkeypatch, now)
     assert root.relative_to(tmp_path)
-    assert (root / 'products' / 'task_live.json').exists()
-    assert (root / 'products' / 'task_foreign.json').exists()
-    assert (root / 'products' / 'task_staged.json').exists()
-    assert (root / 'products' / 'task_blocked.json').exists()
-    assert (root / 'products' / 'task_accepted.json').exists()
-    assert not (root / 'products' / 'task_unplanned.json').exists()
-    assert (root / 'products' / 'task_corrupt.json').exists()
-    assert (root / 'products' / 'task_planned.json').exists()
-    assert (root / 'products' / 'task_symlink.json').is_symlink()
+    assert (root / 'state' / 'plans' / 'task_live.json').exists()
+    assert (root / 'state' / 'plans' / 'task_foreign.json').exists()
+    assert (root / 'state' / 'plans' / 'task_staged.json').exists()
+    assert (root / 'state' / 'plans' / 'task_blocked.json').exists()
+    assert (root / 'state' / 'plans' / 'task_accepted.json').exists()
+    assert not (root / 'state' / 'plans' / 'task_unplanned.json').exists()
+    assert (root / 'state' / 'plans' / 'task_corrupt.json').exists()
+    assert (root / 'state' / 'plans' / 'task_planned.json').exists()
+    assert (root / 'state' / 'plans' / 'task_symlink.json').is_symlink()
 
 def test_report_mode_full_action_table_matches_expected(tmp_path, monkeypatch):
     """Assert report mode action table is exactly matching the expected outcomes."""
@@ -151,10 +151,10 @@ def test_apply_converges_on_non_live_subset(tmp_path, monkeypatch):
     assert (archive_dir / 'task_planned.json').exists()
     assert (archive_dir / 'task_collision.json').exists()
     assert (archive_dir / 'task_collision_dup.json').exists()
-    assert not (root / 'products' / 'task_corrupt.json').exists()
-    assert not (root / 'products' / 'task_planned.json').exists()
-    assert not (root / 'products' / 'task_collision.json').exists()
-    assert not (root / 'products' / 'task_collision_dup.json').exists()
+    assert not (root / 'state' / 'plans' / 'task_corrupt.json').exists()
+    assert not (root / 'state' / 'plans' / 'task_planned.json').exists()
+    assert not (root / 'state' / 'plans' / 'task_collision.json').exists()
+    assert not (root / 'state' / 'plans' / 'task_collision_dup.json').exists()
 
 def test_second_apply_does_zero_new_moves(tmp_path, monkeypatch):
     """A second apply performs zero new moves (idempotent/convergent)."""
@@ -171,7 +171,7 @@ def test_accepted_work_never_moved_or_lost(tmp_path, monkeypatch):
     now = time.time()
     root, accepted_payload = _make_hermetic_tree(tmp_path, monkeypatch, now)
     _apply_patches(monkeypatch)
-    p_accepted = root / 'products' / 'task_accepted.json'
+    p_accepted = root / 'state' / 'plans' / 'task_accepted.json'
     cleanup_state(str(root), mode='report')
     assert p_accepted.exists()
     assert p_accepted.read_bytes() == accepted_payload
@@ -188,7 +188,7 @@ def test_move_never_delete_every_reclaim_relocates(tmp_path, monkeypatch):
     root, _ = _make_hermetic_tree(tmp_path, monkeypatch, now)
     _apply_patches(monkeypatch)
     cleanup_state(str(root), mode='apply')
-    assert not (root / 'products' / 'task_planned.json').exists()
+    assert not (root / 'state' / 'plans' / 'task_planned.json').exists()
     assert (root / '_autowork_archive' / 'task_planned.json').exists()
 
 def test_live_foreign_staged_blocked_persist_ready_false(tmp_path, monkeypatch):
@@ -197,10 +197,10 @@ def test_live_foreign_staged_blocked_persist_ready_false(tmp_path, monkeypatch):
     root, _ = _make_hermetic_tree(tmp_path, monkeypatch, now)
     _apply_patches(monkeypatch)
     ws = cleanup_state(str(root), mode='apply')
-    assert (root / 'products' / 'task_live.json').exists()
-    assert (root / 'products' / 'task_foreign.json').exists()
-    assert (root / 'products' / 'task_staged.json').exists()
-    assert (root / 'products' / 'task_blocked.json').exists()
+    assert (root / 'state' / 'plans' / 'task_live.json').exists()
+    assert (root / 'state' / 'plans' / 'task_foreign.json').exists()
+    assert (root / 'state' / 'plans' / 'task_staged.json').exists()
+    assert (root / 'state' / 'plans' / 'task_blocked.json').exists()
     for p in ws.products:
         if p.task_id in ('task_live', 'task_foreign', 'task_staged', 'task_blocked'):
             assert p.ready is False
@@ -227,7 +227,7 @@ def test_slug_collision_pair_resolved_deterministically(tmp_path, monkeypatch):
     orig_iterdir = Path.iterdir
 
     def mock_iterdir(self):
-        if self.name == 'products':
+        if self.name == 'plans':
             return [self / 'task_collision.json']
         return orig_iterdir(self)
     monkeypatch.setattr(Path, 'iterdir', mock_iterdir)
@@ -242,14 +242,14 @@ def test_symlinked_product_resolved_by_realpath_not_double_moved(tmp_path, monke
     orig_iterdir = Path.iterdir
 
     def mock_iterdir(self):
-        if self.name == 'products':
+        if self.name == 'plans':
             return [self / 'task_planned.json', self / 'task_symlink.json']
         return orig_iterdir(self)
     monkeypatch.setattr(Path, 'iterdir', mock_iterdir)
     cleanup_state(str(root), mode='apply')
-    assert not (root / 'products' / 'task_planned.json').exists()
+    assert not (root / 'state' / 'plans' / 'task_planned.json').exists()
     assert (root / '_autowork_archive' / 'task_planned.json').exists()
-    assert (root / 'products' / 'task_symlink.json').is_symlink()
+    assert (root / 'state' / 'plans' / 'task_symlink.json').is_symlink()
 
 def test_e2e_report_then_apply_then_second_apply_full_drive(tmp_path, monkeypatch):
     """Full E2E drive: report -> apply -> second apply."""
@@ -301,7 +301,7 @@ def test_e2e_orphaned_plan_and_foreign_coexist_without_cross_contamination(tmp_p
     assert workdir.exists()
     _reclaim_zombie_briefs(root, root / 'state', running=None)
     assert not workdir.exists()
-    assert (root / 'products' / 'task_foreign.json').exists()
+    assert (root / 'state' / 'plans' / 'task_foreign.json').exists()
 
 def test_property_apply_is_idempotent_fixed_point_on_non_live_subset(tmp_path, monkeypatch):
     """Property test asserting idempotence on non-live subset."""
@@ -310,7 +310,7 @@ def test_property_apply_is_idempotent_fixed_point_on_non_live_subset(tmp_path, m
     orig_iterdir = Path.iterdir
 
     def mock_iterdir(self):
-        if self.name == 'products':
+        if self.name == 'plans':
             return [self / 'task_planned.json', self / 'task_corrupt.json']
         return orig_iterdir(self)
     monkeypatch.setattr(Path, 'iterdir', mock_iterdir)
@@ -329,13 +329,13 @@ def test_regression_protected_statuses_persist_ready_false(tmp_path, monkeypatch
     orig_iterdir = Path.iterdir
 
     def mock_iterdir(self):
-        if self.name == 'products':
+        if self.name == 'plans':
             return [self / 'task_live.json', self / 'task_foreign.json']
         return orig_iterdir(self)
     monkeypatch.setattr(Path, 'iterdir', mock_iterdir)
     ws = cleanup_state(str(root), mode='apply')
-    assert (root / 'products' / 'task_live.json').exists()
-    assert (root / 'products' / 'task_foreign.json').exists()
+    assert (root / 'state' / 'plans' / 'task_live.json').exists()
+    assert (root / 'state' / 'plans' / 'task_foreign.json').exists()
     for p in ws.products:
         assert p.ready is False
 
@@ -344,7 +344,7 @@ def test_regression_accepted_bytes_identical_across_report_apply_reapply(tmp_pat
     now = time.time()
     root, accepted_payload = _make_hermetic_tree(tmp_path, monkeypatch, now)
     _apply_patches(monkeypatch)
-    p_accepted = root / 'products' / 'task_accepted.json'
+    p_accepted = root / 'state' / 'plans' / 'task_accepted.json'
     cleanup_state(str(root), mode='report')
     assert p_accepted.read_bytes() == accepted_payload
     cleanup_state(str(root), mode='apply')
@@ -359,13 +359,13 @@ def test_regression_no_hard_delete_anywhere_in_tree(tmp_path, monkeypatch):
     orig_iterdir = Path.iterdir
 
     def mock_iterdir(self):
-        if self.name == 'products':
+        if self.name == 'plans':
             return [self / 'task_planned.json']
         return orig_iterdir(self)
     monkeypatch.setattr(Path, 'iterdir', mock_iterdir)
-    before_files = set((p.name for p in (root / 'products').iterdir() if p.is_file()))
+    before_files = set((p.name for p in (root / 'state' / 'plans').iterdir() if p.is_file()))
     cleanup_state(str(root), mode='apply')
-    after_files = set((p.name for p in (root / 'products').iterdir() if p.is_file()))
+    after_files = set((p.name for p in (root / 'state' / 'plans').iterdir() if p.is_file()))
     archive_files = set((p.name for p in (root / '_autowork_archive').iterdir() if p.is_file()))
     for fname in before_files:
         assert fname in after_files or fname in archive_files
