@@ -83,14 +83,14 @@ def auto_amend_gate(merged_plan, critique_path, config, state_dir):
     from harness.planner.auto_amend import auto_amend as _run
     return _run(merged_plan, critique_path, config, state_dir)
 
-def persist_plan(plan, out_path, brief_obj=None):
+def persist_plan(plan, out_path, brief_obj=None, state_dir=None):
     """Persist merged plan JSON. If brief_obj is supplied and the plan lacks wrapper
     fields, inject source_brief_path + source_brief_sha256 for schema v2.1 traceability.
     Injection is skipped when brief_obj attrs are not plain strings (defensive against
     mock objects in tests).
     """
     _tracker.record('persist_plan')
-    _emit_planner_lifecycle('persist_plan')
+    _emit_planner_lifecycle('persist_plan', state_dir)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if brief_obj is not None and isinstance(plan, dict):
         sp = getattr(brief_obj, 'source_path', None)
@@ -295,7 +295,7 @@ def _run_epic_pipeline(brief_obj, config, state_dir, output_plan) -> int:
         child_epics = bool(_ce)
     repo_root = state_dir.parent
     epic_wd = getattr(brief_obj, 'working_dir', None)
-    merged = _finalize_epic_children(merged, epic_wd, child_epics)
+    merged = _finalize_epic_children(merged, epic_wd, child_epics, state_dir=state_dir)
 
     # Step 2: inherit parent required_task_ids onto each merged child BEFORE any
     # child file is written.
@@ -324,7 +324,8 @@ def _run_epic_pipeline(brief_obj, config, state_dir, output_plan) -> int:
     for v in violations:
         vpath = getattr(v, 'path', '') or ''
         vcode = getattr(v, 'code', '') or ''
-        if vpath == 'plan' or vpath.startswith('plan.') or vcode == 'missing_required_child':
+        vsev = getattr(v, 'severity', 'error') or 'error'
+        if vsev != 'advisory' and (vpath == 'plan' or vpath.startswith('plan.') or vcode == 'missing_required_child'):
             hard_violations.append(v)
         else:
             # child_briefs[...] (and any other non-structural) paths are advisory.
@@ -356,7 +357,7 @@ def _run_epic_pipeline(brief_obj, config, state_dir, output_plan) -> int:
     if uncovered:
         _journal_row({'phase': 'planning', 'event': 'epic_coverage_gap', 'uncovered': list(uncovered)})
 
-    persist_plan(epic_record, output_plan, brief_obj=brief_obj)
+    persist_plan(epic_record, output_plan, brief_obj=brief_obj, state_dir=state_dir)
     return 0
 
 def _resolve_max_planner_depth(config) -> int:
