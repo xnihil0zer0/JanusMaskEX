@@ -85,8 +85,8 @@ def _plant_workdir(aw, task_id, agent='opus', age=True):
     return wd
 
 def _write_live_pidfile(root, task_id):
-    """Plant a LIVE <root>/state/running/<task_id>.pid containing os.getpid()."""
-    rdir = pathlib.Path(root) / 'state' / 'running'
+    """Plant a LIVE <root>/state/control/autowork/running/<task_id>.pid containing os.getpid()."""
+    rdir = pathlib.Path(root) / 'state' / 'control' / 'autowork' / 'running'
     rdir.mkdir(parents=True, exist_ok=True)
     pidfile = rdir / (task_id + '.pid')
     pidfile.write_text(str(os.getpid()), encoding='utf-8')
@@ -111,7 +111,7 @@ def test_aged_orphan_workdir_reaped(tmp_path, monkeypatch):
 @_requires_yaml
 def test_live_pidfile_workdir_kept(tmp_path, monkeypatch):
     """LIVE-PIDFILE KEPT -- an aged workdir whose parsed task_id has a live
-    <root>/state/running/<tid>.pid (os.getpid()) survives the reap."""
+    <root>/state/control/autowork/running/<tid>.pid (os.getpid()) survives the reap."""
     root, _state, aw, staging = _make_root(tmp_path)
     _enable_gate(root)
     _patch_locations(monkeypatch, aw, staging)
@@ -146,7 +146,7 @@ def test_exact_match_not_substring_reaped(tmp_path, monkeypatch):
     wd = _plant_workdir(aw, 'task_live')
     _write_live_pidfile(root, 'task_live_long')
     assert wd.exists()
-    assert not (root / 'state' / 'running' / 'task_live.pid').exists()
+    assert not (root / 'state' / 'control' / 'autowork' / 'running' / 'task_live.pid').exists()
     _reclaim(root)
     assert not wd.exists()
 
@@ -216,3 +216,24 @@ def test_two_orphans_both_reaped(tmp_path, monkeypatch):
     _reclaim(root)
     assert not first.exists()
     assert not second.exists()
+
+@_requires_yaml
+def test_live_pidfile_workdir_kept_nonmocked(tmp_path):
+    """NON-MOCKED LIVE-PIDFILE KEPT (B5 gap) -- through the REAL locators (NO
+    monkeypatch of agent_workroot/external_staging_root/git_worktree_list), an
+    aged workdir planted under the REAL agent_workroot
+    root.parent/(root.name + '_agentwork') whose parsed task_id selfheal_demo has
+    a live <root>/state/control/autowork/running/selfheal_demo.pid (os.getpid())
+    survives the reap. ONLY the KEEP is asserted (the dead same-task_id sibling
+    over-protection is deferred S10 -- NOT asserted here)."""
+    root = tmp_path / 'repo'
+    (root / 'state').mkdir(parents=True, exist_ok=True)
+    (root / 'harness').mkdir(parents=True, exist_ok=True)
+    aw_real = root.parent / (root.name + '_agentwork')
+    wd = _plant_workdir(aw_real, 'selfheal_demo')
+    _write_live_pidfile(root, 'selfheal_demo')
+    _enable_gate(root)
+    assert wd.exists()
+    awd._reclaim_zombie_briefs(root, root / 'state', running=set())
+    assert wd.exists()
+'RED oracle pinning the post-fix agent_workroot() orphaned-workdir reap\nbehaviour of harness.autowork_daemon._reclaim_zombie_briefs.\n\nThe DESIRED post-fix model: ARM 2 of _reclaim_zombie_briefs (gated DEFAULT-OFF\nbehind autowork.state_reconcile) delegates the orphaned-workdir reap to\nharness.state_reconciler, scanning agent_workroot() -- NOT the dead\nrunning/<tid> model. ``running`` arrives as a set[str] (the live call site in\n_iteration passes the post-reap live-task-id set), so the HEAD code -- which\ntreats ``running`` as a directory path and leaves ``running_dir`` None when it\nis a set -- never reaps anything. These tests are therefore RED on HEAD and\nGREEN once the delegation lands.\n\nThe oracle imports and exercises harness.autowork_daemon._reclaim_zombie_briefs\ndirectly (non-vacuity witness). The three sr location functions\n(agent_workroot, external_staging_root, git_worktree_list) are monkeypatched on\nthe harness.state_reconciler module to hermetic tmp dirs; parse_session_slug\nand task_id_has_live_pidfile run REAL against\n<root>/state/control/autowork/running/*.pid.\n'

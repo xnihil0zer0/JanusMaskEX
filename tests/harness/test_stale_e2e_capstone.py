@@ -8,7 +8,20 @@ import pytest
 import subprocess
 from pathlib import Path
 import harness.state_reconciler as sr
-from harness.state_reconciler import cleanup_state, classify_product, prepare_workspace, state_reconcile_lock, ProductStatus, WorkspaceStatus, LOCK_FILENAME, task_id_has_live_pidfile, task_id_in_ledger, git_worktree_list, agent_workroot, external_staging_root, reap_stale_disk, _reconcile_stale_ledger_heads
+from harness.state_reconciler import cleanup_state
+from harness.state_reconciler import classify_product
+from harness.state_reconciler import prepare_workspace
+from harness.state_reconciler import state_reconcile_lock
+from harness.state_reconciler import ProductStatus
+from harness.state_reconciler import WorkspaceStatus
+from harness.state_reconciler import LOCK_FILENAME
+from harness.state_reconciler import task_id_has_live_pidfile
+from harness.state_reconciler import task_id_in_ledger
+from harness.state_reconciler import git_worktree_list
+from harness.state_reconciler import agent_workroot
+from harness.state_reconciler import external_staging_root
+from harness.state_reconciler import reap_stale_disk
+from harness.state_reconciler import _reconcile_stale_ledger_heads
 from harness._journal import write_jsonl_row
 EXPECTED_REPORT = {'task_live': ('LIVE', False, False), 'task_foreign': ('FOREIGN', False, False), 'task_orphaned': ('ORPHANED_PLAN', False, False), 'task_staged': ('STAGED_UNMERGED', False, False), 'task_blocked': ('BLOCKED', False, False), 'task_accepted': ('ACCEPTED', False, False), 'task_unplanned': ('UNPLANNED', True, False), 'task_corrupt': ('CORRUPT', True, False), 'task_planned': ('PLANNED', True, False), 'task_collision': ('PLANNED', True, False), 'task_collision_dup': ('PLANNED', True, False), 'task_symlink': ('FOREIGN', False, False)}
 
@@ -254,7 +267,12 @@ def test_e2e_report_then_apply_then_second_apply_full_drive(tmp_path, monkeypatc
         assert p.archived_to is None
 
 def test_e2e_orphaned_plan_and_foreign_coexist_without_cross_contamination(tmp_path, monkeypatch):
-    """Orphaned plan reaping coexists with foreign products without cross-contamination."""
+    """Orphaned-plan workdir reaping (via the REAL agent_workroot model) coexists
+    with foreign products without cross-contamination. The workdir is planted at
+    the REAL agent_workroot = root.parent/(root.name + '_agentwork') with NO
+    monkeypatch of the sr locators, so a leaked module-attribute assignment in
+    another test's _setup (the B0 bug) would mis-resolve agent_workroot and red
+    this test; monkeypatch.setattr teardown keeps it green."""
     try:
         from harness.autowork_daemon import _reclaim_zombie_briefs
     except SyntaxError:
@@ -262,15 +280,26 @@ def test_e2e_orphaned_plan_and_foreign_coexist_without_cross_contamination(tmp_p
     now = time.time()
     root, _ = _make_hermetic_tree(tmp_path, monkeypatch, now)
     p_plan = root / 'plan_hooks_orphaned.json'
-    p_plan.write_text(json.dumps({'tasks': [{'task_id': 'task_orphaned'}]}), encoding='utf-8')
-    workdir = root / 'state' / 'running' / 'task_orphaned'
-    workdir.mkdir(parents=True, exist_ok=True)
-    (workdir / 'file.txt').write_text('content', encoding='utf-8')
-    os.utime(workdir, (now - 3600.0, now - 3600.0))
+    p_plan.write_text(json.dumps({'tasks': [{'task_id': 'task_orphaned'}], 'source_brief_sha256': '0' * 64}), encoding='utf-8')
+    aw = root.parent / (root.name + '_agentwork')
+    workdir = aw / 'opus' / 'opus-r1-task_orphaned-deadbeef'
+    (workdir / 'outbox').mkdir(parents=True, exist_ok=True)
+    (workdir / 'outbox' / 'submission.py').write_text('x = 1\n', encoding='utf-8')
+    old = now - 100000.0
+    for p in workdir.rglob('*'):
+        try:
+            os.utime(p, (old, old))
+        except OSError:
+            pass
+    try:
+        os.utime(workdir, (old, old))
+    except OSError:
+        pass
     cfg_dir = root / 'harness'
     cfg_dir.mkdir(parents=True, exist_ok=True)
     (cfg_dir / 'config.yaml').write_text('autowork:\n  state_reconcile: true\n', encoding='utf-8')
-    _reclaim_zombie_briefs(root, root / 'state', running=root / 'state' / 'running')
+    assert workdir.exists()
+    _reclaim_zombie_briefs(root, root / 'state', running=None)
     assert not workdir.exists()
     assert (root / 'products' / 'task_foreign.json').exists()
 
