@@ -2084,6 +2084,7 @@ def _reclaim_zombie_briefs(repo_root: pathlib.Path, state_dir: pathlib.Path, run
                                         pass
                             except Exception:
                                 continue
+                        # JANUSMASK_REGION:reap_branch
                         # ---- orphaned-plan glob + EXACT task_id workdir reap ----
                         running_dir = None
                         if isinstance(running, (str, pathlib.Path)):
@@ -2141,6 +2142,7 @@ def _reclaim_zombie_briefs(repo_root: pathlib.Path, state_dir: pathlib.Path, run
                                             _shutil.rmtree(entry, ignore_errors=True)
                                     except Exception:
                                         continue
+                        # JANUSMASK_ENDREGION:reap_branch
                         # Stamp the throttle marker only after holding the lock.
                         try:
                             control_dir.mkdir(parents=True, exist_ok=True)
