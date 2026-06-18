@@ -75,14 +75,14 @@ class _ValidationVisitor(ast.NodeVisitor):
         if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
             for target in node.targets:
                 if isinstance(target, ast.Name):
-                    if re.search('(?i)(password|secret|key)', target.id):
+                    if _looks_like_hardcoded_credential(target.id, node.value.value):
                         self._add('security', 'error', node.lineno, f"Hardcoded credential detected in variable '{target.id}'")
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if node.value and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
             if isinstance(node.target, ast.Name):
-                if re.search('(?i)(password|secret|key)', node.target.id):
+                if _looks_like_hardcoded_credential(node.target.id, node.value.value):
                     self._add('security', 'error', node.lineno, f"Hardcoded credential detected in variable '{node.target.id}'")
         self.generic_visit(node)
 
@@ -350,6 +350,33 @@ def _normalize_annotation(node: ast.expr) -> ast.expr | None:
         return None
     return _AnnotationNormalizer().visit(snapshot)
 
+def _looks_like_hardcoded_credential(name: str, value: str) -> bool:
+    """Return True only when *name* names a credential-ish field AND *value*
+    looks like a real hardcoded secret rather than a benign identifier string.
+
+    NAME gate: at least one underscore/case-boundary segment of *name* equals a
+    known credential token (``password|secret|key|token|passwd|pwd|api_key``),
+    matched case-insensitively. The name is split on underscores AND on case
+    boundaries (camelCase / PascalCase / ACRONYMCase) and each segment is tested
+    for equality -- this is a word/segment match, NOT an arbitrary substring
+    (so e.g. ``monkey`` / ``keyword`` do not match ``key``).
+
+    VALUE gate: ``len(value) >= 8`` AND *value* is not a pure-lowercase
+    ``[a-z_]`` identifier -- i.e. it must contain an uppercase letter, a digit,
+    or a character outside ``[a-z0-9_]``.
+    """
+    _credential_tokens = {'password', 'secret', 'key', 'token', 'passwd', 'pwd', 'api_key'}
+    segments: list[str] = []
+    for chunk in name.split('_'):
+        for piece in re.findall('[A-Z]+(?![a-z])|[A-Z][a-z]*|[a-z]+|[0-9]+', chunk):
+            segments.append(piece.lower())
+    if not any((seg in _credential_tokens for seg in segments)):
+        return False
+    if len(value) < 8:
+        return False
+    if re.fullmatch('[a-z_]+', value):
+        return False
+    return True
 def _dump_annotation(node: ast.expr) -> str:
     """Deterministic string form of an annotation for comparison."""
     return ast.dump(node, annotate_fields=False, include_attributes=False)
