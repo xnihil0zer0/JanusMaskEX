@@ -1602,6 +1602,46 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
                 _emit_telemetry(state_dir, '', 'plan_timeout', f'{target_slug} timeout={timeout_sec:.0f}s')
                 summary['discarded'] += 1
                 return summary
+            elif rc not in (0, 124):
+                # VALIDATION-REJECTED: the planner exited non-zero for a reason
+                # other than timeout (rc==124). Treat it like the hallucinated
+                # branch -- delete any partial plan, bump the plan-attempt
+                # marker (parking deterministically on epic/leaf validation
+                # refusals), and emit the DISTINCT 'planner_validation_rejected'
+                # event -- BEFORE the plan_dict read, since there is no valid
+                # plan to introspect.
+                try:
+                    if output_plan.exists():
+                        output_plan.unlink()
+                except OSError:
+                    pass
+                marker = _plan_attempt_marker_path(state_dir, target_slug)
+                try:
+                    marker.parent.mkdir(parents=True, exist_ok=True)
+                    prev_attempts = 0
+                    prev_deterministic = False
+                    try:
+                        existing_raw = marker.read_text(encoding='utf-8')
+                        existing = json.loads(existing_raw)
+                        if isinstance(existing, dict):
+                            cand = existing.get('attempts', 0)
+                            if isinstance(cand, int) and (not isinstance(cand, bool)):
+                                prev_attempts = cand
+                            prev_deterministic = bool(existing.get('deterministic', False))
+                    except (OSError, FileNotFoundError, json.JSONDecodeError, ValueError):
+                        prev_attempts = 0
+                    is_deterministic = prev_deterministic or any(tok in (stderr_tail or '').lower() for tok in ('planvalidationerror', 'missing required field', 'validation failed', 'failed validation', 'missing_required_child', 'missing_required_task'))
+                    payload = {'attempts': prev_attempts + 1, 'last_ts': time.time(), 'deterministic': bool(is_deterministic)}
+                    marker.write_text(json.dumps(payload, sort_keys=True), encoding='utf-8')
+                except OSError:
+                    pass
+                detail = f'{target_slug} wall={wall:.1f} reason=rc={rc}'
+                if stderr_tail:
+                    escaped = stderr_tail[:256].replace('\n', '\\n').replace('\r', '\\r')
+                    detail = f'{detail} stderr_tail={escaped}'
+                _emit_telemetry(state_dir, '', 'planner_validation_rejected', detail)
+                summary['discarded'] += 1
+                return summary
             plan_dict: dict = {}
             if output_plan.exists():
                 try:
@@ -1633,7 +1673,7 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
                             prev_deterministic = bool(existing.get('deterministic', False))
                     except (OSError, FileNotFoundError, json.JSONDecodeError, ValueError):
                         prev_attempts = 0
-                    is_deterministic = prev_deterministic or any(tok in (stderr_tail or '').lower() for tok in ('planvalidationerror', 'missing required field', 'validation failed'))
+                    is_deterministic = prev_deterministic or any(tok in (stderr_tail or '').lower() for tok in ('planvalidationerror', 'missing required field', 'validation failed', 'failed validation', 'missing_required_child', 'missing_required_task'))
                     payload = {'attempts': prev_attempts + 1, 'last_ts': time.time(), 'deterministic': bool(is_deterministic)}
                     marker.write_text(json.dumps(payload, sort_keys=True), encoding='utf-8')
                 except OSError:
