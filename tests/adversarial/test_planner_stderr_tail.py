@@ -105,7 +105,7 @@ def test_planner_hallucination_discarded_detail_contains_stderr_tail(
     # landed; xfail covers the pre-fix state where this monkeypatch will
     # cause a tuple-unpack error inside _auto_promote.
     def _fake_planner(brief_path, output_plan, state_dir, timeout_sec=300.0):
-        return (1, 0.5, "STDERR_SENTINEL_HALLUCINATED_RP3")
+        return (0, 0.5, "STDERR_SENTINEL_HALLUCINATED_RP3")
 
     monkeypatch.setattr(ad, "_run_planner_subprocess", _fake_planner)
 
