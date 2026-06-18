@@ -1617,7 +1617,10 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
                 blk = textwrap.dedent(blk)
                 entry_name = entry.get('name') if entry.get('kind') == 'symbol' else None
                 blk_sig = declared_signature if sig_func is not None and entry_name == sig_func else None
-                pv.extend(validate_code(blk, allow_nondeterminism=allow_nondet, declared_signature=blk_sig, relax_external_constructs=relax_external))
+                _entry_violations = validate_code(blk, allow_nondeterminism=allow_nondet, declared_signature=blk_sig, relax_external_constructs=relax_external)
+                if entry.get('kind') == 'region':
+                    _entry_violations = [v for v in _entry_violations if getattr(v, 'rule', None) != 'incomplete_ast']
+                pv.extend(_entry_violations)
             errors = [v for v in pv if v.severity == 'error']
             if errors:
                 logger.warning('%s partial-edit submission (%d patches) has %d AST errors: %s', agent, len(patches), len(errors), '; '.join((f'{v.rule}@L{v.line}: {v.message}' for v in errors[:5])))
