@@ -217,6 +217,177 @@ def _classify_pidfile_is_live(root, tid) -> bool:
         return getattr(exc, 'errno', None) == errno.EPERM
     return True
 
+class _CleanupProduct:
+    """Per-product cleanup outcome carried by a :class:`WorkspaceStatus`.
+
+    Plain attribute object (kept stdlib-only, no ``dataclass`` import) exposing
+    ``task_id`` / ``path`` / ``status`` / ``ready`` / ``blocker`` so both report
+    and apply agree on a single per-product shape. ``ready`` is the FAIL-CLOSED
+    invariant ``blocker is None``: a product is ready only when nothing blocks
+    its reconciliation.
+    """
+    __slots__ = ('task_id', 'path', 'product_path', 'status', 'ready', 'blocker', 'archived_to')
+
+    def __init__(self, task_id, path, status, *, ready, blocker=None, archived_to=None):
+        self.task_id = task_id
+        self.path = str(path)
+        self.product_path = str(path)
+        self.status = status
+        self.ready = bool(ready)
+        self.blocker = blocker
+        self.archived_to = str(archived_to) if archived_to is not None else None
+
+    def __repr__(self):
+        return '_CleanupProduct(task_id=%r, status=%r, ready=%r, blocker=%r)' % (self.task_id, self.status, self.ready, self.blocker)
+
+class WorkspaceStatus:
+    """Aggregate of per-product cleanup outcomes for one workspace ``root``.
+
+    Carries the per-product collection under :attr:`products` plus a derived
+    workspace-level :attr:`ready` (True iff every enumerated product is ready).
+    Iterable and sized for convenience; the per-product entries are
+    :class:`_CleanupProduct` instances.
+    """
+    __slots__ = ('root', 'mode', 'products', 'ready')
+
+    def __init__(self, root, mode, products):
+        self.root = str(root)
+        self.mode = mode
+        self.products = list(products)
+        self.ready = all((p.ready for p in self.products)) if self.products else True
+
+    def __iter__(self):
+        return iter(self.products)
+
+    def __len__(self):
+        return len(self.products)
+
+    def __repr__(self):
+        return 'WorkspaceStatus(root=%r, mode=%r, products=%r)' % (self.root, self.mode, self.products)
+
+def _archive_move_collision_safe(src, archive_dir):
+    """Collision-safe, race-tolerant archive move primitive used by apply only.
+
+    Replaces the old ``_move_no_clobber`` / ``src.replace`` pattern. Behaviour:
+
+    * **Race-tolerant (no TOCTOU).** There is deliberately NO ``exists()``
+      pre-check guarding the SOURCE: we attempt the move directly and treat a
+      vanished source (``FileNotFoundError`` / ``ENOENT``) as a recorded SUCCESS
+      (returns ``None`` -- nothing landed, nothing to do).
+    * **Never overwrite.** On a destination collision the archived name is
+      suffix-disambiguated (``<stem>.<n><suffix>``) until it lands on a fresh,
+      unique path, so a pre-existing archived artifact is never clobbered. The
+      only existence probe is on the DESTINATION candidate, never the source.
+    * **Never strand.** If ``shutil.move`` copied to the candidate but then
+      failed to remove the source (so the move did not fully complete), the
+      partial copy is undone before the error is re-raised -- the source is left
+      intact and the archive is left clean, so the per-product error handler can
+      record an honest blocker without a stranded duplicate.
+
+    Returns the destination :class:`~pathlib.Path` the artifact landed on, or
+    ``None`` when the source was already gone (ENOENT == success).
+    """
+    import shutil
+    import errno as _errno
+    src_path = Path(src)
+    dst_dir = Path(archive_dir)
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    name = src_path.name
+    stem = src_path.stem
+    suffix = src_path.suffix
+    attempt = 0
+    while True:
+        if attempt == 0:
+            candidate = dst_dir / name
+        else:
+            candidate = dst_dir / ('%s.%d%s' % (stem, attempt, suffix))
+        if os.path.lexists(candidate):
+            attempt += 1
+            continue
+        try:
+            shutil.move(str(src_path), str(candidate))
+            return candidate
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            if getattr(exc, 'errno', None) == _errno.ENOENT:
+                return None
+            try:
+                if os.path.lexists(src_path) and os.path.lexists(candidate):
+                    if os.path.isdir(candidate) and (not os.path.islink(candidate)):
+                        shutil.rmtree(candidate, ignore_errors=True)
+                    else:
+                        os.remove(candidate)
+            except OSError:
+                pass
+            raise
+
+def cleanup_state(root, *, mode='report') -> 'WorkspaceStatus':
+    """Report-first state-reconciliation action engine for one workspace ``root``.
+
+    ``mode="report"`` is a PURE READ: it classifies every product under
+    ``<root>/products/`` via the shared :func:`classify_product` resolver (and
+    its discriminator library) and returns a :class:`WorkspaceStatus`
+    enumerating each product's status / blocker / ready WITHOUT touching disk
+    (``_autowork_archive/`` is never created or written); it is idempotent.
+
+    ``mode="apply"`` drives the classify-product action table. Each NON-LIVE
+    *archivable* product (PLANNED / UNPLANNED / CORRUPT) is relocated into
+    ``<root>/_autowork_archive/`` via the collision-safe
+    :func:`_archive_move_collision_safe` primitive (a plain move -- NEVER
+    ``git mv``); the classification is identical to report mode (report-first),
+    so a second report after apply is convergent on the NON-LIVE subset.
+
+    FAIL-CLOSED / MOVE-NEVER-DELETE invariants:
+
+    * LIVE products (a live ``running/<tid>.pid`` or within the write-settle
+      grace) and FOREIGN products (symlinked / non-JM-owned) are NEVER moved in
+      either mode; they PERSIST in place each carrying an explicit blocker and
+      ``ready == False``.
+    * Moves are race-tolerant: a vanished source (ENOENT) is a recorded success
+      with no TOCTOU ``exists()`` pre-check.
+    * Per-product error containment: a non-ENOENT failure on one product is
+      captured as THAT product's blocker (``ready == False``) and the sweep
+      continues -- it never aborts the whole reconciliation.
+    """
+    if mode not in ('report', 'apply'):
+        raise ValueError("mode must be 'report' or 'apply', got %r" % (mode,))
+    root_path = Path(root)
+    products_dir = root_path / 'products'
+    archive_dir = root_path / '_autowork_archive'
+    now = time.time()
+    archivable = frozenset((ProductStatus.PLANNED, ProductStatus.UNPLANNED, ProductStatus.CORRUPT))
+    try:
+        entries = sorted(products_dir.iterdir())
+    except OSError:
+        entries = []
+    outcomes = []
+    for entry in entries:
+        product_path = entry
+        tid = product_path.stem
+        status = None
+        blocker = None
+        ready = True
+        archived_to = None
+        try:
+            status = classify_product(str(root_path), str(product_path), now=now)
+            if status == ProductStatus.LIVE:
+                blocker = 'LIVE: product is owned by a running task (live running/<tid>.pid or within the write-settle grace); never archived'
+                ready = False
+            elif status == ProductStatus.FOREIGN:
+                blocker = 'FOREIGN: symlinked or non-JM-owned product; never followed or archived'
+                ready = False
+            elif status in archivable:
+                if mode == 'apply':
+                    archived_to = _archive_move_collision_safe(product_path, archive_dir)
+            else:
+                blocker = '%s: unhandled classification; persisted fail-closed' % (status,)
+                ready = False
+        except Exception as exc:
+            blocker = '%s: %s' % (type(exc).__name__, exc)
+            ready = False
+        outcomes.append(_CleanupProduct(task_id=tid, path=product_path, status=status if status is not None else 'UNKNOWN', ready=ready, blocker=blocker, archived_to=archived_to))
+    return WorkspaceStatus(root=str(root_path), mode=mode, products=outcomes)
 def classify_product(root, product_path, *, now=None) -> 'ProductStatus':
     """Single shared status resolver consumed by both report and apply.
 
