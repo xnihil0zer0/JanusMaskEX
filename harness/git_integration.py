@@ -424,6 +424,11 @@ def _ast_merge(output_code: str, target_code: str) -> str:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name in deletes:
                 matched.add(node.name)
                 continue
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                bound = set(_bound_names(node))
+                if bound & deletes:
+                    matched.update(bound & deletes)
+                    continue
             new_body.append(node)
         tgt_tree.body = new_body
         unmatched = deletes - matched
