@@ -159,6 +159,7 @@ def sandbox_child_env(extra: dict | None = None) -> dict:
 # This script is written to a temp file and executed in a subprocess.
 # It receives the code sample and input via a JSON file, executes the
 # target function with the input, and writes the result to another JSON file.
+_MAIN_POOL_TEMPLATE = textwrap.dedent('    def main_pool():\n        import signal\n        import struct\n\n        while True:\n            try:\n                length_bytes = sys.stdin.buffer.read(4)\n            except Exception:\n                break\n            if not length_bytes:\n                break\n            if len(length_bytes) < 4:\n                sys.exit(1)\n\n            payload_len = struct.unpack(">I", length_bytes)[0]\n            payload_bytes = sys.stdin.buffer.read(payload_len)\n            if len(payload_bytes) < payload_len:\n                sys.exit(1)\n\n            payload = json.loads(payload_bytes.decode(\'utf-8\'))\n\n            inputs = payload.get("inputs", [])\n            if not inputs:\n                batch_done_msg = b\'{"status": "batch_done"}\'\n                sys.stdout.buffer.write(struct.pack(">I", len(batch_done_msg)))\n                sys.stdout.buffer.write(batch_done_msg)\n                sys.stdout.buffer.flush()\n                continue\n\n            code = payload.get("code", "")\n            func_name = payload.get("func_name", "")\n            wall_timeout_per_input_sec = payload.get("wall_timeout_per_input_sec", 5.0)\n\n            namespace = {}\n            compile_err = None\n            try:\n                exec(compile(code, "<submission>", "exec"), namespace)\n            except Exception as exc:\n                compile_err = exc\n\n            func = namespace.get(func_name)\n            if compile_err is None and func is None:\n                compile_err = NameError(f"Function \'{func_name}\' not found in submission")\n            if compile_err is None and (inspect.iscoroutinefunction(func) or inspect.isasyncgenfunction(func)):\n                # Same silent-pass guard as main_single: refuse async submissions\n                # so a differential-fuzz pair cannot falsely match on None.\n                compile_err = TypeError(f"async function \'{func_name}\' not supported in differential fuzz sandbox")\n\n            if compile_err is not None:\n                for i in range(len(inputs)):\n                    err_record = {\n                        "index": i,\n                        "success": False,\n                        "exception_type": type(compile_err).__name__,\n                        "exception_message": str(compile_err),\n                        "wall_time_ms": 0.0\n                    }\n                    record_bytes = json.dumps(err_record, ensure_ascii=False).encode(\'utf-8\')\n                    sys.stdout.buffer.write(struct.pack(">I", len(record_bytes)))\n                    sys.stdout.buffer.write(record_bytes)\n                    sys.stdout.buffer.flush()\n\n                batch_done_msg = b\'{"status": "batch_done"}\'\n                sys.stdout.buffer.write(struct.pack(">I", len(batch_done_msg)))\n                sys.stdout.buffer.write(batch_done_msg)\n                sys.stdout.buffer.flush()\n                continue\n\n            try:\n                for i, inp in enumerate(inputs):\n                    call_args = inp.get("args", [])\n                    call_kwargs = inp.get("kwargs", {})\n\n                    pipe_r, pipe_w = os.pipe()\n                    pid = os.fork()\n\n                    if pid == 0:\n                        os.close(pipe_r)\n                        _set_child_limits(payload)\n                        if payload.get("seccomp", True):\n                            _install_seccomp()\n\n                        start = time.monotonic()\n                        try:\n                            ret = func(*call_args, **call_kwargs)\n                            elapsed_ms = (time.monotonic() - start) * 1000\n                            result = {\n                                "index": i,\n                                "success": True,\n                                "return_repr": repr(ret),\n                                "wall_time_ms": elapsed_ms,\n                            }\n                            try:\n                                json.dumps(ret)\n                                result["return_value"] = ret\n                            except (TypeError, ValueError, OverflowError):\n                                result["return_value"] = None\n                        except Exception as exc:\n                            elapsed_ms = (time.monotonic() - start) * 1000\n                            result = {\n                                "index": i,\n                                "success": False,\n                                "exception_type": type(exc).__name__,\n                                "exception_message": str(exc),\n                                "wall_time_ms": elapsed_ms,\n                            }\n\n                        with os.fdopen(pipe_w, \'w\') as f:\n                            json.dump(result, f, ensure_ascii=False)\n                            f.flush()\n\n                        os._exit(0)\n                    else:\n                        os.close(pipe_w)\n                        os.set_blocking(pipe_r, False)\n\n                        deadline = time.monotonic() + wall_timeout_per_input_sec\n                        timed_out = False\n                        wpid = 0\n                        status = 0\n                        pipe_data = b""\n\n                        while True:\n                            remaining = deadline - time.monotonic()\n                            if remaining <= 0:\n                                timed_out = True\n                                break\n\n                            try:\n                                chunk = os.read(pipe_r, 65536)\n                                if chunk:\n                                    pipe_data += chunk\n                            except BlockingIOError:\n                                pass\n\n                            wpid, status = os.waitpid(pid, os.WNOHANG)\n                            if wpid != 0:\n                                try:\n                                    while True:\n                                        chunk = os.read(pipe_r, 65536)\n                                        if not chunk:\n                                            break\n                                        pipe_data += chunk\n                                except BlockingIOError:\n                                    pass\n                                break\n                            time.sleep(0.005)\n\n                        if timed_out:\n                            try:\n                                os.kill(pid, signal.SIGKILL)\n                            except OSError:\n                                pass\n                            os.waitpid(pid, 0)\n                            os.close(pipe_r)\n                            err_record = {\n                                "index": i,\n                                "success": False,\n                                "timed_out": True,\n                                "exception_type": "TimeoutError",\n                                "exception_message": f"Execution timed out after {wall_timeout_per_input_sec}s",\n                                "wall_time_ms": wall_timeout_per_input_sec * 1000.0\n                            }\n                            record_bytes = json.dumps(err_record, ensure_ascii=False).encode(\'utf-8\')\n                            sys.stdout.buffer.write(struct.pack(">I", len(record_bytes)))\n                            sys.stdout.buffer.write(record_bytes)\n                            sys.stdout.buffer.flush()\n                            continue\n\n                        try:\n                            os.close(pipe_r)\n                        except OSError:\n                            pass\n\n                        is_valid_json = False\n                        decoded_str = ""\n                        if pipe_data.strip():\n                            try:\n                                decoded_str = pipe_data.decode(\'utf-8\')\n                                json.loads(decoded_str)\n                                is_valid_json = True\n                            except (json.JSONDecodeError, UnicodeDecodeError):\n                                pass\n\n                        if is_valid_json:\n                            record_bytes = decoded_str.strip().encode(\'utf-8\')\n                            sys.stdout.buffer.write(struct.pack(">I", len(record_bytes)))\n                            sys.stdout.buffer.write(record_bytes)\n                            sys.stdout.buffer.flush()\n                            continue\n\n                        if os.WIFSIGNALED(status):\n                            sig = os.WTERMSIG(status)\n                            if sig in (signal.SIGKILL, signal.SIGXCPU):\n                                err_record = {\n                                    "index": i,\n                                    "success": False,\n                                    "timed_out": True,\n                                    "exception_type": "TimeoutError",\n                                    "exception_message": f"Child killed by signal {sig} (SIGXCPU/SIGKILL)",\n                                    "wall_time_ms": 0.0\n                                }\n                            else:\n                                err_record = {\n                                    "index": i,\n                                    "success": False,\n                                    "exception_type": "SandboxError",\n                                    "exception_message": f"Child killed: {sig}",\n                                    "wall_time_ms": 0.0\n                                }\n                        else:\n                            if not pipe_data.strip():\n                                err_record = {\n                                    "index": i,\n                                    "success": False,\n                                    "exception_type": "SandboxError",\n                                    "exception_message": "Child exited without writing result",\n                                    "wall_time_ms": 0.0\n                                }\n                            else:\n                                err_record = {\n                                    "index": i,\n                                    "success": False,\n                                    "exception_type": "SandboxError",\n                                    "exception_message": "Corrupt result from child",\n                                    "wall_time_ms": 0.0\n                                }\n\n                        record_bytes = json.dumps(err_record, ensure_ascii=False).encode(\'utf-8\')\n                        sys.stdout.buffer.write(struct.pack(">I", len(record_bytes)))\n                        sys.stdout.buffer.write(record_bytes)\n                        sys.stdout.buffer.flush()\n            finally:\n                while True:\n                    try:\n                        wpid, _ = os.waitpid(-1, os.WNOHANG)\n                        if wpid <= 0:\n                            break\n                    except ChildProcessError:\n                        break\n                    except OSError:\n                        break\n\n            batch_done_msg = b\'{"status": "batch_done"}\'\n            sys.stdout.buffer.write(struct.pack(">I", len(batch_done_msg)))\n            sys.stdout.buffer.write(batch_done_msg)\n            sys.stdout.buffer.flush()\n\n\n')
 _RUNNER_TEMPLATE = textwrap.dedent("""\
     import inspect
     import json
@@ -207,7 +208,7 @@ _RUNNER_TEMPLATE = textwrap.dedent("""\
         mem_bytes = mem_mb * 1024 * 1024
         resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
         resource.setrlimit(resource.RLIMIT_CPU, (cpu_sec, cpu_sec))
-        
+
         stack_bytes = stack_mb * 1024 * 1024
         try:
             resource.setrlimit(resource.RLIMIT_STACK, (stack_bytes, stack_bytes))
@@ -305,255 +306,7 @@ _RUNNER_TEMPLATE = textwrap.dedent("""\
             json.dump(result, f)
 
 
-    def main_pool():
-        import signal
-        import struct
-        
-        while True:
-            try:
-                length_bytes = sys.stdin.buffer.read(4)
-            except Exception:
-                break
-            if not length_bytes:
-                break
-            if len(length_bytes) < 4:
-                sys.exit(1)
-            
-            payload_len = struct.unpack(">I", length_bytes)[0]
-            payload_bytes = sys.stdin.buffer.read(payload_len)
-            if len(payload_bytes) < payload_len:
-                sys.exit(1)
-                
-            payload = json.loads(payload_bytes.decode('utf-8'))
-            
-            inputs = payload.get("inputs", [])
-            if not inputs:
-                batch_done_msg = b'{"status": "batch_done"}'
-                sys.stdout.buffer.write(struct.pack(">I", len(batch_done_msg)))
-                sys.stdout.buffer.write(batch_done_msg)
-                sys.stdout.buffer.flush()
-                continue
-                
-            code = payload.get("code", "")
-            func_name = payload.get("func_name", "")
-            wall_timeout_per_input_sec = payload.get("wall_timeout_per_input_sec", 5.0)
-
-            namespace = {}
-            compile_err = None
-            try:
-                exec(compile(code, "<submission>", "exec"), namespace)
-            except Exception as exc:
-                compile_err = exc
-                
-            func = namespace.get(func_name)
-            if compile_err is None and func is None:
-                compile_err = NameError(f"Function '{func_name}' not found in submission")
-            if compile_err is None and (inspect.iscoroutinefunction(func) or inspect.isasyncgenfunction(func)):
-                # Same silent-pass guard as main_single: refuse async submissions
-                # so a differential-fuzz pair cannot falsely match on None.
-                compile_err = TypeError(f"async function '{func_name}' not supported in differential fuzz sandbox")
-
-            if compile_err is not None:
-                for i in range(len(inputs)):
-                    err_record = {
-                        "index": i,
-                        "success": False,
-                        "exception_type": type(compile_err).__name__,
-                        "exception_message": str(compile_err),
-                        "wall_time_ms": 0.0
-                    }
-                    record_bytes = json.dumps(err_record, ensure_ascii=False).encode('utf-8')
-                    sys.stdout.buffer.write(struct.pack(">I", len(record_bytes)))
-                    sys.stdout.buffer.write(record_bytes)
-                    sys.stdout.buffer.flush()
-                
-                batch_done_msg = b'{"status": "batch_done"}'
-                sys.stdout.buffer.write(struct.pack(">I", len(batch_done_msg)))
-                sys.stdout.buffer.write(batch_done_msg)
-                sys.stdout.buffer.flush()
-                continue
-                
-            try:
-                for i, inp in enumerate(inputs):
-                    call_args = inp.get("args", [])
-                    call_kwargs = inp.get("kwargs", {})
-                    
-                    pipe_r, pipe_w = os.pipe()
-                    pid = os.fork()
-                    
-                    if pid == 0:
-                        os.close(pipe_r)
-                        _set_child_limits(payload)
-                        if payload.get("seccomp", True):
-                            _install_seccomp()
-                        
-                        start = time.monotonic()
-                        try:
-                            ret = func(*call_args, **call_kwargs)
-                            elapsed_ms = (time.monotonic() - start) * 1000
-                            result = {
-                                "index": i,
-                                "success": True,
-                                "return_repr": repr(ret),
-                                "wall_time_ms": elapsed_ms,
-                            }
-                            try:
-                                json.dumps(ret)
-                                result["return_value"] = ret
-                            except (TypeError, ValueError, OverflowError):
-                                result["return_value"] = None
-                        except Exception as exc:
-                            elapsed_ms = (time.monotonic() - start) * 1000
-                            result = {
-                                "index": i,
-                                "success": False,
-                                "exception_type": type(exc).__name__,
-                                "exception_message": str(exc),
-                                "wall_time_ms": elapsed_ms,
-                            }
-                        
-                        with os.fdopen(pipe_w, 'w') as f:
-                            json.dump(result, f, ensure_ascii=False)
-                            f.flush()
-                        
-                        os._exit(0)
-                    else:
-                        os.close(pipe_w)
-                        os.set_blocking(pipe_r, False)
-                        
-                        deadline = time.monotonic() + wall_timeout_per_input_sec
-                        timed_out = False
-                        wpid = 0
-                        status = 0
-                        pipe_data = b""
-                        
-                        while True:
-                            remaining = deadline - time.monotonic()
-                            if remaining <= 0:
-                                timed_out = True
-                                break
-                                
-                            try:
-                                chunk = os.read(pipe_r, 65536)
-                                if chunk:
-                                    pipe_data += chunk
-                            except BlockingIOError:
-                                pass
-                                
-                            wpid, status = os.waitpid(pid, os.WNOHANG)
-                            if wpid != 0:
-                                try:
-                                    while True:
-                                        chunk = os.read(pipe_r, 65536)
-                                        if not chunk:
-                                            break
-                                        pipe_data += chunk
-                                except BlockingIOError:
-                                    pass
-                                break
-                            time.sleep(0.005)
-                            
-                        if timed_out:
-                            try:
-                                os.kill(pid, signal.SIGKILL)
-                            except OSError:
-                                pass
-                            os.waitpid(pid, 0)
-                            os.close(pipe_r)
-                            err_record = {
-                                "index": i,
-                                "success": False,
-                                "timed_out": True,
-                                "exception_type": "TimeoutError",
-                                "exception_message": f"Execution timed out after {wall_timeout_per_input_sec}s",
-                                "wall_time_ms": wall_timeout_per_input_sec * 1000.0
-                            }
-                            record_bytes = json.dumps(err_record, ensure_ascii=False).encode('utf-8')
-                            sys.stdout.buffer.write(struct.pack(">I", len(record_bytes)))
-                            sys.stdout.buffer.write(record_bytes)
-                            sys.stdout.buffer.flush()
-                            continue
-                            
-                        try:
-                            os.close(pipe_r)
-                        except OSError:
-                            pass
-                            
-                        is_valid_json = False
-                        decoded_str = ""
-                        if pipe_data.strip():
-                            try:
-                                decoded_str = pipe_data.decode('utf-8')
-                                json.loads(decoded_str)
-                                is_valid_json = True
-                            except (json.JSONDecodeError, UnicodeDecodeError):
-                                pass
-                                
-                        if is_valid_json:
-                            record_bytes = decoded_str.strip().encode('utf-8')
-                            sys.stdout.buffer.write(struct.pack(">I", len(record_bytes)))
-                            sys.stdout.buffer.write(record_bytes)
-                            sys.stdout.buffer.flush()
-                            continue
-                            
-                        if os.WIFSIGNALED(status):
-                            sig = os.WTERMSIG(status)
-                            if sig in (signal.SIGKILL, signal.SIGXCPU):
-                                err_record = {
-                                    "index": i,
-                                    "success": False,
-                                    "timed_out": True,
-                                    "exception_type": "TimeoutError",
-                                    "exception_message": f"Child killed by signal {sig} (SIGXCPU/SIGKILL)",
-                                    "wall_time_ms": 0.0
-                                }
-                            else:
-                                err_record = {
-                                    "index": i,
-                                    "success": False,
-                                    "exception_type": "SandboxError",
-                                    "exception_message": f"Child killed: {sig}",
-                                    "wall_time_ms": 0.0
-                                }
-                        else:
-                            if not pipe_data.strip():
-                                err_record = {
-                                    "index": i,
-                                    "success": False,
-                                    "exception_type": "SandboxError",
-                                    "exception_message": "Child exited without writing result",
-                                    "wall_time_ms": 0.0
-                                }
-                            else:
-                                err_record = {
-                                    "index": i,
-                                    "success": False,
-                                    "exception_type": "SandboxError",
-                                    "exception_message": "Corrupt result from child",
-                                    "wall_time_ms": 0.0
-                                }
-                                
-                        record_bytes = json.dumps(err_record, ensure_ascii=False).encode('utf-8')
-                        sys.stdout.buffer.write(struct.pack(">I", len(record_bytes)))
-                        sys.stdout.buffer.write(record_bytes)
-                        sys.stdout.buffer.flush()
-            finally:
-                while True:
-                    try:
-                        wpid, _ = os.waitpid(-1, os.WNOHANG)
-                        if wpid <= 0:
-                            break
-                    except ChildProcessError:
-                        break
-                    except OSError:
-                        break
-
-            batch_done_msg = b'{"status": "batch_done"}'
-            sys.stdout.buffer.write(struct.pack(">I", len(batch_done_msg)))
-            sys.stdout.buffer.write(batch_done_msg)
-            sys.stdout.buffer.flush()
-
-
+""") + _MAIN_POOL_TEMPLATE + textwrap.dedent("""\
     if __name__ == "__main__":
         if len(sys.argv) > 1 and sys.argv[1] == "--pool":
             main_pool()
@@ -588,7 +341,7 @@ _BATCH_RUNNER_TEMPLATE = textwrap.dedent("""\
                 return {"__type__": "path", "s": str(obj)}
             return super().default(obj)
 
-    
+
     def sandbox_decoder(dct):
         if "__type__" in dct:
             t = dct["__type__"]
@@ -669,7 +422,7 @@ _BATCH_RUNNER_TEMPLATE = textwrap.dedent("""\
         global _SECCOMP_LIB, _SECCOMP_CTX_SETUP, _BLOCKED_SYS_NOS, _CLONE_SYS_NO, _CLONE3_SYS_NO
         if _SECCOMP_CTX_SETUP:
             return
-        
+
         lib_path = ctypes.util.find_library("seccomp")
         if not lib_path:
             return
@@ -677,7 +430,7 @@ _BATCH_RUNNER_TEMPLATE = textwrap.dedent("""\
             _SECCOMP_LIB = ctypes.CDLL(lib_path)
             _SECCOMP_LIB.seccomp_syscall_resolve_name.argtypes = [ctypes.c_char_p]
             _SECCOMP_LIB.seccomp_syscall_resolve_name.restype = ctypes.c_int
-            
+
             blocked_syscalls = [
                 b"socket", b"connect", b"bind", b"listen", b"accept", b"accept4",
                 b"fork", b"vfork", b"execve", b"execveat"
@@ -686,10 +439,10 @@ _BATCH_RUNNER_TEMPLATE = textwrap.dedent("""\
                 sys_no = _SECCOMP_LIB.seccomp_syscall_resolve_name(name)
                 if sys_no >= 0:
                     _BLOCKED_SYS_NOS.append(sys_no)
-            
+
             _CLONE_SYS_NO = _SECCOMP_LIB.seccomp_syscall_resolve_name(b"clone")
             _CLONE3_SYS_NO = _SECCOMP_LIB.seccomp_syscall_resolve_name(b"clone3")
-            
+
             _SECCOMP_CTX_SETUP = True
         except OSError:
             pass
@@ -796,16 +549,16 @@ _BATCH_RUNNER_TEMPLATE = textwrap.dedent("""\
             for i, inp in enumerate(inputs):
                 call_args = inp.get("args", [])
                 call_kwargs = inp.get("kwargs", {})
-                
+
                 pipe_r, pipe_w = os.pipe()
                 pid = os.fork()
-                
+
                 if pid == 0:
                     os.close(pipe_r)
                     _set_child_limits(payload)
                     if payload.get("seccomp", True):
                         _install_seccomp()
-                    
+
                     start = time.monotonic()
                     try:
                         ret = func(*call_args, **call_kwargs)
@@ -830,35 +583,35 @@ _BATCH_RUNNER_TEMPLATE = textwrap.dedent("""\
                             "exception_message": str(exc),
                             "wall_time_ms": elapsed_ms,
                         }
-                    
+
                     with os.fdopen(pipe_w, 'w') as f:
                         json.dump(result, f, ensure_ascii=False)
                         f.flush()
-                    
+
                     os._exit(0)
                 else:
                     os.close(pipe_w)
                     os.set_blocking(pipe_r, False)
-                    
+
                     deadline = time.monotonic() + wall_timeout_per_input_sec
                     timed_out = False
                     wpid = 0
                     status = 0
                     pipe_data = b""
-                    
+
                     while True:
                         remaining = deadline - time.monotonic()
                         if remaining <= 0:
                             timed_out = True
                             break
-                            
+
                         try:
                             chunk = os.read(pipe_r, 65536)
                             if chunk:
                                 pipe_data += chunk
                         except BlockingIOError:
                             pass
-                            
+
                         wpid, status = os.waitpid(pid, os.WNOHANG)
                         if wpid != 0:
                             try:
@@ -871,7 +624,7 @@ _BATCH_RUNNER_TEMPLATE = textwrap.dedent("""\
                                 pass
                             break
                         time.sleep(0.005)
-                        
+
                     if timed_out:
                         try:
                             os.kill(pid, signal.SIGKILL)
@@ -892,12 +645,12 @@ _BATCH_RUNNER_TEMPLATE = textwrap.dedent("""\
                         if consecutive_timeouts >= 20:
                             sys.exit(0)
                         continue
-                        
+
                     try:
                         os.close(pipe_r)
                     except OSError:
                         pass
-                        
+
                     is_valid_json = False
                     decoded_str = ""
                     if pipe_data.strip():
@@ -907,12 +660,12 @@ _BATCH_RUNNER_TEMPLATE = textwrap.dedent("""\
                             is_valid_json = True
                         except (json.JSONDecodeError, UnicodeDecodeError):
                             pass
-                            
+
                     if is_valid_json:
                         print(decoded_str.strip(), flush=True)
                         consecutive_timeouts = 0
                         continue
-                        
+
                     # Not valid JSON or empty. Handle signals and errors.
                     if os.WIFSIGNALED(status):
                         sig = os.WTERMSIG(status)
@@ -950,7 +703,7 @@ _BATCH_RUNNER_TEMPLATE = textwrap.dedent("""\
                                 "exception_message": "Corrupt result from child",
                                 "wall_time_ms": 0.0
                             }
-                            
+
                     print(json.dumps(err_record, ensure_ascii=False), flush=True)
                     if err_record.get("timed_out"):
                         consecutive_timeouts += 1
@@ -970,255 +723,7 @@ _BATCH_RUNNER_TEMPLATE = textwrap.dedent("""\
                     break
 
 
-    def main_pool():
-        import signal
-        import struct
-        
-        while True:
-            try:
-                length_bytes = sys.stdin.buffer.read(4)
-            except Exception:
-                break
-            if not length_bytes:
-                break
-            if len(length_bytes) < 4:
-                sys.exit(1)
-            
-            payload_len = struct.unpack(">I", length_bytes)[0]
-            payload_bytes = sys.stdin.buffer.read(payload_len)
-            if len(payload_bytes) < payload_len:
-                sys.exit(1)
-                
-            payload = json.loads(payload_bytes.decode('utf-8'))
-            
-            inputs = payload.get("inputs", [])
-            if not inputs:
-                batch_done_msg = b'{"status": "batch_done"}'
-                sys.stdout.buffer.write(struct.pack(">I", len(batch_done_msg)))
-                sys.stdout.buffer.write(batch_done_msg)
-                sys.stdout.buffer.flush()
-                continue
-                
-            code = payload.get("code", "")
-            func_name = payload.get("func_name", "")
-            wall_timeout_per_input_sec = payload.get("wall_timeout_per_input_sec", 5.0)
-
-            namespace = {}
-            compile_err = None
-            try:
-                exec(compile(code, "<submission>", "exec"), namespace)
-            except Exception as exc:
-                compile_err = exc
-                
-            func = namespace.get(func_name)
-            if compile_err is None and func is None:
-                compile_err = NameError(f"Function '{func_name}' not found in submission")
-            if compile_err is None and (inspect.iscoroutinefunction(func) or inspect.isasyncgenfunction(func)):
-                # Same silent-pass guard as main_single: refuse async submissions
-                # so a differential-fuzz pair cannot falsely match on None.
-                compile_err = TypeError(f"async function '{func_name}' not supported in differential fuzz sandbox")
-
-            if compile_err is not None:
-                for i in range(len(inputs)):
-                    err_record = {
-                        "index": i,
-                        "success": False,
-                        "exception_type": type(compile_err).__name__,
-                        "exception_message": str(compile_err),
-                        "wall_time_ms": 0.0
-                    }
-                    record_bytes = json.dumps(err_record, ensure_ascii=False).encode('utf-8')
-                    sys.stdout.buffer.write(struct.pack(">I", len(record_bytes)))
-                    sys.stdout.buffer.write(record_bytes)
-                    sys.stdout.buffer.flush()
-                
-                batch_done_msg = b'{"status": "batch_done"}'
-                sys.stdout.buffer.write(struct.pack(">I", len(batch_done_msg)))
-                sys.stdout.buffer.write(batch_done_msg)
-                sys.stdout.buffer.flush()
-                continue
-                
-            try:
-                for i, inp in enumerate(inputs):
-                    call_args = inp.get("args", [])
-                    call_kwargs = inp.get("kwargs", {})
-                    
-                    pipe_r, pipe_w = os.pipe()
-                    pid = os.fork()
-                    
-                    if pid == 0:
-                        os.close(pipe_r)
-                        _set_child_limits(payload)
-                        if payload.get("seccomp", True):
-                            _install_seccomp()
-                        
-                        start = time.monotonic()
-                        try:
-                            ret = func(*call_args, **call_kwargs)
-                            elapsed_ms = (time.monotonic() - start) * 1000
-                            result = {
-                                "index": i,
-                                "success": True,
-                                "return_repr": repr(ret),
-                                "wall_time_ms": elapsed_ms,
-                            }
-                            try:
-                                json.dumps(ret)
-                                result["return_value"] = ret
-                            except (TypeError, ValueError, OverflowError):
-                                result["return_value"] = None
-                        except Exception as exc:
-                            elapsed_ms = (time.monotonic() - start) * 1000
-                            result = {
-                                "index": i,
-                                "success": False,
-                                "exception_type": type(exc).__name__,
-                                "exception_message": str(exc),
-                                "wall_time_ms": elapsed_ms,
-                            }
-                        
-                        with os.fdopen(pipe_w, 'w') as f:
-                            json.dump(result, f, ensure_ascii=False)
-                            f.flush()
-                        
-                        os._exit(0)
-                    else:
-                        os.close(pipe_w)
-                        os.set_blocking(pipe_r, False)
-                        
-                        deadline = time.monotonic() + wall_timeout_per_input_sec
-                        timed_out = False
-                        wpid = 0
-                        status = 0
-                        pipe_data = b""
-                        
-                        while True:
-                            remaining = deadline - time.monotonic()
-                            if remaining <= 0:
-                                timed_out = True
-                                break
-                                
-                            try:
-                                chunk = os.read(pipe_r, 65536)
-                                if chunk:
-                                    pipe_data += chunk
-                            except BlockingIOError:
-                                pass
-                                
-                            wpid, status = os.waitpid(pid, os.WNOHANG)
-                            if wpid != 0:
-                                try:
-                                    while True:
-                                        chunk = os.read(pipe_r, 65536)
-                                        if not chunk:
-                                            break
-                                        pipe_data += chunk
-                                except BlockingIOError:
-                                    pass
-                                break
-                            time.sleep(0.005)
-                            
-                        if timed_out:
-                            try:
-                                os.kill(pid, signal.SIGKILL)
-                            except OSError:
-                                pass
-                            os.waitpid(pid, 0)
-                            os.close(pipe_r)
-                            err_record = {
-                                "index": i,
-                                "success": False,
-                                "timed_out": True,
-                                "exception_type": "TimeoutError",
-                                "exception_message": f"Execution timed out after {wall_timeout_per_input_sec}s",
-                                "wall_time_ms": wall_timeout_per_input_sec * 1000.0
-                            }
-                            record_bytes = json.dumps(err_record, ensure_ascii=False).encode('utf-8')
-                            sys.stdout.buffer.write(struct.pack(">I", len(record_bytes)))
-                            sys.stdout.buffer.write(record_bytes)
-                            sys.stdout.buffer.flush()
-                            continue
-                            
-                        try:
-                            os.close(pipe_r)
-                        except OSError:
-                            pass
-                            
-                        is_valid_json = False
-                        decoded_str = ""
-                        if pipe_data.strip():
-                            try:
-                                decoded_str = pipe_data.decode('utf-8')
-                                json.loads(decoded_str)
-                                is_valid_json = True
-                            except (json.JSONDecodeError, UnicodeDecodeError):
-                                pass
-                                
-                        if is_valid_json:
-                            record_bytes = decoded_str.strip().encode('utf-8')
-                            sys.stdout.buffer.write(struct.pack(">I", len(record_bytes)))
-                            sys.stdout.buffer.write(record_bytes)
-                            sys.stdout.buffer.flush()
-                            continue
-                            
-                        if os.WIFSIGNALED(status):
-                            sig = os.WTERMSIG(status)
-                            if sig in (signal.SIGKILL, signal.SIGXCPU):
-                                err_record = {
-                                    "index": i,
-                                    "success": False,
-                                    "timed_out": True,
-                                    "exception_type": "TimeoutError",
-                                    "exception_message": f"Child killed by signal {sig} (SIGXCPU/SIGKILL)",
-                                    "wall_time_ms": 0.0
-                                }
-                            else:
-                                err_record = {
-                                    "index": i,
-                                    "success": False,
-                                    "exception_type": "SandboxError",
-                                    "exception_message": f"Child killed: {sig}",
-                                    "wall_time_ms": 0.0
-                                }
-                        else:
-                            if not pipe_data.strip():
-                                err_record = {
-                                    "index": i,
-                                    "success": False,
-                                    "exception_type": "SandboxError",
-                                    "exception_message": "Child exited without writing result",
-                                    "wall_time_ms": 0.0
-                                }
-                            else:
-                                err_record = {
-                                    "index": i,
-                                    "success": False,
-                                    "exception_type": "SandboxError",
-                                    "exception_message": "Corrupt result from child",
-                                    "wall_time_ms": 0.0
-                                }
-                                
-                        record_bytes = json.dumps(err_record, ensure_ascii=False).encode('utf-8')
-                        sys.stdout.buffer.write(struct.pack(">I", len(record_bytes)))
-                        sys.stdout.buffer.write(record_bytes)
-                        sys.stdout.buffer.flush()
-            finally:
-                while True:
-                    try:
-                        wpid, _ = os.waitpid(-1, os.WNOHANG)
-                        if wpid <= 0:
-                            break
-                    except ChildProcessError:
-                        break
-                    except OSError:
-                        break
-
-            batch_done_msg = b'{"status": "batch_done"}'
-            sys.stdout.buffer.write(struct.pack(">I", len(batch_done_msg)))
-            sys.stdout.buffer.write(batch_done_msg)
-            sys.stdout.buffer.flush()
-
-
+""") + _MAIN_POOL_TEMPLATE + textwrap.dedent("""\
     if __name__ == "__main__":
         if len(sys.argv) > 1 and sys.argv[1] == "--pool":
             main_pool()
