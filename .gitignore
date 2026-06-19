@@ -16,3 +16,4 @@ JanusMaskJR_agentwork/
 # pytest-testmon impact-selection DB (local, do not commit)
 .testmondata
 .testmondata-journal
+_autowork_archive/

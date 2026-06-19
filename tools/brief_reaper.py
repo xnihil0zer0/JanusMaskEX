@@ -86,6 +86,20 @@ def reap_for_task(repo_root, task_id, *, stamp, archive=True) -> list[str]:
             return False
         shutil.move(str(src), str(dst))
         return True
+
+    def _stage_deletion(root: Path, name: str) -> None:
+        """Fail-safe: stage the moved-from path's deletion in git's index.
+
+        Records a clean STAGED deletion (``git rm --cached``) so the worker's
+        existing auto-commit captures the source path's removal. MOVE-not-delete
+        is preserved: the archived copy under _autowork_archive/ is never
+        touched and ``git mv`` is never used. ANY error (not a git repo, git
+        missing, path already untracked, lock contention) is swallowed.
+        """
+        try:
+            subprocess.run(['git', '-C', str(root), 'rm', '--cached', '--quiet', '--', name], capture_output=True, check=False)
+        except Exception:
+            pass
     try:
         root = Path(repo_root)
         if not root.exists() or not root.is_dir():
@@ -114,10 +128,13 @@ def reap_for_task(repo_root, task_id, *, stamp, archive=True) -> list[str]:
         with state_reconcile_lock(state_dir):
             dest = root / '_autowork_archive' / stamp / 'reconciled'
             dest.mkdir(parents=True, exist_ok=True)
-            if brief_path.exists():
-                _move_no_clobber(brief_path, dest)
-            if plan_path.exists():
-                _move_no_clobber(plan_path, dest)
+            moved = []
+            if brief_path.exists() and _move_no_clobber(brief_path, dest):
+                moved.append(brief_path.name)
+            if plan_path.exists() and _move_no_clobber(plan_path, dest):
+                moved.append(plan_path.name)
+            for name in moved:
+                _stage_deletion(root, name)
         return [slug]
     except Exception:
         return []
