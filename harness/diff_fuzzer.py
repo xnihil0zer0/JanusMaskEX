@@ -19,12 +19,22 @@ import logging
 import math
 import re
 import textwrap
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field
 from typing import Any
-from hypothesis import given, seed as h_seed, settings, HealthCheck, Phase, Verbosity
+from hypothesis import given
+from hypothesis import seed as h_seed
+from hypothesis import settings
+from hypothesis import HealthCheck
+from hypothesis import Phase
+from hypothesis import Verbosity
 from hypothesis import strategies as st
 from concurrent.futures import ThreadPoolExecutor
-from harness.sandbox import ExecutionResult, Sandbox, SandboxConfig, sandbox_from_config, BatchRunner
+from harness.sandbox import ExecutionResult
+from harness.sandbox import Sandbox
+from harness.sandbox import SandboxConfig
+from harness.sandbox import sandbox_from_config
+from harness.sandbox import BatchRunner
 logger = logging.getLogger('janusmask.diff_fuzzer')
 
 @dataclass
@@ -52,81 +62,20 @@ class FuzzResult:
     failures: list[FuzzFailure] = field(default_factory=list)
     error: str | None = None
     skipped_reason: str | None = None
-
-# ---------------------------------------------------------------------------
-# Structured-input synthesis for the clean-room REBUILD oracle: ast.* nodes +
-# pathlib.Path. The base strategy table only synthesizes primitives/containers;
-# an ast.*/Path-typed param falls through to the garbage-int fallback, which
-# FALSE-diverges a faithful body and forces an operator pin. For a clean-room
-# rebuild we possess the original, so the merged==original fuzz is ground truth:
-# synthesizing representative ast nodes / Paths from a curated corpus flips those
-# units to oracle-USABLE so blind reconstruction is gated by ground truth with NO
-# hand-written pin. The generated values round-trip through the sandbox JSON codec
-# (ast -> source + category, re-parsed child-side; Path -> str) — see
-# harness/sandbox.py SandboxEncoder/sandbox_decoder (all 3 copies).
-_AST_STMT_CORPUS: dict[str, tuple[str, ...]] = {
-    'FunctionDef': (
-        'def f():\n    return 1',
-        'def g(a, b=2):\n    return a + b',
-        'def h(*args, **kw):\n    x = sum(args)\n    return x',
-        'def p(n):\n    import random\n    return random.random() + n',
-        'def q(path):\n    with open(path) as fh:\n        return fh.read()',
-        'def t():\n    import time\n    return time.time()',
-        'def deco(fn):\n    return fn',
-        'def recurse(n):\n    if n <= 0:\n        return 0\n    return recurse(n - 1)',
-    ),
-    'AsyncFunctionDef': (
-        'async def af():\n    return 1',
-        'async def ag(x):\n    await x\n    return x',
-    ),
-    'ClassDef': (
-        'class A:\n    pass',
-        'class B(Base):\n    x = 1\n\n    def m(self):\n        return self.x',
-        'class C:\n    def __init__(self, v):\n        self.v = v',
-        'class D:\n    def __post_init__(self):\n        self.ready = True',
-    ),
-    'Import': ('import os', 'import os, sys'),
-    'ImportFrom': ('from a.b import c', 'from . import x', 'from .mod import y, z'),
-    'Assign': ('x = 1', 'a = b = []', 'GLOBAL.append(v)'),
-}
-_AST_MODULE_CORPUS: tuple[str, ...] = (
-    'import os\nx = 1\n\ndef f():\n    return x',
-    'from a import b\n\nclass C:\n    pass',
-    'GLOBAL = []\n\ndef reg(v):\n    GLOBAL.append(v)',
-)
-_AST_EXPR_CORPUS: tuple[str, ...] = (
-    '1 + 2',
-    'foo(bar, baz=1)',
-    'a.b.c',
-    '[x for x in range(3)]',
-    "{'k': v}",
-    'lambda x: x + 1',
-    'a if b else c',
-)
-_AST_BROAD_CORPUS: tuple[str, ...] = (
-    _AST_STMT_CORPUS['FunctionDef'] + _AST_STMT_CORPUS['ClassDef'] + _AST_STMT_CORPUS['Assign']
-    + _AST_STMT_CORPUS['Import'] + _AST_STMT_CORPUS['ImportFrom']
-    + ('for i in range(3):\n    pass', 'if a:\n    b = 1', 'return x', 'raise ValueError("x")')
-)
-
-
-_PATH_CORPUS: tuple[str, ...] = (
-    'a.py', 'b/c.txt', 'x', 'dir/sub/f.json', '__init__.py',
-    'test_x.py', '.hidden', 'm.pyc', 'pkg/mod.py', 'tests/test_y.py',
-)
-
+_AST_STMT_CORPUS: dict[str, tuple[str, ...]] = {'FunctionDef': ('def f():\n    return 1', 'def g(a, b=2):\n    return a + b', 'def h(*args, **kw):\n    x = sum(args)\n    return x', 'def p(n):\n    import random\n    return random.random() + n', 'def q(path):\n    with open(path) as fh:\n        return fh.read()', 'def t():\n    import time\n    return time.time()', 'def deco(fn):\n    return fn', 'def recurse(n):\n    if n <= 0:\n        return 0\n    return recurse(n - 1)'), 'AsyncFunctionDef': ('async def af():\n    return 1', 'async def ag(x):\n    await x\n    return x'), 'ClassDef': ('class A:\n    pass', 'class B(Base):\n    x = 1\n\n    def m(self):\n        return self.x', 'class C:\n    def __init__(self, v):\n        self.v = v', 'class D:\n    def __post_init__(self):\n        self.ready = True'), 'Import': ('import os', 'import os, sys'), 'ImportFrom': ('from a.b import c', 'from . import x', 'from .mod import y, z'), 'Assign': ('x = 1', 'a = b = []', 'GLOBAL.append(v)')}
+_AST_MODULE_CORPUS: tuple[str, ...] = ('import os\nx = 1\n\ndef f():\n    return x', 'from a import b\n\nclass C:\n    pass', 'GLOBAL = []\n\ndef reg(v):\n    GLOBAL.append(v)')
+_AST_EXPR_CORPUS: tuple[str, ...] = ('1 + 2', 'foo(bar, baz=1)', 'a.b.c', '[x for x in range(3)]', "{'k': v}", 'lambda x: x + 1', 'a if b else c')
+_AST_BROAD_CORPUS: tuple[str, ...] = _AST_STMT_CORPUS['FunctionDef'] + _AST_STMT_CORPUS['ClassDef'] + _AST_STMT_CORPUS['Assign'] + _AST_STMT_CORPUS['Import'] + _AST_STMT_CORPUS['ImportFrom'] + ('for i in range(3):\n    pass', 'if a:\n    b = 1', 'return x', 'raise ValueError("x")')
+_PATH_CORPUS: tuple[str, ...] = ('a.py', 'b/c.txt', 'x', 'dir/sub/f.json', '__init__.py', 'test_x.py', '.hidden', 'm.pyc', 'pkg/mod.py', 'tests/test_y.py')
 
 def _parse_stmt(src: str) -> ast.AST:
     return ast.parse(src).body[0]
 
-
 def _parse_expr(src: str) -> ast.AST:
     return ast.parse(src, mode='eval').body
 
-
 def _parse_module(src: str) -> ast.AST:
     return ast.parse(src)
-
 
 def _ast_strategy_for(attr: str) -> st.SearchStrategy:
     """A Hypothesis strategy yielding ast nodes of the requested ``ast.<attr>`` type.
@@ -145,7 +94,6 @@ def _ast_strategy_for(attr: str) -> st.SearchStrategy:
         return st.sampled_from(_AST_EXPR_CORPUS).map(_parse_expr)
     return st.sampled_from(_AST_BROAD_CORPUS).map(_parse_stmt)
 
-
 def _path_strategy() -> st.SearchStrategy:
     """A strategy yielding diverse (non-existent) ``pathlib.Path`` values.
 
@@ -158,8 +106,8 @@ def _path_strategy() -> st.SearchStrategy:
     import pathlib
     return st.sampled_from(_PATH_CORPUS).map(lambda s: pathlib.Path('/tmp/jm_fuzz') / s)
 
-
 def _ast_node_to_strategy(node: ast.AST, *, str_ascii: bool=False) -> st.SearchStrategy:
+
     def rec(n: ast.AST) -> st.SearchStrategy:
         return _ast_node_to_strategy(n, str_ascii=str_ascii)
     if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
@@ -181,17 +129,6 @@ def _ast_node_to_strategy(node: ast.AST, *, str_ascii: bool=False) -> st.SearchS
         if name == 'float':
             return st.floats(min_value=-1000000.0, max_value=1000000.0, allow_nan=False, allow_infinity=False)
         if name == 'str':
-            # REBUILD-SCOPED restricted alphabet. Opt-in via str_ascii (threaded
-            # ONLY through the rebuild oracle + per-unit rebuild task, never the
-            # main differential pipeline). A WORD-transform lib (inflection's
-            # pluralize/titleize/tableize) is only behaviorally well-defined on its
-            # MEANINGFUL domain -- alphabetic words. On adversarial digit/punct/
-            # mixed-case/empty garbage several spec-equivalent implementations
-            # legitimately differ (titleize word-boundary capitalization of
-            # '8kk974'; pluralize empty-string handling), so a faithful blind
-            # reconstruction false-diverges there. Restricting the rebuild oracle's
-            # str fuzz to ASCII letters + space (non-empty) fuzzes the functions'
-            # real domain and closes that false-divergence frontier (W1/C9.14).
             if str_ascii:
                 return st.text(alphabet='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ ', min_size=1, max_size=100)
             return st.text(alphabet=st.characters(categories=('L', 'N', 'P', 'Z')), min_size=0, max_size=100)
@@ -312,6 +249,7 @@ def _param_strategies(func: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str,
         else:
             params[arg.arg] = _strategy_for_annotation('int')
     return params
+
 def extract_class_interface(code: str, class_name: str) -> dict[str, Any] | None:
     """Extract the constructor and public-method signatures of a class.
 
@@ -349,7 +287,6 @@ def extract_class_interface(code: str, class_name: str) -> dict[str, Any] | None
     The return shape is intentionally stable: ``build_stateful_strategy``
     depends on the ``'class_name'`` / ``'init'`` / ``'methods'`` keys.
     """
-
     tree = ast.parse(code)
     class_node: ast.ClassDef | None = None
     for node in tree.body:
@@ -368,6 +305,7 @@ def extract_class_interface(code: str, class_name: str) -> dict[str, Any] | None
         elif not item.name.startswith('_'):
             methods[item.name] = _param_strategies(item)
     return {'class_name': class_name, 'init': init, 'methods': methods}
+
 def build_stateful_strategy(interface: dict[str, Any]) -> st.SearchStrategy:
     """Turn an extracted class *interface* into a Hypothesis strategy yielding a
     symbolic, serializable stateful trace::
@@ -420,6 +358,7 @@ def build_stateful_strategy(interface: dict[str, Any]) -> st.SearchStrategy:
     else:
         calls_strategy = st.just([])
     return st.tuples(init_strategy, calls_strategy)
+
 def extract_function_signature(code: str, func_name: str) -> dict[str, str]:
     """Parse *code* and return a mapping of parameter name -> annotation string
     for the function *func_name*.  Unannotated parameters default to "int".
@@ -509,8 +448,14 @@ def build_input_strategy(code: str, func_name: str, extra_constraints: dict[str,
     """
     sig = extract_function_signature(code, func_name)
     param_strategies = {}
+    dict_synth_on = _dict_corpus_synthesis_enabled()
     for name, annotation in sig.items():
-        param_strategies[name] = _strategy_for_annotation(annotation, str_ascii=str_ascii)
+        dict_strategy = _dict_strategy_for(name, annotation) if dict_synth_on else None
+        if dict_synth_on and dict_strategy is not None:
+            logger.info('dict_corpus_synthesis shadow: param=%s annotation=%s', name, annotation)
+            param_strategies[name] = dict_strategy
+        else:
+            param_strategies[name] = _strategy_for_annotation(annotation, str_ascii=str_ascii)
     param_names = list(sig.keys())
 
     @st.composite
@@ -629,9 +574,6 @@ def _fuzz_sequential(code_a: str, code_b: str, func_name: str, config: dict[str,
         sandbox_a.cleanup()
         sandbox_b.cleanup()
     if total == 0:
-        # Fail-CLOSED (M4): zero inputs fuzzed means input generation failed or
-        # timed out (see _generate_inputs swallowing exceptions/timeouts). An
-        # empty failure list must NOT surface as equivalent=True (INV-5).
         logger.error('Fuzzing produced ZERO inputs for %r; failing closed (no agreement)', func_name)
         return FuzzResult(equivalent=False, total_inputs=0, matching_inputs=0, failures=failures, error='fuzz produced zero inputs (generation failed/timed out); failing closed')
     equivalent = len(failures) == 0
@@ -656,8 +598,6 @@ def _fuzz_batch(code_a: str, code_b: str, func_name: str, config: dict[str, Any]
         return FuzzResult(equivalent=False, error=f'Failed to build input strategy from code_a: {exc}')
     inputs = _generate_inputs(strategy, num_inputs, seed)
     if not inputs:
-        # Fail-CLOSED (M4): zero inputs generated must never surface as
-        # equivalent=True (INV-5) — mirrors the sequential path guard.
         logger.error('Batch fuzzing produced ZERO inputs for %r; failing closed (no agreement)', func_name)
         return FuzzResult(equivalent=False, total_inputs=0, matching_inputs=0, failures=[], error='fuzz produced zero inputs (generation failed/timed out); failing closed')
     batch_inputs = [{'args': list(args), 'kwargs': kwargs} for args, kwargs in inputs]
@@ -896,6 +836,7 @@ def _maybe_js_fuzz(code_a: str, code_b: str, task, config, session_id: str):
         return FuzzResult(equivalent=not failures, total_inputs=len(inputs), matching_inputs=matching, failures=failures)
     except Exception as exc:
         return FuzzResult(equivalent=False, error=f'js differential fuzz failed: {exc}')
+
 def fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[str, Any], session_id: str='default') -> FuzzResult:
     """Differential fuzz using task constraints to determine the function name."""
     _js = _maybe_js_fuzz(code_a, code_b, task, config, session_id)
@@ -936,11 +877,70 @@ def fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[
                 logger.info('fuzz_from_task skipping: %s', reason)
                 return FuzzResult(equivalent=True, skipped_reason=reason)
             return FuzzResult(equivalent=False, error=f'Failed to build input strategy from {missing_side}: Function {func_name!r} not found in code')
-    # REBUILD-SCOPED str alphabet: a per-unit rebuild task may opt the Claude==Gemini
-    # gate into the restricted str alphabet (W1). Only rebuild units set this flag in
-    # their spec; main-pipeline tasks never do, so the global pipeline is unchanged.
     if isinstance(task, dict) and task.get('fuzz_str_ascii'):
         config = {**config, 'rebuild': {**config.get('rebuild', {}), 'fuzz_str_ascii': True}}
     result = differential_fuzz(code_a, code_b, func_name, config, session_id)
     _record_population_safe(code_a, code_b, task, result)
     return result
+_DICT_CORPUS_CONFIG: tuple[dict, ...] = ({'fuzzing': {'function_level_inputs': 2000, 'float_tolerance': 1e-09, 'seed': 42}, 'batch_execution': {'enabled': True, 'worker_pool_size': 1}, 'autowork': {'dict_corpus_synthesis': False}}, {'fuzzing': {'function_level_inputs': 500, 'seed': 7}, 'rebuild': {'fuzz_str_ascii': True}}, {'sandbox': {'timeout': 5.0, 'mem_limit_mb': 256}, 'fuzzing': {'function_level_inputs': 1000}}, {'autowork': {'dict_corpus_synthesis': True, 'wire_up_gate': False}}, {'batch_execution': {'enabled': False}, 'fuzzing': {'seed': 1, 'float_tolerance': 1e-06}}, {'models': {'a': 'claude', 'b': 'gemini'}, 'fuzzing': {'function_level_inputs': 2000, 'seed': 42}})
+_DICT_CORPUS_TASK: tuple[dict, ...] = ({'task_id': 't1', 'meta_task_type': 'harness_self_fix', 'constraints': {'function_signature': 'def f(x: int) -> int'}}, {'task_id': 't2', 'priority': 'high', 'constraints': {}}, {'task_id': 't3', 'meta_task_type': 'rebuild_unit', 'fuzz_str_ascii': True}, {'task_id': 't4', 'dependencies': ['t1'], 'constraints': {'function_signature': 'def g(s: str) -> str'}}, {'task_id': 't5', 'language': 'js', 'constraints': {'js_inputs': [[1, 2]]}}, {'task_id': 't6', 'meta_task_type': 'test_authoring', 'estimated_complexity': 'medium'})
+_DICT_CORPUS_PLAN: tuple[dict, ...] = ({'plan_id': 'p1', 'steps': ['harvest', 'rebuild', 'verify'], 'status': 'pending'}, {'plan_id': 'p2', 'tasks': ['t1', 't2'], 'status': 'running'}, {'plan_id': 'p3', 'wave': 2, 'parallelism': 4}, {'plan_id': 'p4', 'steps': [], 'status': 'done'}, {'plan_id': 'p5', 'tasks': ['t3'], 'dependencies': {'t3': ['t1']}}, {'plan_id': 'p6', 'wave': 1, 'status': 'blocked', 'reason': 'dep'})
+_DICT_CORPUS_CANDIDATES: tuple[dict, ...] = ({'id': 'agent_a', 'code': 'def f():\n    return 1', 'fitness': {'equivalent': True}}, {'id': 'agent_b', 'code': 'def f():\n    return 2', 'fitness': {'equivalent': False}}, {'id': 'c1', 'code': 'def g(a, b):\n    return a + b', 'fitness': {'source': 'fuzz'}, 'parent_ids': ['agent_a']}, {'id': 'c2', 'code': 'def h(x):\n    return x * 2', 'fitness': {'equivalent': True, 'score': 0.9}}, {'id': 'c3', 'code': 'def p():\n    pass', 'fitness': {}}, {'id': 'c4', 'code': 'class A:\n    pass', 'fitness': {'source': 'seed'}, 'parent_ids': []})
+_CONFIG_CORPUS = _DICT_CORPUS_CONFIG
+_TASK_CORPUS = _DICT_CORPUS_TASK
+_PLAN_CORPUS = _DICT_CORPUS_PLAN
+_CANDIDATE_CORPUS = _DICT_CORPUS_CANDIDATES
+_CORPUS_BY_NAME: dict[str, tuple[dict, ...]] = {'config': _DICT_CORPUS_CONFIG, 'task': _DICT_CORPUS_TASK, 'plan': _DICT_CORPUS_PLAN, 'candidates': _DICT_CORPUS_CANDIDATES}
+_LIST_CORPUS_BY_NAME: dict[str, tuple[dict, ...]] = {'config': _DICT_CORPUS_CONFIG, 'task': _DICT_CORPUS_TASK, 'plan': _DICT_CORPUS_PLAN, 'candidates': _DICT_CORPUS_CANDIDATES}
+
+def _dict_corpus_synthesis_enabled() -> bool:
+    """Fail-safe reader for autowork.dict_corpus_synthesis (default false -> OFF).
+
+    Mirrors orchestrator._wire_up_gate_enabled: imports load_config INSIDE the
+    function and returns False on ANY error so a missing autowork key, a missing
+    dict_corpus_synthesis key, or an unreadable config can never turn the gate
+    ON. Default false keeps the OFF path byte-identical to HEAD.
+    """
+    try:
+        from harness.orchestrator import load_config
+        cfg = load_config()
+        return bool(cfg['autowork']['dict_corpus_synthesis'])
+    except Exception:
+        return False
+
+def _dict_strategy_for(param_name: str, annotation_src: str) -> st.SearchStrategy | None:
+    """Tier-2 domain-dict strategy for a registered param, else None.
+
+    A bare ``dict`` / ``Dict`` annotation on a registered domain name draws from
+    that name's curated corpus (``st.sampled_from``); a ``list[dict]`` /
+    ``List[dict]`` annotation (whitespace- and casing-tolerant) draws a list of
+    corpus dicts (``st.lists(st.sampled_from(...))``). An unregistered name, an
+    unexpected annotation shape, or any parse error returns None so the caller
+    falls back safely to ``_strategy_for_annotation``. Determinism comes from
+    ``st.sampled_from`` over the fixed corpus. Works with hypothesis alone; the
+    tier-3 ``from_schema`` path stays optional/import-guarded above.
+    """
+    try:
+        src = (annotation_src or '').strip()
+        if not src:
+            return None
+        node = ast.parse(src, mode='eval').body
+        if isinstance(node, ast.Name) and node.id in ('dict', 'Dict'):
+            corpus = _CORPUS_BY_NAME.get(param_name)
+            if corpus:
+                return st.sampled_from(list(corpus))
+            return None
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and (node.value.id in ('list', 'List')):
+            sl = node.slice
+            if isinstance(sl, ast.Name) and sl.id in ('dict', 'Dict'):
+                corpus = _LIST_CORPUS_BY_NAME.get(param_name)
+                if corpus:
+                    return st.lists(st.sampled_from(list(corpus)), min_size=0, max_size=10)
+                return None
+        return None
+    except Exception:
+        return None
+try:
+    from hypothesis_jsonschema import from_schema
+except Exception:
+    from_schema = None
