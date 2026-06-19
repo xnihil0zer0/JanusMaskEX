@@ -2078,6 +2078,20 @@ def _reclaim_zombie_briefs(repo_root: pathlib.Path, state_dir: pathlib.Path, run
                                 fully_landed = bool(task_ids) and all(_tid in accepted_ids for _tid in task_ids)
                                 if fully_landed:
                                     continue
+                                # HARDENING: an actively-allowlisted brief is live work; a
+                                # sha-stale plan means it was edited after planning. Do NOT
+                                # evict the brief -- archive the STALE PLAN so it re-plans.
+                                try:
+                                    _allow = _auto_promote_allowlist(state_dir) or set()
+                                except Exception:
+                                    _allow = set()
+                                if slug in _allow:
+                                    if _archive_move_collision_safe is not None:
+                                        try:
+                                            _archive_move_collision_safe(plan_path, archive_dir)
+                                        except Exception:
+                                            pass
+                                    continue
                                 if _archive_move_collision_safe is not None:
                                     try:
                                         _archive_move_collision_safe(brief, archive_dir)
