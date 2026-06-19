@@ -54,7 +54,21 @@ autowork:
   brief_max_age_seconds: 604800
   brief_max_size_bytes: 50000
   conservative_missing_files: true
+  # VERDICT_v3 rollout flags ACTIVATED 2026-06-19 (owner directive: flip all
+  # built+verified flags; each is OFF=byte-identical-to-HEAD, fail-safe reader).
+  #   dict_corpus_synthesis (Int 2 P1, d8be0b6): make dict/Dict-annotated params
+  #     fuzzable via the real-repo corpus -> expands differential-fuzz coverage.
+  #   onesided_oracle (Int 2 P2 shadow, a12c851): shadow telemetry (superseded by
+  #     the blocking tier below, kept for log parity).
+  #   onesided_oracle_blocking (Int 2 P2 blocking, 97a18a8): EXECUTE a one-sided
+  #     function out-of-process + fail-closed -> closes the equivalent=True
+  #     silent-pass for 'defined on one side only'. NOTE: fails closed on the
+  #     'unverified' path (input strategy unbuildable) -> may turn some prior-green
+  #     one-sided tasks RED; this is the reliability/throughput tradeoff.
+  dict_corpus_synthesis: true
   enabled: true
+  onesided_oracle: true
+  onesided_oracle_blocking: true
   heartbeat_sec: 1800
   parallel_cap: 5
   planner_min_wall_sec: 10.0
@@ -149,6 +163,14 @@ workers:
   # everywhere). Live-validated e2e (jailed interactive claude over PTY wrote a
   # real deliverable in ~11s). Revert to 'headless' if a regression appears.
   claude_backend: tmux
+  # VERDICT_v3 efficiency flags ACTIVATED 2026-06-19 (owner directive; both
+  # OFF=byte-identical-to-HEAD). pin_task_cwd (Int 3, 421ba38): deterministic
+  # per-task cwd/CLAUDE_CONFIG_DIR from task_id (sha1-digest8) via the work_dir
+  # seam. resume_pinned_session (Int 3, b6967b5): adds claude --continue when a
+  # pinned transcript exists (3-predicate guard; requires pin_task_cwd ON) so an
+  # AST-retry re-dispatch resumes the same session instead of cold-starting.
+  pin_task_cwd: true
+  resume_pinned_session: true
   # Project-local pool of isolated agy worker HOMEs (harness/agy_pool.py).
   # Ships OFF: when disabled, daemon-spawned agy workers share the operator's
   # ~/.gemini exactly as before. Enable to give each concurrent worker a private
