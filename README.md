@@ -231,7 +231,7 @@ A short **irreducible** set can NEVER auto-approve, regardless of any flag (`_NE
 # 2. Allowlist the slug (one per line; '#' comments and blanks ignored; DENY-ALL if empty).
 echo "my_feature" >> state/control/autowork/auto_promote.allowlist
 ```
-The daemon promotes the **oldest-mtime, allowlisted** brief younger than `brief_max_age_seconds` (7 days), and kicks off the planner for **at most one** unplanned brief per iteration (size must be `< brief_max_size_bytes` = 50000). Task extraction from already-planned briefs is unbounded per iteration.
+The daemon plans the **newest-mtime, allowlisted** unplanned brief younger than `brief_max_age_seconds` (7 days) — `compute_brief_status` returns records sorted newest-first and the plan-kickoff loop stops at the **first** eligible unplanned brief — kicking off the planner for **at most one** unplanned brief per iteration (size must be `< brief_max_size_bytes` = 50000). (Task *dispatch*, by contrast, prioritizes **oldest**-mtime tasks via `prioritize()`; don't conflate the two orderings.) Task extraction from already-planned briefs is unbounded per iteration.
 
 ### 4.4 Sequencing & epics
 
@@ -520,7 +520,7 @@ __JANUSMASK_PATCHES__ = [
 - `kind: 'symbol'` replaces exactly one EXISTING top-level `def`/`async def`/`class` (or dotted `Outer.method`). `kind: 'region'` replaces only the lines between a `# JANUSMASK_REGION:<S>` … `# JANUSMASK_ENDREGION:<S>` sentinel pair.
 - Used for an EDIT to an existing file (`partial_edit`, or a `bypass_fuzzer` type), single-file, target already on disk.
 - **Cannot create a file or a brand-new top-level symbol** — `_apply_symbol_patch` raises `KeyError` if `name` is absent. To **add** a symbol, use the **R-ANCHOR additive** pattern: one `symbol` entry whose `name` is an existing anchor and whose `code` reproduces that anchor verbatim **plus** the new symbol(s); the harness inserts the extras before the anchor.
-  - **R-ANCHOR additive constraints (each raises `ValueError` in `git_integration.py`; this is the #1 `auto_commit_failed` cause):** extras are allowed **only for a 1-part top-level anchor** (never a dotted `Outer.method`); the `code` block must contain **exactly one** `def`/`class` (or assignment) named the anchor; every **extra** node must be an `import` / `from`-import / module-level assignment — any other kind (including an extra `def`/`class`) is rejected; and an extra must **not collide** with a name already in the source. With no extras the result is byte-identical to a plain symbol replace.
+  - **R-ANCHOR additive constraints (each raises `ValueError` in `git_integration.py`; this is the #1 `auto_commit_failed` cause):** extras are allowed **only for a 1-part top-level anchor** (never a dotted `Outer.method`); the `code` block must contain **exactly one** `def`/`class` (or assignment) named the anchor; every **extra** node must be in the `allowed_extra` whitelist — an `import` / `from`-import / module-level assignment **or an additional `def`/`class`** (`git_integration.py`: `ast.Import, ImportFrom, FunctionDef, AsyncFunctionDef, ClassDef, Assign, AnnAssign`); any other top-level node kind is rejected; and an extra must **not collide** with a name already in the source. With no extras the result is byte-identical to a plain symbol replace.
 
 ### `__JANUSMASK_MANIFEST__` — whole-file / multi-file
 ```python
@@ -533,6 +533,8 @@ __JANUSMASK_MANIFEST__ = {
 - Wrap with raw triple-single-quote `r'''...'''` so backslashes/quotes survive.
 
 A `test_authoring` task submits the test file source directly as ordinary Python (neither marker). Existing-module red-pair flows are accepted when the RED `test_authoring` task is paired with a sibling implementation task whose `verification_command` uses that authored test; new-module work still needs the wired-oracle/reachability path described above.
+
+> **Every task — including a `test_authoring` oracle — must carry a non-empty `verification_command`.** `validate_plan` rejects a task missing it (`missing_field` on `tasks[N].verification_command`), so a `# Required plan shape` must give the oracle task one too — point it at the test file it authors (`python -m pytest tests/.../test_<x>.py -q`). The RED oracle is still accepted because the impl sibling's `verification_command` substring-contains that authored file and the impl is the oracle's dependency-edge sibling (fix-forward red-pair); the oracle is not required to be green at oracle time.
 
 ### Acceptance gates a submission must clear (worker lifecycle)
 claim → synthesis (configured active agents; default Claude+Gemini) → AST validation (`max_ast_retries`) → differential/stateful fuzz → bypass-fuzzer smoke/embedded/narrow gates (for `bypass_fuzzer` types) → oracle (`verification_command`, RED-before baseline / GREEN-after in staging) → mutation non-vacuity gate (for `test_authoring`) → wire-up (reachable from a live root) → auto-commit (staging worktree → RO-parent verify → ff-merge). Any non-accept rolls back the live tree **scoped strictly to `files_touched`** and routes to `blocked/`.
