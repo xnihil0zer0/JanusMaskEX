@@ -302,6 +302,44 @@ def _parse_model_tools(agent_cfg: dict) -> tuple:
             tools = [t for t in str(args[i + 1]).split(',') if t]
     return (model, tools)
 
+def _resume_pinned_session_enabled() -> bool:
+    """Fail-safe flag reader: True iff ``workers.resume_pinned_session`` is truthy.
+
+    Lazily imports ``load_config`` from :mod:`harness.config` so a missing config
+    module / unreadable file never breaks spawn, and returns ``False`` on ANY
+    exception (missing key, missing ``workers`` block, unreadable config), mirroring
+    ``harness/orchestrator.py::_pin_task_cwd_enabled``. Ships OFF by default."""
+    try:
+        from harness.config import load_config
+        cfg = load_config()
+        return bool(cfg['workers']['resume_pinned_session'])
+    except Exception:
+        return False
+
+def _pinned_session_present(config_dir, work_dir, *, exists=os.path.exists, listdir=os.listdir) -> bool:
+    """True iff a prior pinned claude session cache exists under ``config_dir``.
+
+    Builds ``projects_dir = os.path.join(str(config_dir), 'projects')``; returns
+    ``False`` (via the injected ``exists`` seam) if that dir is absent; otherwise
+    returns ``True`` iff at least one entry under ``projects_dir`` contains at least
+    one ``*.jsonl`` file. Pure modulo the two injected I/O seams (``exists``,
+    ``listdir``); swallows ``OSError`` -> ``False``; never raises."""
+    try:
+        projects_dir = os.path.join(str(config_dir), 'projects')
+        if not exists(projects_dir):
+            return False
+        for entry in listdir(projects_dir):
+            entry_path = os.path.join(projects_dir, entry)
+            try:
+                names = listdir(entry_path)
+            except OSError:
+                continue
+            for name in names:
+                if str(name).endswith('.jsonl'):
+                    return True
+        return False
+    except OSError:
+        return False
 def spawn_claude_tmux(agent: str, resolved_prompt: str, env: dict, config: dict, *, dbus_sock: Optional[str]=None, run_worker: Optional[Callable[..., Any]]=None) -> _ExitedProc:
     """Real-wiring entrypoint: launch a bwrap-jailed interactive claude over a PTY.
 
@@ -335,6 +373,10 @@ def spawn_claude_tmux(agent: str, resolved_prompt: str, env: dict, config: dict,
     config_dir = os.path.join(work_dir, '.tmuxcfg')
     tmux_seams.seed_config_dir(config_dir, home=os.environ['HOME'], copy=shutil.copy2, exists=os.path.exists, makedirs=lambda d: os.makedirs(d, exist_ok=True))  # home-free: allow
     interactive = tmux_seams.build_interactive_argv(claude_bin, config_dir, model=model, tools=tools)
+    if _resume_pinned_session_enabled():
+        from harness.orchestrator import _pin_task_cwd_enabled
+        if _pin_task_cwd_enabled() and _pinned_session_present(config_dir, work_dir):
+            interactive = list(interactive) + ['--continue']
     from harness.paths import _target_is_self, effective_target_root, PROJECT_ROOT as PROJECT_DIR
     working_dir = os.environ.get('JANUSMASK_WORKING_DIR')
     repo_root = str(PROJECT_DIR) if _target_is_self(working_dir) else str(effective_target_root(working_dir))
