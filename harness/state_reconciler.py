@@ -247,14 +247,22 @@ class WorkspaceStatus:
     workspace-level :attr:`ready` (True iff every enumerated product is ready).
     Iterable and sized for convenience; the per-product entries are
     :class:`_CleanupProduct` instances.
-    """
-    __slots__ = ('root', 'mode', 'products', 'ready')
 
-    def __init__(self, root, mode, products):
+    Also carries an advisory, detect-only :attr:`clutter_candidates` list of
+    ``{'path', 'reason'}`` dicts (sorted by path, forward-slash relative paths).
+    Clutter is NEVER moved/archived/deleted; it only folds into :attr:`ready`
+    (a workspace with outstanding clutter is not ready). The new constructor
+    parameter is optional/keyword-defaulted so existing positional callers --
+    e.g. ``WorkspaceStatus(root, mode, [])`` -- keep working unchanged.
+    """
+    __slots__ = ('root', 'mode', 'products', 'clutter_candidates', 'ready')
+
+    def __init__(self, root, mode, products, clutter_candidates=None):
         self.root = str(root)
         self.mode = mode
         self.products = list(products)
-        self.ready = all((p.ready for p in self.products)) if self.products else True
+        self.clutter_candidates = list(clutter_candidates) if clutter_candidates else []
+        self.ready = (all((p.ready for p in self.products)) if self.products else True) and (not self.clutter_candidates)
 
     def __iter__(self):
         return iter(self.products)
@@ -356,6 +364,14 @@ def cleanup_state(root, *, mode='report') -> 'WorkspaceStatus':
     * Per-product error containment: a non-ENOENT failure on one product is
       captured as THAT product's blocker (``ready == False``) and the sweep
       continues -- it never aborts the whole reconciliation.
+
+    CLUTTER (advisory, detect-only): an additional PURE-READ scan surfaces
+    deterministic ``clutter_candidates`` on the returned :class:`WorkspaceStatus`.
+    Clutter is NEVER moved, archived, or deleted in either mode -- the scan runs
+    identically under report and apply and only folds into ``ready``. Each
+    candidate is a ``{'path', 'reason'}`` dict with a forward-slash root-relative
+    path; the list is sorted by path. Every directory read / stat / json parse is
+    best-effort (errors skip the entry) so the scan never raises.
     """
     if mode not in ('report', 'apply'):
         raise ValueError("mode must be 'report' or 'apply', got %r" % (mode,))
@@ -407,7 +423,113 @@ def cleanup_state(root, *, mode='report') -> 'WorkspaceStatus':
             _reconcile_stale_ledger_heads(root_path)
         except Exception:
             pass
-    return WorkspaceStatus(root=str(root_path), mode=mode, products=outcomes)
+
+    CLUTTER_AGE_SECONDS = 604800
+    KEEP_DOCS = frozenset((
+        'README.md',
+        'PLAN_autonomous_resume.md',
+        'factory-work-handoff.md',
+        'AUTONOMY_GAPS.md',
+        'DESIGN_self_healing_remediation_agent.md',
+        'INTERVENTION_PLAN_v2.md',
+        'INTERVENTION_ANALYSIS_02_git_selfheal.md',
+        'INTERVENTION_ANALYSIS_03_archive_forensics.md',
+        'PROVENANCE_REVIEW_01_internal_jm.md',
+        'PROVENANCE_REVIEW_02_external_ngv2.md',
+        'PROVENANCE_REVIEW_04_roi_priority.md',
+    ))
+
+    def _scan_clutter():
+        candidates = []
+
+        def _rel(p):
+            try:
+                rel = os.path.relpath(str(p), str(root_path))
+            except (OSError, ValueError, Exception):
+                rel = str(p)
+            return rel.replace(os.sep, '/')
+
+        def _mtime(p):
+            try:
+                return os.lstat(str(p)).st_mtime
+            except (OSError, ValueError, Exception):
+                return None
+
+        # root_doc_unkept: top-level (non-recursive) <root>/*.md, basename not in
+        # KEEP_DOCS, aged beyond CLUTTER_AGE_SECONDS.
+        try:
+            for entry in root_path.glob('*.md'):
+                try:
+                    if not entry.is_file():
+                        continue
+                    if entry.name in KEEP_DOCS:
+                        continue
+                    mtime = _mtime(entry)
+                    if mtime is None:
+                        continue
+                    if now - mtime > CLUTTER_AGE_SECONDS:
+                        candidates.append({'path': _rel(entry), 'reason': 'root_doc_unkept'})
+                except (OSError, ValueError, Exception):
+                    continue
+        except (OSError, ValueError, Exception):
+            pass
+
+        # planning_dump_idle: gated entirely on <root>/state/planning/merged_plan.json
+        # existing and parsing to a dict whose 'tasks' == [].
+        try:
+            planning_dir = root_path / 'state' / 'planning'
+            merged_plan = planning_dir / 'merged_plan.json'
+            idle = False
+            try:
+                import json as _json
+                data = _json.loads(merged_plan.read_text(encoding='utf-8'))
+                if isinstance(data, dict) and data.get('tasks') == []:
+                    idle = True
+            except (OSError, ValueError, Exception):
+                idle = False
+            if idle:
+                _SKIP = frozenset(('merged_plan.json', 'amendment_report.json'))
+                try:
+                    for entry in planning_dir.glob('*.json'):
+                        try:
+                            name = entry.name
+                            if name in _SKIP:
+                                continue
+                            if not (name.startswith('plan_') or name.startswith('wire_up') or name.startswith('critique')):
+                                continue
+                            candidates.append({'path': _rel(entry), 'reason': 'planning_dump_idle'})
+                        except (OSError, ValueError, Exception):
+                            continue
+                except (OSError, ValueError, Exception):
+                    pass
+        except (OSError, ValueError, Exception):
+            pass
+
+        # scratch_aged: direct children of <root>/_autowork_scratch/ aged beyond
+        # CLUTTER_AGE_SECONDS.
+        try:
+            scratch_dir = root_path / '_autowork_scratch'
+            for entry in scratch_dir.iterdir():
+                try:
+                    mtime = _mtime(entry)
+                    if mtime is None:
+                        continue
+                    if now - mtime > CLUTTER_AGE_SECONDS:
+                        candidates.append({'path': _rel(entry), 'reason': 'scratch_aged'})
+                except (OSError, ValueError, Exception):
+                    continue
+        except (OSError, ValueError, Exception):
+            pass
+
+        candidates.sort(key=lambda c: c['path'])
+        return candidates
+
+    try:
+        clutter_candidates = _scan_clutter()
+    except Exception:
+        clutter_candidates = []
+
+    return WorkspaceStatus(root=str(root_path), mode=mode, products=outcomes, clutter_candidates=clutter_candidates)
 
 def classify_product(root, product_path, *, now=None) -> 'ProductStatus':
     """Single shared status resolver consumed by both report and apply.
