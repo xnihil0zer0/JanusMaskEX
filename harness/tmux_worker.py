@@ -310,7 +310,7 @@ def _resume_pinned_session_enabled() -> bool:
     exception (missing key, missing ``workers`` block, unreadable config), mirroring
     ``harness/orchestrator.py::_pin_task_cwd_enabled``. Ships OFF by default."""
     try:
-        from harness.config import load_config
+        from harness.orchestrator import load_config
         cfg = load_config()
         return bool(cfg['workers']['resume_pinned_session'])
     except Exception:
