@@ -969,6 +969,41 @@ def _golden_oracle(fn: Any, golden: dict) -> str:
             return 'rejected'
     return 'verified'
 
+def _one_sided_execute_verdict(side_code: str, func_name: str, config: dict[str, Any], session_id: str, *, count: int, seed: int) -> str:
+    """Execute the lone candidate OUT-OF-PROCESS against a conservative
+    determinism metamorphic relation and return a verdict.
+
+    Builds the input strategy and seeded inputs exactly as the differential path
+    does, then for every drawn ``(args, kwargs)`` runs the candidate TWICE via
+    the existing sandbox executor (``sandbox.execute``) and compares the two
+    outcomes with ``outputs_match``. Any disagreement (non-determinism, a crash
+    that differs, a timeout that differs) yields ``'rejected'`` immediately. A
+    failure to build the strategy or an empty input set is fail-closed to
+    ``'unverified'`` (never a silent pass); an all-deterministic run is
+    ``'verified'``. The sandbox is always cleaned up in a ``finally``. No code is
+    ever materialised/executed in-process -- execution is exclusively via the
+    out-of-process sandbox.
+    """
+    fuzz_cfg = config.get('fuzzing', {}) if isinstance(config, dict) else {}
+    float_tol = fuzz_cfg.get('float_tolerance', 1e-09)
+    try:
+        strategy = build_input_strategy(side_code, func_name)
+    except (ValueError, SyntaxError):
+        return 'unverified'
+    inputs = _generate_inputs(strategy, count, seed)
+    if not inputs:
+        return 'unverified'
+    sandbox = sandbox_from_config(config, session_id=f'{session_id}_oracle')
+    try:
+        for args, kwargs in inputs:
+            result_1 = sandbox.execute(side_code, func_name, args=args, kwargs=kwargs)
+            result_2 = sandbox.execute(side_code, func_name, args=args, kwargs=kwargs)
+            match, _reason = outputs_match(result_1, result_2, float_tol)
+            if not match:
+                return 'rejected'
+    finally:
+        sandbox.cleanup()
+    return 'verified'
 def _one_sided_fuzz(fn: Any, strategy: st.SearchStrategy, *, relations: tuple=(), golden: dict | None=None, count: int, seed: int) -> dict:
     """Run the one-sided degrade ladder (golden -> metamorphic -> determinism).
 
@@ -990,6 +1025,21 @@ def _one_sided_fuzz(fn: Any, strategy: st.SearchStrategy, *, relations: tuple=()
         verdict = _metamorphic_oracle(fn, strategy, relations=(), count=count, seed=seed)
     return {'verdict': verdict, 'tier': tier, 'equivalent': verdict == 'verified'}
 
+def _onesided_oracle_blocking_enabled() -> bool:
+    """Fail-safe reader for autowork.onesided_oracle_blocking (default false -> OFF).
+
+    Structurally mirrors _onesided_oracle_enabled / _dict_corpus_synthesis_enabled:
+    imports load_config INSIDE the function and returns False on ANY error so a
+    missing autowork key, a missing onesided_oracle_blocking key, or an unreadable
+    config can never turn the BLOCKING gate ON. Default false keeps the one-side
+    branch byte-identical to HEAD.
+    """
+    try:
+        from harness.orchestrator import load_config
+        cfg = load_config()
+        return bool(cfg['autowork']['onesided_oracle_blocking'])
+    except Exception:
+        return False
 def _onesided_oracle_enabled() -> bool:
     """Fail-safe reader for autowork.onesided_oracle (default false -> OFF).
 
@@ -1042,6 +1092,21 @@ def fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[
             missing_side = 'code_a' if not a_has else 'code_b'
             if meta_type in FUZZ_BYPASS_META_TYPES:
                 reason = f'Target function {func_name!r} defined on one side only (missing in {missing_side}); meta_task_type={meta_type!r} is in the fuzzer-bypass set; skipping fuzz by policy'
+                if _onesided_oracle_blocking_enabled():
+                    side_code = code_a if missing_side == 'code_b' else code_b
+                    fuzz_cfg = config.get('fuzzing', {}) if isinstance(config, dict) else {}
+                    count = fuzz_cfg.get('function_level_inputs', 2000)
+                    seed = fuzz_cfg.get('seed', 42)
+                    float_tol = fuzz_cfg.get('float_tolerance', 1e-09)
+                    verdict = _one_sided_execute_verdict(side_code, func_name, config, session_id, count=count, seed=seed)
+                    if verdict == 'rejected':
+                        logger.info('fuzz_from_task one-sided oracle BLOCKED: missing_side=%s func_name=%s verdict=rejected', missing_side, func_name)
+                        return FuzzResult(equivalent=False, error=f'one-sided oracle BLOCKED: {func_name!r} failed the out-of-process determinism relation (missing_side={missing_side})')
+                    if verdict == 'verified':
+                        verified_reason = f'Target function {func_name!r} defined on one side only (missing in {missing_side}); one-sided oracle BLOCKING executed the candidate out-of-process and it passed the conservative determinism relation (missing_side={missing_side})'
+                        logger.info('fuzz_from_task one-sided oracle verified: %s', verified_reason)
+                        return FuzzResult(equivalent=True, skipped_reason=verified_reason)
+                    return FuzzResult(equivalent=False, error=f'one-sided oracle BLOCKING could not verify {func_name!r} out-of-process (verdict=unverified, missing_side={missing_side}); failing closed')
                 if _onesided_oracle_enabled():
                     side_code = code_a if missing_side == 'code_b' else code_b
                     try:
