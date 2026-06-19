@@ -837,6 +837,174 @@ def _maybe_js_fuzz(code_a: str, code_b: str, task, config, session_id: str):
     except Exception as exc:
         return FuzzResult(equivalent=False, error=f'js differential fuzz failed: {exc}')
 
+def _deep_equal(a: Any, b: Any, tol: float=1e-09) -> bool:
+    """Structural equality with float tolerance, returning a plain bool.
+
+    Delegates to the existing ``_deep_compare`` so the one-sided oracle reuses
+    the SAME comparison semantics the differential path already trusts (float
+    closeness, ordered sequences, dict key/value match, exception tuples). Any
+    unexpected comparison failure falls back to a repr comparison rather than
+    raising, keeping the conservative relations total.
+    """
+    try:
+        match, _reason = _deep_compare(a, b, tol)
+        return bool(match)
+    except Exception:
+        return repr(a) == repr(b)
+
+def _call(fn: Any, *args: Any, **kwargs: Any) -> tuple[str, Any]:
+    """Invoke a REAL in-process callable and normalise the outcome.
+
+    Returns ``('ok', value)`` on success or ``('error', (type_name, msg))`` when
+    the call raises, so deterministic exceptions compare equal across repeated
+    invocations. ``fn`` is always a live callable handed to the oracle directly
+    (never a source string compiled in-process).
+    """
+    try:
+        return ('ok', fn(*args, **kwargs))
+    except Exception as exc:
+        return ('error', (type(exc).__name__, str(exc)))
+
+def _mr_determinism(fn: Any, value: Any) -> bool:
+    """Conservative determinism relation: same input -> identical outcome twice."""
+    first = _call(fn, value)
+    second = _call(fn, value)
+    return _deep_equal(first, second)
+
+def _mr_idempotent(fn: Any, value: Any) -> bool:
+    """Conservative idempotence relation: ``fn(fn(x)) == fn(x)``."""
+    once = _call(fn, value)
+    if once[0] != 'ok':
+        return False
+    twice = _call(fn, once[1])
+    if twice[0] != 'ok':
+        return False
+    return _deep_equal(twice[1], once[1])
+
+def _mr_order_invariant(fn: Any, value: Any) -> bool:
+    """Conservative order-invariance relation: ``fn(xs) == fn(reversed(xs))``.
+
+    For a value that is not a reorderable sequence the relation holds vacuously
+    (a faithful body is never falsely diverged by an inapplicable relation).
+    """
+    try:
+        reordered = list(reversed(value))
+    except TypeError:
+        return True
+    return _deep_equal(_call(fn, value), _call(fn, reordered))
+
+def _mr_roundtrip(fn: Any, value: Any) -> bool:
+    """Conservative round-trip relation: applying ``fn`` twice recovers ``value``."""
+    once = _call(fn, value)
+    if once[0] != 'ok':
+        return False
+    twice = _call(fn, once[1])
+    if twice[0] != 'ok':
+        return False
+    return _deep_equal(twice[1], value)
+
+_RELATION_LIBRARY: dict[str, Any] = {'determinism': _mr_determinism, 'idempotent': _mr_idempotent, 'order_invariant': _mr_order_invariant, 'roundtrip': _mr_roundtrip}
+
+def _metamorphic_oracle(fn: Any, strategy: st.SearchStrategy, relations: tuple=(), *, count: int, seed: int) -> str:
+    """Draw ``count`` seeded values and check conservative metamorphic relations.
+
+    ALWAYS prepends a determinism relation (calls ``fn`` twice on the same value
+    and compares) ahead of the supplied ``relations`` (each a callable
+    ``relation(fn, value) -> bool``). Returns ``'verified'`` when every relation
+    holds on every drawn value, ``'rejected'`` when any relation fails or errors,
+    and ``'unverified'`` (fail-closed) when NOTHING could be drawn -- never a
+    silent pass. The seed-pinned generator contract is reused verbatim via
+    ``_generate_inputs`` (@h_seed(seed) + Phase.generate + dedup ``seen`` set).
+    """
+    inputs = _generate_inputs(strategy, count, seed) if count > 0 else []
+    if not inputs:
+        return 'unverified'
+    checks = (_mr_determinism,) + tuple(relations)
+    for value in inputs:
+        for relation in checks:
+            try:
+                ok = relation(fn, value)
+            except Exception:
+                ok = False
+            if not ok:
+                return 'rejected'
+    return 'verified'
+
+def _capture_golden(fn: Any, strategy: st.SearchStrategy, *, count: int, seed: int) -> dict:
+    """Record a deterministic ``{input: output}`` golden from a reference impl.
+
+    Uses the same seed-pinned generator (``_generate_inputs``) so the same seed
+    yields the same inputs and therefore the same golden mapping; a different
+    seed yields a different input set. Only successful, hashable inputs are
+    recorded; anything that raises or is unhashable is skipped so capture stays
+    total.
+    """
+    inputs = _generate_inputs(strategy, count, seed) if count > 0 else []
+    golden: dict = {}
+    for value in inputs:
+        status, payload = _call(fn, value)
+        if status != 'ok':
+            continue
+        try:
+            golden[value] = payload
+        except TypeError:
+            continue
+    return golden
+
+def _golden_oracle(fn: Any, golden: dict) -> str:
+    """Replay a captured ``{input: output}`` golden through ``fn``.
+
+    Returns ``'verified'`` when every recorded output is reproduced,
+    ``'rejected'`` on the first drift (or error), and ``'unverified'``
+    (fail-closed) for an empty golden -- nothing could be compared, never a
+    silent pass.
+    """
+    if not golden:
+        return 'unverified'
+    for inp, expected in golden.items():
+        status, payload = _call(fn, inp)
+        if status != 'ok':
+            return 'rejected'
+        if not _deep_equal(payload, expected):
+            return 'rejected'
+    return 'verified'
+
+def _one_sided_fuzz(fn: Any, strategy: st.SearchStrategy, *, relations: tuple=(), golden: dict | None=None, count: int, seed: int) -> dict:
+    """Run the one-sided degrade ladder (golden -> metamorphic -> determinism).
+
+    Picks the highest-confidence tier that applies: a captured ``golden`` is
+    replayed first; otherwise declared conservative ``relations`` drive the
+    metamorphic tier; otherwise the determinism-only tier runs. The result dict
+    carries ``verdict`` ('verified' / 'rejected' / 'unverified') and ``tier``;
+    ``equivalent`` is True IFF the verdict is 'verified' (fail-closed otherwise),
+    so an empty golden or a zero-input strategy maps to ``equivalent`` False.
+    """
+    if golden is not None:
+        tier = 'golden'
+        verdict = _golden_oracle(fn, golden)
+    elif relations:
+        tier = 'metamorphic'
+        verdict = _metamorphic_oracle(fn, strategy, relations=relations, count=count, seed=seed)
+    else:
+        tier = 'determinism_only'
+        verdict = _metamorphic_oracle(fn, strategy, relations=(), count=count, seed=seed)
+    return {'verdict': verdict, 'tier': tier, 'equivalent': verdict == 'verified'}
+
+def _onesided_oracle_enabled() -> bool:
+    """Fail-safe reader for autowork.onesided_oracle (default false -> OFF).
+
+    Mirrors orchestrator._wire_up_gate_enabled and the in-file
+    _dict_corpus_synthesis_enabled: imports load_config INSIDE the function and
+    returns False on ANY error so a missing autowork key, a missing
+    onesided_oracle key, or an unreadable config can never turn the gate ON.
+    Default false keeps the one-side branch byte-identical to HEAD.
+    """
+    try:
+        from harness.orchestrator import load_config
+        cfg = load_config()
+        return bool(cfg['autowork']['onesided_oracle'])
+    except Exception:
+        return False
 def fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[str, Any], session_id: str='default') -> FuzzResult:
     """Differential fuzz using task constraints to determine the function name."""
     _js = _maybe_js_fuzz(code_a, code_b, task, config, session_id)
@@ -874,6 +1042,22 @@ def fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[
             missing_side = 'code_a' if not a_has else 'code_b'
             if meta_type in FUZZ_BYPASS_META_TYPES:
                 reason = f'Target function {func_name!r} defined on one side only (missing in {missing_side}); meta_task_type={meta_type!r} is in the fuzzer-bypass set; skipping fuzz by policy'
+                if _onesided_oracle_enabled():
+                    side_code = code_a if missing_side == 'code_b' else code_b
+                    try:
+                        build_input_strategy(side_code, func_name)
+                        strategy_buildable = True
+                    except Exception:
+                        strategy_buildable = False
+                    golden_artifact = None
+                    declared_relations: tuple = ()
+                    if golden_artifact is not None:
+                        tier = 'golden'
+                    elif declared_relations:
+                        tier = 'metamorphic'
+                    else:
+                        tier = 'determinism_only'
+                    logger.info('onesided_oracle shadow: one_sided=True missing_side=%s func_name=%s tier=%s verdict=unverified strategy_buildable=%s', missing_side, func_name, tier, strategy_buildable)
                 logger.info('fuzz_from_task skipping: %s', reason)
                 return FuzzResult(equivalent=True, skipped_reason=reason)
             return FuzzResult(equivalent=False, error=f'Failed to build input strategy from {missing_side}: Function {func_name!r} not found in code')
