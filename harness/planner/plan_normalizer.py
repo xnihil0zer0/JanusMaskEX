@@ -1094,6 +1094,24 @@ def _strip_stray_mutation_targets(tasks: List[Dict[str, Any]]) -> None:
     for t in tasks:
         if isinstance(t, dict) and (not _is_test_authoring(t)) and ('mutation_target' in t):
             del t['mutation_target']
+_PRIORITY_NORMALIZATION_MAP = {1: 'critical', 2: 'high', 3: 'medium', 'P0': 'critical', 'P1': 'high', 'P2': 'medium', 'P3': 'low', 'Critical': 'critical', 'High': 'high', 'Medium': 'medium', 'Low': 'low', 'critical': 'critical', 'high': 'high', 'medium': 'medium', 'low': 'low'}
+
+def _normalize_task_priorities(tasks):
+    """Coerce each task's priority to the canonical lowercase vocabulary.
+
+    For every dict task carrying a ``priority`` key, the value is looked up in
+    :data:`_PRIORITY_NORMALIZATION_MAP`; when a mapping exists and differs from
+    the current value it is assigned in place.  An unmappable value (not in the
+    map), a task with no ``priority`` key, and a non-dict entry are all left
+    untouched, so :mod:`plan_validator` remains the fail-closed backstop for
+    genuinely bad values.
+    """
+    for t in tasks:
+        if not isinstance(t, dict) or 'priority' not in t:
+            continue
+        canonical = _PRIORITY_NORMALIZATION_MAP.get(t['priority'])
+        if canonical is not None and t['priority'] != canonical:
+            t['priority'] = canonical
 def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[str, Any]:
     """Auto-correct a leaf plan: dedupe oracles + enforce module-first order.
 
@@ -1128,4 +1146,6 @@ def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[
     normalized = _inject_oracle_sources(normalized, repo_root)
     if isinstance(normalized.get('tasks'), list):
         _strip_stray_mutation_targets(normalized['tasks'])
+    if isinstance(normalized.get('tasks'), list):
+        _normalize_task_priorities(normalized['tasks'])
     return normalized
