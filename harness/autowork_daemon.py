@@ -1938,9 +1938,8 @@ def _reclaim_zombie_briefs(repo_root: pathlib.Path, state_dir: pathlib.Path, run
     _state_reconcile_on = False
     try:
         _cfg_path = state_dir.parent / 'harness' / 'config.yaml'
-        if not _cfg_path.is_file():
-            _cfg_path = pathlib.Path('harness/config.yaml')
-        _state_reconcile_on = bool(_autowork_section(_load_config(_cfg_path)).get('state_reconcile', False))
+        if _cfg_path.is_file():
+            _state_reconcile_on = bool(_autowork_section(_load_config(_cfg_path)).get('state_reconcile', False))
     except Exception:
         _state_reconcile_on = False
     # Runtime operator override: a state/control/autowork/state_reconcile.disabled
