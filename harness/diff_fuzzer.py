@@ -1040,6 +1040,88 @@ def _onesided_oracle_blocking_enabled() -> bool:
         return bool(cfg['autowork']['onesided_oracle_blocking'])
     except Exception:
         return False
+def _onesided_metamorphic_enabled() -> bool:
+    """Fail-safe reader for autowork.onesided_metamorphic (default false -> OFF).
+
+    Structurally mirrors _onesided_oracle_blocking_enabled / _onesided_oracle_enabled:
+    imports load_config INSIDE the function and returns False on ANY error so a
+    missing autowork key, a missing onesided_metamorphic key, or an unreadable
+    config can never turn the metamorphic gate ON. Default false keeps the one-side
+    branch byte-identical to the determinism-only behaviour.
+    """
+    try:
+        from harness.orchestrator import load_config
+        cfg = load_config()
+        return bool(cfg['autowork']['onesided_metamorphic'])
+    except Exception:
+        return False
+
+def _one_sided_metamorphic_verdict(side_code: str, func_name: str, config: dict[str, Any], session_id: str, *, count: int, seed: int) -> str:
+    """Execute the lone candidate OUT-OF-PROCESS against conservative INTRINSIC
+    metamorphic relations (idempotence and order/permutation invariance) and
+    return a verdict.
+
+    Reuses the differential path's seed-pinned input generation
+    (``build_input_strategy`` + ``_generate_inputs``) and the shared
+    ``outputs_match`` comparator. For every drawn ``(args, kwargs)`` the candidate
+    is first run once via the existing sandbox executor (``sandbox.execute``) to
+    obtain a base outcome; the relations are then probed by issuing ADDITIONAL
+    transformed-input executions out-of-process and comparing with
+    ``outputs_match``.
+
+    Each relation is self-guarded so a faithful body is never falsely diverged:
+      * the base run must be SUCCESSFUL and NOT timed out before any relation is
+        probed (a crash/timeout makes the intrinsic relations inapplicable);
+      * order/permutation invariance ``f(xs) == f(reversed(xs))`` only reverses the
+        FIRST positional argument when it is a list (a reorderable sequence);
+      * idempotence ``f(f(x)) == f(x)`` only feeds the base return value back when
+        it is SERIALIZABLE/feedable across the subprocess boundary.
+
+    The FIRST applicable relation failure short-circuits to ``'rejected'``. A
+    strategy-build failure or empty input set is fail-closed to ``'unverified'``
+    (never a silent pass); an all-relations-hold (or all-inapplicable) run is
+    ``'verified'``. The sandbox is always cleaned up in a ``finally``. No code is
+    materialised/executed in-process -- execution is exclusively via the
+    out-of-process sandbox.
+    """
+    fuzz_cfg = config.get('fuzzing', {}) if isinstance(config, dict) else {}
+    float_tol = fuzz_cfg.get('float_tolerance', 1e-09)
+    try:
+        strategy = build_input_strategy(side_code, func_name)
+    except (ValueError, SyntaxError):
+        return 'unverified'
+    inputs = _generate_inputs(strategy, count, seed)
+    if not inputs:
+        return 'unverified'
+
+    def _is_feedable(value: Any) -> bool:
+        try:
+            import json
+            json.dumps(value)
+            return True
+        except Exception:
+            return False
+    sandbox = sandbox_from_config(config, session_id=f'{session_id}_metamorphic')
+    try:
+        for args, kwargs in inputs:
+            base = sandbox.execute(side_code, func_name, args=args, kwargs=kwargs)
+            if base.timed_out or not base.success:
+                continue
+            if args and isinstance(args[0], list):
+                reordered = [list(reversed(args[0]))] + list(args[1:])
+                rev_result = sandbox.execute(side_code, func_name, args=reordered, kwargs=kwargs)
+                match, _reason = outputs_match(base, rev_result, float_tol)
+                if not match:
+                    return 'rejected'
+            value = base.return_value
+            if _is_feedable(value):
+                fed_result = sandbox.execute(side_code, func_name, args=[value], kwargs={})
+                match, _reason = outputs_match(base, fed_result, float_tol)
+                if not match:
+                    return 'rejected'
+    finally:
+        sandbox.cleanup()
+    return 'verified'
 def _onesided_oracle_enabled() -> bool:
     """Fail-safe reader for autowork.onesided_oracle (default false -> OFF).
 
@@ -1103,6 +1185,11 @@ def fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[
                         logger.info('fuzz_from_task one-sided oracle BLOCKED: missing_side=%s func_name=%s verdict=rejected', missing_side, func_name)
                         return FuzzResult(equivalent=False, error=f'one-sided oracle BLOCKED: {func_name!r} failed the out-of-process determinism relation (missing_side={missing_side})')
                     if verdict == 'verified':
+                        if _onesided_metamorphic_enabled():
+                            meta_verdict = _one_sided_metamorphic_verdict(side_code, func_name, config, session_id, count=count, seed=seed)
+                            if meta_verdict == 'rejected':
+                                logger.info('fuzz_from_task one-sided metamorphic oracle BLOCKED: missing_side=%s func_name=%s verdict=rejected', missing_side, func_name)
+                                return FuzzResult(equivalent=False, error=f'one-sided metamorphic oracle BLOCKED: {func_name!r} failed an intrinsic metamorphic relation (missing_side={missing_side})')
                         verified_reason = f'Target function {func_name!r} defined on one side only (missing in {missing_side}); one-sided oracle BLOCKING executed the candidate out-of-process and it passed the conservative determinism relation (missing_side={missing_side})'
                         logger.info('fuzz_from_task one-sided oracle verified: %s', verified_reason)
                         return FuzzResult(equivalent=True, skipped_reason=verified_reason)
