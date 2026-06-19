@@ -283,7 +283,8 @@ Emit EXACTLY ONE task.
 ```
 
 Notes:
-- The **`integration` excuse**: the plan validator requires an integration test for a `.py`-editing task **unless** the literal word `integration` appears in the task's `non_goals`. Put it in the brief's `# Non-Goals` and restate it in `# Required plan shape`.
+- The **`integration` excuse**: the plan validator requires an integration test for **any non-`test_*` task carrying a `spec`/`test_spec`** (a new-module or `harness_self_fix` task triggers it too, not only an EDIT) **unless** the literal word `integration` appears in the task's `non_goals`. Put it in the brief's `# Non-Goals` and restate it in `# Required plan shape`.
+- **No `cd `-rerooted `verification_command`.** `validate_plan` hard-rejects a vcmd that starts with or embeds `cd ` (`cd_prefixed_verification_command`) — it would override the worker's staging-worktree cwd. Keep the vcmd a bare `python -m pytest …` (the worker already runs it from the repo root).
 - A **new module/file** cannot use `__JANUSMASK_PATCHES__` (patches only *replace* existing symbols). Emit it **whole-file** via `__JANUSMASK_MANIFEST__`, keep the task to **one file**, and ensure a `*_wired` oracle (named in `verification_command`) or a paired `test_authoring` sibling exists so the wire-up gate passes (see [§10](#10-submission-formats-what-the-agent-emits)).
 - If your patch emits `"""` docstrings via the blind partial-edit, add a `# NESTED-QUOTE HAZARD` note instructing the agent to emit `"""` (not `'''`) and never backslash-escape quotes.
 - **A `verification_command` must select ≥1 REAL test and be non-vacuous.** It runs RED-before / GREEN-after; a vcmd
@@ -303,7 +304,7 @@ How it routes and self-protects:
    `state/control/autowork/external_roots.allow` (one absolute prefix per line; `#`-comments ignored; **missing/empty ⇒ external bootstrap denied**). Currently approved: `/home/xnihil0zer0/NobleGreedv2`.
 2. **Bootstrap before staging** (`harness/target_bootstrap.py::bootstrap_target`, idempotent, best-effort):
    - A brand-new external dir is `git init`-ed and gets a JanusMask ownership marker `.janusmask/bootstrap.json` plus a JM-owned `janusmask/work` branch (your checked-out branch is untouched).
-   - **`BootstrapRefused` when:** the path is not under an approved root; **the tree is dirty** (uncommitted changes — JM never auto-stashes a user repo); or it is a git repo with **no JM ownership marker** (treated as foreign). Current auto-promote logs this as a `silent_skip`/bootstrap failure and may still stage extracted tasks; the later accept path independently refuses dirty external trees, missing external `.venv`, and disabled jail, but does **not** re-check `external_roots.allow`.
+   - **`BootstrapRefused` when:** the path is not under an approved root; **the tree is dirty** (uncommitted changes — JM never auto-stashes a user repo); or it is a git repo with **no JM ownership marker** (treated as foreign). The dirty and foreign-marker refusals apply only when a `.git` already exists — a brand-new (non-git) approved dir is `git init`-ed and provisioned with no dirty check. Current auto-promote logs a refusal as a `silent_skip`/bootstrap failure and may still stage extracted tasks; the later accept path independently refuses dirty external trees, missing external `.venv`, and disabled jail, but does **not** re-check `external_roots.allow`.
 3. **Worker staging** (`orchestrator._auto_commit_accepted`): JM edits the foreign repo only through a **throwaway staging worktree** under `<agent_workroot>/external_staging/`, runs the gates there, then ff-merges into the live external tree. An **EXTERNAL_DIRTY_GATE** re-checks `git status --porcelain` on the live external tree before staging and raises if it is dirty.
 4. **External verify in the target's own venv (`G3_VENV`):** external verification/fuzz must run under the target's `.venv/bin/python`; a missing `.venv` is refused.
 5. **Jail-mandatory (`FLAG2`):** every external candidate spawn (embedded tests, narrow fuzz, verify, baseline, mutant) **requires** the bubblewrap jail; if `agent_sandbox.bwrap` is off, the external task is refused (never run un-jailed against a foreign repo).
@@ -328,7 +329,7 @@ paused = _pause_flag_path(state_dir).exists() or _full_stop_path(state_dir).exis
 |---|---|---|
 | **Pause dispatch** | `touch state/control/autowork/pause` | Daemon keeps polling/promoting but dispatches **no new workers**. In-flight workers finish. Auto-clears nothing — remove the file to resume. |
 | **Resume dispatch** | `rm -f state/control/autowork/pause` | Dispatch re-enabled on the next poll (emits a `resume` row). |
-| **Hard stop (persistent)** | `touch state/control/autowork/full_stop` | Halts promotion AND dispatch, **breaks the daemon loop** (`daemon_stop`), and **stops the supervisor's respawn**. Operator-persistent: never auto-cleared. |
+| **Hard stop (persistent)** | `touch state/control/autowork/full_stop` | Halts promotion AND dispatch, **breaks the daemon loop** (emits a distinct `full_stop` ledger row — grep for that, not the generic `daemon_stop` shutdown row), and **stops the supervisor's respawn**. Operator-persistent: never auto-cleared. |
 | **Resume from hard stop** | `rm -f state/control/autowork/full_stop` then start the supervisor again | — |
 | **Stop supervisor** | `touch state/control/autowork/supervisor.stop` | WebUI/supervisor stop sentinel. `scripts/run-autowork.sh` clears stale `supervisor.stop` on fresh start; unlike `full_stop`, it is not operator-persistent. |
 | **Restart the daemon child** | `kill -TERM "$(cat state/control/autowork.pid)"` | Graceful drain; supervisor respawns (needed to pick up harness code changes — see [§12](#12-gaps--steps-still-requiring-a-human)). |
@@ -374,7 +375,7 @@ Key events:
 
 ### Other observability
 - **`state/planning/planner_progress.jsonl`** — per-stage planner lifecycle (blind draft / diff / reconcile / validate / normalize).
-- **`scripts/brief_status.py`** — ground-truth sweep classifying every brief/plan as `unplanned`/`planned`/`queued`/`in_flight`/`blocked`/`zombie`/`complete` by running each oracle against the current tree.
+- **`scripts/brief_status.py`** — ground-truth sweep classifying every brief/plan as `unplanned`/`planned`/`queued`/`in_flight`/`blocked`/`zombie`/`complete`. It does **not** execute any oracle/pytest: `harness/brief_status.compute_brief_status` derives state purely from the `impl_progress.jsonl` ledger (accepted = an `auto_commit` row) and the `state/tasks/{,blocked/,processed/}` files. (The CLI prints a condensed label set — `NEEDS-PLAN`/`PENDING`/`EPIC`/`DONE`/`ORPHAN-PLAN` — so the on-screen words differ from the seven internal states.)
 - **`logs/autowork.log`** — daemon poll/promote/dispatch decisions. **`logs/harness.log`** — orchestrator phases.
 - **`state/tasks/`** (queued `<id>.json`), **`.json.processing`** (claimed), **`blocked/`** (failed + `.retry.json` / `.exhausted` sidecars), **`processed/`** (accepted / no_diff).
 - **`state/output/<id>.{py,files.json,patches.json,no_diff}`** — the worker's emission.
@@ -429,6 +430,9 @@ autowork:
   auto_approve_ro_gate: true            # RO-checkout rollback protector on that path
   conservative_missing_files: true
   state_reconcile: true           # stale-state reconciler: reaps orphaned workdirs / stale tasks
+  dict_corpus_synthesis: true     # Int2-P1: make dict/Dict-annotated params fuzzable from the real-repo corpus (widens differential-fuzz coverage)
+  onesided_oracle: true           # Int2-P2 shadow telemetry for one-sided functions (parity logging; superseded by the blocking tier)
+  onesided_oracle_blocking: true  # Int2-P2: EXECUTE a one-sided function out-of-process, fail-closed on the 'unverified' path -- can turn some prior-green one-sided tasks RED
   # NOTE: max_total_selfheal_escalations is NOT in this file; the self-heal runaway
   #       ceiling defaults to 50 (persisted in state/control/autowork/runaway_ceiling.json).
 
@@ -443,6 +447,8 @@ synthesis:
 
 workers:
   claude_backend: tmux        # jailed interactive claude over a PTY (subscription-billed); 'headless' = -p API
+  pin_task_cwd: true          # Int3: deterministic per-task cwd/CLAUDE_CONFIG_DIR from task_id (via the work_dir seam)
+  resume_pinned_session: true # Int3: adds `claude --continue` when a pinned transcript exists so an AST-retry resumes the same session (needs pin_task_cwd ON)
   agy_pool: { enabled: false, size: 8 }   # if enabled, size MUST be >= autowork.parallel_cap
 
 hierarchical_planning:
@@ -537,7 +543,9 @@ A `test_authoring` task submits the test file source directly as ordinary Python
 > **Every task — including a `test_authoring` oracle — must carry a non-empty `verification_command`.** `validate_plan` rejects a task missing it (`missing_field` on `tasks[N].verification_command`), so a `# Required plan shape` must give the oracle task one too — point it at the test file it authors (`python -m pytest tests/.../test_<x>.py -q`). The RED oracle is still accepted because the impl sibling's `verification_command` substring-contains that authored file and the impl is the oracle's dependency-edge sibling (fix-forward red-pair); the oracle is not required to be green at oracle time.
 
 ### Acceptance gates a submission must clear (worker lifecycle)
-claim → synthesis (configured active agents; default Claude+Gemini) → AST validation (`max_ast_retries`) → differential/stateful fuzz → bypass-fuzzer smoke/embedded/narrow gates (for `bypass_fuzzer` types) → oracle (`verification_command`, RED-before baseline / GREEN-after in staging) → mutation non-vacuity gate (for `test_authoring`) → wire-up (reachable from a live root) → auto-commit (staging worktree → RO-parent verify → ff-merge). Any non-accept rolls back the live tree **scoped strictly to `files_touched`** and routes to `blocked/`.
+claim → synthesis (configured active agents; default Claude+Gemini) → AST validation (`max_ast_retries`) → **then exactly ONE equivalence branch, keyed on `meta_task_type`:** (a) **stateful differential fuzz** for `stateful_fuzz` types, **(b)** **smoke → embedded-test → narrow-fuzz** gates for `bypass_fuzzer` types — *differential fuzz does NOT run for these* (and `SKIP_SMOKE_GATE_TYPES` skip even the smoke pre-gate), or **(c)** **differential fuzz** (round 1, optional cross-exam + round 2) for everything else.
+
+The remaining gates run *inside* the auto-commit step (`_auto_commit_accepted`): the winner is AST-merged and **committed in the staging worktree first**, then the **oracle** (`verification_command`, RED-before baseline / GREEN-after) runs against that commit → **mutation non-vacuity** gate (for `test_authoring`, or any task declaring `mutation_target`/`mutations`) → **wire-up** (reachable from a live root) → ledger `auto_commit` → **RO-parent verify → ff-merge** to the live tree. Any failed sub-gate rolls the staging commit back (`git reset --hard HEAD~1`); any non-accept rolls the live tree back **scoped strictly to `files_touched`** and routes to `blocked/`.
 
 ---
 
@@ -554,7 +562,7 @@ claim → synthesis (configured active agents; default Claude+Gemini) → AST va
 | **`orphan_unwired`.** | A new module is unreachable from a live root. Import it from a live root or register its dotted path under `config/**`; or include a `*_wired` oracle. |
 | **`verification_failed`.** | The oracle failed in staging. The vcmd runs RED-before (baseline) and must pass GREEN-after; check `stdout_tail`/`stderr_tail` on the ledger row. |
 | **`verification_failed` but the code looks correct.** | The `verification_command` likely **collected no tests** (pytest exit **5**: wrong path / bad `-k` / no `test_*` match) — which fails *identically* to a real failure. Run the exact vcmd by hand and confirm `N passed`, N ≥ 1. The opposite footgun: a trivially-green vcmd (`python -c "import X"`) lets unverified code land. |
-| **`whole_file_drift`.** | A whole-file (`__JANUSMASK_MANIFEST__`) submission modified **existing** top-level symbols beyond the intended scope. Legacy whole-file edits must not silently rewrite other symbols — use a `__JANUSMASK_PATCHES__` partial-edit to change one symbol, or split into a declared multi-file manifest. |
+| **`whole_file_drift`.** | An AST-merged whole-file (`__JANUSMASK_MANIFEST__`) submission modified **more than one** existing top-level symbol (`len(changed) > 1`). Changing exactly ONE existing symbol whole-file is allowed; the gate fires only at 2+. To change several symbols, use a `__JANUSMASK_PATCHES__` partial-edit per symbol, or split into a declared multi-file manifest. |
 | **External build refused.** | `BootstrapRefused`/`EXTERNAL_DIRTY_GATE` — the external tree is dirty (commit/clean it; JM never auto-stashes), or the root is not in `external_roots.allow`, or it's a foreign git repo with no JM marker, or `bwrap` is off (FLAG2). |
 | **Stale `git_commit.lock`.** | A daemon that died mid-commit can leave `state/control/autowork/git_commit.lock`. The worker acquisition is a bounded PID-stamped `LOCK_NB` retry (a dead holder fails cleanly → `auto_commit_failed`), but removing a stale lock by hand before restart is safe and fastest. |
 | **A harness change isn't taking effect.** | The daemon caches its code at startup — **restart the child** (see [§12](#12-gaps--steps-still-requiring-a-human)). Workers/planner are fresh subprocesses and pick up changes immediately. |
