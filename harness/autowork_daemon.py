@@ -2006,10 +2006,11 @@ def _reclaim_zombie_briefs(repo_root: pathlib.Path, state_dir: pathlib.Path, run
             fresh = True
         if not fresh:
             try:
-                from harness.state_reconciler import state_reconcile_lock, _archive_move_collision_safe
+                from harness.state_reconciler import state_reconcile_lock, _archive_move_collision_safe, reap_orphaned_workdirs
             except Exception:
                 state_reconcile_lock = None
                 _archive_move_collision_safe = None
+                reap_orphaned_workdirs = None
             if state_reconcile_lock is not None:
                 try:
                     with state_reconcile_lock(state_dir):
@@ -2030,7 +2031,7 @@ def _reclaim_zombie_briefs(repo_root: pathlib.Path, state_dir: pathlib.Path, run
                                             accepted_ids.add(_tid)
                         except OSError:
                             pass
-                        archive_dir = repo_root / '_archive'
+                        archive_dir = repo_root / '_autowork_archive'
                         try:
                             _archive_resolved = archive_dir.resolve()
                         except OSError:
@@ -2085,63 +2086,51 @@ def _reclaim_zombie_briefs(repo_root: pathlib.Path, state_dir: pathlib.Path, run
                             except Exception:
                                 continue
                         # JANUSMASK_REGION:reap_branch
-                        # ---- orphaned-plan glob + EXACT task_id workdir reap ----
-                        running_dir = None
-                        if isinstance(running, (str, pathlib.Path)):
+                        # ---- orphaned-plan glob + brief-less plan archival ----
+                        # An orphaned plan is a plan_hooks_<slug>.json with no
+                        # sibling brief_hooks_<slug>.md. Archive it ONLY when it
+                        # carries source_brief_sha256 provenance; a FOREIGN plan
+                        # that only carries a tasks list is LEFT in place. Plans
+                        # already under _archive_resolved are skipped.
+                        try:
+                            plan_paths = list(repo_root.glob("plan_hooks_*.json"))
+                        except OSError:
+                            plan_paths = []
+                        for _pp in plan_paths:
                             try:
-                                _rp = pathlib.Path(running)
-                                if _rp.is_dir():
-                                    running_dir = _rp
-                            except OSError:
-                                running_dir = None
-                        if running_dir is not None:
-                            try:
-                                plan_paths = list(repo_root.glob('plan_hooks_*.json'))
-                            except OSError:
-                                plan_paths = []
-                            live_task_ids: set = set()
-                            orphaned_task_ids: set = set()
-                            for _pp in plan_paths:
                                 try:
-                                    _pstem = _pp.stem
-                                    if _pstem.startswith('plan_hooks_'):
-                                        _pslug = _pstem[len('plan_hooks_'):]
-                                    else:
-                                        _pslug = _pstem
-                                    _has_brief = (repo_root / f'brief_hooks_{_pslug}.md').exists()
-                                    try:
-                                        _pdata = json.loads(_pp.read_text(encoding='utf-8'))
-                                    except Exception:
+                                    if _archive_resolved in _pp.resolve().parents:
                                         continue
-                                    if not isinstance(_pdata, dict):
-                                        continue
-                                    _ptasks = _pdata.get('tasks')
-                                    _tids: list = []
-                                    if isinstance(_ptasks, list):
-                                        for _t in _ptasks:
-                                            if isinstance(_t, dict) and isinstance(_t.get('task_id'), str):
-                                                _tids.append(_t['task_id'])
-                                    if _has_brief:
-                                        live_task_ids.update(_tids)
-                                    else:
-                                        orphaned_task_ids.update(_tids)
+                                except OSError:
+                                    pass
+                                _pstem = _pp.stem
+                                if _pstem.startswith("plan_hooks_"):
+                                    _pslug = _pstem[len("plan_hooks_"):]
+                                else:
+                                    _pslug = _pstem
+                                if (repo_root / ("brief_hooks_" + _pslug + ".md")).exists():
+                                    continue
+                                try:
+                                    data = json.loads(_pp.read_text(encoding="utf-8"))
                                 except Exception:
                                     continue
-                            reap_ids = orphaned_task_ids - live_task_ids
-                            if reap_ids:
-                                try:
-                                    entries = list(running_dir.iterdir())
-                                except OSError:
-                                    entries = []
-                                for entry in entries:
+                                if not isinstance(data, dict):
+                                    continue
+                                has_provenance = isinstance(data.get("source_brief_sha256"), str)
+                                if not has_provenance:
+                                    continue
+                                if _archive_move_collision_safe is not None:
                                     try:
-                                        if not entry.is_dir():
-                                            continue
-                                        if entry.name in reap_ids:
-                                            import shutil as _shutil
-                                            _shutil.rmtree(entry, ignore_errors=True)
+                                        _archive_move_collision_safe(_pp, archive_dir)
                                     except Exception:
-                                        continue
+                                        pass
+                            except Exception:
+                                continue
+                        # ARM-2: delegate the orphaned-workdir reap to the state
+                        # reconciler for a SET running (the old inline isinstance
+                        # branch never armed). Imported with a None fallback above.
+                        if reap_orphaned_workdirs is not None:
+                            reap_orphaned_workdirs(repo_root, grace=86400.0)
                         # JANUSMASK_ENDREGION:reap_branch
                         # Stamp the throttle marker only after holding the lock.
                         try:
