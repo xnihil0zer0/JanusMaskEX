@@ -1943,6 +1943,11 @@ def _reclaim_zombie_briefs(repo_root: pathlib.Path, state_dir: pathlib.Path, run
         _state_reconcile_on = bool(_autowork_section(_load_config(_cfg_path)).get('state_reconcile', False))
     except Exception:
         _state_reconcile_on = False
+    # Runtime operator override: a state/control/autowork/state_reconcile.disabled
+    # sentinel forces the reconciler OFF without editing committed config.yaml
+    # (mirrors the pause/full_stop/auto_promote.disabled control-file pattern).
+    if _state_reconcile_on and _state_reconcile_disabled(state_dir):
+        _state_reconcile_on = False
     try:
         records = compute_brief_status(repo_root, state_dir)
     except Exception:
@@ -2811,6 +2816,19 @@ def _load_running_task_dicts(state_dir: pathlib.Path, running_task_ids: set[str]
 "Submission for AW9c_daemon_promote.\n\nAdds an in-process auto-promote pass to ``harness/autowork_daemon.py`` so\nthe polling daemon closes both Path A (extract tasks from existing plans)\nand Path B (kick off the planner on unplanned briefs) without shelling\nout. ``_iteration`` calls ``_auto_promote`` BEFORE ``_decide``; the call\nis wrapped in try/except so a promote failure can never raise into the\niteration loop -- it emits ``skip`` with the exception repr instead.\n\nModule additions (AST-merged by name into the target):\n\n* ``_plan_attempt_marker_path`` -- maps slug to the ``.failed`` marker\n  under ``state/control/autowork/plan_attempts/``.\n* ``_recently_failed_to_plan`` -- TTL-gated marker check (default 1h).\n* ``_run_planner_subprocess`` -- spawns ``python -m harness.planner.cli``\n  with timeout; returns ``(returncode, wall_seconds)``. The function is\n  the test seam: ``tests/adversarial/test_autowork_auto_promote.py``\n  monkeypatches it by attribute name on the module.\n* ``_check_hallucination`` -- returns ``(True, reason)`` when wall is\n  under ``min_wall`` OR every task is proposed_by=gemini with no\n  reconciled task. Otherwise ``(False, '')``.\n* ``_auto_promote`` -- enumerates briefs via ``compute_brief_status``,\n  stages every unstaged task_id (catching ``FileExistsError`` silently)\n  with an ``extract`` ledger row, then picks at most ONE ``unplanned``\n  brief (size < 50_000 bytes, no recent ``.failed`` marker) and runs the\n  planner. Hallucinated output is discarded -> ``.failed`` marker +\n  ``planner_hallucination_discarded`` row. Clean output emits\n  ``plan_kickoff``. Each phase is wrapped in try/except OSError to keep\n  the iteration loop resilient.\n* ``_iteration`` -- prefixed with the ``_auto_promote`` call inside a\n  try/except so the existing dispatch logic continues to run after a\n  promote failure. The rest of the body is byte-identical with the\n  pre-fix file.\n"
 DEFAULT_BRIEF_MAX_AGE_SEC = 604800
 
+def _state_reconcile_disabled(state_dir) -> bool:
+    """Runtime operator override for the state reconciler.
+
+    Mirrors ``_auto_promote_disabled``: when
+    ``state/control/autowork/state_reconcile.disabled`` exists the reconciler is
+    forced OFF regardless of the ``autowork.state_reconcile`` config flag, so an
+    operator can pause reconciliation WITHOUT hand-editing the pipeline-gated,
+    YAML-normalised ``harness/config.yaml``.
+    """
+    try:
+        return (pathlib.Path(state_dir) / 'control' / 'autowork' / 'state_reconcile.disabled').exists()
+    except OSError:
+        return False
 def _auto_promote_disabled(state_dir) -> bool:
     try:
         return (pathlib.Path(state_dir) / 'control' / 'autowork' / 'auto_promote.disabled').exists()
