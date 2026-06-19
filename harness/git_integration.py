@@ -1320,6 +1320,17 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
             result['committed'] = False
             result['sha'] = None
             result['error'] = f'patch apply failed for {rel}: {exc}'
+            # Surface WHICH symbol/why into the authoritative impl_progress.jsonl
+            # ledger so a failed symbol patch is not an opaque auto_commit_failed.
+            # A kind=symbol patch naming a not-yet-existing top-level symbol raises
+            # KeyError(qualname); result['error'] embeds that name, so an operator
+            # sees the R-anchor cause directly. Best-effort: never raises.
+            try:
+                import time as _time
+                from harness._journal import write_jsonl_row as _wjr
+                _wjr(pathlib.Path(state_dir) / 'impl_progress.jsonl', {'ts': _time.strftime('%Y-%m-%dT%H:%M:%SZ', _time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'auto_commit_patch_failed', 'file': rel, 'reason': result['error']})
+            except Exception:
+                pass
             return result
         try:
             target_path.write_text(text, encoding='utf-8')
