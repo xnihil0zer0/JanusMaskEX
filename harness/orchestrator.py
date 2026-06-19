@@ -237,6 +237,36 @@ def _apply_agy_pool_env(agent, env, config=None):
         pass
     return agy_pool.worker_env(str(PROJECT_DIR), slot, env)
 
+def _pin_task_cwd_enabled() -> bool:
+    """Fail-safe reader for the ``workers.pin_task_cwd`` flag (default OFF).
+
+    Mirrors the flag-reader pattern at ``harness/diff_fuzzer.py:993``
+    (_onesided_oracle_enabled) and ``harness/selfheal.py:28``: import the
+    config loader inside the function and return ``False`` on ANY exception
+    (missing ``workers`` section, missing ``pin_task_cwd`` key, or an
+    unreadable config) so the cwd-pinning foundation ships OFF and the
+    per-spawn uuid8 cwd stays byte-identical to HEAD.
+    """
+    try:
+        cfg = load_config()
+        return bool(cfg['workers']['pin_task_cwd'])
+    except Exception:
+        return False
+
+def _pinned_session_slug(agent: str, round_number: int, task_id: str) -> str:
+    """Pure, no-I/O helper deriving a deterministic, path-safe session slug.
+
+    Sanitizes ``task_id`` by replacing every char not in ``[A-Za-z0-9._-]``
+    with ``'_'`` (no ``os.sep`` survives), falls back to ``'notask'`` when the
+    sanitized result is empty, and appends an 8-hex deterministic digest of the
+    RAW ``task_id`` (``hashlib``, not ``uuid``) so the same inputs always map to
+    the same slug and two distinct raw task_ids that sanitize to the same string
+    still get distinct slugs. Never raises on a normal string.
+    """
+    import hashlib
+    sanitized = ''.join((c if c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-' else '_' for c in task_id))
+    digest8 = hashlib.sha1(task_id.encode('utf-8')).hexdigest()[:8]
+    return f'{agent}-r{round_number}-{sanitized or 'notask'}-{digest8}'
 def _build_agent_env(agent: str, state_dir: str, round_number: int=1) -> dict[str, str]:
     """Build the environment for an agent process.
 
@@ -262,7 +292,10 @@ def _build_agent_env(agent: str, state_dir: str, round_number: int=1) -> dict[st
     mode = os.environ.get('JANUSMASK_MODE', 'synthesis')
     task_id = os.environ.get('JANUSMASK_TASK_ID', '')
     import uuid as _uuid
-    session_slug = f'{agent}-r{round_number}-{task_id or 'notask'}-{_uuid.uuid4().hex[:8]}'
+    if _pin_task_cwd_enabled():
+        session_slug = _pinned_session_slug(agent, round_number, task_id)
+    else:
+        session_slug = f'{agent}-r{round_number}-{task_id or 'notask'}-{_uuid.uuid4().hex[:8]}'
     work_dir = agent_work_dir(agent, session_slug)
     _existing_pp = os.environ.get('PYTHONPATH', '')
     _pythonpath = str(PROJECT_DIR) if not _existing_pp else str(PROJECT_DIR) + os.pathsep + _existing_pp
