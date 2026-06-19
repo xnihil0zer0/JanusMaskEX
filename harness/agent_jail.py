@@ -330,6 +330,23 @@ def build_jail_argv(
             argv += ["--setenv", "DBUS_SESSION_BUS_ADDRESS", "unix:path=" + os.path.join(xdg, "bus")]
     # The load-bearing barrier: repository source READ-ONLY.
     argv += ["--ro-bind", repo_root, repo_root]
+    # report03-p0 (a-1): in the agy-pool slot layout the per-slot HOME lives STRICTLY
+    # UNDER repo_root (e.g. <repo>/.../slots/<n>/home), so the repo --ro-bind just above
+    # OVERLAYS the ~/.gemini / ~/.claude read-write binds emitted earlier in the HOME-subdir
+    # loop -- leaving those credential dirs READ-ONLY inside the jail and breaking OAuth
+    # refresh / cached-state writes. Re-carve them read-write AFTER the repo ro-bind so the
+    # later bind wins (mirroring the _gemini_proj "later bind wins" pattern above). Guarded
+    # on bind_credentials (the execute path drops the credential surface entirely) and on
+    # "home strictly under repo_root": when home is the operator HOME / pool is disabled
+    # (home == repo_root or outside it), nothing is appended and the argv is byte-identical
+    # to HEAD. ``home`` and ``repo_root`` are already resolved above, so a trailing
+    # separator cannot defeat the ``repo_root + os.sep`` prefix test (home == repo_root is
+    # NOT strictly under). Missing subdirs are skipped gracefully.
+    if bind_credentials and home.startswith(repo_root + os.sep):
+        for _sub in (".gemini", ".claude"):
+            _hp = os.path.join(home, _sub)
+            if os.path.isdir(_hp):
+                argv += ["--bind", _hp, _hp]
     # CONTAIN C-HARDEN M-1: state/ is READ-ONLY except state/sessions/ (the hook
     # ledger state/sessions/<agent>_<sid>.ledger.jsonl + the canonical submission
     # record -- the ONLY paths a jailed agent / its in-jail PreToolUse+PostToolUse
