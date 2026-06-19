@@ -172,6 +172,11 @@ When there is work, the daemon polls every `poll_interval_sec` (5s). When idle, 
 
 A brief is the **only** hand-authored artifact. Everything downstream (plan, tasks, oracles, code) is produced by the pipeline.
 
+> **Production code is changed only through this pipeline — never by hand.** Every `harness/**` / `config/**` /
+> `scripts/**` / `services/**` change is authored as a brief and decided by the verifiers (the author never grades
+> its own exam). The only hand-authorable artifacts are the brief itself and pre-committed test oracles; an
+> unavoidable manual edit must be cleared with the owner **first**.
+
 ### 4.1 The load schema (HARD requirement — `harness/planner/brief_loader.py`)
 
 `load_brief` parses YAML frontmatter (between `---` fences) plus markdown `# Heading` sections. It enforces **five REQUIRED_SECTIONS**:
@@ -204,6 +209,18 @@ Any task that **writes** a path under the sensitive globs
 `meta_task_type: harness_self_fix`. The plan validator rejects a non-`harness_self_fix` task that lists a sensitive path in `files_touched` (`sensitive_files_touched`), because the accept-time apply-scope gate would refuse the write. So a brief that edits the harness must state `harness_self_fix` intent in its `# Required plan shape`.
 
 A short **irreducible** set can NEVER auto-approve, regardless of any flag (`_NEVER_AUTO_APPROVE`): `harness/agent_jail.py`, `harness/dbus_proxy.py`, `harness/paths.py`, `harness/git_integration.py`, `harness/orchestrator.py`, `harness/interceptors.py`, `harness/selfheal.py`, `harness/autowork_daemon.py`, `services/**`. These paths require explicit owner/operator approval through `state/control/decisions/<task_id>.json`; without that decision they fail closed.
+
+> **Editing an irreducible core file (or any `config/**`, `scripts/**`, `services/**` path)? Pre-author the
+> decision file.** Such a commit **fail-closes at auto-commit** unless `state/control/decisions/<task_id>.json`
+> exists with `{"decision":"approve"}` — and under unattended operation nothing writes it, so the plan **stalls at
+> the first such commit**. The `task_id` is only known *after* planning, so **pin it**: set
+> `required_task_ids: [<your-task-id>]` in frontmatter, force that exact id in `# Required plan shape`, then write
+> the decision file **before** the run:
+> ```bash
+> echo '{"decision":"approve","by":"operator","reason":"<why>"}' > state/control/decisions/<your-task-id>.json
+> ```
+> One decision file per gated task. (`auto_approve_sensitive_harness` covers only *eligible, non-deny* `harness/**`
+> paths — never the irreducible set, and never `config/scripts/services`.)
 
 ### 4.3 Place it and allowlist it
 
@@ -269,6 +286,11 @@ Notes:
 - The **`integration` excuse**: the plan validator requires an integration test for a `.py`-editing task **unless** the literal word `integration` appears in the task's `non_goals`. Put it in the brief's `# Non-Goals` and restate it in `# Required plan shape`.
 - A **new module/file** cannot use `__JANUSMASK_PATCHES__` (patches only *replace* existing symbols). Emit it **whole-file** via `__JANUSMASK_MANIFEST__`, keep the task to **one file**, and ensure a `*_wired` oracle (named in `verification_command`) or a paired `test_authoring` sibling exists so the wire-up gate passes (see [§10](#10-submission-formats-what-the-agent-emits)).
 - If your patch emits `"""` docstrings via the blind partial-edit, add a `# NESTED-QUOTE HAZARD` note instructing the agent to emit `"""` (not `'''`) and never backslash-escape quotes.
+- **A `verification_command` must select ≥1 REAL test and be non-vacuous.** It runs RED-before / GREEN-after; a vcmd
+  that **collects zero tests** (pytest exit code **5** — wrong path, bad `-k`, no matching `test_*`) fails *identically*
+  to a real failure (`verification_failed`), and a trivially-green vcmd like `python -c "import mymod"` lets unverified
+  code **land** (a "clobber"). Before dispatch, run the EXACT vcmd yourself, confirm it reports `N passed` with N ≥ 1,
+  and confirm it actually exercises the changed symbols.
 
 ---
 
@@ -340,6 +362,7 @@ Key events:
 | `task_blocked` | a non-accept terminal routed to `blocked/`; `outcome` field carries the reason. |
 | `retry_exhausted` | blocked-retry budget spent; `.exhausted` marker written; self-heal escalation fired. |
 | `dependency_failed` | a task terminally blocked because a dependency died. |
+| `brief_dep_unresolvable` | a task's `dependencies:` slug resolves to **no brief** (under any spelling) or to a sibling whose every task is exhausted; the gate **releases the task with a warning** and lets it dispatch against the unmet dependency. Verify a depended-on sibling brief actually exists/lands. |
 | `orphan_unwired` | a new module was unreachable from a live root → rolled back fail-closed. |
 | `inactivity_watchdog_triggered` | >20 min with unfinished allowlisted work and no worker event → a diagnosis-only self-heal agent was spawned. |
 
@@ -405,6 +428,7 @@ autowork:
   auto_approve_sensitive_harness: true  # eligible non-deny harness/** harness_self_fix commits may auto-approve
   auto_approve_ro_gate: true            # RO-checkout rollback protector on that path
   conservative_missing_files: true
+  state_reconcile: true           # stale-state reconciler: reaps orphaned workdirs / stale tasks
   # NOTE: max_total_selfheal_escalations is NOT in this file; the self-heal runaway
   #       ceiling defaults to 50 (persisted in state/control/autowork/runaway_ceiling.json).
 
@@ -445,6 +469,11 @@ autocompiler:   # MIRROR of the runtime gate; the file actually read is config/a
 
 > The autocompiler hooks read **`config/autocompiler.yaml`** (`<cwd>/config/autocompiler.yaml`) at runtime, fail-closed — the `autocompiler:` subtree above only mirrors it. Edit `config/autocompiler.yaml` to change runtime behavior; keep both in sync. `scripts/run-autowork.sh` cd's to the repo root before launching; direct `python -m harness.autowork_daemon` invocations must also start from the repo root.
 
+> **`workers.agy_pool` caveat:** the `size >= autowork.parallel_cap` rule is **comment-only — NOT runtime-enforced**.
+> If the pool is enabled and exhausted (`size < parallel_cap` under load), slot allocation returns empty and workers
+> fall back to the **shared `~/.gemini` HOME**, racing each other's credentials/session state. Keep `size >= parallel_cap`
+> whenever you flip `enabled: true` (the default pool is `enabled: false`).
+
 ---
 
 ## 9. `meta_task_type` taxonomy
@@ -468,7 +497,7 @@ Every task carries a `meta_task_type` (`harness/planner/taxonomies.py::META_TASK
 | `refactor` | no | — | pure-edit refactor |
 | `logging_observability` | no | — | logging/metrics |
 | `io_adapter` | no | skip decomp | side-effecting I/O |
-| `state_machine` | no | stateful_fuzz | stateful logic |
+| `state_machine` | no | skip decomp, stateful_fuzz | stateful logic |
 | `sandbox_infra` | yes | skip decomp | sandbox infra |
 | `test_unit`/`test_integration`/`test_e2e`/`test_acceptance` | yes | skip smoke | test code (self-verifying) |
 | `test_authoring` | no | skip decomp, skip interface fuzz | authors an oracle for a `mutation_target` module |
@@ -491,6 +520,7 @@ __JANUSMASK_PATCHES__ = [
 - `kind: 'symbol'` replaces exactly one EXISTING top-level `def`/`async def`/`class` (or dotted `Outer.method`). `kind: 'region'` replaces only the lines between a `# JANUSMASK_REGION:<S>` … `# JANUSMASK_ENDREGION:<S>` sentinel pair.
 - Used for an EDIT to an existing file (`partial_edit`, or a `bypass_fuzzer` type), single-file, target already on disk.
 - **Cannot create a file or a brand-new top-level symbol** — `_apply_symbol_patch` raises `KeyError` if `name` is absent. To **add** a symbol, use the **R-ANCHOR additive** pattern: one `symbol` entry whose `name` is an existing anchor and whose `code` reproduces that anchor verbatim **plus** the new symbol(s); the harness inserts the extras before the anchor.
+  - **R-ANCHOR additive constraints (each raises `ValueError` in `git_integration.py`; this is the #1 `auto_commit_failed` cause):** extras are allowed **only for a 1-part top-level anchor** (never a dotted `Outer.method`); the `code` block must contain **exactly one** `def`/`class` (or assignment) named the anchor; every **extra** node must be an `import` / `from`-import / module-level assignment — any other kind (including an extra `def`/`class`) is rejected; and an extra must **not collide** with a name already in the source. With no extras the result is byte-identical to a plain symbol replace.
 
 ### `__JANUSMASK_MANIFEST__` — whole-file / multi-file
 ```python
@@ -521,6 +551,8 @@ claim → synthesis (configured active agents; default Claude+Gemini) → AST va
 | **`auto_commit_failed` on a new file.** | The patches path cannot CREATE files — emit a new module **whole-file** (`__JANUSMASK_MANIFEST__`), keep the task to ONE file, and don't list non-target files in `files_touched`. |
 | **`orphan_unwired`.** | A new module is unreachable from a live root. Import it from a live root or register its dotted path under `config/**`; or include a `*_wired` oracle. |
 | **`verification_failed`.** | The oracle failed in staging. The vcmd runs RED-before (baseline) and must pass GREEN-after; check `stdout_tail`/`stderr_tail` on the ledger row. |
+| **`verification_failed` but the code looks correct.** | The `verification_command` likely **collected no tests** (pytest exit **5**: wrong path / bad `-k` / no `test_*` match) — which fails *identically* to a real failure. Run the exact vcmd by hand and confirm `N passed`, N ≥ 1. The opposite footgun: a trivially-green vcmd (`python -c "import X"`) lets unverified code land. |
+| **`whole_file_drift`.** | A whole-file (`__JANUSMASK_MANIFEST__`) submission modified **existing** top-level symbols beyond the intended scope. Legacy whole-file edits must not silently rewrite other symbols — use a `__JANUSMASK_PATCHES__` partial-edit to change one symbol, or split into a declared multi-file manifest. |
 | **External build refused.** | `BootstrapRefused`/`EXTERNAL_DIRTY_GATE` — the external tree is dirty (commit/clean it; JM never auto-stashes), or the root is not in `external_roots.allow`, or it's a foreign git repo with no JM marker, or `bwrap` is off (FLAG2). |
 | **Stale `git_commit.lock`.** | A daemon that died mid-commit can leave `state/control/autowork/git_commit.lock`. The worker acquisition is a bounded PID-stamped `LOCK_NB` retry (a dead holder fails cleanly → `auto_commit_failed`), but removing a stale lock by hand before restart is safe and fastest. |
 | **A harness change isn't taking effect.** | The daemon caches its code at startup — **restart the child** (see [§12](#12-gaps--steps-still-requiring-a-human)). Workers/planner are fresh subprocesses and pick up changes immediately. |
