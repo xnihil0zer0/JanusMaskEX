@@ -1,6 +1,14 @@
 import json
 from pathlib import Path
 
+def _selfheal_skip_blocks(state_dir, tid, plan_mtime) -> bool:
+    """True only when a selfheal_skip marker exists and is at least as new as the plan."""
+    marker = state_dir / 'control' / 'autowork' / 'selfheal_skip' / tid
+    try:
+        marker_mtime = marker.stat().st_mtime
+    except OSError:
+        return False
+    return marker_mtime >= plan_mtime
 def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
     accepted_map = {}
     ledger_path = state_dir / 'impl_progress.jsonl'
@@ -71,7 +79,11 @@ def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
         queued = [tid for tid in task_ids if (state_dir / 'tasks' / f'{tid}.json').exists()]
         processing = [tid for tid in task_ids if (state_dir / 'tasks' / 'processing' / f'{tid}.json').exists() or (state_dir / 'tasks' / f'{tid}.json.processing').exists()]
         processed_unaccepted = [tid for tid in task_ids if (state_dir / 'tasks' / 'processed' / f'{tid}.json').exists() and tid not in accepted_map]
-        blocked = [tid for tid in task_ids if ((state_dir / 'tasks' / 'blocked' / f'{tid}.json').exists() or (state_dir / 'tasks' / 'blocked' / f'{tid}.exhausted').exists() or (state_dir / 'control' / 'autowork' / 'selfheal_skip' / tid).exists()) and tid not in accepted_map]
+        try:
+            plan_mtime = plan_file.stat().st_mtime
+        except OSError:
+            plan_mtime = 0.0
+        blocked = [tid for tid in task_ids if ((state_dir / 'tasks' / 'blocked' / f'{tid}.json').exists() or (state_dir / 'tasks' / 'blocked' / f'{tid}.exhausted').exists() or _selfheal_skip_blocks(state_dir, tid, plan_mtime)) and tid not in accepted_map]
         if not has_plan:
             state = 'unplanned'
         elif not task_ids:
