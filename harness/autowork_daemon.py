@@ -285,6 +285,22 @@ def prioritize(candidates: list[dict]) -> list[dict]:
         return (rank, mf)
     return sorted(candidates, key=_key)
 
+def _reset_sweep_throttle(state_dir: pathlib.Path) -> None:
+    """Clear the sha-staleness sweep throttle marker at daemon (re)start.
+
+    The ``sha_staleness_sweep.marker`` rate-limits the expensive ARM-2 stale-state
+    sweep WITHIN a daemon lifetime (a fresh marker short-circuits the arm), but it
+    persists on disk across restarts. A daemon respawned within the throttle window
+    would otherwise inherit the prior process's marker and SKIP its first reconcile
+    sweep (e.g. after an operator commits a harness change and restarts the child).
+    Clearing it once at startup guarantees the first reconcile pass of every
+    (re)started daemon runs a fresh sweep. Best-effort: a missing marker or an
+    unlink error is swallowed.
+    """
+    try:
+        (pathlib.Path(state_dir) / 'control' / 'autowork' / 'sha_staleness_sweep.marker').unlink()
+    except OSError:
+        pass
 def _pause_flag_path(state_dir: pathlib.Path) -> pathlib.Path:
     return state_dir / 'control' / 'autowork' / 'pause'
 
@@ -2561,6 +2577,7 @@ def run_daemon(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -
     global _daemon_start_time
     _daemon_start_time = time.time()
     _emit_telemetry(state_dir, '', 'daemon_start', f'cap={cap} poll={poll} heartbeat={heartbeat}')
+    _reset_sweep_throttle(state_dir)
     # PHASE_ABSTRACT_SOCKET_WARN: detect-and-warn ONLY. The jail does not unshare
     # net/ipc on synthesis spawn, so a non-cooperative jailed process could dial
     # the host abstract-namespace session bus directly. If the host
