@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 from typing import Callable, List, Tuple
 POOL_SIZE = 4
-_SEED_RELS: Tuple[str, ...] = ('.gemini/oauth_creds.json', '.gemini/google_accounts.json', '.gemini/settings.json', '.gemini/trustedFolders.json', '.gemini/state.json', '.gemini/projects.json', '.config/gcloud/application_default_credentials.json')
+_SEED_RELS: Tuple[str, ...] = ('.gemini/oauth_creds.json', '.gemini/google_accounts.json', '.gemini/settings.json', '.gemini/trustedFolders.json', '.gemini/state.json', '.gemini/projects.json', '.config/gcloud/application_default_credentials.json', '.gemini/antigravity-cli/history.db')
 
 def pool_root(repo_root: str) -> Path:
     """Project-local root holding every worker's private home."""
