@@ -61,8 +61,13 @@ def _disable_gate(root):
     (root / 'harness' / 'config.yaml').write_text(_GATE_OFF, encoding='utf-8')
 
 def _age(path):
-    """Age every node in the tree past the mtime grace guard via os.utime."""
-    old = time.time() - 3600
+    """Age every node in the tree past the mtime grace guard via os.utime.
+
+    The delegation reaps with grace=86400.0 (the shipped 24 h orphaned-workdir
+    grace), so the aged subject must be older than that for the REAP tests to be
+    satisfiable and for the KEEP tests to be non-vacuous (genuinely reap-eligible
+    by age, kept only by the live-pidfile / external-staging / gate-off guard)."""
+    old = time.time() - 100000.0
     for p in pathlib.Path(path).rglob('*'):
         try:
             os.utime(p, (old, old))
@@ -230,8 +235,16 @@ def test_live_pidfile_workdir_kept_nonmocked(tmp_path):
     (root / 'state').mkdir(parents=True, exist_ok=True)
     (root / 'harness').mkdir(parents=True, exist_ok=True)
     aw_real = root.parent / (root.name + '_agentwork')
-    wd = _plant_workdir(aw_real, 'selfheal_demo')
-    _write_live_pidfile(root, 'selfheal_demo')
+    # Model the REAL self-heal naming: the workdir slug parses to the task_id
+    # daemon_inactivity_stuck, and the live pidfile carries the production
+    # self-heal name selfheal_<agent>_<task>_<pid>, whose _pidfile_task_id strips
+    # the selfheal_/agent/pid framing back to the SAME task_id -- so EXACT
+    # parsed-task_id equality protects the live worker. (A bare '<task_id>.pid'
+    # named 'selfheal_demo' yields _pidfile_task_id None and never protects.)
+    wd = _plant_workdir(aw_real, 'daemon_inactivity_stuck', agent='claude')
+    rdir = root / 'state' / 'control' / 'autowork' / 'running'
+    rdir.mkdir(parents=True, exist_ok=True)
+    (rdir / 'selfheal_claude_daemon_inactivity_stuck_99999.pid').write_text(str(os.getpid()), encoding='utf-8')
     _enable_gate(root)
     assert wd.exists()
     awd._reclaim_zombie_briefs(root, root / 'state', running=set())
