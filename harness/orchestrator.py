@@ -377,7 +377,7 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
             _jail_repo_root = effective_target_root(working_dir)
         else:
             _jail_repo_root = PROJECT_DIR
-        cmd = agent_jail.build_jail_argv(cmd, repo_root=_jail_repo_root, work_dir=env['JANUSMASK_WORK_DIR'], state_dir=env['JANUSMASK_STATE_DIR'], dbus_proxy_socket=_dbus_sock, extra_ro=_external_jail_extra_ro(_jail_repo_root))
+        cmd = agent_jail.build_jail_argv(cmd, repo_root=_jail_repo_root, work_dir=env['JANUSMASK_WORK_DIR'], state_dir=env['JANUSMASK_STATE_DIR'], dbus_proxy_socket=_dbus_sock, extra_ro=_external_jail_extra_ro(_jail_repo_root), home=env.get('HOME'))
     if _use_tmux_claude(agent, config):
         import harness.tmux_worker
         return harness.tmux_worker.spawn_claude_tmux(agent, resolved_prompt, env, config, dbus_sock=_dbus_sock)
