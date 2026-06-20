@@ -2344,9 +2344,11 @@ def _auto_approve_content_safe(state_dir, task_id) -> bool:
     applied: (1) ``state/output/<task_id>.patches.json`` (a JSON list of
     ``{file, kind, name|marker, code}`` entries -- each entry's ``code`` string
     is collected); else (2) ``state/output/<task_id>.files.json`` (a JSON
-    whole-file map ``{relpath: source}`` -- each VALUE is collected); else (3)
-    ``state/output/<task_id>.py`` (a single whole-file source). Only the FIRST
-    form that exists is used (forms are never merged).
+    whole-file map ``{relpath: source}`` -- each VALUE whose KEY ends in ``.py``
+    is collected; non-.py manifest values are config/data, never executed as
+    Python, so ast.parse + capability detection is meaningless and they are
+    skipped); else (3) ``state/output/<task_id>.py`` (a single whole-file
+    source). Only the FIRST form that exists is used (forms are never merged).
 
     Policy:
       * No recognized artifact at all -> True. Absence of an INSPECTABLE
@@ -2393,7 +2395,9 @@ def _auto_approve_content_safe(state_dir, task_id) -> bool:
             return False
         if not isinstance(data, dict):
             return False
-        for value in data.values():
+        for key, value in data.items():
+            if not str(key).endswith('.py'):
+                continue
             if not isinstance(value, str):
                 return False
             sources.append(value)
