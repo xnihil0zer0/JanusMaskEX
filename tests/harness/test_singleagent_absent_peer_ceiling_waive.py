@@ -21,9 +21,13 @@ explicit signal the absent-peer call site passes), the ceiling check is WAIVED:
 the lone AST-valid agent is promoted IMMEDIATELY, still behind the unchanged
 sensitivity + operator-approval + AST-re-validation gates.
 
-When the failing peer produced REAL violations (a genuine, repeatable AST
-failure -> non-empty ``failing_violations``), the ceiling still applies (no
-behavior change) so a transient-vs-deterministic distinction is preserved.
+A peer that produced REAL violations (a genuine AST failure -> non-empty
+``failing_violations``) is ALSO waived now: the ceiling is structurally
+unreachable for it too (the deterministic retry cap of 1 caps
+``consecutive_failures`` at 1), so an AST-invalid peer is treated the same as an
+absent peer. See ``test_single_agent_promotion_invalid_peer.py`` for the
+invalid-peer oracle that pins this; the survivor is still independently
+re-validated and the sensitivity/approval gate is unchanged.
 
 All assertions are RED on HEAD: HEAD returns ``(False, 'Ceiling not reached ...')``
 for the absent-peer-below-ceiling case.
@@ -112,10 +116,17 @@ def test_flag_off_absent_peer_never_promotes():
     assert promote is False
 
 
-def test_real_violations_below_ceiling_still_refused():
-    """REGRESSION: a peer with REAL (non-empty) violations below the ceiling is
-    STILL refused -- the waiver is specific to the absent/empty-peer signal and
-    must NOT relax the ceiling for a genuine repeatable AST failure."""
+def test_real_violations_below_ceiling_promotes():
+    """CORRECTED CONTRACT (invalid-peer waive): a peer with REAL (non-empty)
+    violations below the ceiling now PROMOTES the valid survivor, exactly like an
+    absent peer. The earlier "still refused" assertion codified the very defect
+    being fixed: a deterministic synthesis_or_ast_failed outcome caps the retry
+    budget at 1, so consecutive_failures can never reach the ceiling (3) and the
+    ceiling is STRUCTURALLY UNREACHABLE for an AST-invalid peer -- it would park
+    a valid, approved survivor forever. The ceiling is therefore waived for an
+    AST-invalid peer too; the survivor is still independently re-validated below.
+    See tests/harness/test_single_agent_promotion_invalid_peer.py for the full
+    invalid-peer oracle."""
     from harness.ast_enforcer import Violation
     real_violations = [Violation('security', 'error', 1, 'eval() is banned')]
     promote, reason = worker._single_agent_promotion_decision(
@@ -127,11 +138,11 @@ def test_real_violations_below_ceiling_still_refused():
         valid_code='def f():\n    return 1\n',
         failing_agent='gemini',
         failing_violations=real_violations,   # REAL failure, not absent
-        consecutive_failures=1,               # below ceiling
+        consecutive_failures=1,               # below ceiling (unreachable anyway)
         approval_ok=False,
     )
-    assert promote is False
-    assert 'ceiling' in reason.lower()
+    assert promote is True, reason
+    assert 'gemini' in reason.lower()
 
 
 def test_real_violations_at_ceiling_still_promotes():
