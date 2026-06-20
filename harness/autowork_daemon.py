@@ -1262,6 +1262,104 @@ def _spawn_rebuild_worker(state_dir: pathlib.Path, job: dict) -> int | None:
         _emit_telemetry(state_dir, _rebuild_pid_name(job.get('job_id', '')), 'rebuild_spawn_failed', repr(exc))
         return None
 
+def _daemon_source_sha(paths: list[str | pathlib.Path]) -> str:
+    """Compute a sha256 over the concatenated bytes of the daemon's source files.
+
+    The files are read in a stable, *sorted* order (by string path) and their
+    raw bytes concatenated, so the resulting hex digest is deterministic
+    regardless of the order ``paths`` is supplied in. This is the checksum
+    ``run_daemon`` captures once at startup and re-derives each iteration (via
+    :func:`_should_reload_daemon`) to notice an in-place harness edit.
+
+    Pure helper -- it only *reads* the filesystem and mutates nothing.
+
+    Edge cases:
+    - A single str / os.PathLike is treated as a one-element collection.
+    - A missing, unreadable, or empty file simply contributes no bytes (it is
+      skipped on ``OSError``), so the helper never raises on a transient read
+      error or a path that has since been removed.
+    - Duplicate paths are collapsed; an empty / all-missing path set hashes to
+      the sha256 of the empty byte string.
+    """
+    import hashlib
+    if isinstance(paths, (str, bytes, os.PathLike)):
+        paths = [paths]
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for p in paths or []:
+        sp = p if isinstance(p, str) else str(p)
+        if sp in seen:
+            continue
+        seen.add(sp)
+        ordered.append(sp)
+    h = hashlib.sha256()
+    for sp in sorted(ordered):
+        try:
+            with open(sp, 'rb') as f:
+                h.update(f.read())
+        except OSError:
+            continue
+    return h.hexdigest()
+
+def _should_reload_daemon(state_dir: pathlib.Path, startup_sha: str) -> str | None:
+    """Return the daemon's new source sha when an in-place reload is warranted.
+
+    A reload is warranted only when the daemon is *idle* AND its source code has
+    changed relative to ``startup_sha`` (the checksum ``run_daemon`` captured at
+    startup). On a warranted reload the freshly computed sha is returned so the
+    caller can log a ``daemon_source_changed`` row and cleanly exit (return 0)
+    for the supervisor to respawn a fresh interpreter; otherwise ``None`` is
+    returned and the loop continues.
+
+    "Idle" is decided PURELY from on-disk state, because this runs at the TOP of
+    the iteration before ``_iteration``: there must be NO pause flag, NO active
+    rebuild job, and NO worker pid files in the running/ directory. Any of those
+    keeps the daemon alive (returns ``None``) so an in-flight worker, a paused
+    operator, or a running rebuild is never interrupted by a self-reload.
+
+    The current source paths -- the daemon module plus its daemon-scope imports
+    -- are resolved from ``sys.modules`` so the hash tracks whatever code the
+    live interpreter actually loaded.
+
+    Conservative / pure: a missing running directory counts as idle; any
+    transient error while probing state, or a failure to (re)compute the sha,
+    yields ``None`` (no reload) so a flaky read never tears the daemon down. An
+    empty / falsey ``startup_sha`` (e.g. startup hashing failed) also never
+    triggers a reload.
+    """
+    sd = pathlib.Path(state_dir)
+    try:
+        if _pause_flag_path(sd).exists():
+            return None
+    except OSError:
+        return None
+    try:
+        if _has_active_rebuild_job(sd):
+            return None
+    except Exception:
+        return None
+    try:
+        rdir = _running_dir(sd)
+        if rdir.exists() and any(rdir.glob('*.pid')):
+            return None
+    except OSError:
+        return None
+    paths: list[str] = []
+    try:
+        for _name in ('harness.autowork_daemon', 'harness.autowork_parallelism', 'harness.brief_status', 'harness.planner.staging', 'harness.selfheal'):
+            _mod = sys.modules.get(_name)
+            _f = getattr(_mod, '__file__', None) if _mod is not None else None
+            if _f:
+                paths.append(_f)
+    except Exception:
+        return None
+    try:
+        current = _daemon_source_sha(paths)
+    except Exception:
+        return None
+    if current and startup_sha and (current != startup_sha):
+        return current
+    return None
 def _has_active_rebuild_job(state_dir: pathlib.Path) -> bool:
     """B9: True when a rebuild job is pending or running (not complete/blocked).
 
@@ -2767,6 +2865,28 @@ def run_daemon(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -
         _emit_telemetry(state_dir, '', 'skip', f'dbus proxy init error: {exc!r}')
     prev_paused: bool | None = None
     prev_is_idle: bool = False
+    # DAEMON_SELF_RELOAD: capture the daemon's source checksum ONCE at startup.
+    # Each iteration re-derives it (see _should_reload_daemon) so an in-place
+    # harness edit, observed while the daemon is idle, is noticed and the process
+    # cleanly exits (return 0) for the run-autowork.sh supervisor to respawn a
+    # fresh interpreter with the new code. The source files (the daemon module +
+    # its daemon-scope imports) are resolved from sys.modules; a resolution/read
+    # failure leaves startup_sha empty, which _should_reload_daemon treats as
+    # "never reload". First activation needs a manual bootstrap restart, after
+    # which the feature self-sustains.
+    _reload_paths: list[str] = []
+    try:
+        for _name in ('harness.autowork_daemon', 'harness.autowork_parallelism', 'harness.brief_status', 'harness.planner.staging', 'harness.selfheal'):
+            _mod = sys.modules.get(_name)
+            _f = getattr(_mod, '__file__', None) if _mod is not None else None
+            if _f:
+                _reload_paths.append(_f)
+    except Exception:
+        _reload_paths = []
+    try:
+        startup_sha = _daemon_source_sha(_reload_paths)
+    except Exception:
+        startup_sha = ''
     try:
         while not _shutdown_requested:
             if _full_stop_path(state_dir).exists():
@@ -2779,6 +2899,15 @@ def run_daemon(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -
                 elif prev_paused is True:
                     _emit_telemetry(state_dir, '', 'resume', 'pause flag cleared')
             prev_paused = paused_now
+            # DAEMON_SELF_RELOAD: at the top of each iteration (after the
+            # full_stop/pause checks, before _iteration) detect an in-place
+            # source edit while idle and cleanly exit so a fresh process is
+            # respawned with the new code. _should_reload_daemon returns None
+            # (no exit) whenever a worker, pause flag, or rebuild job is active.
+            _new_sha = _should_reload_daemon(state_dir, startup_sha)
+            if _new_sha:
+                _emit_telemetry(state_dir, '', 'daemon_source_changed', f'source changed (startup={startup_sha[:12]} new={_new_sha[:12]}); exiting for self-reload')
+                return 0
             result: dict = {'would_launch': [], 'free_slots': 0, 'cap': cap, 'paused': paused_now, 'extracts': 0, 'plan_kickoffs': 0}
             try:
                 result = _iteration(repo_root, state_dir, cap, dry_run=False, config=config)
