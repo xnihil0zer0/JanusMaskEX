@@ -73,6 +73,18 @@ def _autowork_section(config: dict) -> dict:
     aw = config.get('autowork')
     return aw if isinstance(aw, dict) else {}
 
+def _claude_parallel_cap(config: dict) -> int:
+    aw = _autowork_section(config)
+    raw = aw.get('claude_parallel_cap', DEFAULT_PARALLEL_CAP)
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        n = DEFAULT_PARALLEL_CAP
+    if n < PARALLEL_CAP_MIN:
+        return PARALLEL_CAP_MIN
+    if n > PARALLEL_CAP_MAX:
+        return PARALLEL_CAP_MAX
+    return n
 def _parallel_cap(config: dict) -> int:
     aw = _autowork_section(config)
     raw = aw.get('parallel_cap', DEFAULT_PARALLEL_CAP)
@@ -1127,6 +1139,74 @@ def _spawn_worker(state_dir: pathlib.Path, task_id: str) -> int | None:
         return None
 MAX_REBUILD_ATTEMPTS = 5
 
+def _seed_claude_config_dir(*args, **kwargs) -> dict | None:
+    agent = kwargs.get('agent')
+    work_dir = kwargs.get('work_dir')
+    env_dict = None
+    p_args = []
+    for a in args:
+        if isinstance(a, dict):
+            env_dict = a
+        else:
+            p_args.append(a)
+    agents_list = ('claude', 'gemini', 'agy', 'antigravity')
+    for item in p_args:
+        if isinstance(item, str) and item in agents_list:
+            agent = item
+            break
+    if len(p_args) == 2:
+        if p_args[0] in agents_list:
+            agent = p_args[0]
+            work_dir = p_args[1]
+        else:
+            state_dir = p_args[0]
+            task_id = p_args[1]
+            try:
+                task_file = pathlib.Path(state_dir) / 'tasks' / f'{task_id}.json'
+                if task_file.exists():
+                    task_obj = json.loads(task_file.read_text(encoding='utf-8'))
+                    if not agent:
+                        agent = task_obj.get('agent') or task_obj.get('target_agent') or task_obj.get('synthesis_agent') or 'claude'
+                    if not work_dir:
+                        work_dir = task_obj.get('working_dir')
+            except Exception:
+                pass
+        if p_args[1] in agents_list:
+            agent = p_args[1]
+            work_dir = p_args[0]
+    elif len(p_args) == 3:
+        if p_args[0] in agents_list:
+            agent = p_args[0]
+            work_dir = p_args[1]
+        elif p_args[2] in agents_list:
+            agent = p_args[2]
+            state_dir = p_args[0]
+            task_id = p_args[1]
+            try:
+                task_file = pathlib.Path(state_dir) / 'tasks' / f'{task_id}.json'
+                if task_file.exists():
+                    task_obj = json.loads(task_file.read_text(encoding='utf-8'))
+                    if not work_dir:
+                        work_dir = task_obj.get('working_dir')
+            except Exception:
+                pass
+        elif p_args[1] in agents_list:
+            agent = p_args[1]
+            work_dir = p_args[2]
+    if agent is None:
+        agent = 'claude'
+    if agent == 'claude':
+        if work_dir:
+            config_dir = pathlib.Path(work_dir) / '.claude_config'
+            try:
+                config_dir.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            res = {'CLAUDE_CONFIG_DIR': str(config_dir)}
+            if env_dict is not None:
+                env_dict.update(res)
+            return res
+    return {}
 def _build_worker_env(state_dir: pathlib.Path, task_id: str) -> dict:
     _worker_env = os.environ.copy()
     try:
@@ -1136,6 +1216,11 @@ def _build_worker_env(state_dir: pathlib.Path, task_id: str) -> dict:
             _worker_env['JANUSMASK_WORKING_DIR'] = _wd
         else:
             _worker_env.pop('JANUSMASK_WORKING_DIR', None)
+        _agent = _task_obj.get('agent') or _task_obj.get('target_agent') or _task_obj.get('synthesis_agent') or 'claude'
+        if _wd:
+            _extra_env = _seed_claude_config_dir(_agent, _wd)
+            if _extra_env:
+                _worker_env.update(_extra_env)
     except (OSError, ValueError, TypeError):
         _worker_env.pop('JANUSMASK_WORKING_DIR', None)
     return _worker_env
@@ -2249,6 +2334,13 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
     cfg = config or {}
     active_agents = cfg.get('synthesis', {}).get('active_agents', ['claude', 'gemini'])
     requires_claude = cfg.get('synthesis', {}).get('antigravity_mode', True) or 'claude' in active_agents or 'antigravity' in active_agents
+    claude_cap = _claude_parallel_cap(cfg)
+    running_dicts = _load_running_task_dicts(state_dir, running)
+    running_claude_count = 0
+    for rtask in running_dicts:
+        rtask_agent = rtask.get('agent') or rtask.get('target_agent') or rtask.get('synthesis_agent') or 'claude'
+        if rtask_agent == 'claude':
+            running_claude_count += 1
     if not paused:
         for task in chosen:
             tid = task['task_id']
@@ -2274,63 +2366,75 @@ def _iteration(repo_root: pathlib.Path, state_dir: pathlib.Path, cap: int, *, dr
                             _ = err
                 _emit_telemetry(state_dir, tid, 'quarantine', 'loop spinning detected: 10 dispatches in last 5m')
                 continue
-            if requires_claude:
-                _emit_telemetry(state_dir, tid, 'launch_sequential', 'running sequential/claude worker')
-                # CONTAIN C7 (trusted-worker boundary): TRUSTED harness worker, not
-                # an agent CLI -- no jail here; the worker jails its own agent spawns
-                # via orchestrator.spawn_agent. A future agent-CLI reroute MUST go
-                # through _contain_selfheal.
-                cmd = [sys.executable, '-m', 'harness.orchestrator_worker', '--state-dir', str(state_dir), '--task-id', tid]
-                _worker_env = _build_worker_env(state_dir, tid)
-                pid = None
-                try:
-                    proc = subprocess.Popen(cmd, start_new_session=True, env=_worker_env)
-                    pid = proc.pid
+            task_agent = task.get('agent') or task.get('target_agent') or task.get('synthesis_agent') or 'claude'
+            is_claude_task = (task_agent == 'claude')
+            if requires_claude and is_claude_task:
+                if claude_cap == 1 or running_claude_count >= claude_cap:
+                    _emit_telemetry(state_dir, tid, 'launch_sequential', 'running sequential/claude worker')
+                    # CONTAIN C7 (trusted-worker boundary): TRUSTED harness worker, not
+                    # an agent CLI -- no jail here; the worker jails its own agent spawns
+                    # via orchestrator.spawn_agent. A future agent-CLI reroute MUST go
+                    # through _contain_selfheal.
+                    cmd = [sys.executable, '-m', 'harness.orchestrator_worker', '--state-dir', str(state_dir), '--task-id', tid]
+                    _worker_env = _build_worker_env(state_dir, tid)
+                    pid = None
+                    try:
+                        proc = subprocess.Popen(cmd, start_new_session=True, env=_worker_env)
+                        pid = proc.pid
+                        _write_pidfile(state_dir, tid, pid)
+                        suspend_parallel_workers(state_dir, exclude_pid=pid)
+                        _emit_telemetry(state_dir, tid, 'launch', f'pid={pid}')
+                        launched.append(tid)
+                        seq_start = time.time()
+                        synthesis_cfg = cfg.get('synthesis', {}) if isinstance(cfg, dict) else {}
+                        timeout_val = synthesis_cfg.get('timeout_seconds', 900) if isinstance(synthesis_cfg, dict) else 900
+                        try:
+                            watchdog_timeout = max(1800.0, 2.0 * float(timeout_val) + 600.0)
+                        except (TypeError, ValueError):
+                            watchdog_timeout = 1800.0
+                        try:
+                            while proc.poll() is None:
+                                now = time.time()
+                                if now - seq_start > watchdog_timeout:
+                                    _emit_telemetry(state_dir, tid, 'timeout', f'sequential worker timed out ({watchdog_timeout / 60:.0f} min)')
+                                    _kill_process_group(state_dir, tid, proc)
+                                    proc.wait()
+                                    break
+                                to_remove = set()
+                                for spid in _suspended_pids:
+                                    if now - _suspension_start_times.get(spid, now) > 300:
+                                        try:
+                                            os.kill(spid, signal.SIGKILL)
+                                            _emit_telemetry(state_dir, str(spid), 'watchdog_kill', f'pid={spid}')
+                                        except Exception as err:
+                                            _ = err
+                                        to_remove.add(spid)
+                                for spid in to_remove:
+                                    _suspended_pids.discard(spid)
+                                    _suspension_start_times.pop(spid, None)
+                                time.sleep(1.0)
+                        except Exception as exc:
+                            _ = exc
+                    except Exception as exc:
+                        _emit_telemetry(state_dir, tid, 'spawn_failed', repr(exc))
+                    finally:
+                        rdir = _running_dir(state_dir)
+                        pid_file = rdir / f'{tid}.pid'
+                        if pid_file.exists():
+                            try:
+                                pid_file.unlink()
+                            except OSError:
+                                pass
+                        resume_parallel_workers(state_dir)
+                else:
+                    pid = _spawn_worker(state_dir, tid)
+                    if pid is None:
+                        _emit_telemetry(state_dir, tid, 'skip', 'popen failed')
+                        continue
                     _write_pidfile(state_dir, tid, pid)
-                    suspend_parallel_workers(state_dir, exclude_pid=pid)
                     _emit_telemetry(state_dir, tid, 'launch', f'pid={pid}')
                     launched.append(tid)
-                    seq_start = time.time()
-                    synthesis_cfg = cfg.get('synthesis', {}) if isinstance(cfg, dict) else {}
-                    timeout_val = synthesis_cfg.get('timeout_seconds', 900) if isinstance(synthesis_cfg, dict) else 900
-                    try:
-                        watchdog_timeout = max(1800.0, 2.0 * float(timeout_val) + 600.0)
-                    except (TypeError, ValueError):
-                        watchdog_timeout = 1800.0
-                    try:
-                        while proc.poll() is None:
-                            now = time.time()
-                            if now - seq_start > watchdog_timeout:
-                                _emit_telemetry(state_dir, tid, 'timeout', f'sequential worker timed out ({watchdog_timeout / 60:.0f} min)')
-                                _kill_process_group(state_dir, tid, proc)
-                                proc.wait()
-                                break
-                            to_remove = set()
-                            for spid in _suspended_pids:
-                                if now - _suspension_start_times.get(spid, now) > 300:
-                                    try:
-                                        os.kill(spid, signal.SIGKILL)
-                                        _emit_telemetry(state_dir, str(spid), 'watchdog_kill', f'pid={spid}')
-                                    except Exception as err:
-                                        _ = err
-                                    to_remove.add(spid)
-                            for spid in to_remove:
-                                _suspended_pids.discard(spid)
-                                _suspension_start_times.pop(spid, None)
-                            time.sleep(1.0)
-                    except Exception as exc:
-                        _ = exc
-                except Exception as exc:
-                    _emit_telemetry(state_dir, tid, 'spawn_failed', repr(exc))
-                finally:
-                    rdir = _running_dir(state_dir)
-                    pid_file = rdir / f'{tid}.pid'
-                    if pid_file.exists():
-                        try:
-                            pid_file.unlink()
-                        except OSError:
-                            pass
-                    resume_parallel_workers(state_dir)
+                    running_claude_count += 1
             else:
                 pid = _spawn_worker(state_dir, tid)
                 if pid is None:
