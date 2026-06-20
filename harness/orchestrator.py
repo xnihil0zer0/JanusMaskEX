@@ -209,6 +209,19 @@ def _assert_claude_hook_config(cmd: list[str]) -> None:
     if not (isinstance(data, dict) and data.get('hooks', {}).get('PreToolUse')):
         raise RuntimeError(f'CONTAIN C5: claude --settings {settings_path} declares no PreToolUse hook; refusing to launch un-gated.')
 
+def _seed_claude_config_dir(agent, work_dir, task_id=None):
+    if agent != 'claude':
+        return {}
+    if not work_dir:
+        return {}
+    try:
+        config_dir = Path(work_dir) / '.claude_config'
+        config_dir.mkdir(parents=True, exist_ok=True)
+        return {'CLAUDE_CONFIG_DIR': str(config_dir)}
+    except OSError:
+        return {'CLAUDE_CONFIG_DIR': str(Path(work_dir) / '.claude_config')}
+    except Exception:
+        return {}
 def _apply_agy_pool_env(agent, env, config=None):
     """Pool a private $HOME onto an agy agent's spawn env when the worker pool
     is enabled and this worker was assigned a slot (JANUSMASK_AGY_SLOT). Only
@@ -378,6 +391,9 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
     if agent == 'antigravity':
         _boost_antigravity_mcp_config(Path(state_dir))
     env = _build_agent_env(agent, state_dir, round_number)
+    claude_env = _seed_claude_config_dir(agent, env['JANUSMASK_WORK_DIR'], env.get('JANUSMASK_TASK_ID'))
+    if claude_env:
+        env.update(claude_env)
     outbox_path = Path(env['JANUSMASK_WORK_DIR']) / 'outbox'
     outbox_path.mkdir(parents=True, exist_ok=True)
     _stage_inbox(Path(env['JANUSMASK_WORK_DIR']), env['JANUSMASK_MODE'], state_dir)
