@@ -364,6 +364,37 @@ def test_headless_claude_env_gets_distinct_config_dir(tmp_path, monkeypatch):
     assert 'CLAUDE_CONFIG_DIR' in env_a and 'CLAUDE_CONFIG_DIR' in env_b
     assert env_a['CLAUDE_CONFIG_DIR'] != env_b['CLAUDE_CONFIG_DIR']
 
+def test_config_dir_is_derived_from_work_dir_arg_not_env(tmp_path, monkeypatch):
+    """REGRESSION (README §8 footgun): CLAUDE_CONFIG_DIR is derived from the
+    work_dir ARG, not from a constant ambient env value.
+
+    The known claudecap footgun is an *env-derived* work dir: if the config dir
+    were computed from a process-wide env var instead of the per-task work_dir
+    argument, every concurrent Claude worker would resolve to the SAME
+    CLAUDE_CONFIG_DIR and clobber each other's session/credentials -- defeating
+    the GATING parallelism feature. This test pins that the returned path is a
+    CHILD of the work_dir argument and that a hostile ambient
+    ``CLAUDE_CONFIG_DIR`` env value does not leak through.
+
+    Impl-dependent / non-vacuous: hard-fails when the seeding entry point is
+    absent (no skip).
+    """
+    # A hostile ambient value that the seed MUST NOT echo back verbatim.
+    monkeypatch.setenv('CLAUDE_CONFIG_DIR', '/tmp/poisoned_ambient_claude_config')
+    state = tmp_path / 'state'
+    wd = tmp_path / 'wd_derive'
+    wd.mkdir(parents=True, exist_ok=True)
+    _write_task(state, 'claude-derive', ['src/d.py'], agent='claude', target_agent='claude', synthesis_agent='claude', working_dir=str(wd))
+    builder = _require_config_dir_builder(state, wd, 'claude-derive')
+    env = builder('claude', wd, 'claude-derive')
+    assert isinstance(env, dict) and 'CLAUDE_CONFIG_DIR' in env
+    cfg_dir = pathlib.Path(env['CLAUDE_CONFIG_DIR']).resolve()
+    wd_resolved = wd.resolve()
+    # Derived from the work_dir ARG: the seeded dir lives under the task's work_dir.
+    assert wd_resolved == cfg_dir or wd_resolved in cfg_dir.parents, f'CLAUDE_CONFIG_DIR {cfg_dir} is not under work_dir {wd_resolved} -- likely env-derived/constant'
+    # Did NOT echo the hostile ambient value.
+    assert cfg_dir != pathlib.Path('/tmp/poisoned_ambient_claude_config').resolve()
+
 def test_gemini_agy_env_remains_unchanged(tmp_path, monkeypatch):
     """Gemini / Agy worker env must NOT contain CLAUDE_CONFIG_DIR.
 

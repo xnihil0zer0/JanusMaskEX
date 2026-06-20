@@ -193,7 +193,7 @@ Recognized **frontmatter** keys (`load_brief` reads these; all others are passed
 | Key | Meaning |
 |---|---|
 | `title`,`scope`,`non_goals`,`inputs`,`deliverables` | the five required sections (frontmatter form). |
-| `working_dir` | target repo root (see [§5](#5-external-projects-working_dir)). Absent ⇒ build into JanusMask itself. If it resolves *inside* the repo but is not the repo root, the brief is rejected. |
+| `working_dir` | target repo root (see [§5](#5-external-projects-working_dir)). Absent ⇒ build into JanusMask itself. A path *inside* (or equal to) the repo is treated as a self-build and **loads cleanly** — `load_brief` does **not** reject an inside-but-not-root `working_dir` (its in-loader `_inside and not _target_is_self(...)` guard is inert: `_target_is_self` returns True for any sub-path of the repo). An *external* `working_dir` is admitted by `load_brief` and gated later, at bootstrap, by `external_roots.allow`. |
 | `epic` | `true` ⇒ hierarchical decomposition into child briefs. |
 | `required_task_ids` | list (or comma string) of task IDs the plan MUST contain; `validate_plan` rejects a plan that drops one (`missing_required_task`). Use on gated/internal leaves. |
 | `required_child_slugs` | (epic-only) child-brief slugs the decomposition MUST include; `validate_epic_plan` emits a `missing_required_child` error and the epic is **refused** if one is dropped. The epic analogue of `required_task_ids`. |
@@ -449,7 +449,7 @@ workers:
   claude_backend: tmux        # jailed interactive claude over a PTY (subscription-billed); 'headless' = -p API
   pin_task_cwd: true          # Int3: deterministic per-task cwd/CLAUDE_CONFIG_DIR from task_id (via the work_dir seam)
   resume_pinned_session: true # Int3: adds `claude --continue` when a pinned transcript exists so an AST-retry resumes the same session (needs pin_task_cwd ON)
-  agy_pool: { enabled: false, size: 8 }   # if enabled, size MUST be >= autowork.parallel_cap
+  agy_pool: { enabled: true, size: 8 }    # ON: each concurrent agy worker gets a private $HOME (size 8 >= parallel_cap 5). size SHOULD be >= autowork.parallel_cap
 
 hierarchical_planning:
   enabled: true
@@ -475,10 +475,11 @@ autocompiler:   # MIRROR of the runtime gate; the file actually read is config/a
 
 > The autocompiler hooks read **`config/autocompiler.yaml`** (`<cwd>/config/autocompiler.yaml`) at runtime, fail-closed — the `autocompiler:` subtree above only mirrors it. Edit `config/autocompiler.yaml` to change runtime behavior; keep both in sync. `scripts/run-autowork.sh` cd's to the repo root before launching; direct `python -m harness.autowork_daemon` invocations must also start from the repo root.
 
-> **`workers.agy_pool` caveat:** the `size >= autowork.parallel_cap` rule is **comment-only — NOT runtime-enforced**.
-> If the pool is enabled and exhausted (`size < parallel_cap` under load), slot allocation returns empty and workers
-> fall back to the **shared `~/.gemini` HOME**, racing each other's credentials/session state. Keep `size >= parallel_cap`
-> whenever you flip `enabled: true` (the default pool is `enabled: false`).
+> **`workers.agy_pool` caveat:** the pool currently **ships `enabled: true`** with `size: 8` (≥ `parallel_cap: 5`),
+> so each concurrent agy worker gets a private `$HOME`. The `size >= autowork.parallel_cap` rule is **comment-only —
+> NOT runtime-enforced**: if the pool is enabled and exhausted (`size < parallel_cap` under load), `allocate_slot`
+> returns empty and the extra workers fall back to the **shared `~/.gemini` HOME**, racing each other's
+> credentials/session state. Keep `size >= parallel_cap` whenever the pool is enabled.
 
 ---
 
