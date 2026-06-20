@@ -1024,9 +1024,10 @@ def _single_agent_promotion_decision(config: dict[str, Any], task: dict[str, Any
     synthesis_cfg = config.get('synthesis', {}) if isinstance(config, dict) else {}
     if not synthesis_cfg.get('enable_single_agent_promotion', False):
         return (False, 'Single-agent promotion is disabled')
-    ceiling = synthesis_cfg.get('single_agent_promotion_ceiling', 3)
-    if consecutive_failures < ceiling:
-        return (False, f'Ceiling not reached (consecutive failures: {consecutive_failures})')
+    if failing_violations:
+        ceiling = synthesis_cfg.get('single_agent_promotion_ceiling', 3)
+        if consecutive_failures < ceiling:
+            return (False, f'Ceiling not reached (consecutive failures: {consecutive_failures})')
     files_touched = task.get('files_touched', []) if isinstance(task, dict) else []
     is_sensitive = bool(isinstance(task, dict) and task.get('meta_task_type') == 'harness_self_fix')
     if not is_sensitive:
