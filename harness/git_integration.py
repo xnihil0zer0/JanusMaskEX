@@ -1488,10 +1488,6 @@ def remove_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
     else:
         parent_root_obj = pathlib.Path(parent_root).resolve()
     cwd_str = str(parent_root_obj)
-    try:
-        subprocess.run(['git', 'worktree', 'prune'], cwd=cwd_str, check=False, capture_output=True, timeout=30)
-    except Exception:
-        pass
     removed = False
     for attempt in range(3):
         try:
@@ -1500,7 +1496,21 @@ def remove_staging_worktree(staging_path: str, parent_root: str | pathlib.Path |
             removed = True
             break
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
-            logger.warning(f'git worktree remove attempt {attempt + 1}/3 failed: {e}')
+            err_msg = f"{e}"
+            stderr = getattr(e, 'stderr', '') or ''
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode('utf-8', errors='replace')
+            if stderr:
+                err_msg += f"\nstderr: {stderr.strip()}"
+
+            if isinstance(e, subprocess.CalledProcessError) and any(
+                pat in stderr.lower() for pat in ["is not a working tree", "no such working tree"]
+            ):
+                logger.info(f'Removed staging worktree reference for {staging_path}')
+                removed = True
+                break
+
+            logger.warning(f'git worktree remove attempt {attempt + 1}/3 failed: {err_msg}')
             try:
                 subprocess.run(['git', 'worktree', 'prune'], cwd=cwd_str, check=False, capture_output=True, timeout=30)
             except Exception:
