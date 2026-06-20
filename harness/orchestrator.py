@@ -1559,6 +1559,19 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
     and the single-file fallback so the AST-retry loop forces the agent
     to resubmit as a __JANUSMASK_MANIFEST__ dict.
 
+    G_MANIFEST_EXTRA (2026-06-19): add the symmetric extra-key check. The
+    pre-existing ``_missing`` test only rejects the MISSING direction (a
+    declared files_touched entry absent from the manifest ->
+    ``manifest_incomplete``). A worker could still emit a manifest carrying
+    EXTRA keys NOT in the declared ``files_touched`` (e.g. re-including a
+    renamed test file on a config-only task); those stray keys get
+    AST-merged/written and break the build. When ``files_touched`` is
+    non-empty we now reject any manifest key whose normalized path is not in
+    the normalized declared set with a ``manifest_undeclared_key`` violation.
+    Reuses the same ``_norm_manifest_path`` helper so backslash / leading
+    ``./`` variants normalize identically. Empty/absent files_touched leaves
+    behavior unchanged.
+
     VALIDATOR_SIG (2026-06-01): the task's return-typed
     ``declared_signature`` names exactly one function, so in a partial-edit
     ``__JANUSMASK_PATCHES__`` submission it must only gate the patch entry
@@ -1617,6 +1630,17 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
                    'key mapped to its full source. Resubmit a complete manifest.')
             logger.warning('%s manifest submission empty/incomplete (declared=%r, manifest_keys=%r)', agent, _declared, list(manifest.keys()))
             return (False, [Violation(rule='manifest_incomplete', severity='error', line=0, message=msg)])
+        if _declared:
+            _declared_norm = {_norm_manifest_path(f) for f in _declared}
+            _extra = [k for k in manifest if _norm_manifest_path(k) not in _declared_norm]
+            if _extra:
+                msg = (f'__JANUSMASK_MANIFEST__ carries undeclared keys {_extra} not '
+                       f'present in files_touched {_declared}: a manifest key set must '
+                       'be a subset of the declared files_touched. Stray keys get '
+                       'AST-merged/written and break the build. Resubmit a manifest '
+                       'whose keys exactly match files_touched.')
+                logger.warning('%s manifest submission has undeclared keys (declared=%r, extra=%r)', agent, _declared, _extra)
+                return (False, [Violation(rule='manifest_undeclared_key', severity='error', line=0, message=msg)])
         all_violations: list = []
         for rel, src in manifest.items():
             if not rel.endswith('.py'):
