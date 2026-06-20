@@ -8,12 +8,14 @@ daemon's parallel_cap so no concurrent worker is left sharing the registry.
 from harness.orchestrator import load_config
 
 
-def test_agy_pool_block_present_and_default_off():
+def test_agy_pool_block_present_and_enabled():
     cfg = load_config()
     assert "workers" in cfg, "config.yaml has no workers: block"
     pool = cfg["workers"]["agy_pool"]
-    # Ships OFF: disabled => daemon-spawned agy workers share ~/.gemini as before.
-    assert pool["enabled"] is False
+    # ENABLED (NGv2 closure program 2026-06-19): each concurrent agy/gemini
+    # worker gets a private $HOME so parallel registries cannot corrupt each
+    # other. size MUST still cover parallel_cap (asserted below).
+    assert pool["enabled"] is True
 
 
 def test_agy_pool_size_covers_parallel_cap():
