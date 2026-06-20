@@ -274,7 +274,7 @@ def author_oracle(target_module_name: str, target_source: str, spec, config, sta
                     reviewed = None
                 if reviewed is not None and _reviewed_oracle_revalidates(reviewed, target_source, target_module_name, python_exe=python_exe, real_impl_gate=real_impl_gate):
                     final_code = reviewed
-            return GeneratedOracle(test_code=final_code, verification_command=verification_command, test_filename=f'test_{target_module_name}_oracle.py', attempts=attempt + 1)
+            return GeneratedOracle(test_code=repair_selfref_assertions(final_code), verification_command=verification_command, test_filename=f'test_{target_module_name}_oracle.py', attempts=attempt + 1)
     raise VacuousOracleError(f'all {max_attempts} oracle drafts for {target_module_name!r} were vacuous (passed the NotImplementedError stub) or unparseable')
 
 def build_review_prompt(target_module_name: str, candidate_test_code: str, target_source: str | None, spec, unit_names: list[str] | None=None) -> str:
@@ -324,6 +324,182 @@ def _review_enabled(config, task_id: str | None=None) -> bool:
         return True
     return bool(ta_cfg.get('review_pass', True))
 
+def is_self_source_expr(node: ast.AST) -> bool:
+    for subnode in ast.walk(node):
+        if isinstance(subnode, ast.Call):
+            if isinstance(subnode.func, ast.Name) and subnode.func.id == 'open':
+                if subnode.args and isinstance(subnode.args[0], ast.Name) and (subnode.args[0].id == '__file__'):
+                    return True
+            elif isinstance(subnode.func, ast.Name) and subnode.func.id == 'Path':
+                if subnode.args and isinstance(subnode.args[0], ast.Name) and (subnode.args[0].id == '__file__'):
+                    return True
+            elif isinstance(subnode.func, ast.Attribute) and subnode.func.attr == 'getsource':
+                if isinstance(subnode.func.value, ast.Name) and subnode.func.value.id == 'inspect':
+                    return True
+            elif isinstance(subnode.func, ast.Name) and subnode.func.id == 'getsource':
+                return True
+    return False
+
+def get_assigned_names(targets) -> set[str]:
+    names = set()
+    for target in targets:
+        for node in ast.walk(target):
+            if isinstance(node, ast.Name):
+                names.add(node.id)
+    return names
+
+def is_literal_absence_assert_expr(test_expr: ast.AST, self_source_vars: set[str]) -> bool:
+    if isinstance(test_expr, ast.UnaryOp) and isinstance(test_expr.op, ast.Not):
+        test_expr = test_expr.operand
+    if isinstance(test_expr, ast.Compare):
+        if len(test_expr.ops) == 1 and isinstance(test_expr.ops[0], (ast.In, ast.NotIn)):
+            left = test_expr.left
+            right = test_expr.comparators[0]
+            left_is_var = isinstance(left, ast.Name) and left.id in self_source_vars
+            right_is_var = isinstance(right, ast.Name) and right.id in self_source_vars
+            left_is_lit = isinstance(left, ast.Constant) or type(left).__name__ == 'Str'
+            right_is_lit = isinstance(right, ast.Constant) or type(right).__name__ == 'Str'
+            if left_is_var and right_is_lit or (right_is_var and left_is_lit):
+                return True
+        for op in test_expr.ops:
+            if isinstance(op, (ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE)):
+                all_exprs = [test_expr.left] + test_expr.comparators
+                has_find_call = False
+                has_neg_const = False
+                for expr in all_exprs:
+                    if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute) and (expr.func.attr in ('find', 'count')):
+                        if isinstance(expr.func.value, ast.Name) and expr.func.value.id in self_source_vars:
+                            if expr.args and (isinstance(expr.args[0], ast.Constant) or type(expr.args[0]).__name__ == 'Str'):
+                                has_find_call = True
+                    elif isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.USub) and isinstance(expr.operand, ast.Constant) and (expr.operand.value == 1):
+                        has_neg_const = True
+                    elif isinstance(expr, ast.Constant) and isinstance(expr.value, int) and (expr.value <= 0):
+                        has_neg_const = True
+                if has_find_call and has_neg_const:
+                    return True
+    return False
+
+def is_descendant_of_any(child: ast.AST, parents) -> bool:
+    for parent in parents:
+        for node in ast.walk(parent):
+            if node is child:
+                return True
+    return False
+
+class SelfRefAssertionRepairer(ast.NodeTransformer):
+
+    def __init__(self, assertions_to_remove: set[ast.AST], assignments_to_remove: set[ast.AST]):
+        super().__init__()
+        self.assertions_to_remove = assertions_to_remove
+        self.assignments_to_remove = assignments_to_remove
+
+    def visit(self, node: ast.AST) -> ast.AST | None:
+        if node in self.assertions_to_remove or node in self.assignments_to_remove:
+            return None
+        node = super().visit(node)
+        if node is None:
+            return None
+        if not isinstance(node, ast.Module):
+            for field, value in ast.iter_fields(node):
+                if isinstance(value, list):
+                    if field in ('body', 'orelse', 'finalbody') and (not value):
+                        value.append(ast.Pass())
+        return node
+
+def repair_selfref_assertions(test_code: str) -> str:
+    try:
+        tree = ast.parse(test_code)
+    except Exception:
+        return test_code
+    functions = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            functions.append(node)
+    assertions_to_remove = set()
+    assignments_to_remove = set()
+    for func_node in functions:
+        self_source_vars = set()
+        self_source_bindings = []
+        assign_nodes = set()
+        for subnode in ast.walk(func_node):
+            if isinstance(subnode, ast.Assign):
+                if is_self_source_expr(subnode.value):
+                    assign_nodes.add(subnode)
+                    names = get_assigned_names(subnode.targets)
+                    for name in names:
+                        self_source_vars.add(name)
+                        self_source_bindings.append((name, subnode))
+            elif isinstance(subnode, ast.AnnAssign):
+                if subnode.value and is_self_source_expr(subnode.value):
+                    assign_nodes.add(subnode)
+                    names = get_assigned_names([subnode.target])
+                    for name in names:
+                        self_source_vars.add(name)
+                        self_source_bindings.append((name, subnode))
+        if not self_source_vars:
+            continue
+        changed = True
+        while changed:
+            changed = False
+            for subnode in ast.walk(func_node):
+                if isinstance(subnode, ast.Assign):
+                    if isinstance(subnode.value, ast.Name) and subnode.value.id in self_source_vars:
+                        names = get_assigned_names(subnode.targets)
+                        for name in names:
+                            if name not in self_source_vars:
+                                self_source_vars.add(name)
+                                self_source_bindings.append((name, subnode))
+                                assign_nodes.add(subnode)
+                                changed = True
+                elif isinstance(subnode, ast.AnnAssign):
+                    if subnode.value and isinstance(subnode.value, ast.Name) and (subnode.value.id in self_source_vars):
+                        names = get_assigned_names([subnode.target])
+                        for name in names:
+                            if name not in self_source_vars:
+                                self_source_vars.add(name)
+                                self_source_bindings.append((name, subnode))
+                                assign_nodes.add(subnode)
+                                changed = True
+        func_assertions_to_remove = set()
+        for subnode in ast.walk(func_node):
+            if isinstance(subnode, ast.Assert):
+                if is_literal_absence_assert_expr(subnode.test, self_source_vars):
+                    func_assertions_to_remove.add(subnode)
+                    assertions_to_remove.add(subnode)
+        unused_vars = set()
+        for v in self_source_vars:
+            v_names = []
+            for subnode in ast.walk(func_node):
+                if isinstance(subnode, ast.Name) and subnode.id == v:
+                    v_names.append(subnode)
+            v_assigns = [node for name, node in self_source_bindings if name == v]
+            used_elsewhere = False
+            for name_node in v_names:
+                if is_descendant_of_any(name_node, func_assertions_to_remove):
+                    continue
+                if is_descendant_of_any(name_node, v_assigns):
+                    continue
+                used_elsewhere = True
+                break
+            if not used_elsewhere:
+                unused_vars.add(v)
+        for assign_node in assign_nodes:
+            if isinstance(assign_node, ast.Assign):
+                names = get_assigned_names(assign_node.targets)
+            else:
+                names = get_assigned_names([assign_node.target])
+            if all((name in unused_vars for name in names)):
+                assignments_to_remove.add(assign_node)
+    if not assertions_to_remove and (not assignments_to_remove):
+        return test_code
+    repairer = SelfRefAssertionRepairer(assertions_to_remove, assignments_to_remove)
+    repaired_tree = repairer.visit(tree)
+    if repaired_tree is None:
+        return ''
+    try:
+        return ast.unparse(repaired_tree)
+    except Exception:
+        return test_code
 def _has_test_function(tree: ast.AST) -> bool:
     """Return True iff ``tree`` defines at least one ``test*``-named function.
 
