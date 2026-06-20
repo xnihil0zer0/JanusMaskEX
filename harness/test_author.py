@@ -402,7 +402,7 @@ class SelfRefAssertionRepairer(ast.NodeTransformer):
         if not isinstance(node, ast.Module):
             for field, value in ast.iter_fields(node):
                 if isinstance(value, list):
-                    if field in ('body', 'orelse', 'finalbody') and (not value):
+                    if field == 'body' and (not value):
                         value.append(ast.Pass())
         return node
 
