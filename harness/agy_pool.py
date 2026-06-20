@@ -60,6 +60,35 @@ def allocate_slot(busy, size: int=POOL_SIZE):
             return i
     return None
 
+class PoolInvariantError(ValueError):
+    """Raised when an enabled pool's ``size`` cannot cover ``parallel_cap``.
+
+    A ``ValueError`` subclass so existing ``except ValueError`` handlers still
+    catch it, while a named type lets callers distinguish the pool-sizing
+    footgun (a concurrent worker beyond ``size`` would get no slot and silently
+    fall back to the shared HOME).
+    """
+
+def effective_pool_size(*, enabled: bool, size: int, parallel_cap: int) -> int:
+    """Return the pool size the runtime MUST use.
+
+    When the pool is ``enabled`` the result can never be below ``parallel_cap``
+    (auto-clamps UP) so every concurrent worker is guaranteed a private slot.
+    When disabled the requested ``size`` is returned unchanged (no pooling).
+    """
+    if not enabled:
+        return size
+    return size if size >= parallel_cap else parallel_cap
+
+def assert_pool_invariant(*, enabled: bool, size: int, parallel_cap: int) -> None:
+    """Fail-closed guard: raise ``PoolInvariantError`` if the invariant breaks.
+
+    Raises when the pool is ``enabled`` and ``size < parallel_cap`` (the message
+    surfaces both the offending ``size`` and ``parallel_cap``); a no-op when the
+    invariant holds or the pool is disabled.
+    """
+    if enabled and size < parallel_cap:
+        raise PoolInvariantError(f'agy pool enabled with size={size} < parallel_cap={parallel_cap}: concurrent workers beyond size would fall back to the shared HOME')
 def worker_env(repo_root: str, slot: int, base_env: dict) -> dict:
     """Return a new env dict: ``base_env`` + private HOME + GCA flag.
 
