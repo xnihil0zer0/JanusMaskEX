@@ -1093,7 +1093,17 @@ def _agy_pool_busy_slots(state_dir):
 
 def _agy_pool_assign(state_dir, task_id):
     """Reserve the lowest free agy-pool slot for task_id, or None when the pool
-    is disabled or full. Records a <task_id>.slot sidecar next to the pidfile."""
+    is disabled or full. Records a <task_id>.slot sidecar next to the pidfile.
+
+    AGY-POOL-INVARIANT (loud, NON-FATAL): when the pool is enabled the pool
+    ``size`` should be at least the dispatch ``parallel_cap`` -- an undersized
+    pool means concurrently dispatched agy workers can exhaust the slots and
+    silently fall back to a shared $HOME. This guard emits an
+    ``agy_pool_invariant_violated`` telemetry row (via _emit_telemetry) when
+    ``size < parallel_cap`` and then CONTINUES with normal slot allocation -- it
+    never raises or aborts the assignment. Any config-parsing error while
+    retrieving the cap is swallowed so the guard can never break slot assignment.
+    """
     from harness.orchestrator import load_config
     from harness import agy_pool
     try:
@@ -1107,6 +1117,16 @@ def _agy_pool_assign(state_dir, task_id):
         size = int(pool.get('size') or agy_pool.POOL_SIZE)
     except (TypeError, ValueError):
         size = agy_pool.POOL_SIZE
+    # AGY-POOL-INVARIANT (non-fatal): warn loudly when the enabled pool is
+    # smaller than the dispatch parallel_cap. Best-effort: any error computing
+    # the cap (config parsing) is swallowed so the guard never disrupts the
+    # assignment below.
+    try:
+        parallel_cap = _parallel_cap(config)
+        if size < parallel_cap:
+            _emit_telemetry(state_dir, task_id, 'agy_pool_invariant_violated', f'agy_pool size={size} < parallel_cap={parallel_cap}')
+    except Exception:
+        pass
     slot = agy_pool.allocate_slot(_agy_pool_busy_slots(state_dir), size)
     if slot is None:
         return None
