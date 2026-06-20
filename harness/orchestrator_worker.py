@@ -587,6 +587,14 @@ def main() -> int:
                 exit_code = 1
                 return exit_code
             mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
+            if mtt == 'test_authoring':
+                try:
+                    from harness.test_author import repair_selfref_assertions
+                    repaired = repair_selfref_assertions(agent_a_code)
+                    if repaired is not None:
+                        agent_a_code = repaired
+                except Exception:
+                    pass
             _skip_ifz = (mtt == 'test_authoring') and META_TASK_POLICY.get('test_authoring', {}).get('skip_interface_fuzz')
             if META_TASK_POLICY.get(mtt, {}).get('stateful_fuzz'):
                 set_phase(state_dir, phase='fuzzing')
