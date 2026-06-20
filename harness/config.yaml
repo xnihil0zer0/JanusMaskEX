@@ -71,6 +71,7 @@ autowork:
   onesided_oracle_blocking: true
   heartbeat_sec: 1800
   parallel_cap: 5
+  claude_parallel_cap: 4
   planner_min_wall_sec: 10.0
   planner_timeout_sec: 1800
   poll_interval_sec: 5
