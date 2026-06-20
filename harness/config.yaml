@@ -177,7 +177,7 @@ workers:
   # HOME so parallel agy registries cannot corrupt each other. size MUST be >=
   # autowork.parallel_cap (currently 5) so no concurrent worker is left unpooled.
   agy_pool:
-    enabled: false
+    enabled: true
     size: 8
 
 # Autocompiler (Phase C, epic brief_hooks_autocompiler.md) -- master gate plus
