@@ -159,9 +159,88 @@ def _ensure_work_branch(root: Path) -> None:
         return
     _git(['branch', _WORK_BRANCH], cwd=root, check=True)
 
+def _resolve_target_interpreter(root: Path) -> str:
+    """Resolve the interpreter used to create the target's venv.
+
+    Honors, in order: the target's ``.python-version`` (first non-blank,
+    non-comment line), then a python requirement pin in ``pyproject.toml``
+    (``requires-python``) or ``setup.cfg`` (``python_requires``). Falls back to
+    the current ``sys.executable`` when no pin is found (README ABI caveat: a
+    target pinning e.g. 3.11 must steer venv creation to a 3.11 interpreter).
+    Always returns a non-empty interpreter string.
+    """
+    import re
+    pv = root / '.python-version'
+    if pv.is_file():
+        try:
+            raw = pv.read_text(encoding='utf-8')
+        except OSError:
+            raw = ''
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            m = re.search('(\\d+\\.\\d+(?:\\.\\d+)?)', line)
+            if m:
+                return 'python' + m.group(1)
+            return line
+    for name in ('pyproject.toml', 'setup.cfg'):
+        cand = root / name
+        if not cand.is_file():
+            continue
+        try:
+            text = cand.read_text(encoding='utf-8')
+        except OSError:
+            continue
+        m = re.search('requires-python\\s*=\\s*["\\\']?[^0-9]*?(\\d+\\.\\d+)', text)
+        if m is None:
+            m = re.search('python_requires\\s*=\\s*[^0-9]*?(\\d+\\.\\d+)', text)
+        if m:
+            return 'python' + m.group(1)
+    return sys.executable
+
+def _external_venv_dir(root: Path) -> Path:
+    """Outside-repo scratch dir for the target's venv (CR-3 / P0.2).
+
+    Keyed by a stable hash of the resolved target root so re-bootstrapping the
+    same target reuses its scratch venv, and so the venv never lives inside the
+    (read-only-bound) target tree.
+    """
+    import hashlib
+    key = str(Path(root).resolve())
+    digest = hashlib.sha256(key.encode('utf-8')).hexdigest()[:16]
+    return agent_workroot() / 'external_venvs' / digest
+
+def _jailed_install_argv(*, root: Path, venv: Path, req: Path, pip: Path) -> list[str]:
+    """Pure helper: the bwrap-jailed, network-unshared, lockfile-only install argv.
+
+    Builds the dependency-install command via
+    :func:`harness.agent_jail.build_jail_argv` with ``bind_credentials=False``
+    (drops the entire ~/.gemini / ~/.claude credential surface and adds
+    ``--unshare-net`` -- no host network, no exfil) and ``extra_rw=[str(venv)]``
+    (the venv scratch is the ONLY writable host bind so the jailed pip can
+    install into it). The target tree is bound READ-ONLY (``repo_root=root``) so
+    pip can read the lockfile but cannot tamper with the source. The install is
+    driven ONLY by the lockfile (``-r <req>``) -- never a loose, stderr-named
+    package. Raises ``FileNotFoundError`` (from ``build_jail_argv``) when
+    ``bwrap`` is absent; the caller fails closed on that.
+    """
+    from harness.agent_jail import build_jail_argv
+    from harness.paths import STATE_DIR
+    cmd = [str(pip), 'install', '--no-input', '--disable-pip-version-check', '-r', str(req)]
+    return build_jail_argv(cmd, repo_root=root, work_dir=venv, state_dir=STATE_DIR, extra_rw=[str(venv)], bind_credentials=False)
 def _ensure_venv(root: Path) -> None:
-    """Best-effort, bounded ``.venv`` + deps. Never hangs on the network."""
-    venv = root / '.venv'
+    """Best-effort, bounded venv + deps, installed inside a credential-free,
+    network-unshared bwrap jail, from the target's OWN lockfile only.
+
+    No unjailed host ``pip install`` ever runs: the install dispatches through
+    :func:`_jailed_install_argv`. The venv lives at outside-repo scratch (under
+    ``agent_workroot()``) and is created with the target's resolved interpreter
+    (falling back to ``sys.executable`` so venv creation never hard-fails on a
+    missing pinned interpreter). Fail-closed when ``bwrap`` is absent: the
+    ``FileNotFoundError`` raised by ``build_jail_argv`` is swallowed and we
+    return WITHOUT any host fallback install. Never hangs on the network.
+    """
     req = None
     for name in ('requirements.txt', 'requirements-dev.txt'):
         cand = root / name
@@ -170,16 +249,34 @@ def _ensure_venv(root: Path) -> None:
             break
     if req is None:
         return
-    if not venv.exists():
+    venv = _external_venv_dir(root)
+    if not (venv / 'bin' / 'python').exists():
         try:
-            subprocess.run([sys.executable, '-m', 'venv', str(venv)], capture_output=True, text=True, check=True, timeout=_VENV_TIMEOUT)
-        except (subprocess.SubprocessError, OSError):
+            venv.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return
+        interpreter = _resolve_target_interpreter(root)
+        created = False
+        for candidate in (interpreter, sys.executable):
+            if not candidate:
+                continue
+            try:
+                subprocess.run([candidate, '-m', 'venv', str(venv)], capture_output=True, text=True, check=True, timeout=_VENV_TIMEOUT)
+                created = True
+                break
+            except (subprocess.SubprocessError, OSError):
+                continue
+        if not created:
             return
     pip = venv / 'bin' / 'pip'
     if not pip.is_file():
         return
     try:
-        subprocess.run([str(pip), 'install', '--no-input', '--disable-pip-version-check', '-r', str(req)], capture_output=True, text=True, check=False, timeout=_VENV_TIMEOUT)
+        argv = _jailed_install_argv(root=root, venv=venv, req=req, pip=pip)
+    except FileNotFoundError:
+        return
+    try:
+        subprocess.run(argv, capture_output=True, text=True, check=False, timeout=_VENV_TIMEOUT)
     except (subprocess.SubprocessError, OSError):
         return
 
