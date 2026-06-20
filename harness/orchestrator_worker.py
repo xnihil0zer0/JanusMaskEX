@@ -414,6 +414,57 @@ def main() -> int:
                         _print_json_line({'task_id': task_id, 'outcome': 'timeout', 'reason': 'both_agents_timed_out', 'attempt': ast_retries})
                         exit_code = 2
                         return exit_code
+                    if (agent_a_code is None) != (agent_b_code is None):
+                        if agent_a_code is not None:
+                            present_agent, present_code = agent_a, agent_a_code
+                            failing_agent, failing_violations = agent_b, []
+                        else:
+                            present_agent, present_code = agent_b, agent_b_code
+                            failing_agent, failing_violations = agent_a, []
+
+                        set_phase(state_dir, phase='ast_validation')
+                        orch._emit_lifecycle(state_dir, event='phase_transition', phase='ast_validation', task_id=task_id, phase_transition={'to': 'ast_validation'})
+                        present_valid, present_violations = orch._validate_submission(present_code, present_agent, task)
+                        if not present_valid:
+                            repaired = orch._try_auto_repair(present_code, present_violations, present_agent, task_id)
+                            if repaired is not None:
+                                revalid_ok, revalid_v = orch._validate_submission(repaired, present_agent, task)
+                                if revalid_ok:
+                                    present_code = repaired
+                                    present_valid = True
+                                    present_violations = revalid_v
+
+                        if agent_a_code is not None:
+                            agent_a_code = present_code
+                        else:
+                            agent_b_code = present_code
+
+                        if present_valid:
+                            valid_cache[present_agent] = present_code
+                            try:
+                                _retry_sidecar = state_dir / 'tasks' / 'blocked' / f'{task_id}.retry.json'
+                                consecutive_failures = int(json.loads(_retry_sidecar.read_text(encoding='utf-8')).get('attempts', 0)) + 1
+                            except Exception:
+                                consecutive_failures = 1
+                            try:
+                                _decision_path = state_dir / 'control' / 'decisions' / f'{task_id}.json'
+                                _decision = json.loads(_decision_path.read_text(encoding='utf-8')).get('decision', '')
+                                approval_ok = isinstance(_decision, str) and _decision.strip().lower() in {'approve', 'approved'}
+                            except Exception:
+                                approval_ok = False
+
+                            promote, reason = _single_agent_promotion_decision(
+                                config, task, state_dir,
+                                valid_agent=present_agent, valid_code=present_code,
+                                failing_agent=failing_agent, failing_violations=failing_violations,
+                                consecutive_failures=consecutive_failures, approval_ok=approval_ok
+                            )
+                            if promote:
+                                orch._emit_lifecycle(state_dir, event='single_agent_promotion', task_id=task_id, detail=reason)
+                                agent_a_code = present_code
+                                agent_b_code = present_code
+                                synthesis_success = True
+                                break
                     if not agent_a_code or not agent_b_code:
                         ast_retries += 1
                         if not agent_a_code:
@@ -434,17 +485,17 @@ def main() -> int:
                         if repaired is not None:
                             revalid_ok, revalid_v = orch._validate_submission(repaired, agent_a, task)
                             if revalid_ok:
-                                agent_a_code = repaired
-                                agent_a_valid = True
-                                agent_a_violations = revalid_v
+                                    agent_a_code = repaired
+                                    agent_a_valid = True
+                                    agent_a_violations = revalid_v
                     if not agent_b_valid:
                         repaired = orch._try_auto_repair(agent_b_code, agent_b_violations, agent_b, task_id)
                         if repaired is not None:
                             revalid_ok, revalid_v = orch._validate_submission(repaired, agent_b, task)
                             if revalid_ok:
-                                agent_b_code = repaired
-                                agent_b_valid = True
-                                agent_b_violations = revalid_v
+                                    agent_b_code = repaired
+                                    agent_b_valid = True
+                                    agent_b_violations = revalid_v
                     # P5a: store each agent's validated code in the cache only once it is
                     # AST-valid (after any auto-repair). A failing agent's slot stays None
                     # so it is re-synthesized next attempt; a now-valid agent is reused.
@@ -801,9 +852,7 @@ def main() -> int:
                 # task still CLAIMED as <id>.json.processing (no body terminal ran
                 # _mark_processed/_mark_blocked), route it to blocked/ here so the
                 # worker self-heals instead of depending solely on the daemon's
-                # out-of-band _reclaim_orphan_processing sweep. No-op once a body
-                # terminal already consumed the .processing file, so a cleanly
-                # rejected task is NOT double-bumped. Never raises out of finally.
+                # out-of-band _reclaim_orphan_processing sweep. Never raises out of finally.
                 try:
                     if processing.exists():
                         from harness import orchestrator as _orch
