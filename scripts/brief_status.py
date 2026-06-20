@@ -36,26 +36,60 @@ def main():
     ap.add_argument('--archive', metavar='STAMP', help='git-mv DONE leaves + ORPHAN-PLANs into _autowork_archive/<STAMP>/reconciled/ (epics untouched)')
     args = ap.parse_args()
     rows = classify()
-    width = max((len(r[0]) for r in rows), default=10)
+    state_to_label = {
+        'unplanned': 'NEEDS-PLAN',
+        'complete': 'DONE',
+        'zombie': 'ORPHAN-PLAN',
+        'planned': 'PENDING',
+        'queued': 'PENDING',
+        'in_flight': 'PENDING',
+        'blocked': 'PENDING',
+    }
     order = {'NEEDS-PLAN': 0, 'PENDING': 1, 'EPIC': 2, 'DONE': 3, 'ORPHAN-PLAN': 4}
-    for slug, status, detail, _b, _p in sorted(rows, key=lambda r: (order[r[1]], r[0])):
-        print(f'  {status:<12} {slug:<{width}}  {detail}')
+
+    def label_for(state):
+        key = str(state)
+        if key in state_to_label:
+            return state_to_label[key]
+        return key.upper()
+
+    decorated = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        label = label_for(row.get('state', ''))
+        slug = str(row.get('slug', ''))
+        detail = str(row.get('detail', ''))
+        decorated.append((label, slug, detail, row))
+    decorated.sort(key=lambda d: (order.get(d[0], 99), d[1]))
+
+    label_w = max((len(d[0]) for d in decorated), default=len('NEEDS-PLAN'))
+    slug_w = max((len(d[1]) for d in decorated), default=0)
+    for label, slug, detail, _row in decorated:
+        print(f'{label:<{label_w}}  {slug:<{slug_w}}  {detail}'.rstrip())
+
     counts = {}
-    for _s, status, *_ in rows:
-        counts[status] = counts.get(status, 0) + 1
-    print('\n  ' + '  '.join((f'{k}={v}' for k, v in sorted(counts.items()))))
+    for label, _slug, _detail, _row in decorated:
+        counts[label] = counts.get(label, 0) + 1
+    summary_labels = sorted(counts, key=lambda k: (order.get(k, 99), k))
+    print('\n' + ' '.join((f'{k}={counts[k]}' for k in summary_labels)))
+
     if not args.archive:
         return 0
     dest = REPO / '_autowork_archive' / args.archive / 'reconciled'
     dest.mkdir(parents=True, exist_ok=True)
     moved = 0
-    for slug, status, _d, bpath, ppath in rows:
-        if status not in ('DONE', 'ORPHAN-PLAN'):
+    for label, _slug, _detail, row in decorated:
+        if label not in ('DONE', 'ORPHAN-PLAN'):
             continue
-        for f in (bpath, ppath):
-            if not (f and f.exists()):
+        for key in ('brief_filename', 'plan_filename'):
+            name = row.get(key)
+            if not name:
                 continue
-            target = dest / f.name
+            f = REPO / name
+            if not f.exists():
+                continue
+            target = dest / pathlib.Path(name).name
             subprocess.run(['git', 'mv', str(f), str(target)], cwd=REPO, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if f.exists():
                 shutil.move(str(f), str(target))
