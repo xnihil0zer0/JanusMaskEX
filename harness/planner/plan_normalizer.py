@@ -412,6 +412,16 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
     to ``data_model``, removes the rest, and strips any removed id from every
     surviving task's ``dependencies``.
 
+    KEEP-MORE GUARD: a non-survivor ``test_authoring`` oracle is NEVER dropped
+    by this collapse when the operator pinned it (its ``task_id`` is a member of
+    the plan-level ``required_task_ids``) or when a same-group impl candidate
+    explicitly lists that oracle's ``task_id`` in its ``dependencies``.  Such an
+    oracle is a deliberate fix-forward RED oracle the impl must turn GREEN, and
+    silently dropping it would destroy the red-pair.  The guard is strictly
+    additive: it can only KEEP more ``test_authoring`` oracles, never broadens
+    the keep set to ordinary impls, and does not affect survivor selection,
+    retyping, or any other collapse logic for normal plans.
+
     The pass is pure (deep copy, no mutation of the input, no I/O beyond the
     ``is_file()`` existence checks under ``repo_root``) and idempotent.  It is a
     strict no-op returning the input object unchanged when ``repo_root`` is
@@ -460,6 +470,15 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
         if not oset:
             continue
         groups.setdefault(oset, []).append(t)
+    # Keep-more guard inputs: the operator-pinned required task ids. The plan
+    # field may be a list/tuple/set of ids or a comma-joined string.
+    _required = result.get('required_task_ids')
+    if isinstance(_required, str):
+        required_ids: Set[str] = {s.strip() for s in _required.split(',') if s.strip()}
+    elif isinstance(_required, (list, tuple, set)):
+        required_ids = {r for r in _required if isinstance(r, str)}
+    else:
+        required_ids = set()
     removed_ids: Set[str] = set()
     for group in groups.values():
         impl_candidates = [t for t in group if t.get('meta_task_type') not in non_impl]
@@ -467,10 +486,21 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
             continue
         survivor = min(impl_candidates, key=_task_id)
         survivor['meta_task_type'] = 'data_model'
+        # Ids that a same-group impl candidate explicitly depends on.
+        depended_ids: Set[str] = set()
+        for impl in impl_candidates:
+            deps = impl.get('dependencies')
+            if isinstance(deps, list):
+                depended_ids.update(d for d in deps if isinstance(d, str))
         for t in group:
             if t is survivor:
                 continue
-            removed_ids.add(_task_id(t))
+            tid = _task_id(t)
+            # KEEP-MORE GUARD: never drop a pinned-or-depended-on test_authoring
+            # oracle (a deliberate fix-forward red-pair the impl must turn GREEN).
+            if _is_test_authoring(t) and (tid in required_ids or tid in depended_ids):
+                continue
+            removed_ids.add(tid)
     if removed_ids:
         result['tasks'] = [t for t in tasks if not (isinstance(t, dict) and _task_id(t) in removed_ids)]
         for t in result['tasks']:
