@@ -751,6 +751,33 @@ def _is_tracked(file_path: str, cwd: str) -> bool:
     except Exception:
         return False
 
+def _finalize_existing_py_target(out_code: str, tgt_code: str, meta_task_type: str | None=None, task_id: str | None=None) -> str:
+    """Finalize the Python source code for an existing target file, merging or replacing.
+
+    - If meta_task_type is 'test_authoring', bypass the whole-file drift check
+      and perform a wholesale replace (target-only symbols are dropped, every
+      edited symbol wins).
+    - If out_code == tgt_code, return the target code unchanged.
+    - Otherwise, merge out_code into tgt_code via _ast_merge, check for whole-file drift,
+      and raise ValueError if more than one existing top-level symbol is modified.
+    """
+    if out_code == tgt_code:
+        return tgt_code
+    if meta_task_type == 'test_authoring':
+        return ast.unparse(ast.parse(out_code))
+    final_code = _ast_merge(out_code, tgt_code)
+    before = {}
+    for n in ast.parse(tgt_code).body:
+        if getattr(n, 'name', None) is not None:
+            before[n.name] = ast.dump(n)
+    after = {}
+    for n in ast.parse(final_code).body:
+        if getattr(n, 'name', None) is not None:
+            after[n.name] = ast.dump(n)
+    changed = {name for name in set(before) & set(after) if before[name] != after[name]}
+    if len(changed) > 1:
+        raise ValueError(f'whole_file_drift: legacy whole-file submission modified {len(changed)} existing top-level symbols {sorted(changed)}')
+    return final_code
 def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Path, worktree_root: pathlib.Path | None=None, *, allowed_files=None, meta_task_type=None, approval_ok: bool=False, working_dir: str | None=None, widened_auto_approve: bool=False) -> dict:
     """Copy validated output to target, then commit it scoped to target_file.
 
@@ -884,28 +911,14 @@ def commit_accepted_output(task_id: str, target_file: str, state_dir: pathlib.Pa
                 out_code = output_file.read_text(encoding='utf-8')
                 if target_path.exists():
                     tgt_code = target_path.read_text(encoding='utf-8')
-                    if out_code == tgt_code:
-                        final_code = tgt_code
-                    else:
-                        final_code = _ast_merge(out_code, tgt_code)
-                        try:
-                            before = {}
-                            for n in ast.parse(tgt_code).body:
-                                if getattr(n, 'name', None) is not None:
-                                    before[n.name] = ast.dump(n)
-                            after = {}
-                            for n in ast.parse(final_code).body:
-                                if getattr(n, 'name', None) is not None:
-                                    after[n.name] = ast.dump(n)
-                            changed = {name for name in set(before) & set(after) if before[name] != after[name]}
-                            if len(changed) > 1:
-                                logging.getLogger(__name__).error('commit_accepted_output: %s rejected whole_file_drift: modified %d existing top-level symbols %s', task_id, len(changed), sorted(changed))
-                                result['committed'] = False
-                                result['sha'] = None
-                                result['error'] = f'whole_file_drift: legacy whole-file submission modified {len(changed)} existing top-level symbols {sorted(changed)}; use partial-edit or multi-file'
-                                return result
-                        except SyntaxError:
-                            pass
+                    try:
+                        final_code = _finalize_existing_py_target(out_code, tgt_code, meta_task_type, task_id)
+                    except ValueError as drift_exc:
+                        logging.getLogger(__name__).error('commit_accepted_output: %s rejected whole_file_drift: %s', task_id, drift_exc)
+                        result['committed'] = False
+                        result['sha'] = None
+                        result['error'] = str(drift_exc)
+                        return result
                 else:
                     final_code = ast.unparse(ast.parse(out_code))
                 target_path.write_text(final_code, encoding='utf-8')
