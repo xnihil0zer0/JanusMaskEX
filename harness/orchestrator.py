@@ -306,7 +306,10 @@ def _build_agent_env(agent: str, state_dir: str, round_number: int=1) -> dict[st
     task_id = os.environ.get('JANUSMASK_TASK_ID', '')
     import uuid as _uuid
     if _pin_task_cwd_enabled():
-        session_slug = _pinned_session_slug(agent, round_number, task_id)
+        if task_id:
+            session_slug = _pinned_session_slug(agent, round_number, task_id)
+        else:
+            session_slug = f'{agent}-r{round_number}-notask-{_uuid.uuid4().hex[:8]}'
     else:
         session_slug = f'{agent}-r{round_number}-{task_id or 'notask'}-{_uuid.uuid4().hex[:8]}'
     work_dir = agent_work_dir(agent, session_slug)
@@ -917,7 +920,7 @@ def _path_b_outbox_fallback(work_dir: Path, sub_path: Path, task_id: str) -> str
     return content
 _MODE_OUTBOX_ARTIFACT: dict[str, str] = {'planning': 'plan_draft.json', 'reconciliation': 'reconciliation.json'}
 
-def _poll_mode_artifact(work_dir: Path | None, mode: str) -> str | None:
+def _poll_mode_artifact(work_dir: Path | None, mode: str, spawn_start_epoch: float | None = None) -> str | None:
     """Return the planning/reconciliation outbox artifact text, or None.
 
     A1: without this, ``poll_for_submission`` only recognizes the synthesis
@@ -939,6 +942,12 @@ def _poll_mode_artifact(work_dir: Path | None, mode: str) -> str | None:
     artifact = Path(work_dir) / 'outbox' / filename
     if not artifact.is_file():
         return None
+    if spawn_start_epoch is not None:
+        try:
+            if artifact.stat().st_mtime < spawn_start_epoch:
+                return None
+        except OSError:
+            return None
     try:
         text = artifact.read_text()
     except (OSError, UnicodeDecodeError):
@@ -991,7 +1000,7 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
     while time.monotonic() < deadline:
         from harness.interceptors import registry as interceptor_registry
         if mode in _MODE_OUTBOX_ARTIFACT:
-            artifact = _poll_mode_artifact(work_dir, mode)
+            artifact = _poll_mode_artifact(work_dir, mode, spawn_start_epoch=poll_start_wall)
             if artifact is not None:
                 _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.OK}{mode} artifact received{_C.RESET} {_C.DIM}({len(artifact)} chars){_C.RESET}')
                 return artifact
@@ -1029,7 +1038,7 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
             rc = proc.returncode
             for _attempt in range(3):
                 if mode in _MODE_OUTBOX_ARTIFACT:
-                    artifact = _poll_mode_artifact(work_dir, mode)
+                    artifact = _poll_mode_artifact(work_dir, mode, spawn_start_epoch=poll_start_wall)
                     if artifact is not None:
                         _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.OK}exited (code {rc}); {mode} artifact found{_C.RESET}')
                         return artifact
