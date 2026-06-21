@@ -10,6 +10,47 @@ def _selfheal_skip_blocks(state_dir, tid, plan_mtime) -> bool:
         return False
     return marker_mtime >= plan_mtime
 def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
+    import calendar
+    import datetime
+    import time
+
+    def _normalize_accept_ts(ts):
+        """Normalize an acceptance timestamp to float epoch seconds.
+
+        Accepts int/float epochs and ISO-8601 strings (optionally with a
+        trailing 'Z' or a numeric UTC offset). Returns None for missing or
+        unparseable values so the caller treats them as NOT stale.
+        """
+        if ts is None or isinstance(ts, bool):
+            return None
+        if isinstance(ts, (int, float)):
+            return float(ts)
+        if not isinstance(ts, str):
+            return None
+        s = ts.strip()
+        if not s:
+            return None
+        try:
+            return float(s)
+        except ValueError:
+            pass
+        iso = s
+        if iso[-1:] in ('Z', 'z'):
+            iso = iso[:-1] + '+00:00'
+        try:
+            parsed = datetime.datetime.fromisoformat(iso)
+        except (ValueError, AttributeError):
+            parsed = None
+        if parsed is not None:
+            if parsed.tzinfo is None:
+                return float(calendar.timegm(parsed.timetuple())) + parsed.microsecond / 1000000.0
+            return parsed.timestamp()
+        for fmt in ('%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+            try:
+                return float(calendar.timegm(time.strptime(s, fmt)))
+            except ValueError:
+                continue
+        return None
     accepted_map = {}
     ledger_path = state_dir / 'impl_progress.jsonl'
     if ledger_path.exists():
@@ -69,20 +110,25 @@ def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
                 has_plan = False
         if not has_plan:
             plan_filename = None
+        try:
+            plan_mtime = plan_file.stat().st_mtime
+        except OSError:
+            plan_mtime = 0.0
         accepted_for_brief = []
         remaining = []
         for tid in task_ids:
-            if tid in accepted_map:
-                accepted_for_brief.append(accepted_map[tid])
+            accepted_rec = accepted_map.get(tid)
+            if accepted_rec is not None:
+                accept_ts = _normalize_accept_ts(accepted_rec.get('ts'))
+                if plan_mtime > 0.0 and accept_ts is not None and accept_ts < plan_mtime:
+                    remaining.append(tid)
+                else:
+                    accepted_for_brief.append(accepted_rec)
             else:
                 remaining.append(tid)
         queued = [tid for tid in task_ids if (state_dir / 'tasks' / f'{tid}.json').exists()]
         processing = [tid for tid in task_ids if (state_dir / 'tasks' / 'processing' / f'{tid}.json').exists() or (state_dir / 'tasks' / f'{tid}.json.processing').exists()]
         processed_unaccepted = [tid for tid in task_ids if (state_dir / 'tasks' / 'processed' / f'{tid}.json').exists() and tid not in accepted_map]
-        try:
-            plan_mtime = plan_file.stat().st_mtime
-        except OSError:
-            plan_mtime = 0.0
         blocked = [tid for tid in task_ids if ((state_dir / 'tasks' / 'blocked' / f'{tid}.json').exists() or (state_dir / 'tasks' / 'blocked' / f'{tid}.exhausted').exists() or _selfheal_skip_blocks(state_dir, tid, plan_mtime)) and tid not in accepted_map]
         if not has_plan:
             state = 'unplanned'
