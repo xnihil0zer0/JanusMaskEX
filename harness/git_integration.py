@@ -182,6 +182,14 @@ def _ast_merge(output_code: str, target_code: str) -> str:
     a submission explicitly request deletion of named top-level keyed
     nodes from the target tree.
 
+    G-ORDER: As a final pass, ``_module_scope_order_fixup`` orders
+    module-level executable statements after the module-scope names they
+    transitively load -- including free globals reached through called
+    top-level functions -- via a stable topological sort that only fires
+    when a forward-ordering hazard is present (no-hazard merges stay
+    byte-stable), and statically rejects cyclic / un-importable orderings
+    by raising ``ValueError``.
+
     Raises on ast.parse failure; caller must catch and fall back.
     """
 
@@ -382,6 +390,184 @@ def _ast_merge(output_code: str, target_code: str) -> str:
                 existing_dumps.add(node_dump)
         agent_class.body = merged_body
         return agent_class
+
+    def _module_scope_order_fixup(body):
+        """Order module-level executable statements after the module-scope
+        names they transitively load, and statically reject un-importable
+        merges.
+
+        Builds a dependency graph of top-level functions, computes each
+        function's transitive free globals (free globals reached through the
+        functions it calls), then derives -- for every top-level statement --
+        the set of module-scope names that must already be bound when that
+        statement executes (direct module-level loads plus the transitive
+        free globals of any top-level function it calls). A forward-ordering
+        hazard exists when a statement requires a module-scope name whose
+        earliest binding occurs later in the body. With no hazard the body is
+        returned unchanged so ``ast.unparse`` stays byte-stable; with a hazard
+        a stable topological sort (Kahn, smallest original index first)
+        reorders the statements. A merge whose required-before constraints are
+        cyclic -- i.e. that cannot be ordered into an importable module --
+        raises ``ValueError``.
+        """
+        import builtins as _builtins
+        import heapq
+        _BUILTIN_NAMES = frozenset(dir(_builtins)) | {'__name__', '__file__', '__doc__', '__builtins__', '__spec__', '__loader__', '__package__', '__path__'}
+
+        def _collect_eval(node, loads, calls):
+            """Collect Name(Load) ids and called Name targets evaluated
+            immediately when *node* executes. Function / lambda BODIES are
+            deferred (their names resolve at call time); their def-time parts
+            (decorators, defaults, annotations) and class bodies ARE evaluated
+            and descended into."""
+            if isinstance(node, ast.Name):
+                if isinstance(node.ctx, ast.Load):
+                    loads.add(node.id)
+                return
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name):
+                    calls.add(node.func.id)
+                for child in ast.iter_child_nodes(node):
+                    _collect_eval(child, loads, calls)
+                return
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for dec in node.decorator_list:
+                    _collect_eval(dec, loads, calls)
+                a = node.args
+                for arg in (*a.posonlyargs, *a.args, *a.kwonlyargs):
+                    if arg.annotation is not None:
+                        _collect_eval(arg.annotation, loads, calls)
+                for special in (a.vararg, a.kwarg):
+                    if special is not None and special.annotation is not None:
+                        _collect_eval(special.annotation, loads, calls)
+                for d in a.defaults:
+                    _collect_eval(d, loads, calls)
+                for d in a.kw_defaults:
+                    if d is not None:
+                        _collect_eval(d, loads, calls)
+                if node.returns is not None:
+                    _collect_eval(node.returns, loads, calls)
+                return
+            if isinstance(node, ast.Lambda):
+                a = node.args
+                for d in a.defaults:
+                    _collect_eval(d, loads, calls)
+                for d in a.kw_defaults:
+                    if d is not None:
+                        _collect_eval(d, loads, calls)
+                return
+            for child in ast.iter_child_nodes(node):
+                _collect_eval(child, loads, calls)
+
+        def _func_bound_names(func_node):
+            """Generous over-approximation of every name bound anywhere within
+            *func_node* (args, all Store/Del Names, nested def/class names,
+            import aliases, except handlers, global/nonlocal declarations).
+            Over-counting bound names avoids classifying a genuine local as a
+            free global, so no false forward-ordering hazard is introduced."""
+            bound = set()
+            a = func_node.args
+            for arg in (*a.posonlyargs, *a.args, *a.kwonlyargs):
+                bound.add(arg.arg)
+            for special in (a.vararg, a.kwarg):
+                if special is not None:
+                    bound.add(special.arg)
+            for sub in ast.walk(func_node):
+                if isinstance(sub, ast.Name) and isinstance(sub.ctx, (ast.Store, ast.Del)):
+                    bound.add(sub.id)
+                elif isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    if sub is not func_node:
+                        bound.add(sub.name)
+                elif isinstance(sub, ast.Import):
+                    for al in sub.names:
+                        bound.add(al.asname or al.name.split('.')[0])
+                elif isinstance(sub, ast.ImportFrom):
+                    for al in sub.names:
+                        if al.name != '*':
+                            bound.add(al.asname or al.name)
+                elif isinstance(sub, ast.ExceptHandler):
+                    if sub.name:
+                        bound.add(sub.name)
+                elif isinstance(sub, (ast.Global, ast.Nonlocal)):
+                    bound.update(sub.names)
+            return bound
+
+        func_nodes = {}
+        for stmt in body:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                func_nodes[stmt.name] = stmt
+        func_names = set(func_nodes)
+        direct_free = {}
+        func_calls = {}
+        for name, fnode in func_nodes.items():
+            loads = set()
+            calls = set()
+            for stmt in fnode.body:
+                _collect_eval(stmt, loads, calls)
+            bound = _func_bound_names(fnode)
+            direct_free[name] = {nm for nm in loads if nm not in bound and nm not in _BUILTIN_NAMES}
+            func_calls[name] = {c for c in calls if c in func_names}
+        transitive_free = {}
+        for name in func_nodes:
+            acc = set()
+            seen = set()
+            stack = [name]
+            while stack:
+                cur = stack.pop()
+                if cur in seen:
+                    continue
+                seen.add(cur)
+                acc |= direct_free.get(cur, set())
+                for callee in func_calls.get(cur, set()):
+                    if callee not in seen:
+                        stack.append(callee)
+            transitive_free[name] = acc
+        binder_first = {}
+        for idx, stmt in enumerate(body):
+            for nm in _bound_names(stmt):
+                if nm not in binder_first:
+                    binder_first[nm] = idx
+        required = []
+        for stmt in body:
+            if _is_main_guard(stmt):
+                required.append(set())
+                continue
+            loads = set()
+            calls = set()
+            _collect_eval(stmt, loads, calls)
+            req = set(loads)
+            for c in calls:
+                if c in func_names:
+                    req |= transitive_free.get(c, set())
+            required.append(req)
+        edges = set()
+        for s_idx in range(len(body)):
+            for nm in required[s_idx]:
+                b = binder_first.get(nm)
+                if b is not None and b != s_idx:
+                    edges.add((b, s_idx))
+        if not any((b > s for (b, s) in edges)):
+            return body
+        n = len(body)
+        adj = {i: [] for i in range(n)}
+        indeg = [0] * n
+        for (b, s) in edges:
+            adj[b].append(s)
+            indeg[s] += 1
+        ready = [i for i in range(n) if indeg[i] == 0]
+        heapq.heapify(ready)
+        order = []
+        while ready:
+            u = heapq.heappop(ready)
+            order.append(u)
+            for v in sorted(adj[u]):
+                indeg[v] -= 1
+                if indeg[v] == 0:
+                    heapq.heappush(ready, v)
+        if len(order) != n:
+            unresolved = sorted((i for i in range(n) if indeg[i] > 0))
+            raise ValueError('_ast_merge: cannot order module-level statements into an importable module; cyclic load-before-bind dependency among statements at indices %s' % (unresolved,))
+        return [body[i] for i in order]
     out_tree = ast.parse(output_code)
     tgt_tree = ast.parse(target_code)
     out_tree.body = _expand_imports(out_tree.body)
@@ -533,6 +719,7 @@ def _ast_merge(output_code: str, target_code: str) -> str:
                     break
             if not moved:
                 break
+    tgt_tree.body = _module_scope_order_fixup(tgt_tree.body)
     return ast.unparse(tgt_tree)
 
 def _run_streamed_command(cmd: list[str], cwd: str, timeout: int, check: bool=False) -> subprocess.CompletedProcess:
