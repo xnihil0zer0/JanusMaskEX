@@ -1750,7 +1750,55 @@ def _persist_fuzz_results(state_dir: Path, task_id: str, round_label: str, resul
         os.fsync(f.fileno())
     tmp_path.replace(path)
 
-def _save_final_output(state_dir: Path, task_id: str, code: str) -> None:
+def _promote_fallback_candidate(state_dir: Path, task_id: str) -> bool:
+    """Promote a saved fallback candidate into the primary output slot.
+
+    Looks for the fallback sidecar ``state/output/<task_id>.fallback.py``
+    written by ``_save_final_output(..., fallback_code=...)`` and decides
+    whether it should replace the primary ``state/output/<task_id>.py``:
+
+    * Returns ``False`` (no-op) when no fallback file exists.
+    * When the fallback is byte-for-byte identical to the current primary
+      output there is nothing to gain by promoting it, so the now-redundant
+      fallback sidecars are deleted and ``False`` is returned.
+    * Otherwise the fallback code atomically overwrites the primary ``.py``
+      (``.py.tmp`` -> ``.py`` rename, fsync inside the open-context), the
+      fallback patches/manifest sidecars are renamed onto their primary
+      counterparts, the consumed fallback sidecars are removed, and ``True``
+      is returned.
+
+    Fail-soft: a missing state dir / output dir simply yields ``False`` rather
+    than raising.
+    """
+    output_dir = state_dir / 'output'
+    fb_path = output_dir / f'{task_id}.fallback.py'
+    if not fb_path.exists():
+        return False
+    fallback_code = fb_path.read_text()
+    pri_path = output_dir / f'{task_id}.py'
+    primary_code = pri_path.read_text() if pri_path.exists() else None
+    fb_patches = output_dir / f'{task_id}.fallback.patches.json'
+    fb_files = output_dir / f'{task_id}.fallback.files.json'
+    if fallback_code == primary_code:
+        fb_path.unlink(missing_ok=True)
+        fb_patches.unlink(missing_ok=True)
+        fb_files.unlink(missing_ok=True)
+        logger.info('Fallback candidate for %s identical to primary; discarded', task_id)
+        return False
+    tmp_path = pri_path.with_suffix('.py.tmp')
+    with open(tmp_path, 'w') as f:
+        f.write(fallback_code)
+        f.flush()
+        os.fsync(f.fileno())
+    tmp_path.replace(pri_path)
+    if fb_patches.exists():
+        fb_patches.replace(output_dir / f'{task_id}.patches.json')
+    if fb_files.exists():
+        fb_files.replace(output_dir / f'{task_id}.files.json')
+    fb_path.unlink(missing_ok=True)
+    logger.info('Promoted fallback candidate for %s into primary output', task_id)
+    return True
+def _save_final_output(state_dir: Path, task_id: str, code: str, *, fallback_code: str | None=None) -> None:
     """Save the final accepted code to the permanent output directory.
 
     G19a-1 (2026-05-18): the legacy ``state/output/<task_id>.py`` write is
@@ -1763,6 +1811,13 @@ def _save_final_output(state_dir: Path, task_id: str, code: str) -> None:
     trailing newline. ``commit_accepted_output`` (G19a-2) will read this
     sidecar to stage every rel-path; for now the orchestrator's
     ``_auto_commit_accepted`` still picks ``files_touched[0]``.
+
+    When the optional keyword-only ``fallback_code`` is supplied, the same
+    write logic is reused recursively under the ``<task_id>.fallback`` task id,
+    producing ``state/output/<task_id>.fallback.py`` (plus its own manifest /
+    patches sidecar when applicable). The fallback recursion is itself called
+    without a ``fallback_code`` so it terminates after one level. Omitting
+    ``fallback_code`` writes no fallback sidecar at all.
     """
     output_dir = state_dir / 'output'
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1797,6 +1852,8 @@ def _save_final_output(state_dir: Path, task_id: str, code: str) -> None:
                 os.fsync(f.fileno())
             patches_tmp.replace(patches_sidecar)
             logger.info('Saved patches sidecar to %s (%d entries)', patches_sidecar, len(patches))
+    if fallback_code is not None:
+        _save_final_output(state_dir, f'{task_id}.fallback', fallback_code)
 
 def _mark_processed(state_dir: Path, task_id: str) -> None:
     """Move the task file to processed/ and clean up current_task.json."""
