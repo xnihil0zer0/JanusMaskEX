@@ -1042,6 +1042,18 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
     IMMEDIATELY BEFORE the spliced primary block. When *new_block* carries
     NO extras (the common case) the result is BYTE-IDENTICAL to today's
     single-def replacement. Raises ``KeyError`` when *qualname* is not found.
+
+    NESTED_SYMBOL_DIAGNOSTIC: when a 1-part *qualname* (or the inner leaf
+    of a 2-part *qualname*) matches NO top-level (resp. direct-member)
+    symbol, the source AST is walked for a def/class with the same leaf
+    name nested INSIDE another def/class body. If one is found, a clear,
+    actionable ``ValueError`` naming the enclosing symbol(s) is raised in
+    place of the opaque bare ``KeyError`` -- nested-symbol patching is not
+    supported, so the caller is told to patch the enclosing top-level
+    symbol (or use a dotted ``Outer.inner`` qualname for a direct method).
+    A leaf name that is NEITHER top-level NOR nested anywhere still raises
+    the bare ``KeyError(qualname)`` unchanged, keeping the truly-absent
+    case distinct from the nested-symbol case.
     """
     import textwrap
     new_block = textwrap.dedent(new_block)
@@ -1058,6 +1070,33 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
         if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
             return n.targets[0].id
         return None
+
+    def _find_nested_defs(name: str, root: ast.AST, start: list) -> list:
+        """Return the dotted enclosing paths of every def/class named *name*
+        that is NESTED inside another def/class within *root*.
+
+        *start* seeds the enclosing-symbol chain; a node is only reported
+        when its enclosing chain is non-empty, so top-level nodes (searched
+        with ``start == []``) are excluded by construction. The walk descends
+        through every child node -- including statement bodies that are not
+        themselves defs/classes -- so a target nested arbitrarily deep is
+        still discovered and attributed to its nearest enclosing def/class
+        chain.
+        """
+        found: list = []
+
+        def _walk(node: ast.AST, enclosers: list) -> None:
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    if enclosers and child.name == name:
+                        found.append('.'.join(enclosers))
+                    _walk(child, enclosers + [child.name])
+                else:
+                    _walk(child, enclosers)
+
+        _walk(root, list(start))
+        return found
+
     if len(parts) == 1:
         located = None
         for n in tree.body:
@@ -1071,6 +1110,10 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
             if assign_matches:
                 located = assign_matches[0]
         if located is None:
+            nested = sorted(set(_find_nested_defs(leaf_name, tree, [])))
+            if nested:
+                top = nested[0].split('.')[0]
+                raise ValueError(f'cannot patch {qualname!r}: no top-level def/class named {leaf_name!r}, but a def/class with that name is defined NESTED inside {nested}. Nested-symbol patching is not supported; patch the enclosing top-level symbol {top!r} as a whole, or use a dotted \'Outer.inner\' qualname if it is a direct method of a top-level class.')
             raise KeyError(qualname)
     elif len(parts) == 2:
         outer_name, inner_name = parts
@@ -1087,6 +1130,9 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
                 located = n
                 break
         if located is None:
+            nested = sorted(set(_find_nested_defs(inner_name, outer, [outer_name])))
+            if nested:
+                raise ValueError(f'cannot patch {qualname!r}: {inner_name!r} is not a direct member of {outer_name!r}, but a def/class named {inner_name!r} is defined NESTED inside {nested}. Nested-symbol patching is not supported; patch the enclosing top-level symbol {outer_name!r} as a whole.')
             raise KeyError(qualname)
     else:
         raise KeyError(qualname)
@@ -1324,11 +1370,14 @@ def _commit_accepted_output_patches(task_id, patches_sidecar_path, state_dir, wo
             # ledger so a failed symbol patch is not an opaque auto_commit_failed.
             # A kind=symbol patch naming a not-yet-existing top-level symbol raises
             # KeyError(qualname); result['error'] embeds that name, so an operator
-            # sees the R-anchor cause directly. Best-effort: never raises.
+            # sees the R-anchor cause directly. A kind=symbol patch naming a symbol
+            # that exists only NESTED inside another def/class raises an actionable
+            # ValueError naming the enclosing symbol(s); both land verbatim in the
+            # stderr_tail field below. Best-effort: never raises.
             try:
                 import time as _time
                 from harness._journal import write_jsonl_row as _wjr
-                _wjr(pathlib.Path(state_dir) / 'impl_progress.jsonl', {'ts': _time.strftime('%Y-%m-%dT%H:%M:%SZ', _time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'auto_commit_patch_failed', 'file': rel, 'reason': result['error']})
+                _wjr(pathlib.Path(state_dir) / 'impl_progress.jsonl', {'ts': _time.strftime('%Y-%m-%dT%H:%M:%SZ', _time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'auto_commit_patch_failed', 'file': rel, 'reason': result['error'], 'stderr_tail': result['error']})
             except Exception:
                 pass
             return result
