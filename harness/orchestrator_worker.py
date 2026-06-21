@@ -485,17 +485,17 @@ def main() -> int:
                         if repaired is not None:
                             revalid_ok, revalid_v = orch._validate_submission(repaired, agent_a, task)
                             if revalid_ok:
-                                    agent_a_code = repaired
-                                    agent_a_valid = True
-                                    agent_a_violations = revalid_v
+                                agent_a_code = repaired
+                                agent_a_valid = True
+                                agent_a_violations = revalid_v
                     if not agent_b_valid:
                         repaired = orch._try_auto_repair(agent_b_code, agent_b_violations, agent_b, task_id)
                         if repaired is not None:
                             revalid_ok, revalid_v = orch._validate_submission(repaired, agent_b, task)
                             if revalid_ok:
-                                    agent_b_code = repaired
-                                    agent_b_valid = True
-                                    agent_b_violations = revalid_v
+                                agent_b_code = repaired
+                                agent_b_valid = True
+                                agent_b_violations = revalid_v
                     # P5a: store each agent's validated code in the cache only once it is
                     # AST-valid (after any auto-repair). A failing agent's slot stays None
                     # so it is re-synthesized next attempt; a now-valid agent is reused.
@@ -609,9 +609,16 @@ def main() -> int:
                     _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'stateful_fuzz_divergence'})
                     return 1
                 _detect_and_append_untracked_tests(state_dir, task, task_id, processing)
-                orch._save_final_output(state_dir, task_id, agent_a_code)
+                orch._save_final_output(state_dir, task_id, agent_a_code, fallback_code=agent_b_code)
                 auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
                 no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
+                # REGRESSION INVARIANT: the fallback retry must NEVER alter the
+                # happy path or no_diff behavior -- it is gated on a verification
+                # failure (not auto_commit_ok and not no_diff) and only fires when a
+                # distinct fallback candidate exists to promote.
+                if not auto_commit_ok and not no_diff and orch._promote_fallback_candidate(state_dir, task_id):
+                    auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
+                    no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
                 if auto_commit_ok or no_diff:
                     orch._mark_processed(state_dir, task_id)
                 else:
@@ -686,9 +693,16 @@ def main() -> int:
                         exit_code = 1
                         return exit_code
                 _detect_and_append_untracked_tests(state_dir, task, task_id, processing)
-                orch._save_final_output(state_dir, task_id, agent_a_code)
+                orch._save_final_output(state_dir, task_id, agent_a_code, fallback_code=agent_b_code)
                 auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
                 no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
+                # REGRESSION INVARIANT: the fallback retry must NEVER alter the
+                # happy path or no_diff behavior -- it is gated on a verification
+                # failure (not auto_commit_ok and not no_diff) and only fires when a
+                # distinct fallback candidate exists to promote.
+                if not auto_commit_ok and not no_diff and orch._promote_fallback_candidate(state_dir, task_id):
+                    auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
+                    no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
                 if auto_commit_ok or no_diff:
                     orch._mark_processed(state_dir, task_id)
                 else:
@@ -724,9 +738,16 @@ def main() -> int:
                 return exit_code
             if fuzz_result.equivalent:
                 _detect_and_append_untracked_tests(state_dir, task, task_id, processing)
-                orch._save_final_output(state_dir, task_id, agent_a_code)
+                orch._save_final_output(state_dir, task_id, agent_a_code, fallback_code=agent_b_code)
                 auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
                 no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
+                # REGRESSION INVARIANT: the fallback retry must NEVER alter the
+                # happy path or no_diff behavior -- it is gated on a verification
+                # failure (not auto_commit_ok and not no_diff) and only fires when a
+                # distinct fallback candidate exists to promote.
+                if not auto_commit_ok and not no_diff and orch._promote_fallback_candidate(state_dir, task_id):
+                    auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
+                    no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
                 if auto_commit_ok or no_diff:
                     orch._mark_processed(state_dir, task_id)
                 else:
@@ -783,9 +804,16 @@ def main() -> int:
                         return exit_code
                     if fuzz_result_n.equivalent:
                         _detect_and_append_untracked_tests(state_dir, task, task_id, processing)
-                        orch._save_final_output(state_dir, task_id, revised_agent_a)
+                        orch._save_final_output(state_dir, task_id, revised_agent_a, fallback_code=revised_agent_b)
                         auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
                         no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
+                        # REGRESSION INVARIANT: the fallback retry must NEVER alter the
+                        # happy path or no_diff behavior -- it is gated on a verification
+                        # failure (not auto_commit_ok and not no_diff) and only fires when
+                        # a distinct fallback candidate exists to promote.
+                        if not auto_commit_ok and not no_diff and orch._promote_fallback_candidate(state_dir, task_id):
+                            auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
+                            no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
                         if auto_commit_ok or no_diff:
                             orch._mark_processed(state_dir, task_id)
                         else:
