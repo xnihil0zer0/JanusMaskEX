@@ -1448,97 +1448,82 @@ def detect_and_heal_stalls(root, *, config=None, now=None) -> dict:
                     result['escalated'].append(task_id)
     return result
 
-def reap_spent_briefs(root) -> list:
+def reap_spent_briefs(root, *, stamp=None) -> list:
     """Archive fully-integrated ``plan_hooks_<slug>`` + ``brief_hooks_<slug>`` pairs.
 
-    A ``plan_hooks_<slug>.json`` at the workspace ``root`` is *spent* once EVERY
-    task it lists carries an ``accepted`` row in the impl_progress ledger
-    (``<root>/state/impl_progress.jsonl``). A spent plan and its companion
-    ``brief_hooks_<slug>.md`` are relocated -- collision-safe, a plain move and
-    NEVER a delete -- under ``<root>/_autowork_archive/<iso-date>/reconciled/``.
-    Partially-integrated hooks are left in place. The pass is fail-safe (a
-    missing / corrupt ledger or plan is skipped, never raises) and idempotent (a
-    re-run finds the plans already gone and reaps nothing). Returns the sorted
-    list of reaped slugs.
+    Thin reconciler-side wrapper that DELEGATES both the integration decision and
+    the archive move to :mod:`tools.brief_reaper`: spent-ness is decided from
+    ``tools.brief_reaper._integrated_task_ids`` (an ORDERED ledger replay that
+    un-counts a tid once a LATER ``reject_rollback`` / ``task_blocked`` row
+    reverts a prior acceptance) and each spent pair is relocated -- collision-safe,
+    a plain MOVE and NEVER a delete -- by :func:`tools.brief_reaper.reap_for_task`,
+    which itself fail-safe-skips epic plans and brief-less plans (no pair to
+    archive). This fixes the prior over-reaping of epic / brief-less plans.
+
+    A ``plan_hooks_<slug>.json`` at the workspace ``root`` is a reap candidate
+    only when EVERY task it lists is integrated (the all-integrated gate). The
+    archive lands under ``<root>/_autowork_archive/<stamp>/reconciled/`` where
+    ``stamp`` defaults to today's ISO date. The returned slug list is built SOLELY
+    by extending it with ``reap_for_task``'s return value, so a plan the reaper
+    declines (epic / brief-less) never appears even when it cleared the gate.
+
+    The pass is fail-safe per plan (a missing / corrupt ledger or plan is skipped,
+    never raises) and idempotent (a re-run finds the plans already gone and reaps
+    nothing). It acquires NO state lock itself -- the lone archive lock is taken
+    inside ``reap_for_task``. ``reap_spent_briefs(root)`` stays positional /
+    backward-compatible. Returns the sorted list of reaped slugs.
     """
     import json
     import datetime
-    root_path = Path(root)
-    ledger_path = root_path / 'state' / 'impl_progress.jsonl'
-    accepted = set()
     try:
-        text = ledger_path.read_text(encoding='utf-8')
-    except OSError:
-        text = ''
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(row, dict):
-            continue
-        if row.get('phase') == 'accepted' or row.get('event') == 'accepted':
-            tid = row.get('task_id')
-            if isinstance(tid, str) and tid:
-                accepted.add(tid)
+        from tools.brief_reaper import _integrated_task_ids, reap_for_task
+    except Exception:
+        return []
+    root_path = Path(root)
+    try:
+        integrated = _integrated_task_ids(root_path)
+    except Exception:
+        integrated = set()
+    if stamp is None:
+        stamp = datetime.date.today().isoformat()
     try:
         plans = sorted(root_path.glob('plan_hooks_*.json'))
     except OSError:
         plans = []
-    today = datetime.date.today().isoformat()
-    archive_dir = root_path / '_autowork_archive' / today / 'reconciled'
     prefix = 'plan_hooks_'
     reaped = []
     for plan_path in plans:
         try:
             if not plan_path.is_file():
                 continue
-        except OSError:
-            continue
-        stem = plan_path.stem
-        if not stem.startswith(prefix):
-            continue
-        slug = stem[len(prefix):]
-        if not slug:
-            continue
-        try:
-            data = json.loads(plan_path.read_text(encoding='utf-8'))
-        except (OSError, ValueError):
-            continue
-        if not isinstance(data, dict):
-            continue
-        tasks = data.get('tasks')
-        if not isinstance(tasks, list) or not tasks:
-            continue
-        task_ids = []
-        ok = True
-        for item in tasks:
-            if not isinstance(item, dict):
-                ok = False
-                break
-            tid = item.get('task_id')
-            if not (isinstance(tid, str) and tid):
-                ok = False
-                break
-            task_ids.append(tid)
-        if not ok or not task_ids:
-            continue
-        if any((tid not in accepted for tid in task_ids)):
-            continue
-        try:
-            _archive_move_collision_safe(plan_path, archive_dir)
+            stem = plan_path.stem
+            if not stem.startswith(prefix):
+                continue
+            slug = stem[len(prefix):]
+            if not slug:
+                continue
+            try:
+                data = json.loads(plan_path.read_text(encoding='utf-8'))
+            except (OSError, ValueError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            tasks = data.get('tasks')
+            if not isinstance(tasks, list):
+                continue
+            plan_ids = []
+            for item in tasks:
+                if isinstance(item, dict):
+                    tid = item.get('task_id')
+                    if isinstance(tid, str) and tid:
+                        plan_ids.append(tid)
+            if not plan_ids:
+                continue
+            if any((tid not in integrated for tid in plan_ids)):
+                continue
+            reaped.extend(reap_for_task(root_path, plan_ids[0], stamp=stamp))
         except Exception:
             continue
-        brief_path = root_path / ('brief_hooks_%s.md' % (slug,))
-        try:
-            if os.path.lexists(brief_path):
-                _archive_move_collision_safe(brief_path, archive_dir)
-        except Exception:
-            pass
-        reaped.append(slug)
     reaped.sort()
     return reaped
 def _running_dir(root) -> Path:
