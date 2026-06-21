@@ -1284,6 +1284,13 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
         _walk(root, list(start))
         return found
 
+    def _find_direct_child(node: ast.AST, name: str) -> ast.AST | None:
+        body = getattr(node, 'body', [])
+        for n in body:
+            if _is_def(n) and n.name == name:
+                return n
+        return None
+
     if len(parts) == 1:
         located = None
         for n in tree.body:
@@ -1302,27 +1309,52 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
                 top = nested[0].split('.')[0]
                 raise ValueError(f'cannot patch {qualname!r}: no top-level def/class named {leaf_name!r}, but a def/class with that name is defined NESTED inside {nested}. Nested-symbol patching is not supported; patch the enclosing top-level symbol {top!r} as a whole, or use a dotted \'Outer.inner\' qualname if it is a direct method of a top-level class.')
             raise KeyError(qualname)
-    elif len(parts) == 2:
-        outer_name, inner_name = parts
-        outer = None
-        for n in tree.body:
-            if isinstance(n, ast.ClassDef) and n.name == outer_name:
-                outer = n
-                break
-        if outer is None:
-            raise KeyError(qualname)
+    else:
+        current = tree
+        top_level_symbol = None
+        for i, p in enumerate(parts[:-1]):
+            if current is tree:
+                found_node = None
+                for n in tree.body:
+                    if _is_def(n) and n.name == p:
+                        found_node = n
+                        break
+                if found_node is None:
+                    raise KeyError(qualname)
+                top_level_symbol = found_node
+                current = found_node
+            else:
+                child = _find_direct_child(current, p)
+                if child is None:
+                    raise KeyError(qualname)
+                current = child
+
         located = None
-        for n in outer.body:
-            if _is_def(n) and n.name == inner_name:
+        for n in getattr(current, 'body', []):
+            if _is_def(n) and n.name == leaf_name:
                 located = n
                 break
+
         if located is None:
-            nested = sorted(set(_find_nested_defs(inner_name, outer, [outer_name])))
-            if nested:
-                raise ValueError(f'cannot patch {qualname!r}: {inner_name!r} is not a direct member of {outer_name!r}, but a def/class named {inner_name!r} is defined NESTED inside {nested}. Nested-symbol patching is not supported; patch the enclosing top-level symbol {outer_name!r} as a whole.')
-            raise KeyError(qualname)
-    else:
-        raise KeyError(qualname)
+            nested = sorted(set(_find_nested_defs(leaf_name, current, parts[:-1])))
+            if len(nested) > 1:
+                raise ValueError(f'cannot patch {qualname!r}: {leaf_name!r} is nested inside multiple scopes under {parts[-2]!r}: {nested}')
+            elif len(nested) == 1:
+                start_lineno = top_level_symbol.lineno
+                decorators = getattr(top_level_symbol, 'decorator_list', None)
+                if decorators:
+                    start_lineno = min((d.lineno for d in decorators))
+                end_lineno = top_level_symbol.end_lineno
+                lines = source.splitlines(keepends=True)
+                outer_source = ''.join(lines[start_lineno - 1:end_lineno])
+                recurse_path = nested[0] + '.' + leaf_name
+                patched_outer_source = _apply_symbol_patch(outer_source, recurse_path, new_block)
+                before = lines[:start_lineno - 1]
+                after = lines[end_lineno:]
+                return ''.join(before) + patched_outer_source + ''.join(after)
+            else:
+                raise KeyError(qualname)
+
     try:
         nb_tree = ast.parse(new_block)
     except SyntaxError as exc:
