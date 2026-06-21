@@ -744,8 +744,12 @@ def reap_orphaned_workdirs(root, *, now=None, grace=60.0):
 
     Paths are resolved before the guard comparison so symlinks/relatives cannot
     bypass it; symlinked agent/workdirs are skipped. Each rmtree is contained so
-    a permission/race error on one workdir never aborts the sweep. Returns the
-    list of reaped workdir paths (idempotent: a second run reaps nothing).
+    a permission/race error on one workdir never aborts the sweep. As a final
+    fail-safe step the sweep also invokes the module-global
+    :func:`detect_and_heal_stalls` watchdog (contained, default-off) so a wedged
+    in-flight task can be self-healed; the watchdog never alters the returned
+    list. Returns the list of reaped workdir paths (idempotent: a second run
+    reaps nothing).
     """
     import shutil
     if now is None:
@@ -758,7 +762,7 @@ def reap_orphaned_workdirs(root, *, now=None, grace=60.0):
     try:
         agent_dirs = sorted(aw.iterdir())
     except OSError:
-        return reaped
+        agent_dirs = []
     for agent_dir in agent_dirs:
         try:
             if agent_dir.is_symlink() or not agent_dir.is_dir():
@@ -795,6 +799,10 @@ def reap_orphaned_workdirs(root, *, now=None, grace=60.0):
                 reaped.append(str(workdir))
             except OSError:
                 continue
+    try:
+        detect_and_heal_stalls(root, now=now)
+    except Exception:
+        pass
     return reaped
 
 def compact_impl_progress_ledger(root, *, allow=None):
@@ -950,18 +958,19 @@ def reap_stale_disk(root, *, now=None):
     """Run the disk reapers for one workspace ``root`` under the shared lock.
 
     The entire slow section -- orphaned-workdir rmtree, impl_progress.jsonl
-    locked-atomic compaction, log/drain age-out, and ``_autowork_archive``
-    retention prune -- is held under :func:`state_reconcile_lock` and NEVER under
-    ``git_commit.lock`` (a multi-GB rmtree under the commit lock would blow the
-    60s accept deadline). Each reaper is individually contained so one failure
-    never aborts the others; the pass is fail-closed and idempotent. Returns a
-    dict summarising what each reaper did.
+    locked-atomic compaction, log/drain age-out, ``_autowork_archive`` retention
+    prune, and the spent-brief reaper -- is held under
+    :func:`state_reconcile_lock` and NEVER under ``git_commit.lock`` (a multi-GB
+    rmtree under the commit lock would blow the 60s accept deadline). Each reaper
+    is individually contained so one failure never aborts the others; the pass is
+    fail-closed and idempotent. Returns a dict summarising what each reaper did
+    (including the ``spent_briefs`` slugs archived this pass).
     """
     if now is None:
         now = time.time()
     root_path = Path(root)
     state_dir = root_path / 'state'
-    results = {'workdirs': [], 'ledger_compacted': False, 'logs': [], 'archive': []}
+    results = {'workdirs': [], 'ledger_compacted': False, 'logs': [], 'archive': [], 'spent_briefs': []}
     with state_reconcile_lock(state_dir):
         try:
             results['workdirs'] = reap_orphaned_workdirs(root_path, now=now)
@@ -979,6 +988,10 @@ def reap_stale_disk(root, *, now=None):
             results['archive'] = prune_autowork_archive(root_path, now=now)
         except Exception:
             results['archive'] = []
+        try:
+            results['spent_briefs'] = reap_spent_briefs(root_path)
+        except Exception:
+            results['spent_briefs'] = []
     return results
 from harness import target_bootstrap
 
@@ -1136,6 +1149,398 @@ def _reconcile_stale_ledger_heads(root) -> None:
     except OSError:
         return
 
+def _watchdog_truthy(val) -> bool:
+    """Conservative truthiness for watchdog gate / flag values.
+
+    Accepts bools, non-zero numbers, and the common affirmative string tokens
+    (case-insensitive); everything else -- including ``None`` and unknown
+    strings -- is falsey, so the watchdog stays OFF unless explicitly armed.
+    """
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return val != 0
+    if isinstance(val, str):
+        return val.strip().lower() in ('1', 'true', 'yes', 'on', 'enabled')
+    return False
+
+def _watchdog_cfg_section(config) -> dict:
+    """Defensively locate the ``autowork.watchdog`` config section.
+
+    Tolerates a missing / None / non-dict ``config`` (returns ``{}``) and
+    accepts either a bare watchdog dict, a ``{'watchdog': {...}}`` wrapper, or a
+    nested ``{'autowork': {'watchdog': {...}}}`` shape. Never raises.
+    """
+    if not isinstance(config, dict):
+        return {}
+    sub = config.get('watchdog')
+    if isinstance(sub, dict):
+        return sub
+    aw = config.get('autowork')
+    if isinstance(aw, dict):
+        sub = aw.get('watchdog')
+        if isinstance(sub, dict):
+            return sub
+    return config
+
+def _watchdog_enabled(config) -> bool:
+    """Fail-safe arming gate; defaults OFF.
+
+    The watchdog is armed iff the ``JM_WATCHDOG_ENABLED`` environment variable is
+    truthy, or (failing that) the parsed config section sets ``enabled`` truthy.
+    With no env var and no config the result is ``False`` -- the watchdog is a
+    pure no-op by default.
+    """
+    env = os.environ.get('JM_WATCHDOG_ENABLED')
+    if _watchdog_truthy(env):
+        return True
+    section = _watchdog_cfg_section(config)
+    return _watchdog_truthy(section.get('enabled'))
+
+def _watchdog_config(config) -> dict:
+    """Parse watchdog tunables with conservative defaults.
+
+    Returns ``idle_grace_sec`` (default 1800s) and ``max_retries`` (default 3),
+    coercing / validating each defensively so a malformed value can never
+    disable the bound or make detection over-eager.
+    """
+    section = _watchdog_cfg_section(config)
+
+    def _coerce(key, default, cast):
+        try:
+            raw = section.get(key)
+        except Exception:
+            return default
+        if raw is None:
+            return default
+        try:
+            return cast(raw)
+        except (TypeError, ValueError):
+            return default
+    idle_grace = _coerce('idle_grace_sec', 1800.0, float)
+    if not idle_grace or idle_grace < 0:
+        idle_grace = 1800.0
+    max_retries = _coerce('max_retries', 3, int)
+    if max_retries < 1:
+        max_retries = 3
+    return {'idle_grace_sec': float(idle_grace), 'max_retries': int(max_retries)}
+
+def _watchdog_parse_iso(ts_raw):
+    """Parse an ISO-8601 ``%Y-%m-%dT%H:%M:%SZ`` ledger ts to epoch seconds.
+
+    Returns ``None`` for anything missing / unparseable (fail-safe -- an
+    unreadable ts contributes no staleness evidence). A trailing ``Z`` and
+    explicit offsets are both tolerated.
+    """
+    import datetime
+    if not isinstance(ts_raw, str) or not ts_raw.strip():
+        return None
+    s = ts_raw.strip()
+    try:
+        dt = datetime.datetime.strptime(s, '%Y-%m-%dT%H:%M:%SZ')
+        return dt.replace(tzinfo=datetime.timezone.utc).timestamp()
+    except (ValueError, TypeError):
+        pass
+    try:
+        s2 = s[:-1] + '+00:00' if s.endswith('Z') else s
+        dt = datetime.datetime.fromisoformat(s2)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return dt.timestamp()
+    except (ValueError, TypeError):
+        return None
+
+def _watchdog_ledger_newest(ledger_path) -> dict:
+    """Map each task id to its NEWEST parseable ledger ts (epoch seconds).
+
+    Reads the shared impl_progress JSONL one object per line; blank lines,
+    non-JSON lines, non-dict rows, rows without a string ``task_id``, and rows
+    with an unparseable ``ts`` are all skipped silently. A task with no parseable
+    row simply does not appear in the result (no staleness evidence -> the
+    watchdog stands down for it).
+    """
+    import json
+    newest = {}
+    try:
+        text = Path(ledger_path).read_text(encoding='utf-8')
+    except OSError:
+        return newest
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        tid = row.get('task_id')
+        if not (isinstance(tid, str) and tid):
+            continue
+        epoch = _watchdog_parse_iso(row.get('ts'))
+        if epoch is None:
+            continue
+        prev = newest.get(tid)
+        if prev is None or epoch > prev:
+            newest[tid] = epoch
+    return newest
+
+def _watchdog_bump_attempt(watchdog_dir, task_id) -> int:
+    """Durably increment and return the recurring-stall attempt count for a task.
+
+    The counter map persists at ``<watchdog_dir>/attempts.json`` so attempt
+    state survives across reconciler sweeps (the watchdog runs once per sweep,
+    not in a hot loop). Read / parse failures degrade to a fresh map; the
+    rewrite is temp-file + ``os.replace`` atomic and fully contained.
+    """
+    import json
+    path = Path(watchdog_dir) / 'attempts.json'
+    data = {}
+    try:
+        loaded = json.loads(path.read_text(encoding='utf-8'))
+        if isinstance(loaded, dict):
+            data = loaded
+    except (OSError, ValueError):
+        data = {}
+    try:
+        cur = int(data.get(task_id, 0))
+    except (TypeError, ValueError):
+        cur = 0
+    cur += 1
+    data[task_id] = cur
+    try:
+        Path(watchdog_dir).mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name('attempts.json.tmp')
+        tmp.write_text(json.dumps(data), encoding='utf-8')
+        os.replace(str(tmp), str(path))
+    except OSError:
+        pass
+    return cur
+
+def _watchdog_write_escalation(watchdog_dir, task_id, now, attempts, max_retries, last_ts) -> bool:
+    """Write the JSON escalation marker for a retry-exhausted stall.
+
+    The marker lands at ``<watchdog_dir>/escalation_<task_id>.json`` and carries
+    the task id, the live_idle classification, the attempt budget, and a UTC
+    timestamp. Returns True on success; any I/O failure is contained and returns
+    False (the sweep degrades, never raises).
+    """
+    import json
+    import datetime
+    marker = Path(watchdog_dir) / ('escalation_%s.json' % (task_id,))
+    try:
+        escalated_at = datetime.datetime.fromtimestamp(float(now), datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    except (TypeError, ValueError, OSError, OverflowError):
+        escalated_at = ''
+    payload = {'task_id': task_id, 'kind': 'live_idle', 'reason': 'retry_exhausted', 'attempts': int(attempts), 'max_retries': int(max_retries), 'last_progress_ts': last_ts, 'escalated_at': escalated_at}
+    try:
+        Path(watchdog_dir).mkdir(parents=True, exist_ok=True)
+        marker.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding='utf-8')
+        return True
+    except OSError:
+        return False
+
+def _watchdog_terminate(raw) -> None:
+    """Best-effort SIGKILL of a wedged worker pid; NEVER signals our own process.
+
+    Fully contained: a non-numeric pid, a pid equal to the current process, or
+    any ``os.kill`` failure (already gone / not permitted) is swallowed.
+    Clearing the processing claim -- not the kill -- is the load-bearing
+    self-heal step, so a failed signal never blocks the requeue.
+    """
+    import signal
+    try:
+        pid = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return
+    if pid <= 0:
+        return
+    try:
+        if pid == os.getpid():
+            return
+    except OSError:
+        return
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except Exception:
+        pass
+
+def detect_and_heal_stalls(root, *, config=None, now=None) -> dict:
+    """Per-task detect-and-self-heal watchdog for wedged in-flight tasks.
+
+    FAIL-SAFE / DEFAULT-OFF: a no-op unless armed via the ``JM_WATCHDOG_ENABLED``
+    environment variable (or an explicit ``enabled`` config flag). When armed it
+    sweeps the canonical running-pidfile dir
+    (``<root>/state/control/autowork/running``) and, for each in-flight task,
+    classifies the claim against the shared impl_progress ledger:
+
+    * ``live_idle`` -- the pidfile names a LIVE pid (``os.kill(pid, 0)`` does not
+      raise ``ESRCH``; ``EPERM`` counts as live, fail-closed) AND the newest
+      parseable ledger ts for that task is older than the idle grace. This is the
+      only kind that is self-healed: the wedged process is best-effort killed
+      (never our own pid) and its processing claim (the pidfile) is cleared so
+      dispatch can re-pick the task. The progress ledger itself is preserved.
+    * ``dead_mid_flight`` -- the pidfile names a dead pid. Left untouched here
+      (the orphan / zombie reapers own that surface); it is never a stall.
+    * ``retry_exhausted`` -- a ``live_idle`` task whose durable attempt count
+      (tracked under ``state/control/autowork/watchdog/``) has reached the bound;
+      a JSON escalation marker is written.
+
+    Tasks with no parseable ledger evidence (missing / corrupt ledger or only
+    fresh rows) are NEVER healed -- absent confirmed staleness the watchdog
+    stands down. Every filesystem / parse step is contained so the sweep never
+    raises. Returns a dict summarising the sweep.
+    """
+    result = {'enabled': False, 'detected': [], 'healed': [], 'escalated': [], 'dead': []}
+    if not _watchdog_enabled(config):
+        return result
+    result['enabled'] = True
+    if now is None:
+        now = time.time()
+    cfg = _watchdog_config(config)
+    idle_grace = cfg['idle_grace_sec']
+    max_retries = cfg['max_retries']
+    root_path = Path(root)
+    running_dir = _running_dir(root_path)
+    watchdog_dir = root_path / 'state' / 'control' / 'autowork' / 'watchdog'
+    ledger_path = root_path / 'state' / 'impl_progress.jsonl'
+    newest_ts = _watchdog_ledger_newest(ledger_path)
+    try:
+        entries = sorted(running_dir.iterdir())
+    except OSError:
+        entries = []
+    for entry in entries:
+        try:
+            if entry.suffix != '.pid':
+                continue
+        except Exception:
+            continue
+        task_id = _pidfile_task_id(entry.stem)
+        if not task_id:
+            continue
+        try:
+            raw = entry.read_text(encoding='utf-8').strip()
+        except OSError:
+            continue
+        if not pid_is_live(raw):
+            if task_id not in result['dead']:
+                result['dead'].append(task_id)
+            continue
+        ts = newest_ts.get(task_id)
+        if ts is None:
+            continue
+        if now - ts <= idle_grace:
+            continue
+        if task_id not in result['detected']:
+            result['detected'].append(task_id)
+        attempts = _watchdog_bump_attempt(watchdog_dir, task_id)
+        _watchdog_terminate(raw)
+        try:
+            entry.unlink()
+            if task_id not in result['healed']:
+                result['healed'].append(task_id)
+        except OSError:
+            pass
+        if attempts >= max_retries:
+            if _watchdog_write_escalation(watchdog_dir, task_id, now, attempts, max_retries, ts):
+                if task_id not in result['escalated']:
+                    result['escalated'].append(task_id)
+    return result
+
+def reap_spent_briefs(root) -> list:
+    """Archive fully-integrated ``plan_hooks_<slug>`` + ``brief_hooks_<slug>`` pairs.
+
+    A ``plan_hooks_<slug>.json`` at the workspace ``root`` is *spent* once EVERY
+    task it lists carries an ``accepted`` row in the impl_progress ledger
+    (``<root>/state/impl_progress.jsonl``). A spent plan and its companion
+    ``brief_hooks_<slug>.md`` are relocated -- collision-safe, a plain move and
+    NEVER a delete -- under ``<root>/_autowork_archive/<iso-date>/reconciled/``.
+    Partially-integrated hooks are left in place. The pass is fail-safe (a
+    missing / corrupt ledger or plan is skipped, never raises) and idempotent (a
+    re-run finds the plans already gone and reaps nothing). Returns the sorted
+    list of reaped slugs.
+    """
+    import json
+    import datetime
+    root_path = Path(root)
+    ledger_path = root_path / 'state' / 'impl_progress.jsonl'
+    accepted = set()
+    try:
+        text = ledger_path.read_text(encoding='utf-8')
+    except OSError:
+        text = ''
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        if row.get('phase') == 'accepted' or row.get('event') == 'accepted':
+            tid = row.get('task_id')
+            if isinstance(tid, str) and tid:
+                accepted.add(tid)
+    try:
+        plans = sorted(root_path.glob('plan_hooks_*.json'))
+    except OSError:
+        plans = []
+    today = datetime.date.today().isoformat()
+    archive_dir = root_path / '_autowork_archive' / today / 'reconciled'
+    prefix = 'plan_hooks_'
+    reaped = []
+    for plan_path in plans:
+        try:
+            if not plan_path.is_file():
+                continue
+        except OSError:
+            continue
+        stem = plan_path.stem
+        if not stem.startswith(prefix):
+            continue
+        slug = stem[len(prefix):]
+        if not slug:
+            continue
+        try:
+            data = json.loads(plan_path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        tasks = data.get('tasks')
+        if not isinstance(tasks, list) or not tasks:
+            continue
+        task_ids = []
+        ok = True
+        for item in tasks:
+            if not isinstance(item, dict):
+                ok = False
+                break
+            tid = item.get('task_id')
+            if not (isinstance(tid, str) and tid):
+                ok = False
+                break
+            task_ids.append(tid)
+        if not ok or not task_ids:
+            continue
+        if any((tid not in accepted for tid in task_ids)):
+            continue
+        try:
+            _archive_move_collision_safe(plan_path, archive_dir)
+        except Exception:
+            continue
+        brief_path = root_path / ('brief_hooks_%s.md' % (slug,))
+        try:
+            if os.path.lexists(brief_path):
+                _archive_move_collision_safe(brief_path, archive_dir)
+        except Exception:
+            pass
+        reaped.append(slug)
+    reaped.sort()
+    return reaped
 def _running_dir(root) -> Path:
     """Canonical autowork running-pidfile directory for ``root``.
 
