@@ -793,6 +793,17 @@ class WallDeadlineWatchdog:
 # ---------------------------------------------------------------------------
 
 
+def _jailed_popen(cmd: list[str], *, cwd: str, env: dict[str, str], repo_root: Path | None=None, state_dir: Path | None=None, **popen_kwargs) -> subprocess.Popen:
+    from harness.agent_jail import build_jail_argv, bwrap_available
+    if bwrap_available():
+        if repo_root is None:
+            repo_root = Path(__file__).resolve().parents[1]
+        if state_dir is None:
+            state_dir = Path(cwd)
+        jailed_argv = build_jail_argv(cmd, repo_root=repo_root, work_dir=Path(cwd), state_dir=state_dir, bind_credentials=False, extra_ro=[sys.base_prefix, sys.prefix])
+        return subprocess.Popen(jailed_argv, cwd=cwd, env=env, **popen_kwargs)
+    else:
+        return subprocess.Popen(cmd, cwd=cwd, env=env, **popen_kwargs)
 def _safe_close_proc(proc: subprocess.Popen | None) -> None:
     """Safely close a subprocess's pipes and wait for it to exit."""
     if proc is None:
@@ -889,7 +900,7 @@ class Sandbox:
         proc = None
         proc_stderr = ""
         try:
-            proc = subprocess.Popen(
+            proc = _jailed_popen(
                 [sys.executable, str(runner_path), str(payload_path), str(result_path)],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -898,7 +909,7 @@ class Sandbox:
                 cwd=str(work_dir),
                 start_new_session=True,
             )
-            
+
             watchdog = WallDeadlineWatchdog(proc.pid, wall_timeout)
             try:
                 stdout, stderr = proc.communicate(timeout=wall_timeout)
@@ -1044,9 +1055,9 @@ class BatchRunner:
         runner_path.write_text(_BATCH_RUNNER_TEMPLATE)
 
         payload_path = work_dir / "payload.json"
-        
+
         per_input_timeout = self.config.timeout_per_input_ms / 1000.0
-        
+
         payload = {
             "code": code,
             "func_name": func_name,
@@ -1074,7 +1085,7 @@ class BatchRunner:
         batch_error = None
 
         try:
-            proc = subprocess.Popen(
+            proc = _jailed_popen(
                 [sys.executable, str(runner_path), str(payload_path)],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -1083,9 +1094,9 @@ class BatchRunner:
                 cwd=str(work_dir),
                 start_new_session=True,
             )
-            
+
             watchdog = WallDeadlineWatchdog(proc.pid, total_wall_timeout)
-            
+
             try:
                 for line in proc.stdout:
                     if not line.strip():
@@ -1267,18 +1278,18 @@ class BatchWorkerPool:
     def _spawn_worker(self, worker_id: int):
         work_dir = self._sandbox_dir / f"worker_{worker_id}"
         work_dir.mkdir(parents=True, exist_ok=True)
-        
+
         runner_path = work_dir / "runner.py"
         runner_path.write_text(_BATCH_RUNNER_TEMPLATE)
-        
+
         env = sandbox_child_env({
             "PYTHONHASHSEED": self.config.python_hash_seed,
             "HOME": str(work_dir),
             "TMPDIR": str(work_dir),
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         })
-        
-        proc = subprocess.Popen(
+
+        proc = _jailed_popen(
             [sys.executable, str(runner_path), "--pool"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -1287,7 +1298,7 @@ class BatchWorkerPool:
             cwd=str(work_dir),
             start_new_session=True,
         )
-        
+
         return {
             "proc": proc,
             "work_dir": work_dir,
