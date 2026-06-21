@@ -134,6 +134,45 @@ def _coerce_meta_task_types(draft) -> None:
         canonical = _META_TASK_TYPE_ALIASES.get(mtt.strip().lower())
         if canonical is not None:
             t['meta_task_type'] = canonical
+def _coerce_task_priorities(draft) -> None:
+    """Coerce well-known P-style task priorities to canonical values in place.
+
+    Deterministic pre-validation pass mirroring ``_coerce_meta_task_types``: for
+    each dict task in ``draft['tasks']`` whose ``priority`` is a str, look up its
+    stripped/lower-cased form against a case-insensitive view of
+    ``_PRIORITY_NORMALIZATION_MAP`` (P0->critical, P1->high, P2->medium,
+    P3->low) and rewrite it to the canonical value when a mapping exists and that
+    canonical value differs from the current one. Missing ``priority`` keys,
+    non-string priorities, unmapped values, non-dict task entries, and a
+    non-list ``draft['tasks']`` are left untouched. No-ops when ``draft`` is not
+    a dict. Performs no I/O, network, clock, or randomness, and is idempotent.
+
+    The ``_PRIORITY_NORMALIZATION_MAP`` import is performed lazily inside this
+    helper to avoid a module-level circular dependency between the planner
+    normalizer and the blind-draft collector.
+    """
+    if not isinstance(draft, dict):
+        return
+    tasks = draft.get('tasks')
+    if not isinstance(tasks, list):
+        return
+    try:
+        from harness.planner.plan_normalizer import _PRIORITY_NORMALIZATION_MAP
+    except ImportError:
+        return
+    normalized_map = {}
+    for key, value in _PRIORITY_NORMALIZATION_MAP.items():
+        if isinstance(key, str):
+            normalized_map[key.strip().lower()] = value
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        priority = t.get('priority')
+        if not isinstance(priority, str):
+            continue
+        canonical = normalized_map.get(priority.strip().lower())
+        if canonical is not None and canonical != priority:
+            t['priority'] = canonical
 def collect_agent_draft(agent: str, agent_dir: Path, state_dir: Path, elapsed: float, timeout: float, spawn_start_epoch: Optional[float]=None, min_response_seconds: float=10.0, mode: str='leaf', working_dir: Optional[str]=None) -> Tuple[Optional[Dict[str, Any]], str]:
     """Collect an agent's plan draft from canonical paths, falling back to
     per-spawn outbox when the post_tool promoter didn't fire.
@@ -176,6 +215,7 @@ def collect_agent_draft(agent: str, agent_dir: Path, state_dir: Path, elapsed: f
     if working_dir and isinstance(draft, dict) and not draft.get('working_dir'):
         draft['working_dir'] = working_dir
     _coerce_meta_task_types(draft)
+    _coerce_task_priorities(draft)
     if mode != 'epic':
         _synthesize_wiring_oracle_tokens(draft, working_dir)
     if mode == 'epic':
