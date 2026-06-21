@@ -1246,14 +1246,18 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
     NESTED_SYMBOL_DIAGNOSTIC: when a 1-part *qualname* (or the inner leaf
     of a 2-part *qualname*) matches NO top-level (resp. direct-member)
     symbol, the source AST is walked for a def/class with the same leaf
-    name nested INSIDE another def/class body. If one is found, a clear,
-    actionable ``ValueError`` naming the enclosing symbol(s) is raised in
-    place of the opaque bare ``KeyError`` -- nested-symbol patching is not
-    supported, so the caller is told to patch the enclosing top-level
-    symbol (or use a dotted ``Outer.inner`` qualname for a direct method).
-    A leaf name that is NEITHER top-level NOR nested anywhere still raises
-    the bare ``KeyError(qualname)`` unchanged, keeping the truly-absent
-    case distinct from the nested-symbol case.
+    name nested INSIDE another def/class body. For a 1-part bare name the
+    enclosing scopes are gathered via ``_find_nested_defs``; if EXACTLY ONE
+    enclosing scope is found a clear, actionable ``ValueError`` names that
+    scope, and if MORE THAN ONE is found the ``ValueError`` lists EVERY
+    candidate scope so the ambiguous bare-name patch is rejected with the
+    full set spelled out -- in both cases in place of the opaque bare
+    ``KeyError`` (nested-symbol patching is not supported, so the caller is
+    told to patch the enclosing top-level symbol, or use a dotted
+    ``Outer.inner`` qualname for a direct method). A leaf name that is
+    NEITHER top-level NOR nested anywhere still raises the bare
+    ``KeyError(qualname)`` unchanged, keeping the truly-absent case distinct
+    from the nested-symbol case. The dotted (2-part) branch is unchanged.
     """
     import textwrap
     new_block = textwrap.dedent(new_block)
@@ -1318,9 +1322,10 @@ def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:
                 located = assign_matches[0]
         if located is None:
             nested = sorted(set(_find_nested_defs(leaf_name, tree, [])))
-            if nested:
-                top = nested[0].split('.')[0]
-                raise ValueError(f'cannot patch {qualname!r}: no top-level def/class named {leaf_name!r}, but a def/class with that name is defined NESTED inside {nested}. Nested-symbol patching is not supported; patch the enclosing top-level symbol {top!r} as a whole, or use a dotted \'Outer.inner\' qualname if it is a direct method of a top-level class.')
+            if len(nested) > 1:
+                raise ValueError(f'cannot patch {qualname!r}: bare name {leaf_name!r} is not a top-level def/class and is defined NESTED inside multiple candidate scopes {nested}; the bare-name patch is ambiguous. Patch one specific enclosing top-level symbol as a whole, or use a dotted \'Outer.inner\' qualname for a direct method of a top-level class.')
+            if len(nested) == 1:
+                raise ValueError(f'cannot patch {qualname!r}: no top-level def/class named {leaf_name!r}, but a def/class with that name is defined NESTED inside {nested}. Nested-symbol patching is not supported; patch the enclosing top-level symbol {nested[0]!r} as a whole, or use a dotted \'Outer.inner\' qualname if it is a direct method of a top-level class.')
             raise KeyError(qualname)
     else:
         current = tree
