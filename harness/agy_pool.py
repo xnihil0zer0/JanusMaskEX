@@ -35,7 +35,7 @@ def agy_seed_plan(home: str) -> List[Tuple[str, str]]:
     """
     return [(os.path.join(home, rel), rel) for rel in _SEED_RELS]
 
-def ensure_seeded(repo_root: str, slot: int, *, home: str, copy: Callable[[str, str], object], exists: Callable[[str], bool], makedirs: Callable[[str], object]) -> List[str]:
+def ensure_seeded(repo_root: str, slot: int, *, home: str, copy: Callable[[str, str], object], exists: Callable[[str], bool], makedirs: Callable[[str], object], isdir: Callable[[str], bool] = os.path.isdir, remove: Callable[[str], object] = os.remove, lexists: Callable[[str], bool] = os.path.lexists) -> List[str]:
     """Idempotently seed ``slot``'s private home from the operator ``home``.
 
     For each planned ``(src, rel)`` pair, copy only when ``src`` exists and the
@@ -51,6 +51,16 @@ def ensure_seeded(repo_root: str, slot: int, *, home: str, copy: Callable[[str, 
             makedirs(os.path.dirname(dst))
             copy(src, dst)
             copied.append(rel)
+
+    config = os.path.join(wh, ".gemini", "config")
+    projects = os.path.join(config, "projects")
+    if lexists(config) and not isdir(config):
+        try:
+            remove(config)
+        except FileNotFoundError:
+            pass
+    makedirs(projects)
+
     return copied
 
 def allocate_slot(busy, size: int=POOL_SIZE):
