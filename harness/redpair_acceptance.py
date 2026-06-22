@@ -56,20 +56,33 @@ def is_fix_forward_redpair(task, worktree_root, sibling_tasks) -> bool:
 
 def load_sibling_tasks(state_dir, task, task_id) -> list:
     """Load sibling task dicts: every id in task['dependencies'] plus every task whose
-    'dependencies' contains task_id, read from state/tasks/processed/ and state/tasks/.
-    Skips missing/corrupt files. Never raises."""
+    'dependencies' contains task_id, read from state/tasks/processed/, state/tasks/ (base),
+    and state/tasks/blocked/. A blocked sibling is included only when still live-retryable;
+    a blocked sibling <sib> carrying a state/tasks/blocked/<sib>.exhausted sidecar is
+    permanently dead and is skipped. Skips missing/corrupt files. Never raises."""
     out = []
     try:
         sd = Path(state_dir)
         proc = sd / 'tasks' / 'processed'
         base = sd / 'tasks'
+        blocked = sd / 'tasks' / 'blocked'
         seen = set()
+
+        def _dead_blocked(d, sib):
+            try:
+                if d != blocked or not isinstance(sib, str) or not sib:
+                    return False
+                return (blocked / (sib + '.exhausted')).exists()
+            except Exception:
+                return False
 
         def _read(tid):
             if not isinstance(tid, str) or not tid or tid in seen:
                 return
             seen.add(tid)
-            for d in (proc, base):
+            for d in (proc, base, blocked):
+                if _dead_blocked(d, tid):
+                    continue
                 p = d / (tid + '.json')
                 try:
                     if p.is_file():
@@ -80,11 +93,13 @@ def load_sibling_tasks(state_dir, task, task_id) -> list:
         deps = task.get('dependencies') or [] if isinstance(task, dict) else []
         for tid in deps:
             _read(tid)
-        for d in (proc, base):
+        for d in (proc, base, blocked):
             try:
                 if not d.is_dir():
                     continue
                 for p in d.glob('*.json'):
+                    if _dead_blocked(d, p.stem):
+                        continue
                     try:
                         obj = json.loads(p.read_text())
                     except Exception:
