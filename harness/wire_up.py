@@ -283,6 +283,226 @@ def _resolved_graph(repo_root, modules):
                     if a.name in pkg_init:
                         deps.add(pkg_init[a.name])
     return graph
+def new_top_level_callables(parent_src: str | None, child_src: str) -> list[str]:
+    """Return the SORTED names that are top-level callables in ``child_src`` but
+    NOT in ``parent_src`` -- an AST diff of newly-added module-scope callables.
+
+    A *top-level callable* on each side is one of:
+
+      * a module-scope ``def`` / ``async def`` (``ast.FunctionDef`` /
+        ``ast.AsyncFunctionDef``);
+      * a module-scope assignment ``name = <lambda>`` with a single
+        ``ast.Name`` target;
+      * a ``def`` / ``async def`` found by recursing into module-scope ``If``
+        (body + orelse), ``Try`` (body + each handler body + orelse +
+        finalbody), and ``With`` (body). Those constructs do NOT introduce a
+        new scope, so a ``def`` nested inside an ``If`` inside a ``Try`` is
+        still module-scope and IS enumerated (mirrors the live
+        ``harness/planner/blind_draft.py:_validate_plan`` def-inside-try).
+
+    The recursion never crosses a ``def`` / ``class`` boundary, so defs nested
+    inside another function or class (methods) are NOT enumerated; non-lambda
+    top-level assignments (plain aliases, ``functools.partial`` bindings) are
+    NOT enumerated either.
+
+    Fail-soft and pure: an unparseable ``child_src`` yields ``[]`` (never
+    raises); an empty / ``None`` / unparseable ``parent_src`` is treated as
+    having no callables, so every child callable reads as new. AST-only, no
+    I/O, deterministic.
+    """
+    import ast
+
+    def _collect_block(stmts, names):
+        for node in stmts:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                names.add(node.name)
+            elif isinstance(node, ast.If):
+                _collect_block(node.body, names)
+                _collect_block(node.orelse, names)
+            elif isinstance(node, ast.Try):
+                _collect_block(node.body, names)
+                for handler in node.handlers:
+                    _collect_block(handler.body, names)
+                _collect_block(node.orelse, names)
+                _collect_block(node.finalbody, names)
+            elif isinstance(node, ast.With):
+                _collect_block(node.body, names)
+
+    def _collect(src):
+        if not isinstance(src, str) or not src.strip():
+            return set()
+        try:
+            tree = ast.parse(src)
+        except (SyntaxError, ValueError, TypeError):
+            return set()
+        names: set = set()
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                names.add(node.name)
+            elif isinstance(node, ast.Assign):
+                if isinstance(node.value, ast.Lambda) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                    names.add(node.targets[0].id)
+            elif isinstance(node, ast.If):
+                _collect_block(node.body, names)
+                _collect_block(node.orelse, names)
+            elif isinstance(node, ast.Try):
+                _collect_block(node.body, names)
+                for handler in node.handlers:
+                    _collect_block(handler.body, names)
+                _collect_block(node.orelse, names)
+                _collect_block(node.finalbody, names)
+            elif isinstance(node, ast.With):
+                _collect_block(node.body, names)
+        return names
+    child_names = _collect(child_src)
+    parent_names = _collect(parent_src)
+    return sorted(child_names - parent_names)
+
+class observe_symbol_execution:
+    """Runtime observer of which WATCHED module-top-level functions actually
+    execute, plus each watched call's IMMEDIATE caller source file.
+
+    Used as a context manager. On ``__enter__`` it saves the prior
+    ``sys.gettrace()`` and the prior ``threading`` trace hook, then installs its
+    own callback as the SOLE tracer via both ``sys.settrace`` and
+    ``threading.settrace`` -- CLOBBERING any prior tracer rather than chaining
+    to it. Clobber-then-exact-restore is the only strategy that both observes
+    the symbol and lets the rest of the suite's tracer (e.g. coverage.py's
+    CTracer) be restored byte-for-byte afterwards.
+
+    The trace callback, on every ``'call'`` event, marks a watched name executed
+    when the called code object is module-top-level (``co_qualname`` equals the
+    bare ``co_name`` on 3.11+, else the ``co_name`` fallback) and its bare name
+    is in the watched set, recording that call's immediate caller filename
+    (``frame.f_back.f_code.co_filename`` -- ``None`` when there is no caller
+    frame). It returns the callback itself and NEVER raises, so a probe bug can
+    never crash a driven entrypoint.
+
+    Observation is NOT a wiring proof: ``executed`` reports only that the symbol
+    ran during the observed window; ``executed_from_live_root`` adds sound
+    provenance by additionally requiring the immediate caller to resolve into a
+    live-root file. GENERAL behaviour only -- no special-casing of any path,
+    symbol, fixture, or task field.
+    """
+
+    def __init__(self, qualnames) -> None:
+        self._watched: set = set(qualnames)
+        self._executed: set = set()
+        self._callers: dict = {}
+        self._prior = None
+        self._prior_thread = None
+        observer = self
+
+        def _trace(frame, event, arg):
+            try:
+                if event == 'call':
+                    code = frame.f_code
+                    name = code.co_name
+                    qualname = getattr(code, 'co_qualname', None)
+                    if (qualname is None or qualname == name) and name in observer._watched:
+                        observer._executed.add(name)
+                        if name not in observer._callers:
+                            back = frame.f_back
+                            observer._callers[name] = back.f_code.co_filename if back is not None else None
+            except Exception:
+                pass
+            return _trace
+        self._trace = _trace
+
+    def __enter__(self) -> 'observe_symbol_execution':
+        import sys
+        import threading
+        self._prior = sys.gettrace()
+        try:
+            self._prior_thread = threading.gettrace()
+        except AttributeError:
+            self._prior_thread = getattr(threading, '_trace_hook', None)
+        sys.settrace(self._trace)
+        threading.settrace(self._trace)
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        import sys
+        import threading
+        try:
+            sys.settrace(self._prior)
+        finally:
+            threading.settrace(self._prior_thread)
+        return False
+
+    def executed(self, name: str) -> bool:
+        """Return True iff ``name`` is a watched symbol observed to have run.
+
+        OBSERVATION-ONLY: a True result proves the symbol executed during the
+        observed window, not that it is correctly wired. An un-watched name is
+        always False.
+        """
+        return name in self._watched and name in self._executed
+
+    def reached_from(self, name: str) -> str | None:
+        """Return the FIRST observed immediate-caller ``co_filename`` for a
+        watched ``name`` (deterministic), or ``None`` when ``name`` was never
+        observed or the watched call had no caller frame."""
+        return self._callers.get(name)
+
+    def executed_from_live_root(self, name: str, live_root_files) -> bool:
+        """Return True iff ``name`` executed AND its first observed immediate
+        caller resolves into one of ``live_root_files``.
+
+        ``live_root_files`` is a set of POSIX rel-path seeds (e.g. the
+        ``LIVE_ROOTS`` constant). Each seed is matched robustly against the
+        absolute captured caller filename via realpath / normalized
+        path-suffix / basename comparison, so a rel-path seed correctly resolves
+        against an absolute ``co_filename``.
+        """
+        if name not in self._watched or name not in self._executed:
+            return False
+        caller = self._callers.get(name)
+        if not caller:
+            return False
+        for seed in live_root_files:
+            if self._path_matches(caller, seed):
+                return True
+        return False
+
+    @property
+    def reached(self) -> set:
+        """The set of watched names observed to have executed."""
+        return set(self._executed)
+
+    @staticmethod
+    def _path_matches(caller: str, seed: str) -> bool:
+        import os
+        try:
+            if not caller or not seed:
+                return False
+            seed_norm = str(seed).replace(os.sep, '/').strip()
+            while seed_norm.startswith('./'):
+                seed_norm = seed_norm[2:]
+            seed_norm = seed_norm.strip('/')
+            if not seed_norm:
+                return False
+            variants: set = set()
+            variants.add(str(caller).replace(os.sep, '/'))
+            try:
+                variants.add(os.path.realpath(caller).replace(os.sep, '/'))
+            except Exception:
+                pass
+            try:
+                variants.add(os.path.normpath(caller).replace(os.sep, '/'))
+            except Exception:
+                pass
+            for cv in variants:
+                if cv == seed_norm or cv.endswith('/' + seed_norm):
+                    return True
+            seed_base = seed_norm.rsplit('/', 1)[-1]
+            if seed_base:
+                for cv in variants:
+                    if cv.rsplit('/', 1)[-1] == seed_base:
+                        return True
+            return False
+        except Exception:
+            return False
 def _grep_config(repo_root: Path, stem: str) -> str:
     """Search ``repo_root/config/**`` for ``stem`` used as a MODULE reference.
 
