@@ -295,6 +295,7 @@ def _planning_prompt(brief: PlanningBrief, mode: str = 'leaf') -> str:
         return epic_text + brief_block
     return f'''You are a planning agent. Your task is to draft a plan of JanusMask tasks that implements the planning brief titled "{brief.title}".\n\nScope: {brief.scope}\nNon-goals: {brief.non_goals}\nExpected deliverables: {brief.deliverables}\nRelevant inputs to investigate: {brief.inputs}\n\n----- BRIEF (full markdown body) -----\n{brief.raw_text}\n----- END BRIEF -----\n\nYour plan must directly address the concerns in this brief — do NOT substitute your own unrelated agenda. Each task in the plan must map to a concern or deliverable from the brief; a task that does not trace back to the brief is a bug.\n\nSubmit your plan by writing a single JSON file at:\n    {{OUTBOX_PATH}}/plan_draft.json\nWriting this file IS how you submit; the harness intercepts the Write via a PostToolUse/AfterTool hook, validates the JSON, and persists it for the planner to pick up. The MCP janusmask execute tool is NOT registered in this worker session — only file read/write and read-only exploration tools (Read, Glob, Grep) are available.\n\nIf the PreToolUse hook rejects the Write with a validation error, fix the JSON and Write the same path again — the gate is single-shot only on accepted submissions.\n\nIMPORTANT SCHEMA REQUIREMENTS for plan_draft.json:\nThe file MUST contain a JSON object with a 'tasks' array. Every task in the array MUST be a complete object with the following structure:\n{{\n  "task_id": "...",\n  "title": "...",\n  "meta_task_type": "refactor", // REQUIRED non-empty string. Choose the best fit from the canonical taxonomy: {', '.join(sorted(META_TASK_TYPES))}\n  "priority": "...",\n  "dependencies": [], // Array of task_ids this depends on\n  "files_touched": [],\n  "acceptance_criteria": [],\n  "spec_author": null, // MUST be exactly null (not a string)\n  "estimated_complexity": "...",\n  "verification_command": "...",\n  "spec": {{\n    "objective": "...",\n    "functional_requirements": ["..."], // Minimum 1 requirement\n    "interfaces": "...",\n    "edge_cases": ["..."],\n    "non_goals": ["..."],\n    "implementation_notes": "..."\n  }},\n  "test_spec": {{\n    "unit_tests": [{{"name": "..."}}], // Array of objects. Length MUST be >= len(functional_requirements)\n    "integration_tests": [{{"name": "..."}}], // Array of objects\n    "property_tests": [{{"name": "..."}}], // Array of objects\n    "regression_tests": [{{"name": "..."}}], // Array of objects\n    "minimum_test_count": 10, // MUST be >= 1.5 * len(functional_requirements)\n    "test_data_requirements": "..."\n  }},\n  "token_budget_ratio": {{\n    "implementation_tokens": 100,\n    "test_tokens": 200, // MUST be >= 1.5 * implementation_tokens. If impl is 0, test_tokens must be > 0\n    "note": "..."\n  }},\n  "attribution_metadata": {{\n    "proposed_by": "agent",\n    "reconciled": false,\n    "diff_resolution": ""\n  }}\n}}\n\nMUTATION TARGET (REQUIRED for test_authoring tasks): any task whose meta_task_type is "test_authoring" MUST ALSO carry a top-level "mutation_target" field whose value is the BARE DOTTED MODULE NAME of the module-under-test (e.g. "harness.symbol_ledger" — NOT a path, NOT a filename, NO ".py" suffix, NO slashes). The non-vacuity gate applies the named module's declared mutant and requires the authored test to FAIL against it; a test_authoring task without a valid mutation_target is rejected fail-closed. Omit "mutation_target" for all non-test_authoring tasks.\n\nIf validation fails repeatedly, simplify the DAG and read the gate's rejection reason carefully — bash and arbitrary Python are BLOCKED, so you cannot script schema generation; emit JSON directly that matches the structure above.'''
 
+from harness.orchestrator import run_agent_phase
 def run_blind_drafts(brief: PlanningBrief, config: Dict[str, Any], state_dir: Path) -> BlindDraftResult:
     """Spawns both agents in planning mode and returns their drafts."""
     planning_dir = state_dir / 'planning'
@@ -335,4 +336,40 @@ def run_blind_drafts(brief: PlanningBrief, config: Dict[str, Any], state_dir: Pa
             os.environ['JANUSMASK_MODE'] = old_env
     c_draft, c_status = collect_agent_draft('claude', claude_dir, state_dir, elapsed, timeout, spawn_start_epoch=spawn_wall_start, mode=mode, working_dir=getattr(brief, 'working_dir', None))
     g_draft, g_status = collect_agent_draft('gemini', gemini_dir, state_dir, elapsed, timeout, spawn_start_epoch=spawn_wall_start, mode=mode, working_dir=getattr(brief, 'working_dir', None))
+    # --- re-draft-once: recover a single flaky/degenerate draft ---
+    _RETRYABLE = ('invalid', 'crashed')
+    _wd = getattr(brief, 'working_dir', None)
+    _agent_state = {
+        'claude': (c_draft, c_status, claude_dir, c_draft_path),
+        'gemini': (g_draft, g_status, gemini_dir, g_draft_path),
+    }
+    _recovered = {}
+    for _agent, (_draft, _status, _agent_dir, _top_draft_path) in _agent_state.items():
+        if _draft is not None or _status not in _RETRYABLE:
+            continue
+        for _stale in (_top_draft_path, _agent_dir / 'planning' / 'sessions' / f'{_agent}_draft.json'):
+            try:
+                _stale.unlink()
+            except (FileNotFoundError, OSError):
+                pass
+        _old_env = os.environ.get('JANUSMASK_MODE')
+        os.environ['JANUSMASK_MODE'] = 'planning'
+        _retry_start = time.time()
+        try:
+            run_agent_phase(_agent, prompt, derived_config, state_dir, 1, 'planning')
+        except Exception:
+            logger.warning('re-draft-once: re-spawn of %s raised; keeping original failed result', _agent, exc_info=True)
+        finally:
+            if _old_env is None:
+                os.environ.pop('JANUSMASK_MODE', None)
+            else:
+                os.environ['JANUSMASK_MODE'] = _old_env
+        _r_draft, _r_status = collect_agent_draft(_agent, _agent_dir, state_dir, time.monotonic() - start_time, timeout, spawn_start_epoch=_retry_start, mode=mode, working_dir=_wd)
+        if _r_draft is not None and _r_status == 'ok':
+            _recovered[_agent] = (_r_draft, _r_status)
+        # else: keep the original failed (_draft, _status) - graceful, no second retry
+    if 'claude' in _recovered:
+        c_draft, c_status = _recovered['claude']
+    if 'gemini' in _recovered:
+        g_draft, g_status = _recovered['gemini']
     return BlindDraftResult(claude_draft=c_draft, claude_status=c_status, gemini_draft=g_draft, gemini_status=g_status)
