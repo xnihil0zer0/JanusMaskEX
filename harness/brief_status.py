@@ -65,7 +65,7 @@ def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
                         if not tid:
                             continue
                         if row.get('phase') == 'accepted' and row.get('event') == 'auto_commit':
-                            accepted_map[tid] = {'task_id': tid, 'commit_sha': row.get('commit_sha'), 'ts': row.get('ts')}
+                            accepted_map[tid] = {'task_id': tid, 'commit_sha': row.get('commit_sha'), 'ts': row.get('ts'), 'source_brief_sha256': row.get('source_brief_sha256')}
                         elif row.get('event') in ('reject_rollback', 'task_blocked'):
                             accepted_map.pop(tid, None)
                     except json.JSONDecodeError:
@@ -94,18 +94,18 @@ def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
                         for t in plan_data['tasks']:
                             if isinstance(t, dict) and 'task_id' in t:
                                 task_ids.append(t['task_id'])
-                try:
-                    stamped = plan_data.get('source_brief_sha256') if isinstance(plan_data, dict) else None
-                    if isinstance(stamped, str) and stamped:
-                        current_sha = hashlib.sha256(p.read_bytes()).hexdigest()
-                        if stamped != current_sha:
+                    try:
+                        stamped = plan_data.get('source_brief_sha256') if isinstance(plan_data, dict) else None
+                        if isinstance(stamped, str) and stamped:
+                            current_sha = hashlib.sha256(p.read_bytes()).hexdigest()
+                            if stamped != current_sha:
+                                has_plan = False
+                                plan_stale = True
+                        elif plan_file.stat().st_mtime < p.stat().st_mtime:
                             has_plan = False
                             plan_stale = True
-                    elif plan_file.stat().st_mtime < p.stat().st_mtime:
-                        has_plan = False
-                        plan_stale = True
-                except Exception:
-                    pass
+                    except Exception:
+                        pass
             except Exception:
                 has_plan = False
         if not has_plan:
@@ -119,8 +119,8 @@ def compute_brief_status(repo_root: Path, state_dir: Path) -> list[dict]:
         for tid in task_ids:
             accepted_rec = accepted_map.get(tid)
             if accepted_rec is not None:
-                accept_ts = _normalize_accept_ts(accepted_rec.get('ts'))
-                if plan_mtime > 0.0 and accept_ts is not None and accept_ts < plan_mtime:
+                accept_sha = accepted_rec.get('source_brief_sha256')
+                if accept_sha and stamped and accept_sha != stamped:
                     remaining.append(tid)
                 else:
                     accepted_for_brief.append(accepted_rec)
