@@ -1659,13 +1659,9 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
             _declared_norm = {_norm_manifest_path(f) for f in _declared}
             _extra = [k for k in manifest if _norm_manifest_path(k) not in _declared_norm]
             if _extra:
-                msg = (f'__JANUSMASK_MANIFEST__ carries undeclared keys {_extra} not '
-                       f'present in files_touched {_declared}: a manifest key set must '
-                       'be a subset of the declared files_touched. Stray keys get '
-                       'AST-merged/written and break the build. Resubmit a manifest '
-                       'whose keys exactly match files_touched.')
-                logger.warning('%s manifest submission has undeclared keys (declared=%r, extra=%r)', agent, _declared, _extra)
-                return (False, [Violation(rule='manifest_undeclared_key', severity='error', line=0, message=msg)])
+                for _k in _extra:
+                    manifest.pop(_k, None)
+                logger.warning('%s manifest submission DROPPED undeclared keys (declared=%r, dropped=%r): proceeding with declared subset only', agent, _declared, _extra)
         all_violations: list = []
         for rel, src in manifest.items():
             if not rel.endswith('.py'):
@@ -2575,6 +2571,47 @@ def _acquire_git_commit_lock_bounded(lock_fd, deadline_sec: float | None=None) -
             pass
         return True
 
+def _restrict_sidecar_to_declared(sidecar_path, declared_files):
+    """Restrict a manifest sidecar JSON to the declared files_touched subset.
+
+    Reads the ``state/output/<task_id>.files.json`` sidecar that
+    ``_save_final_output`` wrote from the raw ``__JANUSMASK_MANIFEST__`` code,
+    drops every key whose normalized rel-path is not in the normalized
+    ``declared_files`` set, and -- only when at least one key is dropped --
+    atomically rewrites the sidecar to the declared subset (mirroring the
+    ``_save_final_output`` ``.json.tmp`` -> ``json.dump(indent=2,
+    sort_keys=True)`` -> ``flush``/``fsync`` -> ``.replace`` pattern).
+
+    Returns the list of dropped keys, or ``[]`` when nothing is dropped
+    (NO-OP: the file is left byte-for-byte unchanged), when the sidecar is
+    missing/malformed, or when its parsed value is not a dict. Pure I/O: it
+    does NO logging and NO ledger write, and NEVER raises -- a bad sidecar
+    yields ``[]`` so the downstream commit/apply path is never crashed.
+    """
+    import json
+
+    def _norm(p):
+        n = os.path.normpath(str(p)).replace('\\', '/')
+        return n[2:] if n.startswith('./') else n
+    try:
+        with open(sidecar_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    _declared_norm = {_norm(f) for f in declared_files or []}
+    _dropped = [k for k in data if _norm(k) not in _declared_norm]
+    if not _dropped:
+        return []
+    _restricted = {k: v for k, v in data.items() if _norm(k) in _declared_norm}
+    tmp_path = sidecar_path.with_suffix('.json.tmp')
+    with open(tmp_path, 'w', encoding='utf-8') as f:
+        json.dump(_restricted, f, indent=2, sort_keys=True)
+        f.flush()
+        os.fsync(f.fileno())
+    tmp_path.replace(sidecar_path)
+    return _dropped
 def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -> bool:
     """Copy accepted output to its target and create a scoped git commit.
 
@@ -2875,6 +2912,14 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
             write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'auto_commit', 'task_id': task_id, 'event': 'multi_file_missing_sidecar', 'reason': 'agent_did_not_emit_manifest', 'files': files_touched, 'exit': 0})
         except OSError as exc:
             logger.warning('multi_file_missing_sidecar: ledger append failed for %s: %s', task_id, exc)
+    if sidecar_path.exists():
+        _dropped = _restrict_sidecar_to_declared(sidecar_path, files_touched)
+        if _dropped:
+            logger.warning('auto-commit: %s manifest sidecar DROPPED undeclared keys %r (not in files_touched %r); committing declared subset only', task_id, _dropped, files_touched)
+            try:
+                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'auto_commit', 'task_id': task_id, 'event': 'manifest_undeclared_key_dropped', 'dropped': _dropped, 'files': files_touched, 'exit': 0})
+            except OSError as exc:
+                logger.warning('manifest_undeclared_key_dropped: ledger append failed for %s: %s', task_id, exc)
     if not target_rel.endswith('.py'):
         logger.info('auto-commit: target %s is non-py; delegating to git_integration.commit_accepted_output (direct-copy path)', task_id)
     if not _target_is_self(working_dir):
