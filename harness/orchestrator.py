@@ -3310,8 +3310,34 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
             if _wire_up_gate_enabled(state_dir):
                 if _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, worktree_root, result, working_dir):
                     return False
+
+            def _resolve_accept_source_brief_sha256() -> str | None:
+                """Best-effort accept-time brief sha: scan repo-root plan_hooks_*.json
+                for the FIRST plan whose 'tasks' list carries a dict with this task_id
+                and return that plan's stamped source_brief_sha256 (or None). Returns
+                None on any error / no match / no stamped sha and NEVER raises so the
+                accepted-row write below cannot fail on a malformed/absent plan."""
+                try:
+                    for _plan_path in sorted((state_dir.parent).glob('plan_hooks_*.json')):
+                        try:
+                            _plan = json.loads(_plan_path.read_text(encoding='utf-8', errors='replace'))
+                        except Exception:
+                            continue
+                        if not isinstance(_plan, dict):
+                            continue
+                        _tasks = _plan.get('tasks')
+                        if not isinstance(_tasks, list):
+                            continue
+                        for _t in _tasks:
+                            if isinstance(_t, dict) and _t.get('task_id') == task_id:
+                                _sha = _plan.get('source_brief_sha256')
+                                return _sha if isinstance(_sha, str) and _sha else None
+                    return None
+                except Exception:
+                    return None
+            _accept_source_brief_sha256 = _resolve_accept_source_brief_sha256()
             try:
-                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'accepted', 'task_id': task_id, 'event': 'auto_commit', 'commit_sha': result.get('sha'), 'files': files_touched, 'exit': 0})
+                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'accepted', 'task_id': task_id, 'event': 'auto_commit', 'commit_sha': result.get('sha'), 'files': files_touched, 'exit': 0, 'source_brief_sha256': _accept_source_brief_sha256})
             except OSError as exc:
                 logger.warning('auto-commit: ledger append failed for %s: %s', task_id, exc)
             try:
