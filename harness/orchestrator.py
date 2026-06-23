@@ -2337,6 +2337,38 @@ def _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, wor
                             write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'report', 'task_id': task_id, 'event': 'orphan_symbol_unwired', 'commit_sha': result.get('sha'), 'files': files_touched, 'file': rel, 'symbols': uncovered, 'reason': 'new top-level callable(s) lack a valid per-symbol runtime-reachability contract (entrypoints subset of LIVE_ROOTS, the symbol named in the contract, a runtime_oracle declared) and are not in wire_exempt; report-only -- fail-closed activation deferred (BUILT != WORKS)'})
                         except OSError as _exc:
                             logger.warning('orphan_symbol_unwired: ledger append failed for %s: %s', task_id, _exc)
+                    from harness.wire_up import symbol_reachable_from_live_root, detonate_oracle, validate_exemption
+                    for _vsym in new_syms:
+                        _floor_reachable = False
+                        _contract_detonated = False
+                        _exempt_honored = False
+                        try:
+                            try:
+                                _floor_reachable = bool(symbol_reachable_from_live_root(staging_path, rel, _vsym))
+                            except Exception:
+                                _floor_reachable = False
+                            try:
+                                if _contract_valid and _vsym in _csymbols:
+                                    try:
+                                        _oracle_src = (Path(staging_path) / _oracle).read_text(encoding='utf-8', errors='ignore')
+                                    except Exception:
+                                        _oracle_src = ''
+                                    if _oracle_src:
+                                        _deto_map = detonate_oracle(_oracle_src, [_vsym], list(_entrypoints), repo_root=staging_path, jailed=True)
+                                        _contract_detonated = bool(isinstance(_deto_map, dict) and _deto_map.get(_vsym) is True)
+                            except Exception:
+                                _contract_detonated = False
+                            try:
+                                _exempt_honored = bool(validate_exemption('pure_helper', _vsym, rel, staging_path).honored)
+                            except Exception:
+                                _exempt_honored = False
+                            _would_be_orphan = (not _floor_reachable) and (not _contract_detonated) and (not _exempt_honored)
+                            try:
+                                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'report', 'task_id': task_id, 'event': 'wireup_symbol_verdict', 'commit_sha': result.get('sha'), 'file': rel, 'symbol': _vsym, 'floor_reachable': _floor_reachable, 'contract_detonated': _contract_detonated, 'exempt_honored': _exempt_honored, 'would_be_orphan': _would_be_orphan})
+                            except OSError as _exc:
+                                logger.warning('wireup_symbol_verdict: ledger append failed for %s symbol %s: %s', task_id, _vsym, _exc)
+                        except Exception as _verdict_exc:
+                            logger.warning('wireup_symbol_verdict: verdict skipped for task=%s file=%s symbol=%s (inert; never blocks): %r', task_id, rel, _vsym, _verdict_exc)
                 except Exception as _sym_exc:
                     logger.warning('orphan_symbol_unwired: symbol-reachability check skipped for task=%s file=%s (inert; never blocks): %r', task_id, rel, _sym_exc)
             continue
