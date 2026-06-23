@@ -657,6 +657,35 @@ def detonate_oracle(oracle_source: str, symbols, live_root_files, *, repo_root, 
         return dict(all_false)
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
+from typing import NamedTuple
+
+class ExemptionVerdict(NamedTuple):
+    honored: bool
+    requires_recheck: bool
+    reason: str
+
+def validate_exemption(category, symbol, module_rel, repo_root, *, roots=LIVE_ROOTS) -> ExemptionVerdict:
+    """Validate a CLAIMED wire-exempt declaration against the static floor.
+
+    This function composes the REAL symbol_reachable_from_live_root (does not
+    re-implement reachability) to enforce the NON-NEGOTIABLE invariant: an
+    exemption only downgrades a 'must detonate' status to 'static suffices'
+    and never suppresses a true orphan (a symbol that fails the static floor).
+
+    staged_sibling is the only category not gated on the floor and it only
+    DEFERS (requires_recheck=True), never grants. Unknown or empty categories
+    are rejected.
+
+    STDLIB + composed only: no subprocess/spawn, no network/model/API call,
+    no write under repo_root, no harness-state mutation.
+    """
+    if category == 'staged_sibling':
+        return ExemptionVerdict(False, True, 'staged_sibling: deferred to plan-completion recheck')
+    elif category in {'pure_helper', 'config_reader', 'data_only'}:
+        honored = bool(symbol_reachable_from_live_root(repo_root, module_rel, symbol, roots=roots))
+        return ExemptionVerdict(honored, False, f'{category}: floor={honored}')
+    else:
+        return ExemptionVerdict(False, False, f'unknown/rejected category: {category!r}')
 def symbol_reachable_from_live_root(repo_root, module_rel: str, symbol: str, *, roots: Sequence[str]=LIVE_ROOTS) -> bool:
     """Static-reachability FLOOR: is the top-level ``symbol`` defined in
     ``module_rel`` reachable, via a STATIC import/reference path, from a live
