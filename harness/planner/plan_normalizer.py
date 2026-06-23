@@ -1142,7 +1142,28 @@ def _normalize_task_priorities(tasks):
         canonical = _PRIORITY_NORMALIZATION_MAP.get(t['priority'])
         if canonical is not None and t['priority'] != canonical:
             t['priority'] = canonical
-def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[str, Any]:
+def _inject_integration_contracts(plan: Dict[str, Any], contracts: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Inject integration contracts into plan tasks constraints."""
+    if not isinstance(contracts, dict) or not contracts:
+        return plan
+    if not isinstance(plan, dict):
+        return plan
+    result = copy.deepcopy(plan)
+    tasks = result.get('tasks')
+    if not isinstance(tasks, list):
+        return result
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        tid = t.get('task_id')
+        if tid in contracts:
+            c = t.get('constraints')
+            if not isinstance(c, dict):
+                c = {}
+            t['constraints'] = c
+            c['integration_contract'] = copy.deepcopy(contracts[tid])
+    return result
+def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any] = None, contracts: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Auto-correct a leaf plan: dedupe oracles + enforce module-first order.
 
     The function is pure: it deep-copies ``plan`` and never mutates the
@@ -1174,6 +1195,7 @@ def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None) -> Dict[
     normalized = _force_smoke_gated_leaf_impl(normalized, repo_root)
     normalized = _inject_credential_naming_constraint(normalized, repo_root)
     normalized = _inject_oracle_sources(normalized, repo_root)
+    normalized = _inject_integration_contracts(normalized, contracts)
     if isinstance(normalized.get('tasks'), list):
         _strip_stray_mutation_targets(normalized['tasks'])
     if isinstance(normalized.get('tasks'), list):
