@@ -2162,6 +2162,29 @@ def _new_module_red_by_absence(task, worktree_root, verify_exit, verify_out) -> 
         return True
     except Exception:
         return False
+from harness.wire_up import new_top_level_callables, LIVE_ROOTS
+
+def _wire_up_runtime_gate_enabled(state_dir=None) -> bool:
+    """WIRE_UP_RUNTIME_GATE: return ``config['autowork']['wire_up_runtime_gate']``
+    (default False).
+
+    Mirrors :func:`_wire_up_gate_enabled` EXACTLY: reads the flag via the
+    existing ``load_config()``, ships default-OFF, and is fail-safe -- ANY
+    error (config missing / not a mapping / key absent) yields False so the
+    accept path is byte-identical to today when the runtime gate is not set.
+    Independent of ``wire_up_gate`` so the report-only symbol branch can be
+    flagged on its own.
+    """
+    try:
+        cfg = load_config()
+        if not isinstance(cfg, dict):
+            return False
+        autowork = cfg.get('autowork')
+        if not isinstance(autowork, dict):
+            return False
+        return bool(autowork.get('wire_up_runtime_gate', False))
+    except Exception:
+        return False
 def _wire_up_gate_enabled(state_dir=None) -> bool:
     """WIRE_UP_GATE: return ``config['autowork']['wire_up_gate']`` (default False).
 
@@ -2182,21 +2205,31 @@ def _wire_up_gate_enabled(state_dir=None) -> bool:
         return False
 
 def _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, worktree_root, result, working_dir) -> bool:
-    """WIRE_UP_GATE: reject an orphan new module at the accept chokepoint.
+    """WIRE_UP_GATE + WIRE_UP_RUNTIME_GATE at the accept chokepoint.
 
-    For each NEWLY-CREATED module in ``files_touched`` -- a path ending ``.py``
-    not under a ``tests/`` directory and not tracked in the parent HEAD before
-    this commit -- consult the module-global ``check_wired`` against
-    ``staging_path``. The gate runs AFTER the staged commit and BEFORE the
-    staging->parent merge, so the just-committed module lives in the staging
-    worktree, NOT yet in ``working_dir``/``worktree_root``; checking the parent
-    tree would always miss the file and mis-report every new module as an
-    orphan. If any returns a result whose ``.wired`` is False the staging commit
-    is rolled back, the staging worktree removed, an ``orphan_unwired`` ledger
-    row written, the task routed to blocked/, and True (reject) is returned.
-    Otherwise returns False (proceed). Only ever invoked when
-    ``_wire_up_gate_enabled`` is True, so the gate is a strict no-op when the
-    flag is OFF.
+    MODULE-LEVEL GATE (guarded behind ``_wire_up_gate_enabled``): for each
+    NEWLY-CREATED module in ``files_touched`` -- a path ending ``.py`` not under
+    a ``tests/`` directory and not tracked in the parent HEAD before this commit
+    -- consult the module-global ``check_wired`` against ``staging_path`` (the
+    tree where the just-committed module actually lives, since the gate runs
+    AFTER the staged commit and BEFORE the staging->parent merge). If any
+    returns ``.wired`` False the staging commit is rolled back, the worktree
+    removed, an ``orphan_unwired`` row written, the task routed to blocked/, and
+    True (reject) is returned.
+
+    RUNTIME SYMBOL GATE (guarded behind ``_wire_up_runtime_gate_enabled``,
+    DEFAULT-OFF, REPORT-ONLY): on the ALREADY-TRACKED-file blind spot, AST-diff
+    the new top-level callables (parent source via ``git show HEAD:<rel>`` in
+    ``worktree_root``, child source from ``staging_path/<rel>`` on disk) via the
+    PHASE-1 ``new_top_level_callables`` primitive, read each leaf's declared
+    ``integration_contract`` / ``wire_exempt`` from the task dict, and SHADOW
+    REPORT (one ``phase=='report'``, ``event=='orphan_symbol_unwired'`` ledger
+    row + ``logger.warning``) any new callable lacking a valid per-symbol
+    runtime-reachability contract. This branch NEVER rolls back, NEVER blocks,
+    NEVER returns True, and runs inside a contained try/except so it can never
+    break the accept path; control ALWAYS continues. Both gates are strict
+    no-ops when their respective flag is OFF, so behavior is byte-identical to
+    today when only ``wire_up_gate`` is on (or neither flag is set).
     """
     repo_root = staging_path
 
@@ -2215,18 +2248,62 @@ def _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, wor
         if _bn.startswith('test_') or _bn.endswith('_test.py'):
             continue
         if _tracked_in_parent(rel):
+            if _wire_up_runtime_gate_enabled(state_dir):
+                try:
+                    try:
+                        _show = subprocess.run(['git', 'show', f'HEAD:{rel}'], cwd=str(worktree_root), capture_output=True, text=True, timeout=30)
+                        parent_src = _show.stdout if _show.returncode == 0 else ''
+                    except Exception:
+                        parent_src = ''
+                    try:
+                        child_src = (Path(staging_path) / rel).read_text(encoding='utf-8', errors='ignore')
+                    except Exception:
+                        child_src = ''
+                    new_syms = new_top_level_callables(parent_src, child_src)
+                    _constraints = task.get('constraints') if isinstance(task, dict) else None
+                    if not isinstance(_constraints, dict):
+                        _constraints = {}
+                    _live = set(LIVE_ROOTS)
+                    _contract = _constraints.get('integration_contract')
+                    if not isinstance(_contract, dict):
+                        _contract = {}
+                    _entrypoints = _contract.get('entrypoints')
+                    if not isinstance(_entrypoints, (list, tuple, set)):
+                        _entrypoints = []
+                    _csymbols = _contract.get('symbols')
+                    if not isinstance(_csymbols, (list, tuple, set)):
+                        _csymbols = []
+                    _oracle = _contract.get('runtime_oracle')
+                    if not isinstance(_oracle, str):
+                        _oracle = ''
+                    _contract_valid = bool(_entrypoints) and all((_ep in _live for _ep in _entrypoints)) and bool(_oracle)
+                    _exempt_raw = (task.get('wire_exempt') if isinstance(task, dict) else None) or _constraints.get('wire_exempt')
+                    if isinstance(_exempt_raw, (list, tuple, set)):
+                        _exempt = set(_exempt_raw)
+                    else:
+                        _exempt = set()
+                    uncovered = sorted((_s for _s in new_syms if _s not in _exempt and (not (_contract_valid and _s in _csymbols))))
+                    if uncovered:
+                        logger.warning('orphan_symbol_unwired: task=%s module %s adds new top-level callable(s) %s with no valid per-symbol runtime-reachability contract -- REPORT-ONLY shadow finding (default-OFF runtime gate); staged commit NOT rolled back', task_id, rel, uncovered)
+                        try:
+                            write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'report', 'task_id': task_id, 'event': 'orphan_symbol_unwired', 'commit_sha': result.get('sha'), 'files': files_touched, 'file': rel, 'symbols': uncovered, 'reason': 'new top-level callable(s) lack a valid per-symbol runtime-reachability contract (entrypoints subset of LIVE_ROOTS, the symbol named in the contract, a runtime_oracle declared) and are not in wire_exempt; report-only -- fail-closed activation deferred (BUILT != WORKS)'})
+                        except OSError as _exc:
+                            logger.warning('orphan_symbol_unwired: ledger append failed for %s: %s', task_id, _exc)
+                except Exception as _sym_exc:
+                    logger.warning('orphan_symbol_unwired: symbol-reachability check skipped for task=%s file=%s (inert; never blocks): %r', task_id, rel, _sym_exc)
             continue
-        wire_result = check_wired(repo_root, rel)
-        if wire_result is not None and (not getattr(wire_result, 'wired', True)):
-            logger.warning('orphan_unwired: task=%s new module %s is not reachable by any live importer -- staging rolled back fail-closed', task_id, rel)
-            _rollback_rejected_commit(staging_path, result.get('sha'), rel, task_id, 'orphan_unwired')
-            git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
-            try:
-                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'orphan_unwired', 'commit_sha': result.get('sha'), 'files': files_touched, 'file': rel, 'reason': getattr(wire_result, 'reason', '') or 'new module unreachable by any live importer'})
-            except OSError as _exc:
-                logger.warning('orphan_unwired: ledger append failed for %s: %s', task_id, _exc)
-            _mark_blocked(state_dir, task_id, outcome='orphan_unwired')
-            return True
+        if _wire_up_gate_enabled(state_dir):
+            wire_result = check_wired(repo_root, rel)
+            if wire_result is not None and (not getattr(wire_result, 'wired', True)):
+                logger.warning('orphan_unwired: task=%s new module %s is not reachable by any live importer -- staging rolled back fail-closed', task_id, rel)
+                _rollback_rejected_commit(staging_path, result.get('sha'), rel, task_id, 'orphan_unwired')
+                git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
+                try:
+                    write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'orphan_unwired', 'commit_sha': result.get('sha'), 'files': files_touched, 'file': rel, 'reason': getattr(wire_result, 'reason', '') or 'new module unreachable by any live importer'})
+                except OSError as _exc:
+                    logger.warning('orphan_unwired: ledger append failed for %s: %s', task_id, _exc)
+                _mark_blocked(state_dir, task_id, outcome='orphan_unwired')
+                return True
     return False
 
 def _rollback_rejected_commit(worktree_root: Path, sha: str | None, target_rel: str, task_id: str, kind: str) -> None:
@@ -2616,270 +2693,20 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
     """Copy accepted output to its target and create a scoped git commit.
 
     Delegates AST merge + git operations to
-    :func:`harness.git_integration.commit_accepted_output` (ported W66 from
-    this file's former inline implementation, pinned by the adversarial
-    battery in ``tests/adversarial/test_git_integration_acceptance_adversarial.py``
-    and ``tests/adversarial/test_ast_merge_regression_adversarial.py``).
+    :func:`harness.git_integration.commit_accepted_output`. Runs the staged
+    commit under the AW3 ``git_commit.lock``, the verification_command, the
+    Phase-B mutation gate, and the accept-time wire-up gate before merging
+    staging->parent; rolls back fail-closed on any rejection. Never raises
+    (except the SEC-1 fail-closed RuntimeError). Returns True only if a new
+    commit was produced and the required verification command exited zero.
 
-    STAGING_REROOT: EXTERNAL tasks (``not _target_is_self(working_dir)``) now
-    re-root their staging worktree under the JanusMask-owned external staging
-    root: ``worktree_root`` is derived via
-    ``harness.paths.effective_target_root(working_dir)`` and ``staging_path`` via
-    ``harness.target_bootstrap.external_staging_root() / f'{worktree_root.name}_{task_id}'``
-    (both helpers imported lazily in-body). The SELF path (when
-    ``_target_is_self(working_dir)`` is True) resolves ``worktree_root`` /
-    ``staging_path`` exactly as before, byte-identical to its pre-reroot form.
-
-    Resolves ``files_touched`` via the task/parent chain and constructs an
-    absolute target path rooted at the worktree top-level before calling the
-    module -- the module resolves its ``target_file`` argument against CWD, so
-    passing a bare relative path would escape the tmp worktree used by tests.
-
-    F3: the prior ``.py``-only short-circuit is split into two guards. A
-    non-string ``target_rel`` still early-returns ``False`` (preserves the
-    None / missing-key behaviour). A non-``.py`` string falls through to
-    :func:`commit_accepted_output`, which already routes those through its
-    direct-copy branch per commit 3b29687.
-
-    G19b: when ``len(files_touched) > 1`` and the manifest sidecar at
-    ``state_dir/'output'/f'{task_id}.files.json'`` is absent, emit a
-    ``multi_file_missing_sidecar`` warning + ledger row (best-effort;
-    ``OSError`` on the row write is caught and logged) and fall through
-    to the singular commit path. The agent was supposed to emit
-    ``__JANUSMASK_MANIFEST__`` per the G19a-1 prompt extension; absence
-    indicates a regression. The fallback is the pre-G19a behavior: commit
-    ``files_touched[0] // commit is reverted via ``git reset --hard HEAD~1``
-    ``files_touched[0]`` only.
-
-    U3: after a successful commit, if ``task.get('verification_command')`` is
-    a non-empty string, run it under ``shell=True`` in the worktree root with
-    a 600s timeout. On non-zero exit (or ``subprocess.TimeoutExpired``), the
-    commit is reverted via ``git reset --hard HEAD~1``, a ``verification_failed``
-    row is appended to ``state_dir/'impl_progress.jsonl'`` (with the tails of
-    stdout/stderr truncated to the last 2000 chars), a ``logger.warning`` is
-    emitted, and the function returns ``False`` -- closing the silent-failure
-    class that let F2's commit d419ed4 land as a no-op AST merge.
-
-    V2: after a successful commit, if ``task.get('verification_command')`` is
-    missing, None, empty, whitespace-only, or non-string, the commit is
-    reverted via ``git reset --hard HEAD~1``, a ``verification_missing`` row
-    is appended to ``state_dir/'impl_progress.jsonl'``, a ``logger.warning`` is
-    emitted, and the function returns ``False`` -- closes the
-    design-time-missing half of the U1 silent-NOOP class as defense-in-depth
-    when a task bypasses the planner-side V1 enforcement.
-
-    G3a: the vcmd subprocess.run now receives ``env=_vcmd_scrubbed_env()`` so
-    JANUSMASK_* identity vars don't leak from the orchestrator's environment
-    into a child pytest that imports ``harness.orchestrator``. Only the vcmd
-    shell=True call is scrubbed -- the git rev-parse / reset --hard calls
-    still inherit full os.environ since git relies on standard env (HOME,
-    PATH, etc.).
-
-    AW3: the ``git_integration.commit_accepted_output`` call (which
-    internally runs git add/commit/rev-parse-HEAD) is wrapped in an
-    ``fcntl.flock(LOCK_EX)`` over
-    ``state_dir/'control'/'autowork'/'git_commit.lock'`` so concurrent
-    orchestrator_worker processes (autowork daemon, Task 2) and racing
-    operator-driven META commits cannot interleave git writes. Lock is
-    released in a ``finally`` so any exception inside the commit call
-    still releases (no permanent deadlock). Lock file is opened in 'a'
-    mode (mirrors ``harness/state.py:locked_read_modify_write`` lines
-    139-146) so multiple processes can share the inode reference. Lock
-    is held ONLY around the commit critical section -- the verification
-    subprocess and any rollback can run unlocked per the brief's
-    directive (verification is parallelism-safe; git-writes are not).
-
-    G25: the vcmd subprocess.run is now invoked under ``/bin/bash`` with the
-    command string wrapped as ``set -o pipefail; {vcmd}`` so a failing
-    left-hand-side of a pipeline (e.g. ``pytest ... | tail -20``)
-    propagates a non-zero exit through the tail and triggers the V2
-    rollback. /bin/sh on Linux is dash, which does not support
-    ``set -o pipefail``, so ``executable='/bin/bash'`` is required for the
-    prefix to have any effect.
-
-    H2A (JAIL_VERIFY_MUTANT): when ``agent_jail.sandbox_enabled(load_config())``
-    is True, the verify run, the mutant ``apply`` run, and the mutant rerun
-    are each wrapped via ``agent_jail.build_jail_argv`` into a bubblewrap argv
-    list and executed WITHOUT ``shell=True`` (the inner ``/bin/bash -c`` carries
-    the ``set -o pipefail; ...`` wrapper). Each jailed call passes
-    ``extra_ro=[sys.base_prefix, sys.prefix]`` so the real interpreter tree
-    (miniconda) AND the active environment prefix -- which the staging
-    ``.venv/bin/python`` symlinks into and which may live outside ``repo_root``
-    + every ``_SYSTEM_RO`` dir -- are mounted into the jail. Without
-    ``sys.base_prefix`` the jailed verify exits 127 (``python: command not
-    found``); adding ``sys.prefix`` (SEC-2) keeps the verify resolvable even
-    when the venv lives outside the repository root (base_prefix == prefix is a
-    harmless duplicate). The vcmd interpreter token stays byte-identical (bare
-    ``python -m pytest ...``); the jail resolves it from the bound prefix bin
-    still on PATH (``_vcmd_scrubbed_env`` preserves PATH). When sandboxing is
-    disabled, all three runs fall back to the ORIGINAL ``shell=True`` /
-    ``executable='/bin/bash'`` behavior byte-for-byte.
-
-    CRED-EXFIL (EXECUTE PATH): all four sandboxed ``build_jail_argv`` calls
-    here (verify, baseline-in-copy, mutant-apply, mutant rerun) run on the
-    EXECUTE path and now pass ``bind_credentials=False`` -- the jail drops the
-    ~/.gemini / ~/.claude credential surface (dir binds, ~/.claude.json copy,
-    project-memory + global-config overlays) and unshares the network/IPC
-    namespaces so any residual credential cannot be exfiltrated off-host. The
-    SEC-1 dbus_proxy_socket= kwarg, the proxied_session_bus() try/except, and
-    the fail-close raise are untouched.
-
-    SEC-3 (FAIL_CLOSED_VERIFY): the verify try/except previously caught only
-    ``subprocess.TimeoutExpired``, so when sandboxing is ENABLED but bwrap is
-    ABSENT the ``build_jail_argv`` / ``subprocess.run`` raised
-    ``FileNotFoundError`` that escaped UNCAUGHT and crashed the worker. The
-    verify run now ALSO catches ``FileNotFoundError`` (only when
-    ``agent_jail.sandbox_enabled(load_config())`` is True): it logs a clear
-    ``verification_sandbox_error`` warning, rolls back the staging commit via
-    ``_rollback_rejected_commit``, removes the staging worktree via
-    ``git_integration.remove_staging_worktree``, writes a rejected ledger row,
-    and returns ``False`` CLEANLY -- it NEVER re-raises and NEVER falls through
-    to an unjailed run. When sandboxing is DISABLED a FileNotFoundError is
-    re-raised so the historical (no-handler) behavior of the unjailed
-    shell=True branch is preserved byte-for-byte.
-
-    SEC-1 (FAILCLOSED_VERIFY_ORCHACC): each of the four sandboxed
-    ``subprocess.run`` sites (verify, baseline-in-copy, mutant-apply, mutant
-    rerun) now narrows its try/except to the ``proxied_session_bus()`` CONTEXT
-    ENTRY ONLY, captures the socket, and runs ``subprocess.run`` OUTSIDE that
-    try (so an unrelated subprocess.run exception -- FileNotFoundError /
-    TimeoutExpired -- is NOT swallowed by the proxy-entry handler and reaches
-    the correct verification-stage handling). If the proxy context entry
-    raises while ``agent_jail.sandbox_enabled(load_config())`` is True AND
-    ``shutil.which('xdg-dbus-proxy')`` resolves a binary on PATH, the runner
-    FAILS CLOSED: it raises ``RuntimeError`` (message contains 'fail-closed')
-    and refuses to spawn the verify/mutant child on the unfiltered host session
-    bus (which would re-expose systemd1 StartTransientUnit -- a sandbox
-    escape). When ``xdg-dbus-proxy`` is simply NOT installed
-    (``shutil.which`` returns None), the prior graceful degrade to
-    ``dbus_proxy_socket=None`` is preserved. The proxy ExitStack is reaped in a
-    ``finally`` around the synchronous ``subprocess.run`` so the filtered bus
-    is torn down on every exit path.
-
-    SEC-5c (VERIFY_EXTRA_BINDS): on top of the SEC-2 prefix binds, every jailed
-    ``build_jail_argv`` call now widens ``extra_ro`` with the config-driven
-    ``agent_sandbox.verify_extra_ro`` allowlist and gains an ``extra_rw`` from
-    ``agent_sandbox.verify_extra_rw`` (the keyword-only param added in
-    PHASE_SEC5A_JAIL_RW_AND_EMBEDDED). Both lists are read once via the
-    already-available ``load_config`` using safe ``.get(..., [])`` defaults so
-    configs that omit the keys remain backward compatible (empty allowlists
-    leave ``extra_ro == [sys.base_prefix, sys.prefix]`` and ``extra_rw == []``
-    at every site). The ``[sys.base_prefix, sys.prefix]`` SEC-2 prefix is
-    NEVER dropped -- ``verify_extra_ro`` is appended after it.
-
-    G3_VENV (VENV_JAIL): for EXTERNAL tasks the four jailed verify/mutant runs
-    are pinned to the TARGET repository's own virtualenv. A local
-    ``_ext_venv_ro`` list binds ``<worktree_root>/.venv`` read-only into every
-    jail (appended after the SEC-2 prefix + SEC-5c allowlist so neither is
-    dropped) and a nested ``_venv_jail_env()`` helper returns the
-    ``_vcmd_scrubbed_env()`` copy with ``<worktree_root>/.venv/bin`` PREFIXED
-    onto PATH so the verification_command resolves the TARGET interpreter, not
-    whatever python the harness environment happens to expose. The helper FAILS
-    CLOSED: if the EXTERNAL target's ``.venv/bin/python`` is absent it raises a
-    ``RuntimeError`` rather than silently inheriting the harness python. SELF
-    tasks are byte-identical to the pre-G3_VENV behavior -- ``_ext_venv_ro`` is
-    empty and ``_venv_jail_env()`` returns the scrubbed env unmodified (no PATH
-    mutation, default interpreter), and ``bind_credentials=False`` plus the
-    net/ipc namespace unshare are preserved at every site.
-
-    ROLLBACK_WORKTREE_CHECKOUT: both ``git reset --hard HEAD~1`` rollback
-    sites (verification_missing and verification_failed) are followed by a
-    best-effort ``git checkout HEAD -- <target_rel>`` to scrub any stray
-    working-copy drift left over from the rejected commit. The checkout is
-    wrapped in the same ``(subprocess.TimeoutExpired, FileNotFoundError,
-    OSError)`` try/except as the reset and logs at ERROR on failure; it
-    does not change the function's return value or affect the ledger emit.
-
-    ROLLBACK_COMPLETENESS: the non-``no_diff:`` err branch now scrubs staged +
-    tracked-worktree drift. ``commit_accepted_output`` writes the merged
-    file(s) and ``git add``-stages them BEFORE the failing git step, so a
-    generic-exception failure (index.lock contention, commit timeout) leaves
-    staged content with NO commit to ``reset --hard HEAD~1``. The branch now
-    iterates the resolved ``files_touched`` list and runs a best-effort,
-    non-destructive ``git reset -q -- <rel>`` + ``git checkout HEAD -- <rel>``
-    per string path, wrapped in a single ``(subprocess.TimeoutExpired,
-    FileNotFoundError, OSError)`` try/except that logs at ERROR and never
-    raises. ``no_diff:`` is self-cleaning (staged == HEAD) and is NOT
-    scrubbed. Brand-new untracked files are intentionally left for operator
-    review (no ``git clean``). The branch still returns False.
-
-    H1 (MUTATION_GATE_HARDENING): the Phase-B mutation-gate body is now wrapped
-    in a try/except so any unexpected exception (copytree ENOSPC/PermissionError,
-    git failure, mutant application crash) is caught fail-closed: the staging
-    commit is rolled back via ``_rollback_rejected_commit`` +
-    ``git_integration.remove_staging_worktree``, a ``mutation_gate_error``
-    rejected ledger row is written, and the function returns ``False`` without
-    re-raising. ``mutation_target`` (and any per-mutant ``stub_target``) is
-    validated and normalized to a bare dotted module name BEFORE a path is built
-    from it -- a value containing ``/``, ``..``, ending in ``.py``, or not a
-    bare dotted module name is rejected fail-closed (same rollback +
-    ``mutation_gate_error`` row) instead of crashing path operations. The
-    throwaway-copy ``shutil.copytree`` ignore set is widened to also skip
-    ``state``, ``samples``, ``.pytest_cache``, and ``*.egg-info``.
-
-    MUT-MASK (MUTANT_INFRA_VS_ASSERTION): a mutant rerun can exit NON-ZERO for
-    an INFRA reason rather than a genuine assertion failure -- the
-    verification_command may touch a path the throwaway ``copytree`` DROPPED
-    (e.g. ``samples/`` or ``state/`` per the H1-widened ignore set). The bare
-    ``_mvacuous = (_mproc.returncode == 0)`` interpretation would MISREAD that
-    infra fluke as 'mutant caught' and silently ACCEPT a vacuous test. To
-    distinguish infra-fail from genuine assertion-fail, a BASELINE-IN-COPY
-    guard (Option A, prep-validated) re-runs the UNMUTATED ``vcmd`` inside the
-    fresh ``_mcopy`` -- through the SAME jail/shell discipline, pipefail
-    wrapper, ``cwd``, ``extra_ro``, and scrubbed env as the mutant rerun --
-    immediately after the ``copytree`` and BEFORE the mutant is applied. If
-    that baseline-in-copy run exits NON-ZERO the copy is structurally unable to
-    run the unmutated verify (a path dropped by the ignore set), so the mutant
-    rerun cannot be trusted: a ``RuntimeError`` is raised, caught by the
-    existing H1 try/except, rolled back, and recorded as
-    ``mutation_gate_error`` -- it is NEVER credited as a mutant catch. When the
-    baseline-in-copy passes (exit 0), behavior is byte-identical to before:
-    the mutant is applied and ``_mvacuous = (_mproc.returncode == 0)`` still
-    decides catch-vs-vacuous.
-
-    ROLLB-A (TASK-SCOPED STAGING): the staging worktree path is now scoped by
-    ``task_id`` -- ``worktree_root.parent / f"{worktree_root.name}_{task_id}_staging"``
-    -- so concurrent pipeline runs on distinct task IDs derive distinct
-    staging directories and can no longer collide on a single shared
-    ``{name}_staging`` worktree. The path stays a sibling of the parent
-    worktree root (under ``worktree_root.parent``) so the
-    ``git_integration.create_staging_worktree`` sibling-placement constraint
-    still holds, and every downstream lifecycle usage (create, .venv symlink,
-    commit, verify, mutation-gate copy, rollback, merge, cleanup) operates on
-    the same task-scoped ``staging_path``.
-
-    INV9 (CONTENT_GATE): when (and only when) the apply is granted via the
-    auto-approve consult (``_granted_via_auto_approve`` True) -- never on the
-    operator-decision path -- the staged artifact bytes that
-    ``commit_accepted_output`` will actually apply are first run through the
-    pure ``_auto_approve_content_safe`` capability gate. The gate inspects the
-    SAME artifact resolved in the SAME precedence the commit uses
-    (.patches.json > .files.json > .py) and refuses dangerous dynamic-execution
-    / shell capabilities. On a refusal both ``_approval_ok`` AND
-    ``_granted_via_auto_approve`` are reset to False so the sensitive apply is
-    blocked AND the ceiling counter below is NOT incremented (fail-closed). The
-    operator-approval path and the flag-off path are UNTOUCHED.
-
-    INV5 (TOCTOU_PIN): the eligibility + content gates above run BEFORE the
-    ``git_commit.lock`` flock, opening a TOCTOU window in which the staged
-    artifact bytes (or the parent HEAD) could be tampered between the checks
-    and the actual git write. To close it, once an auto-approve grant is
-    FINALIZED (after the content gate) we PIN ``_pinned_artifact_sha`` (sha256
-    of the staged artifact resolved .patches.json > .files.json > .py, first
-    that exists) and ``_pinned_parent_head`` (``git rev-parse HEAD`` in
-    ``worktree_root``). Then INSIDE the flock, IMMEDIATELY before
-    ``commit_accepted_output``, the artifact sha + parent HEAD are re-read and
-    compared; on ANY mismatch the auto-approve commit is ABORTED -- the commit
-    is NOT performed, ``_approval_ok`` and ``_granted_via_auto_approve`` are
-    dropped to False, a telemetry line is emitted, and an error result is
-    synthesized so the not-committed handler scrubs staging and returns False
-    (the ceiling counter is NOT incremented). hashlib is imported lazily
-    in-body (no module-level import). The operator-approval path and the
-    flag-off path are UNTOUCHED -- neither pins nor compares.
-
-    Never raises (except the SEC-1 fail-closed RuntimeError above). Returns
-    True only if a new commit was produced and the required verification
-    command exited zero.
+    WIRE_UP_RUNTIME_GATE: the wire-up accept chokepoint guard is widened so
+    ``_run_wire_up_gate`` is consulted when the module-level
+    ``_wire_up_gate_enabled`` OR the new ``_wire_up_runtime_gate_enabled`` flag
+    is on. ``_run_wire_up_gate`` keeps the module-level new-file reject behind
+    ``_wire_up_gate_enabled`` and gates its report-only runtime symbol branch
+    behind ``_wire_up_runtime_gate_enabled``, so behavior is byte-identical when
+    only ``wire_up_gate`` is on and a strict no-op when both flags are off.
     """
     from harness import agent_jail
     from harness.dbus_proxy import proxied_session_bus
@@ -3307,7 +3134,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                     except OSError as _exc:
                         logger.warning('mutation_gate_error: ledger append failed for %s: %s', task_id, _exc)
                     return False
-            if _wire_up_gate_enabled(state_dir):
+            if _wire_up_gate_enabled(state_dir) or _wire_up_runtime_gate_enabled(state_dir):
                 if _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, worktree_root, result, working_dir):
                     return False
 
