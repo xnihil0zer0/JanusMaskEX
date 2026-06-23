@@ -534,6 +534,99 @@ def _grep_config(repo_root: Path, stem: str) -> str:
                 return path.as_posix()
     return ''
 
+def symbol_reachable_from_live_root(repo_root, module_rel: str, symbol: str, *, roots: Sequence[str]=LIVE_ROOTS) -> bool:
+    """Static-reachability FLOOR: is the top-level ``symbol`` defined in
+    ``module_rel`` reachable, via a STATIC import/reference path, from a live
+    entrypoint root? Returns a plain ``bool``.
+
+    This is the static floor for the wire-up detonation program: SOUND in the
+    no-false-orphan direction (a true zero-caller orphan MUST return ``False``)
+    while it MAY under-approximate. No special-casing of any subject, slug, or
+    fixture -- purely GENERAL symbol-level reachability over the real import
+    graph (the symbol-level vs module-level discriminator: the host module may
+    be reachable while the symbol itself is not).
+
+    Step 1 (module reachability): build the module set with
+    ``discover_modules(repo_root)`` and the augmented edge graph with
+    ``_resolved_graph(repo_root, modules)`` (import resolution is NOT
+    re-implemented here), then BFS forward from the roots present in the module
+    set -- the identical BFS shape to ``check_wired`` -- to obtain
+    ``reachable_modules``. If ``module_rel`` is not in ``reachable_modules`` the
+    symbol cannot be reached, so return ``False`` immediately (short-circuit, no
+    symbol scan at all).
+
+    Step 2 (symbol reference): for each reachable module ``M'`` parsed with
+    ``ast`` -- ``ast.walk`` DESCENDS into class/method bodies, REQUIRED so a
+    symbol like ``_jailed_popen`` referenced only inside ``Sandbox.execute`` is
+    still found -- collect every ``ast.Name.id`` and ``ast.Attribute.attr`` so
+    bare-name calls and ``mod.symbol(...)`` attribute calls both count (the
+    ``def``/``class`` name itself is NOT counted as a reference, so a defined-
+    but-never-referenced symbol reads as an orphan). Return ``True`` iff either:
+
+      (a) intra-module: ``M' == module_rel``, ``symbol`` is a top-level
+          ``def``/``async def`` of ``module_rel``, and ``symbol`` is referenced
+          somewhere in ``M'`` (module top level, a top-level def/async-def body,
+          or a class method body); or
+      (b) cross-module: ``M'`` carries ``from <dotted module_rel> import
+          <symbol>`` at ``level == 0`` (honouring an ``as`` alias for the bound
+          local name) and then references that local name anywhere in ``M'``.
+
+    KNOWN LIMITATION: static analysis misses purely-dynamic edges: getattr/string-dispatch/registry callbacks, so a dynamically-wired symbol may be a static false-negative; acceptable because rescued by the later detonation bar; sound in the no-false-orphan direction.
+
+    Pure and fail-soft: stdlib ``ast``/``collections`` plus the existing graph
+    helpers only; unparseable or missing files under a reachable module are
+    skipped (an ``OSError``/``SyntaxError`` on one file never aborts the scan or
+    raises); only filesystem reads under ``repo_root`` -- no spawn, network,
+    model, subprocess, or oracle execution. Deterministic over a fixed tree.
+    """
+    import ast
+    root = Path(repo_root)
+    modules, _tests, _seeds = discover_modules(root)
+    modules = list(modules)
+    module_set = set(modules)
+    graph = _resolved_graph(root, modules)
+    seeded_roots = {r for r in roots if r in module_set}
+    reachable_modules: set[str] = set()
+    queue: deque[str] = deque()
+    for r in seeded_roots:
+        if r not in reachable_modules:
+            reachable_modules.add(r)
+            queue.append(r)
+    while queue:
+        cur = queue.popleft()
+        for dep in graph.get(cur, ()):
+            if dep not in reachable_modules:
+                reachable_modules.add(dep)
+                queue.append(dep)
+    if module_rel not in reachable_modules:
+        return False
+    dotted = module_rel[:-3] if module_rel.endswith('.py') else module_rel
+    dotted = dotted.replace('/', '.')
+    for mprime in sorted(reachable_modules):
+        try:
+            tree = ast.parse((root / mprime).read_text(encoding='utf-8', errors='ignore'))
+        except (OSError, SyntaxError):
+            continue
+        referenced: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                referenced.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                referenced.add(node.attr)
+        if mprime == module_rel:
+            top_defs = {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+            if symbol in top_defs and symbol in referenced:
+                return True
+        else:
+            bound: set[str] = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.level == 0 and (node.module == dotted):
+                    for alias in node.names:
+                        if alias.name == symbol:
+                            bound.add(alias.asname or alias.name)
+            if bound & referenced:
+                return True
+    return False
 def check_wired(repo_root, new_module_rel: str, *, roots: Sequence[str]=LIVE_ROOTS, exclude: Iterable[str]=()) -> WireResult:
     """Decide whether ``new_module_rel`` is reachable from a live root.
 
