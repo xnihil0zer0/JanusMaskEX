@@ -569,6 +569,94 @@ def _grep_config(repo_root: Path, stem: str) -> str:
                 return path.as_posix()
     return ''
 
+def detonate_oracle(oracle_source: str, symbols, live_root_files, *, repo_root, jailed: bool=True) -> dict[str, bool]:
+    """Run the given ``oracle_source`` in a child process under
+    ``observe_symbol_execution`` and grade each watched symbol with the SOUND
+    ``executed_with_live_root_ancestor`` predicate.
+
+    For every name in ``symbols`` the verdict is ``True`` iff that symbol
+    executed during the run AND a live-root-file frame was an ancestor on that
+    call's captured ``f_back`` lineage -- the grade is produced verbatim by the
+    existing ``observe_symbol_execution(...).executed_with_live_root_ancestor``
+    method; this runner does NOT re-implement reachability or ``_path_matches``.
+
+    A minimal stdlib-only wrapper is written to a FRESH outside-repo
+    ``work_dir`` (``tempfile.mkdtemp()``, so the read-only repo bind is never
+    violated): it imports ``observe_symbol_execution`` from ``harness.wire_up``,
+    opens the observer over ``symbols``, executes ``oracle_source`` inside that
+    context, and prints ``json.dumps({s: obs.executed_with_live_root_ancestor(s,
+    live_root_files) for s in symbols})`` as its LAST stdout line.
+
+    Jailed by default (mirrors ``harness/sandbox.py::_jailed_popen``): when
+    ``bwrap_available()`` the child argv is built with
+    ``build_jail_argv([sys.executable, wrapper], repo_root=repo_root,
+    work_dir=work_dir, state_dir=work_dir, bind_credentials=False,
+    extra_ro=[sys.base_prefix, sys.prefix])`` -- ``bind_credentials=False`` DROPS
+    the ``~/.gemini`` / ``~/.claude`` credential surface and adds
+    ``--unshare-net`` to isolate the network. When ``bwrap`` is absent, or
+    ``jailed=False``, it falls back to the plain-subprocess spawn (never
+    hard-fails: ``jailed=True`` without bwrap behaves exactly like
+    ``jailed=False``). The child is spawned with ``PYTHONPATH`` including
+    ``repo_root`` (REQUIRED so it can import ``harness.wire_up``) and a bounded
+    timeout.
+
+    FAIL-CLOSED: on a non-zero exit, ``subprocess.TimeoutExpired``, a JSON parse
+    failure, or a missing key this returns ``{s: False for s in symbols}`` and
+    NEVER raises to the caller; the ``work_dir`` is cleaned up best-effort
+    (``shutil.rmtree(..., ignore_errors=True)``). stdlib (``subprocess``,
+    ``tempfile``, ``json``, ``sys``, ``os``, ``shutil``) + ``harness.agent_jail``
+    only; performs no network/model/API call, writes nothing under ``repo_root``,
+    and mutates no harness state.
+    """
+    import json
+    import os
+    import shutil
+    import subprocess
+    import sys
+    import tempfile
+    from harness.agent_jail import build_jail_argv, bwrap_available
+    symbols = list(symbols)
+    all_false = {s: False for s in symbols}
+    work_dir = tempfile.mkdtemp()
+    try:
+        wrapper_lines = ['import json', 'from harness.wire_up import observe_symbol_execution', '_symbols = ' + repr(symbols), '_live = ' + repr(list(live_root_files)), '_src = ' + repr(oracle_source), 'with observe_symbol_execution(_symbols) as _obs:', "    exec(_src, {'__name__': '__main__'})", 'print(json.dumps({_s: _obs.executed_with_live_root_ancestor(_s, _live) for _s in _symbols}))']
+        wrapper_src = '\n'.join(wrapper_lines) + '\n'
+        wrapper_path = os.path.join(work_dir, '_detonate_oracle_wrapper.py')
+        with open(wrapper_path, 'w', encoding='utf-8') as _fh:
+            _fh.write(wrapper_src)
+        cmd = [sys.executable, wrapper_path]
+        if jailed and bwrap_available():
+            argv = build_jail_argv(cmd, repo_root=repo_root, work_dir=work_dir, state_dir=work_dir, bind_credentials=False, extra_ro=[sys.base_prefix, sys.prefix])
+        else:
+            argv = cmd
+        env = dict(os.environ)
+        repo_root_str = str(repo_root)
+        prior_pp = env.get('PYTHONPATH', '')
+        env['PYTHONPATH'] = repo_root_str + (os.pathsep + prior_pp if prior_pp else '')
+        try:
+            proc = subprocess.run(argv, capture_output=True, text=True, timeout=90, env=env, cwd=work_dir)
+        except subprocess.TimeoutExpired:
+            return dict(all_false)
+        if proc.returncode != 0:
+            return dict(all_false)
+        last = ''
+        for line in (proc.stdout or '').splitlines():
+            stripped = line.strip()
+            if stripped:
+                last = stripped
+        if not last:
+            return dict(all_false)
+        try:
+            parsed = json.loads(last)
+        except (ValueError, TypeError):
+            return dict(all_false)
+        if not isinstance(parsed, dict):
+            return dict(all_false)
+        return {s: bool(parsed.get(s, False)) for s in symbols}
+    except Exception:
+        return dict(all_false)
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 def symbol_reachable_from_live_root(repo_root, module_rel: str, symbol: str, *, roots: Sequence[str]=LIVE_ROOTS) -> bool:
     """Static-reachability FLOOR: is the top-level ``symbol`` defined in
     ``module_rel`` reachable, via a STATIC import/reference path, from a live
