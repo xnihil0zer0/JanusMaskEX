@@ -22,6 +22,7 @@ class BriefTooLargeError(Exception):
         super().__init__(message)
         self.actual_bytes = actual_bytes
 
+from dataclasses import field
 @dataclass(frozen=True)
 class PlanningBrief:
     title: str
@@ -42,6 +43,7 @@ class PlanningBrief:
         return f'Title: {self.title}\nScope:\n{self.scope}\n\nNon-Goals:\n{self.non_goals}\n\nInputs:\n{self.inputs}\n\nDeliverables:\n{self.deliverables}'
     required_task_ids: tuple[str, ...] = ()
     required_child_slugs: tuple[str, ...] = ()
+    integration_contracts: dict = field(default_factory=dict)
 
 class UniqueKeyLoader(yaml.SafeLoader):
 
@@ -225,7 +227,30 @@ def load_brief(path: Path | str, max_bytes: int=256 * 1024) -> PlanningBrief:
                 required_child_slugs = tuple((part.strip() for part in value.split(',') if part.strip()))
             else:
                 required_child_slugs = ()
-    return PlanningBrief(title=data['title'], scope=data['scope'], non_goals=data['non_goals'], inputs=data['inputs'], deliverables=data['deliverables'], raw_text=normalized_text, source_path=str(path), sha256=sha256, working_dir=working_dir, epic=optional_fields.get('epic', False), complexity_score=optional_fields.get('complexity_score', None), dependencies=optional_fields.get('dependencies', ()), interfaces=optional_fields.get('interfaces', None), required_task_ids=required_task_ids, required_child_slugs=required_child_slugs)
+    integration_contracts: dict = {}
+    if isinstance(fm, dict):
+        _ic_normalized = {}
+        for k, v in fm.items():
+            _ic_normalized[str(k).lower().replace('-', '_').replace(' ', '_')] = v
+        if 'integration_contracts' in _ic_normalized:
+            raw = _ic_normalized['integration_contracts']
+            if isinstance(raw, dict):
+                for _tid, _contract in raw.items():
+                    if not isinstance(_contract, dict):
+                        integration_contracts[str(_tid)] = {}
+                        continue
+                    coerced = {}
+                    eps = _contract.get('entrypoints')
+                    if isinstance(eps, list):
+                        coerced['entrypoints'] = [str(x) for x in eps]
+                    syms = _contract.get('symbols')
+                    if isinstance(syms, list):
+                        coerced['symbols'] = [str(x) for x in syms]
+                    ro = _contract.get('runtime_oracle')
+                    if isinstance(ro, str):
+                        coerced['runtime_oracle'] = ro
+                    integration_contracts[str(_tid)] = coerced
+    return PlanningBrief(title=data['title'], scope=data['scope'], non_goals=data['non_goals'], inputs=data['inputs'], deliverables=data['deliverables'], raw_text=normalized_text, source_path=str(path), sha256=sha256, working_dir=working_dir, epic=optional_fields.get('epic', False), complexity_score=optional_fields.get('complexity_score', None), dependencies=optional_fields.get('dependencies', ()), interfaces=optional_fields.get('interfaces', None), required_task_ids=required_task_ids, required_child_slugs=required_child_slugs, integration_contracts=integration_contracts)
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Load and validate a planning brief')
     parser.add_argument('file', type=Path, help='Path to the brief file')
