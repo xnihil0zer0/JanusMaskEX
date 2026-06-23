@@ -78,6 +78,8 @@ autowork:
   selfheal_auto_promote: false
   state_reconcile: true
   wire_up_gate: true
+  wire_up_runtime_gate: false
+  wire_up_runtime_gate_enforce: false
 batch_execution:
   batch_size_per_worker: 2000
   enabled: true
