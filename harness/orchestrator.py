@@ -979,7 +979,7 @@ def _submission_target_path(state_dir: Path, task_id: str) -> str | None:
         pass
     return None
 
-def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: subprocess.Popen, timeout: int) -> str | None:
+def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: subprocess.Popen, timeout: int, spawn_start_epoch: float | None = None) -> str | None:
     """Poll for an agent's submission file. Returns the code or None.
 
     Watches for the submission file (name from session_namer.generate_submission_filename) while the agent
@@ -995,12 +995,13 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
     mode = os.environ.get('JANUSMASK_MODE', 'synthesis')
     deadline = time.monotonic() + timeout
     poll_start_wall = time.time()
+    freshness_epoch = spawn_start_epoch if spawn_start_epoch is not None else poll_start_wall
     poll_interval = 0.5
     _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.INFO}waiting for submission...{_C.RESET}')
     while time.monotonic() < deadline:
         from harness.interceptors import registry as interceptor_registry
         if mode in _MODE_OUTBOX_ARTIFACT:
-            artifact = _poll_mode_artifact(work_dir, mode, spawn_start_epoch=poll_start_wall)
+            artifact = _poll_mode_artifact(work_dir, mode, spawn_start_epoch=freshness_epoch)
             if artifact is not None:
                 _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.OK}{mode} artifact received{_C.RESET} {_C.DIM}({len(artifact)} chars){_C.RESET}')
                 return artifact
@@ -1038,7 +1039,7 @@ def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: su
             rc = proc.returncode
             for _attempt in range(3):
                 if mode in _MODE_OUTBOX_ARTIFACT:
-                    artifact = _poll_mode_artifact(work_dir, mode, spawn_start_epoch=poll_start_wall)
+                    artifact = _poll_mode_artifact(work_dir, mode, spawn_start_epoch=freshness_epoch)
                     if artifact is not None:
                         _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.OK}exited (code {rc}); {mode} artifact found{_C.RESET}')
                         return artifact
@@ -1108,9 +1109,10 @@ def run_agent_phase(agent: str, prompt: str, config: dict[str, Any], state_dir: 
         if attempt > 0:
             _con(f'  {_orch_tag()} {_agent_tag(agent)} {_C.WARN}retry {attempt + 1}/{max_retries}{_C.RESET}')
             time.sleep(min(60, 2 ** attempt))
+        spawn_start_epoch = time.time()
         proc = spawn_agent(agent, prompt, config, round_number)
         try:
-            code = poll_for_submission(agent, state_dir, round_number, proc, timeout)
+            code = poll_for_submission(agent, state_dir, round_number, proc, timeout, spawn_start_epoch=spawn_start_epoch)
             if code is not None:
                 return code
         finally:
