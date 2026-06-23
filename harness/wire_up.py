@@ -389,6 +389,7 @@ class observe_symbol_execution:
         self._watched: set = set(qualnames)
         self._executed: set = set()
         self._callers: dict = {}
+        self._ancestry: dict = {}
         self._prior = None
         self._prior_thread = None
         observer = self
@@ -404,6 +405,12 @@ class observe_symbol_execution:
                         if name not in observer._callers:
                             back = frame.f_back
                             observer._callers[name] = back.f_code.co_filename if back is not None else None
+                            chain: list = []
+                            f = frame.f_back
+                            while f is not None:
+                                chain.append(f.f_code.co_filename)
+                                f = f.f_back
+                            observer._ancestry[name] = chain
             except Exception:
                 pass
             return _trace
@@ -463,6 +470,34 @@ class observe_symbol_execution:
         for seed in live_root_files:
             if self._path_matches(caller, seed):
                 return True
+        return False
+
+    def executed_with_live_root_ancestor(self, name: str, live_root_files) -> bool:
+        """Return True iff ``name`` executed AND some frame on the target call's
+        captured parent lineage resolves into one of ``live_root_files``.
+
+        Anti-gaming rule: it keys on the TARGET CALL's literal f_back lineage
+        captured at the 'call' event, NOT a flat 'any live-root frame seen
+        anywhere during the window' set; the flat form is gameable (Case C) and
+        WRONG.
+
+        This is the multi-depth ANCESTOR view that generalises the depth-1
+        ``executed_from_live_root`` immediate-caller check: a live-root frame
+        counts only when it was an actual ancestor of the watched call at the
+        moment the symbol was entered, so a live-root frame that ran and
+        returned BEFORE the target was called is not on the lineage and is not
+        counted (Case C). Lookup is per queried ``name`` via
+        ``self._ancestry.get(name, [])`` only, so a sibling watched name's
+        live-root ancestor never leaks into this name's verdict (Case E). Each
+        captured ancestor ``co_filename`` is resolved with the shared
+        ``_path_matches`` rule -- no second path-matching rule is introduced.
+        """
+        if name not in self._watched or name not in self._executed:
+            return False
+        for caller in self._ancestry.get(name, []):
+            for seed in live_root_files:
+                if self._path_matches(caller, seed):
+                    return True
         return False
 
     @property
