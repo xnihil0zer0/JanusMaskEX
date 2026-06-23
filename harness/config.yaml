@@ -162,10 +162,13 @@ workers:
   #     PTY, since a jailed interactive claude renders fine under a PTY but dies
   #     in a literal tmux pane.) Termination is gated on the orchestrator
   #     deliverable (outbox/submission.py) going stable.
-  # DEFAULT 'tmux' (2026-06-14, owner directive: tmux-jailed-claude default
-  # everywhere). Live-validated e2e (jailed interactive claude over PTY wrote a
-  # real deliverable in ~11s). Revert to 'headless' if a regression appears.
-  claude_backend: tmux
+  # DEFAULT 'headless' (2026-06-23, owner directive: revert to headless `-p` /
+  # API-billed print mode). NOTE this also re-registers the claude pre_tool
+  # tool-allowlist hook, which the tmux/PTY seam does NOT install. Was 'tmux'
+  # 2026-06-14..2026-06-23 (e1f5aab, owner directive: tmux-jailed-claude over a
+  # direct PTY, OAuth/Max-billed; live-validated e2e ~11s). Flip back to 'tmux'
+  # to restore that jailed-interactive PTY backend + --continue warm resume.
+  claude_backend: headless
   # VERDICT_v3 efficiency flags ACTIVATED 2026-06-19 (owner directive; both
   # OFF=byte-identical-to-HEAD). pin_task_cwd (Int 3, 421ba38): deterministic
   # per-task cwd/CLAUDE_CONFIG_DIR from task_id (sha1-digest8) via the work_dir
