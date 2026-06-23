@@ -908,6 +908,65 @@ def _escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: 
     except Exception as exc:
         _emit_telemetry(state_dir, task_id, 'spawn_failed', repr(exc))
 
+def _soonest_blocked_retry_deadline(state_dir: pathlib.Path) -> float | None:
+    """Soonest pending blocked-retry deadline, or None when none is eligible.
+
+    Pure read-only mirror of :func:`_retry_blocked_tasks`'s enumeration +
+    backoff tiers, used ONLY to cap the idle heartbeat sleep in
+    :func:`run_daemon` so a freshly-blocked, retry-eligible task auto-retries on
+    its OWN backoff window (~300s) instead of waiting up to a full heartbeat for
+    the next idle scan. Enumerates the same sorted ``tasks/blocked/*.json`` glob
+    (skipping ``*.retry.json`` and any ``<tid>.exhausted``-marked task), parses
+    each ``<tid>.retry.json`` sidecar defensively, derives effective_max from an
+    INLINED deterministic-outcome tuple (1 for those, else 3 -- the bare
+    ``_DETERMINISTIC_OUTCOMES`` name is local to ``_retry_blocked_tasks``), uses
+    the same 300/3600/86400 tier schedule, and returns
+    ``min(last_ts + threshold(attempts))`` over retry-ELIGIBLE blocked tasks
+    (attempts < effective_max), or None. Fail-soft: a missing blocked/ dir, a
+    glob OSError, or a malformed/non-JSON sidecar yields None / is skipped and
+    never raises; it mutates no state (no re-stage, no .exhausted/marker/
+    telemetry writes).
+    """
+    state_dir = pathlib.Path(state_dir)
+    blocked_dir = state_dir / 'tasks' / 'blocked'
+    if not blocked_dir.is_dir():
+        return None
+    try:
+        entries = sorted(blocked_dir.glob('*.json'))
+    except OSError:
+        return None
+    soonest: float | None = None
+    for p in entries:
+        if p.name.endswith('.retry.json'):
+            continue
+        tid = p.name[:-len('.json')] if p.name.endswith('.json') else p.stem
+        if (blocked_dir / f'{tid}.exhausted').exists():
+            continue
+        sidecar = blocked_dir / f'{tid}.retry.json'
+        attempts, last_ts, last_outcome = (0, 0.0, '')
+        if sidecar.exists():
+            try:
+                d = json.loads(sidecar.read_text(encoding='utf-8'))
+                if isinstance(d, dict):
+                    a = d.get('attempts')
+                    attempts = a if isinstance(a, int) and (not isinstance(a, bool)) else 0
+                    last_ts = float(d.get('ts', 0) or 0)
+                    lo = d.get('last_outcome')
+                    last_outcome = lo if isinstance(lo, str) else ''
+            except (OSError, ValueError):
+                attempts, last_ts, last_outcome = (0, 0.0, '')
+        effective_max = 1 if last_outcome in ('synthesis_or_ast_failed', 'embedded_tests_failed', 'narrow_fuzz_failed') else 3
+        if attempts >= effective_max:
+            continue
+        if attempts <= 1:
+            threshold = 300.0
+        elif attempts == 2:
+            threshold = 3600.0
+        else:
+            threshold = 86400.0
+        dl = last_ts + threshold
+        soonest = dl if soonest is None else min(soonest, dl)
+    return soonest
 def _retry_blocked_tasks(state_dir: pathlib.Path, summary: dict, max_attempts: int=3) -> int:
     """Re-stage blocked task JSONs back to tasks/ under a retry budget + backoff.
 
@@ -2930,6 +2989,16 @@ def run_daemon(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict) -
             except Exception as exc:
                 _emit_telemetry(state_dir, '', 'skip', f'watchdog error: {exc!r}')
             sleep_target = heartbeat if is_idle else poll
+            # IDLE_SLEEP_CAP: when idle, additively cap the heartbeat sleep by the
+            # soonest pending blocked-retry deadline so a freshly-blocked, retry-
+            # eligible task auto-retries on its OWN backoff (~300s) instead of
+            # waiting up to a full heartbeat for the next idle scan. The cap only
+            # applies when is_idle and a deadline exists; the 5.0s grace floor
+            # keeps the capped sleep > 0 (no busy-spin). Read-only helper.
+            if is_idle:
+                _dl = _soonest_blocked_retry_deadline(state_dir)
+                if _dl is not None:
+                    sleep_target = min(sleep_target, max(5.0, _dl - time.time()))
             slept = 0.0
             step = 0.5 if sleep_target > 0.5 else sleep_target
             watch_baseline = _autowork_watch_mtime(repo_root, state_dir) if is_idle else None
