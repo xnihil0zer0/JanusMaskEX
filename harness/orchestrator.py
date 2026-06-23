@@ -2166,6 +2166,30 @@ def _new_module_red_by_absence(task, worktree_root, verify_exit, verify_out) -> 
         return False
 from harness.wire_up import new_top_level_callables, LIVE_ROOTS
 
+def _wire_up_runtime_gate_enforce_enabled(state_dir=None) -> bool:
+    """WIRE_UP_RUNTIME_GATE_ENFORCE: return
+    ``config['autowork']['wire_up_runtime_gate_enforce']`` (default False).
+
+    Mirrors :func:`_wire_up_runtime_gate_enabled` / :func:`_wire_up_gate_enabled`
+    EXACTLY: reads the flag via the existing ``load_config()``, ships
+    default-OFF, and is fail-safe -- ANY error (config missing / not a mapping /
+    key absent) yields False. This is the SECOND, fail-closed knob: when True
+    AND the runtime symbol gate (``wire_up_runtime_gate``) is also on, a
+    non-empty per-symbol/origin-checked ``uncovered`` set turns the report-only
+    finding into the EXISTING reject path. Independent of ``wire_up_gate`` and
+    ``wire_up_runtime_gate``; inert on its own because the branch it arms only
+    runs when ``wire_up_runtime_gate`` is on.
+    """
+    try:
+        cfg = load_config()
+        if not isinstance(cfg, dict):
+            return False
+        autowork = cfg.get('autowork')
+        if not isinstance(autowork, dict):
+            return False
+        return bool(autowork.get('wire_up_runtime_gate_enforce', False))
+    except Exception:
+        return False
 def _wire_up_runtime_gate_enabled(state_dir=None) -> bool:
     """WIRE_UP_RUNTIME_GATE: return ``config['autowork']['wire_up_runtime_gate']``
     (default False).
@@ -2220,16 +2244,20 @@ def _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, wor
     True (reject) is returned.
 
     RUNTIME SYMBOL GATE (guarded behind ``_wire_up_runtime_gate_enabled``,
-    DEFAULT-OFF, REPORT-ONLY): on the ALREADY-TRACKED-file blind spot, AST-diff
-    the new top-level callables (parent source via ``git show HEAD:<rel>`` in
+    DEFAULT-OFF): on the ALREADY-TRACKED-file blind spot, AST-diff the new
+    top-level callables (parent source via ``git show HEAD:<rel>`` in
     ``worktree_root``, child source from ``staging_path/<rel>`` on disk) via the
     PHASE-1 ``new_top_level_callables`` primitive, read each leaf's declared
-    ``integration_contract`` / ``wire_exempt`` from the task dict, and SHADOW
-    REPORT (one ``phase=='report'``, ``event=='orphan_symbol_unwired'`` ledger
-    row + ``logger.warning``) any new callable lacking a valid per-symbol
-    runtime-reachability contract. This branch NEVER rolls back, NEVER blocks,
-    NEVER returns True, and runs inside a contained try/except so it can never
-    break the accept path; control ALWAYS continues. Both gates are strict
+    ``integration_contract`` / ``wire_exempt`` from the task dict, and find any
+    new callable lacking a valid per-symbol runtime-reachability contract. When
+    the SECOND, fail-closed knob ``_wire_up_runtime_gate_enforce_enabled`` is on
+    AND the ``uncovered`` set is non-empty, the EXISTING reject path fires
+    (rollback + ``phase=='rejected'``, ``event=='orphan_symbol_unwired'`` row +
+    blocked + return True); otherwise this branch SHADOW REPORTS (one
+    ``phase=='report'``, ``event=='orphan_symbol_unwired'`` ledger row +
+    ``logger.warning``), NEVER rolls back, NEVER blocks, NEVER returns True, and
+    control continues. The whole symbol-check runs inside a contained
+    try/except so it can never break the accept path. All gates are strict
     no-ops when their respective flag is OFF, so behavior is byte-identical to
     today when only ``wire_up_gate`` is on (or neither flag is set).
     """
@@ -2286,6 +2314,16 @@ def _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, wor
                         _exempt = set()
                     uncovered = sorted((_s for _s in new_syms if _s not in _exempt and (not (_contract_valid and _s in _csymbols))))
                     if uncovered:
+                        if _wire_up_runtime_gate_enforce_enabled(state_dir):
+                            logger.warning('orphan_symbol_unwired (ENFORCE): task=%s module %s adds new top-level callable(s) %s with no valid per-symbol runtime-reachability contract -- staging rolled back fail-closed', task_id, rel, uncovered)
+                            _rollback_rejected_commit(staging_path, result.get('sha'), rel, task_id, 'orphan_symbol_unwired')
+                            git_integration.remove_staging_worktree(str(staging_path), parent_root=worktree_root)
+                            try:
+                                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'orphan_symbol_unwired', 'commit_sha': result.get('sha'), 'files': files_touched, 'file': rel, 'symbols': uncovered, 'reason': 'new top-level callable(s) lack a valid per-symbol runtime-reachability contract (entrypoints subset of LIVE_ROOTS, the symbol named in the contract, a runtime_oracle declared) and are not in wire_exempt; ENFORCE -- staged commit rolled back fail-closed'})
+                            except OSError as _exc:
+                                logger.warning('orphan_symbol_unwired (ENFORCE): ledger append failed for %s: %s', task_id, _exc)
+                            _mark_blocked(state_dir, task_id, outcome='orphan_symbol_unwired')
+                            return True
                         logger.warning('orphan_symbol_unwired: task=%s module %s adds new top-level callable(s) %s with no valid per-symbol runtime-reachability contract -- REPORT-ONLY shadow finding (default-OFF runtime gate); staged commit NOT rolled back', task_id, rel, uncovered)
                         try:
                             write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'report', 'task_id': task_id, 'event': 'orphan_symbol_unwired', 'commit_sha': result.get('sha'), 'files': files_touched, 'file': rel, 'symbols': uncovered, 'reason': 'new top-level callable(s) lack a valid per-symbol runtime-reachability contract (entrypoints subset of LIVE_ROOTS, the symbol named in the contract, a runtime_oracle declared) and are not in wire_exempt; report-only -- fail-closed activation deferred (BUILT != WORKS)'})
