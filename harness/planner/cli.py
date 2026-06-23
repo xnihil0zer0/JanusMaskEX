@@ -491,7 +491,7 @@ def main(args=None):
     amend_result = auto_amend_gate(merged_plan, parsed.output_critique, config, state_dir)
     final_plan = amend_result.amended_plan
     from harness.planner.plan_normalizer import normalize_plan
-    final_plan = normalize_plan(final_plan, repo_root=_effective_repo_root(brief_obj))
+    final_plan = normalize_plan(final_plan, repo_root=_effective_repo_root(brief_obj), contracts=getattr(brief_obj, 'integration_contracts', None) or None)
     _stamp_brief_metadata(final_plan, brief_obj)
     from harness.planner.plan_validator import validate_plan
     violations = validate_plan(final_plan)
