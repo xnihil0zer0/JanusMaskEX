@@ -803,6 +803,13 @@ def reap_orphaned_workdirs(root, *, now=None, grace=60.0):
         detect_and_heal_stalls(root, now=now)
     except Exception:
         pass
+    # ADDITIVE final fail-safe step: catch-up reap of ALL fully-accepted
+    # brief+plan pairs (allowlist-independent; MOVE-not-delete via reap_for_task).
+    # Result discarded; never alters `reaped`, never raises out.
+    try:
+        reap_spent_briefs(root)
+    except Exception:
+        pass
     return reaped
 
 def compact_impl_progress_ledger(root, *, allow=None):
