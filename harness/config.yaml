@@ -69,6 +69,13 @@ autowork:
   enabled: true
   onesided_oracle: true
   onesided_oracle_blocking: true
+  #   onesided_metamorphic (2026-06-23 operator flip, owner directive): on a
+  #     one-sided candidate run conservative INTRINSIC metamorphic relations
+  #     (idempotence / permutation invariance) out-of-process; fail-closed -> a
+  #     REJECTED relation BLOCKS the candidate (diff_fuzzer.py:1207). Strengthens
+  #     one-sided coverage; bounded to one-sided functions. Revert to false if
+  #     false-positive metamorphic blocks appear in fuzz outcomes.
+  onesided_metamorphic: true
   heartbeat_sec: 1800
   parallel_cap: 5
   claude_parallel_cap: 4
