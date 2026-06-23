@@ -134,7 +134,7 @@ def test_non_contract_main_behavior_unstubbed_paths_unchanged(tmp_path, monkeypa
     monkeypatch.chdir(tmp_path)
     brief_path = write_test_brief(tmp_path, integration_contracts=None)
     real_brief = load_brief(brief_path)
-    assert getattr(real_brief, 'integration_contracts', None) is None
+    assert not real_brief.integration_contracts
     monkeypatch.setattr(harness.planner.cli, 'load_brief', lambda p: real_brief)
     monkeypatch_cli_stages(monkeypatch, tmp_path)
     captured = {}
