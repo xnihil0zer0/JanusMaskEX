@@ -21,11 +21,11 @@ from harness.orchestrator import _NEVER_AUTO_APPROVE
 # --- §9 taxonomy table: README bypass_fuzzer yes/no per documented type ---
 # Transcribed VERBATIM from README.md §9 (the "bypass_fuzzer" column).
 README_BYPASS_FUZZER = {
-    'data_model': True,
+    'data_model': False,
     'config_schema': True,
-    'validation': True,
-    'planner_tooling': True,
-    'orchestration': True,
+    'validation': False,
+    'planner_tooling': False,
+    'orchestration': False,
     'harness_plumbing': True,
     'mcp_plumbing': True,
     'mcp_server_change': True,
@@ -37,7 +37,7 @@ README_BYPASS_FUZZER = {
     'logging_observability': False,
     'io_adapter': False,
     'state_machine': False,
-    'sandbox_infra': True,
+    'sandbox_infra': False,
     'test_unit': True,
     'test_integration': True,
     'test_e2e': True,
