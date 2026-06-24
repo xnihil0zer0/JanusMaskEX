@@ -105,14 +105,15 @@ def compute_fuzz_coverage(ledger_path: Any, window: int | None=None) -> dict[str
                 if mtt and isinstance(mtt, str):
                     task_types[task_id] = mtt
                 event = data.get('event')
-                if event == 'phase_transition':
+                if event in ('phase_transition', 'auto_commit'):
                     phase = data.get('phase')
                     if not phase:
                         phase_trans = data.get('phase_transition')
                         if isinstance(phase_trans, dict):
                             phase = phase_trans.get('to')
                     if phase and isinstance(phase, str):
-                        task_phases.setdefault(task_id, set()).add(phase)
+                        if event == 'phase_transition':
+                            task_phases.setdefault(task_id, set()).add(phase)
                         if phase == 'accepted':
                             if task_id not in accepted_tasks:
                                 accepted_tasks.append(task_id)
