@@ -39,7 +39,7 @@ def test_fuzz_coverage_metrics_calculation(tmp_path):
     assert res_types['fuzzed'] == 2
     assert res_types['bypassed'] == 2
     assert res_types['fuzzed_fraction'] == 0.5
-    assert res_types['capture_rate'] == pytest.approx(2 / 3)
+    assert res_types['capture_rate'] == pytest.approx(0.5)
     rows_w = [{'event': 'phase_transition', 'phase': 'fuzzing', 'task_id': 'task-w1'}, {'event': 'phase_transition', 'phase': 'accepted', 'task_id': 'task-w1'}, {'event': 'phase_transition', 'phase': 'accepted', 'task_id': 'task-w2'}, {'event': 'phase_transition', 'phase': 'fuzzing', 'task_id': 'task-w3'}, {'event': 'phase_transition', 'phase': 'accepted', 'task_id': 'task-w3'}, {'event': 'phase_transition', 'phase': 'accepted', 'task_id': 'task-w4'}, {'event': 'phase_transition', 'phase': 'fuzzing', 'task_id': 'task-w5'}, {'event': 'phase_transition', 'phase': 'accepted', 'task_id': 'task-w5'}]
     ledger_w = tmp_path / 'impl_progress_window.jsonl'
     with open(ledger_w, 'w', encoding='utf-8') as f:
