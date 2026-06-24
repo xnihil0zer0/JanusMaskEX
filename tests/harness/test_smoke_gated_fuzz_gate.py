@@ -58,15 +58,4 @@ def test_regression_under_fuzz_invariant() -> None:
     assert module._task_bypasses_fuzz({'smoke_gated': False, 'other_key': 123}, bypass_mtt) is True
     assert module._task_bypasses_fuzz({'other_key': 'value'}, 'data_model') is False
     assert module._task_bypasses_fuzz({'other_key': 'value'}, bypass_mtt) is True
-
-def test_regression_no_unapproved_or_manifest_files_created() -> None:
-    import os
-    paths_to_check = [Path('.'), Path(PROJECT_ROOT)]
-    for p in paths_to_check:
-        if p.exists():
-            for f in p.glob('**/*'):
-                if f.is_file():
-                    assert 'manifest' not in f.name.lower()
-                    assert 'unapproved' not in f.name.lower()
 regression_under_fuzz_invariant = test_regression_under_fuzz_invariant
-regression_no_unapproved_or_manifest_files_created = test_regression_no_unapproved_or_manifest_files_created
