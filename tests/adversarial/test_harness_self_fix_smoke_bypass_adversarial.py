@@ -36,9 +36,11 @@ def test_harness_self_fix_in_skip_smoke_gate_types():
 
 
 def test_harness_self_fix_in_bypass_set():
-    """Skip-gate types must also be bypass-eligible — the gate only runs
-    inside the bypass branch."""
-    assert "harness_self_fix" in BYPASS_FUZZER_TYPES
+    """Fuzzed types may skip smoke gates. Post-flip, harness_self_fix is no
+    longer in BYPASS_FUZZER_TYPES (as it is differentially fuzzed) but is
+    retained in SKIP_SMOKE_GATE_TYPES.
+    """
+    assert "harness_self_fix" not in BYPASS_FUZZER_TYPES and "harness_self_fix" in SKIP_SMOKE_GATE_TYPES
 
 
 def test_other_bypass_types_still_smoke_gated():
@@ -67,9 +69,15 @@ def test_other_bypass_types_still_smoke_gated():
 
 
 def test_skip_smoke_gate_strict_subset_of_bypass():
-    """The gate is meaningful only inside the bypass branch — non-bypass
-    types go through diff_fuzz, not smoke."""
-    assert SKIP_SMOKE_GATE_TYPES.issubset(BYPASS_FUZZER_TYPES)
+    """Fuzzed types may skip smoke gates. The old subset relation no longer
+    holds because fuzzed types (like harness_self_fix and harness_plumbing)
+    can skip smoke gates, but we pin the exact residual difference.
+    """
+    assert not SKIP_SMOKE_GATE_TYPES.issubset(BYPASS_FUZZER_TYPES)
+    assert SKIP_SMOKE_GATE_TYPES - BYPASS_FUZZER_TYPES == {
+        "harness_self_fix",
+        "harness_plumbing",
+    }
 
 
 def test_orchestrator_imports_skip_smoke_gate_types():
