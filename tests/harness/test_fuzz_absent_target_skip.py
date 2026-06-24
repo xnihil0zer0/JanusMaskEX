@@ -140,3 +140,47 @@ def test_one_sided_ladder_preserved(monkeypatch):
     assert res.equivalent is True
     assert res.error is None
     assert res.skipped_reason is not None
+
+def test_one_sided_test_function_skips():
+    """A test_authoring/harness_self_fix task with a target test_ function present on one side only returns equivalent=True, error=None, skipped_reason not None."""
+    code_a = 'def test_target():\n    pass\n'
+    code_b = 'def other_b():\n    pass\n'
+    task = {'task_id': 'one_sided_test_func', 'meta_task_type': 'test_authoring', 'constraints': {'function_signature': 'def test_target()'}}
+    config = {'fuzzing': {'function_level_inputs': 10, 'float_tolerance': 1e-09, 'seed': 42}, 'batch_execution': {'enabled': False}}
+    res = df.fuzz_from_task(code_a, code_b, task, config)
+    assert isinstance(res, df.FuzzResult)
+    assert res.equivalent is True
+    assert res.error is None
+    assert res.skipped_reason is not None
+
+def test_one_sided_no_strategy_skips(monkeypatch):
+    """A test_authoring/harness_self_fix task with a non-test function and NO inferrable strategy returns equivalent=True, error=None, skipped_reason not None."""
+    code_a = 'def target(x: int) -> int:\n    return x\n'
+    code_b = 'def other_b():\n    pass\n'
+    task = {'task_id': 'one_sided_no_strategy', 'meta_task_type': 'test_authoring', 'constraints': {'function_signature': 'def target(x: int) -> int'}}
+    config = {'fuzzing': {'function_level_inputs': 10, 'float_tolerance': 1e-09, 'seed': 42}, 'batch_execution': {'enabled': False}}
+    original_build = df.build_input_strategy
+
+    def mock_build_strategy(code, func_name, *args, **kwargs):
+        if func_name == 'target':
+            raise ValueError('No strategy found for target')
+        return original_build(code, func_name, *args, **kwargs)
+    monkeypatch.setattr(df, 'build_input_strategy', mock_build_strategy, raising=False)
+    res = df.fuzz_from_task(code_a, code_b, task, config)
+    assert isinstance(res, df.FuzzResult)
+    assert res.equivalent is True
+    assert res.error is None
+    assert res.skipped_reason is not None
+
+def test_one_sided_fuzzable_errors(monkeypatch):
+    """A test_authoring/harness_self_fix task with a non-test function and buildable strategy still error-rejects."""
+    code_a = 'def target(x: int) -> int:\n    return x\n'
+    code_b = 'def other_b():\n    pass\n'
+    task = {'task_id': 'one_sided_fuzzable', 'meta_task_type': 'test_authoring', 'constraints': {'function_signature': 'def target(x: int) -> int'}}
+    config = {'fuzzing': {'function_level_inputs': 10, 'float_tolerance': 1e-09, 'seed': 42}, 'batch_execution': {'enabled': False}}
+    monkeypatch.setattr(df, 'build_input_strategy', lambda *a, **k: st.just(([42], {})), raising=False)
+    res = df.fuzz_from_task(code_a, code_b, task, config)
+    assert isinstance(res, df.FuzzResult)
+    assert res.equivalent is False
+    assert res.error is not None
+    assert 'strategy' in res.error or 'not found' in res.error or 'missing' in res.error or ('absent' in res.error)
