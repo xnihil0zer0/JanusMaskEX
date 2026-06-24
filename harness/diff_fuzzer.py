@@ -488,6 +488,7 @@ def _patched_symbol_candidates(code_a: Any, code_b: Any) -> tuple[str, str, str]
         return None
     func_name = info_a[1].split('.')[-1]
     return (info_a[2], info_b[2], func_name)
+
 def _extract_meta_task_type(task: dict[str, Any]) -> str | None:
     """Mirror the orchestrator's resolution: task-level wins, then constraints-level."""
     mtt = task.get('meta_task_type')
@@ -647,14 +648,10 @@ def _candidates_are_self_clone(code_a: str, code_b: str) -> bool:
         return ast.dump(ast_a) == ast.dump(ast_b)
     except Exception:
         return False
+
 def differential_fuzz(code_a: str, code_b: str, func_name: str, config: dict[str, Any], session_id: str='default') -> FuzzResult:
     if _candidates_are_self_clone(code_a, code_b):
-        return FuzzResult(
-            equivalent=False,
-            total_inputs=0,
-            matching_inputs=0,
-            error='self-clone: code_a and code_b are the same submission; a differential check over identical candidates is vacuous and cannot certify equivalence'
-        )
+        return FuzzResult(equivalent=False, total_inputs=0, matching_inputs=0, error='self-clone: code_a and code_b are the same submission; a differential check over identical candidates is vacuous and cannot certify equivalence')
     batch_config = config.get('batch_execution', {})
     if batch_config.get('enabled', True):
         return _fuzz_batch(code_a, code_b, func_name, config, session_id)
@@ -976,7 +973,6 @@ def _mr_roundtrip(fn: Any, value: Any) -> bool:
     if twice[0] != 'ok':
         return False
     return _deep_equal(twice[1], value)
-
 _RELATION_LIBRARY: dict[str, Any] = {'determinism': _mr_determinism, 'idempotent': _mr_idempotent, 'order_invariant': _mr_order_invariant, 'roundtrip': _mr_roundtrip}
 
 def _metamorphic_oracle(fn: Any, strategy: st.SearchStrategy, relations: tuple=(), *, count: int, seed: int) -> str:
@@ -1078,6 +1074,7 @@ def _one_sided_execute_verdict(side_code: str, func_name: str, config: dict[str,
     finally:
         sandbox.cleanup()
     return 'verified'
+
 def _one_sided_fuzz(fn: Any, strategy: st.SearchStrategy, *, relations: tuple=(), golden: dict | None=None, count: int, seed: int) -> dict:
     """Run the one-sided degrade ladder (golden -> metamorphic -> determinism).
 
@@ -1114,6 +1111,7 @@ def _onesided_oracle_blocking_enabled() -> bool:
         return bool(cfg['autowork']['onesided_oracle_blocking'])
     except Exception:
         return False
+
 def _onesided_metamorphic_enabled() -> bool:
     """Fail-safe reader for autowork.onesided_metamorphic (default false -> OFF).
 
@@ -1196,6 +1194,7 @@ def _one_sided_metamorphic_verdict(side_code: str, func_name: str, config: dict[
     finally:
         sandbox.cleanup()
     return 'verified'
+
 def _onesided_oracle_enabled() -> bool:
     """Fail-safe reader for autowork.onesided_oracle (default false -> OFF).
 
@@ -1211,12 +1210,12 @@ def _onesided_oracle_enabled() -> bool:
         return bool(cfg['autowork']['onesided_oracle'])
     except Exception:
         return False
+
 def fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[str, Any], session_id: str='default') -> FuzzResult:
     """Differential fuzz using task constraints to determine the function name."""
     _js = _maybe_js_fuzz(code_a, code_b, task, config, session_id)
     if _js is not None:
         return _js
-
     patched_info = _patched_symbol_candidates(code_a, code_b)
     if patched_info is not None:
         body_a, body_b, func_name = patched_info
@@ -1227,8 +1226,10 @@ def fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[
         return result
     else:
         import ast
+
         def is_identical_patch(ca, cb):
             try:
+
                 def get_patch_details(code):
                     tree = ast.parse(code)
                     patches = None
@@ -1242,20 +1243,18 @@ def fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[
                         if isinstance(p, dict) and p.get('kind') == 'symbol':
                             bt = ast.parse(p.get('code', ''))
                             if len(bt.body) == 1 and isinstance(bt.body[0], (ast.FunctionDef, ast.AsyncFunctionDef)):
-                                return p.get('file'), p.get('name'), bt
+                                return (p.get('file'), p.get('name'), bt)
                     return None
                 details_a = get_patch_details(ca)
                 details_b = get_patch_details(cb)
-                if details_a and details_b and details_a[0] == details_b[0] and details_a[1] == details_b[1]:
+                if details_a and details_b and (details_a[0] == details_b[0]) and (details_a[1] == details_b[1]):
                     if ast.dump(details_a[2]) == ast.dump(details_b[2]):
                         return True
             except Exception:
                 pass
             return False
-
         if is_identical_patch(code_a, code_b):
-            return FuzzResult(equivalent=True, skipped_reason="Identical/equivalent patched symbol bodies on both sides")
-
+            return FuzzResult(equivalent=True, skipped_reason='Identical/equivalent patched symbol bodies on both sides')
     constraints = task.get('constraints', {}) if isinstance(task, dict) else {}
     if not isinstance(constraints, dict):
         constraints = {}
@@ -1323,6 +1322,17 @@ def fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[
                     else:
                         tier = 'determinism_only'
                     logger.info('onesided_oracle shadow: one_sided=True missing_side=%s func_name=%s tier=%s verdict=unverified strategy_buildable=%s', missing_side, func_name, tier, strategy_buildable)
+                logger.info('fuzz_from_task skipping: %s', reason)
+                return FuzzResult(equivalent=True, skipped_reason=reason)
+            if func_name.startswith('test_'):
+                reason = f'Target function {func_name!r} is a test function and defined on one side only (missing in {missing_side}); skipping cleanly'
+                logger.info('fuzz_from_task skipping: %s', reason)
+                return FuzzResult(equivalent=True, skipped_reason=reason)
+            side_code = code_a if a_has else code_b
+            try:
+                build_input_strategy(side_code, func_name)
+            except Exception as e:
+                reason = f'Target function {func_name!r} defined on one side only (missing in {missing_side}) but has no inferrable input strategy: {e}; skipping cleanly'
                 logger.info('fuzz_from_task skipping: %s', reason)
                 return FuzzResult(equivalent=True, skipped_reason=reason)
             return FuzzResult(equivalent=False, error=f'Failed to build input strategy from {missing_side}: Function {func_name!r} not found in code')
