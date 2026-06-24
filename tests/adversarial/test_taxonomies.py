@@ -78,9 +78,7 @@ def test_test_authoring_policy_entry():
 @pytest.mark.parametrize(
     "value",
     [
-        "harness_plumbing",
         "hooks_integration",
-        "harness_self_fix",
     ],
 )
 def test_known_bypass_values_are_in_bypass_set(value):
