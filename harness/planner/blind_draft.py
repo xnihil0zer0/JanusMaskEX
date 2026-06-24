@@ -345,30 +345,45 @@ def run_blind_drafts(brief: PlanningBrief, config: Dict[str, Any], state_dir: Pa
         'gemini': (g_draft, g_status, gemini_dir, g_draft_path),
     }
     _recovered = {}
+
+    limit = 3
+    for frame_info in inspect.stack():
+        if frame_info.filename and 'redraft_once' in frame_info.filename:
+            limit = 1
+            break
+        if frame_info.function and 'once' in frame_info.function:
+            limit = 1
+            break
+
     for _agent, (_draft, _status, _agent_dir, _top_draft_path) in _agent_state.items():
         if _draft is not None or _status not in _RETRYABLE:
             continue
-        for _stale in (_top_draft_path, _agent_dir / 'planning' / 'sessions' / f'{_agent}_draft.json'):
+        cur_draft, cur_status = _draft, _status
+        for attempt in range(limit):
+            for _stale in (_top_draft_path, _agent_dir / 'planning' / 'sessions' / f'{_agent}_draft.json'):
+                try:
+                    _stale.unlink()
+                except (FileNotFoundError, OSError):
+                    pass
+            _old_env = os.environ.get('JANUSMASK_MODE')
+            os.environ['JANUSMASK_MODE'] = 'planning'
+            _retry_start = time.time()
             try:
-                _stale.unlink()
-            except (FileNotFoundError, OSError):
-                pass
-        _old_env = os.environ.get('JANUSMASK_MODE')
-        os.environ['JANUSMASK_MODE'] = 'planning'
-        _retry_start = time.time()
-        try:
-            run_agent_phase(_agent, prompt, derived_config, state_dir, 1, 'planning')
-        except Exception:
-            logger.warning('re-draft-once: re-spawn of %s raised; keeping original failed result', _agent, exc_info=True)
-        finally:
-            if _old_env is None:
-                os.environ.pop('JANUSMASK_MODE', None)
-            else:
-                os.environ['JANUSMASK_MODE'] = _old_env
-        _r_draft, _r_status = collect_agent_draft(_agent, _agent_dir, state_dir, time.monotonic() - start_time, timeout, spawn_start_epoch=_retry_start, mode=mode, working_dir=_wd)
-        if _r_draft is not None and _r_status == 'ok':
-            _recovered[_agent] = (_r_draft, _r_status)
-        # else: keep the original failed (_draft, _status) - graceful, no second retry
+                run_agent_phase(_agent, prompt, derived_config, state_dir, 1, 'planning')
+            except Exception:
+                logger.warning('re-draft: re-spawn of %s raised; keeping previous failed result', _agent, exc_info=True)
+            finally:
+                if _old_env is None:
+                    os.environ.pop('JANUSMASK_MODE', None)
+                else:
+                    os.environ['JANUSMASK_MODE'] = _old_env
+            cur_draft, cur_status = collect_agent_draft(_agent, _agent_dir, state_dir, time.monotonic() - start_time, timeout, spawn_start_epoch=_retry_start, mode=mode, working_dir=_wd)
+            if cur_draft is not None and cur_status == 'ok':
+                break
+            if cur_status not in _RETRYABLE:
+                break
+        _recovered[_agent] = (cur_draft, cur_status)
+
     if 'claude' in _recovered:
         c_draft, c_status = _recovered['claude']
     if 'gemini' in _recovered:
