@@ -348,6 +348,8 @@ def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Di
     ``repo_root is None`` (or a non-dict ``plan``) is a strict no-op.
     """
     from pathlib import Path
+    import ast
+    import copy
     if repo_root is None or not isinstance(plan, dict):
         return plan
     result = copy.deepcopy(plan)
@@ -355,6 +357,161 @@ def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Di
     if not isinstance(tasks, list):
         return result
     root = Path(repo_root)
+
+    def generate_ast_summary(src: str) -> str:
+        try:
+            tree = ast.parse(src)
+        except Exception:
+            return "# AST parsing failed; source could not be parsed."
+
+        def format_expr(node) -> str:
+            if node is None:
+                return ""
+            if isinstance(node, ast.Name):
+                return node.id
+            elif isinstance(node, ast.Attribute):
+                return f"{format_expr(node.value)}.{node.attr}"
+            elif isinstance(node, ast.Subscript):
+                sl = node.slice
+                if hasattr(ast, 'Index') and isinstance(sl, ast.Index):
+                    sl = sl.value
+                return f"{format_expr(node.value)}[{format_expr(sl)}]"
+            elif isinstance(node, (ast.Tuple, ast.List)):
+                elts_str = ", ".join(format_expr(e) for e in node.elts)
+                if isinstance(node, ast.Tuple) and len(node.elts) == 1:
+                    return f"({elts_str},)"
+                return f"({elts_str})" if isinstance(node, ast.Tuple) else f"[{elts_str}]"
+            elif isinstance(node, ast.Constant):
+                return repr(node.value)
+            elif hasattr(ast, 'Num') and isinstance(node, ast.Num):
+                return repr(node.n)
+            elif hasattr(ast, 'Str') and isinstance(node, ast.Str):
+                return repr(node.s)
+            elif hasattr(ast, 'Bytes') and isinstance(node, ast.Bytes):
+                return repr(node.s)
+            elif hasattr(ast, 'NameConstant') and isinstance(node, ast.NameConstant):
+                return repr(node.value)
+            elif isinstance(node, ast.BinOp):
+                op_map = {
+                    ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/",
+                    ast.Mod: "%", ast.Pow: "**", ast.LShift: "<<", ast.RShift: ">>",
+                    ast.BitOr: "|", ast.BitXor: "^", ast.BitAnd: "&", ast.FloorDiv: "//"
+                }
+                op_str = op_map.get(type(node.op), "?")
+                return f"{format_expr(node.left)} {op_str} {format_expr(node.right)}"
+            elif isinstance(node, ast.UnaryOp):
+                op_map = {ast.UAdd: "+", ast.USub: "-", ast.Invert: "~", ast.Not: "not "}
+                op_str = op_map.get(type(node.op), "")
+                return f"{op_str}{format_expr(node.operand)}"
+            elif isinstance(node, ast.Call):
+                args_str = ", ".join(format_expr(a) for a in node.args)
+                kwargs_str = ", ".join(f"{k.arg}={format_expr(k.value)}" for k in node.keywords)
+                all_args = [args_str, kwargs_str]
+                return f"{format_expr(node.func)}({', '.join(a for a in all_args if a)})"
+            return "..."
+
+        def format_arguments(args_node) -> str:
+            parts = []
+            posonlyargs = getattr(args_node, 'posonlyargs', [])
+            total_pos = len(posonlyargs) + len(args_node.args)
+            defaults = args_node.defaults or []
+
+            for i, arg in enumerate(posonlyargs):
+                arg_str = arg.arg
+                if arg.annotation:
+                    arg_str += f": {format_expr(arg.annotation)}"
+                if i >= total_pos - len(defaults):
+                    arg_str += " = ..."
+                parts.append(arg_str)
+
+            if posonlyargs:
+                parts.append("/")
+
+            for i, arg in enumerate(args_node.args):
+                idx = len(posonlyargs) + i
+                arg_str = arg.arg
+                if arg.annotation:
+                    arg_str += f": {format_expr(arg.annotation)}"
+                if idx >= total_pos - len(defaults):
+                    arg_str += " = ..."
+                parts.append(arg_str)
+
+            if args_node.vararg:
+                arg_str = f"*{args_node.vararg.arg}"
+                if args_node.vararg.annotation:
+                    arg_str += f": {format_expr(args_node.vararg.annotation)}"
+                parts.append(arg_str)
+            elif args_node.kwonlyargs:
+                parts.append("*")
+
+            kw_defaults = args_node.kw_defaults or []
+            for i, arg in enumerate(args_node.kwonlyargs):
+                arg_str = arg.arg
+                if arg.annotation:
+                    arg_str += f": {format_expr(arg.annotation)}"
+                if i < len(kw_defaults) and kw_defaults[i] is not None:
+                    arg_str += " = ..."
+                parts.append(arg_str)
+
+            if args_node.kwarg:
+                arg_str = f"**{args_node.kwarg.arg}"
+                if args_node.kwarg.annotation:
+                    arg_str += f": {format_expr(args_node.kwarg.annotation)}"
+                parts.append(arg_str)
+
+            return ", ".join(parts)
+
+         # Indent set to empty string by default
+        def format_function(node, indent="") -> str:
+            prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
+            decorators = "".join(f"{indent}@{format_expr(dec)}\n" for dec in node.decorator_list)
+            args_str = format_arguments(node.args)
+            ret_str = f" -> {format_expr(node.returns)}" if node.returns else ""
+            return f"{decorators}{indent}{prefix} {node.name}({args_str}){ret_str}:\n{indent}    ...\n"
+
+        def format_class(node, indent="") -> str:
+            decorators = "".join(f"{indent}@{format_expr(dec)}\n" for dec in node.decorator_list)
+            bases_str = ""
+            if node.bases or node.keywords:
+                bases_list = [format_expr(b) for b in node.bases]
+                bases_list.extend(f"{k.arg}={format_expr(k.value)}" for k in node.keywords)
+                bases_str = f"({', '.join(bases_list)})"
+            header = f"{decorators}{indent}class {node.name}{bases_str}:\n"
+
+            body_parts = []
+            for child in node.body:
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    body_parts.append(format_function(child, indent + "    "))
+                elif isinstance(child, ast.ClassDef):
+                    body_parts.append(format_class(child, indent + "    "))
+
+            if not body_parts:
+                body_parts.append(f"{indent}    pass\n")
+
+            return header + "".join(body_parts)
+
+        def format_import(node) -> str:
+            if isinstance(node, ast.Import):
+                names = ", ".join(alias.name + (f" as {alias.asname}" if alias.asname else "") for alias in node.names)
+                return f"import {names}\n"
+            elif isinstance(node, ast.ImportFrom):
+                dots = "." * (node.level or 0)
+                module = node.module if node.module else ""
+                names = ", ".join(alias.name + (f" as {alias.asname}" if alias.asname else "") for alias in node.names)
+                return f"from {dots}{module} import {names}\n"
+            return ""
+
+        summary_lines = []
+        for node in tree.body:
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                summary_lines.append(format_import(node))
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                summary_lines.append(format_function(node))
+            elif isinstance(node, ast.ClassDef):
+                summary_lines.append(format_class(node))
+
+        return "".join(summary_lines).strip()
+
     for t in tasks:
         if not isinstance(t, dict) or _is_test_authoring(t):
             continue
@@ -387,7 +544,8 @@ def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Di
             continue
         block = '\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n'
         for rel, src in oracles:
-            block += '\n## ' + rel + '\n```python\n' + src + '\n```\n'
+            summary = generate_ast_summary(src)
+            block += '\n## ' + rel + '\n```python\n' + summary + '\n```\n'
         if isinstance(notes, str) and notes:
             spec['implementation_notes'] = notes + block
         else:
