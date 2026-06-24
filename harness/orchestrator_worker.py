@@ -91,6 +91,18 @@ def compute_fuzz_coverage(ledger_path: Any, window: int | None = None) -> dict[s
             'test_e2e', 'test_acceptance', 'docs_writing', 'hooks_integration',
             'mcp_plumbing', 'epic_planning'
         }
+    try:
+        from harness.planner.taxonomies import META_TASK_POLICY
+        SKIP_INTERFACE_FUZZ_TYPES = set()
+        if isinstance(META_TASK_POLICY, dict):
+            for k, v in META_TASK_POLICY.items():
+                if isinstance(v, dict) and v.get('skip_interface_fuzz'):
+                    SKIP_INTERFACE_FUZZ_TYPES.add(k)
+        else:
+            SKIP_INTERFACE_FUZZ_TYPES = {'test_authoring'}
+    except Exception:
+        SKIP_INTERFACE_FUZZ_TYPES = {'test_authoring'}
+
     task_phases: dict[str, set[str]] = {}
     task_types: dict[str, str] = {}
     accepted_tasks: list[str] = []
@@ -128,54 +140,68 @@ def compute_fuzz_coverage(ledger_path: Any, window: int | None = None) -> dict[s
     except Exception:
         return res
 
+    def get_task_mtt(tid: str) -> str | None:
+        mtt = task_types.get(tid)
+        if mtt is not None and isinstance(mtt, str):
+            return mtt
+        try:
+            processed_file = ledger.parent / 'tasks' / 'processed' / f'{tid}.json'
+            if processed_file.is_file():
+                with open(processed_file, 'r', encoding='utf-8', errors='ignore') as pf:
+                    task_data = json.load(pf)
+                    if isinstance(task_data, dict):
+                        candidate_mtt = task_data.get('meta_task_type') or task_data.get('constraints', {}).get('meta_task_type')
+                        if candidate_mtt and isinstance(candidate_mtt, str):
+                            task_types[tid] = candidate_mtt
+                            return candidate_mtt
+        except Exception:
+            pass
+        return None
+
     all_accepted_tasks = list(accepted_tasks)
     if window is not None and isinstance(window, int) and (window > 0):
         accepted_tasks = accepted_tasks[-window:]
     accepted_total = len(accepted_tasks)
     if accepted_total == 0:
         return res
+
+    # Compute fuzzed and bypassed over the sliced accepted_tasks list
     fuzzed = 0
     bypassed = 0
-    fuzzable_accepted_count = 0
-    fuzzed_fuzzable_accepted_count = 0
-    fuzzed_accepted_with_xexam_count = 0
-    fuzzed_accepted_count = 0
     for tid in accepted_tasks:
         phases = task_phases.get(tid, set())
         is_fuzzed = 'fuzzing' in phases
         if is_fuzzed:
             fuzzed += 1
-            fuzzed_accepted_count += 1
-            if 'cross_examination' in phases:
-                fuzzed_accepted_with_xexam_count += 1
         else:
             bypassed += 1
-        mtt = task_types.get(tid)
-        if mtt is None or not isinstance(mtt, str):
-            try:
-                processed_file = ledger.parent / 'tasks' / 'processed' / f'{tid}.json'
-                if processed_file.is_file():
-                    with open(processed_file, 'r', encoding='utf-8', errors='ignore') as pf:
-                        task_data = json.load(pf)
-                        if isinstance(task_data, dict):
-                            candidate_mtt = task_data.get('meta_task_type') or task_data.get('constraints', {}).get('meta_task_type')
-                            if candidate_mtt and isinstance(candidate_mtt, str):
-                                mtt = candidate_mtt
-                                task_types[tid] = mtt
-            except Exception:
-                pass
-        is_fuzzable = mtt is None or mtt not in BYPASS_FUZZER_TYPES
-        if is_fuzzable:
-            fuzzable_accepted_count += 1
-            if is_fuzzed:
-                fuzzed_fuzzable_accepted_count += 1
     fuzzed_fraction = float(fuzzed) / accepted_total
+
+    # Compute capture_rate and fp_rate over all_accepted_tasks (cumulative/all-time)
+    all_fuzzable_count = 0
+    all_fuzzed_fuzzable_count = 0
+    all_fuzzed_count = 0
+    all_fuzzed_with_xexam_count = 0
+    for tid in all_accepted_tasks:
+        phases = task_phases.get(tid, set())
+        is_fuzzed = 'fuzzing' in phases
+        mtt = get_task_mtt(tid)
+        is_fuzzable = mtt is None or (mtt not in BYPASS_FUZZER_TYPES and mtt not in SKIP_INTERFACE_FUZZ_TYPES)
+        if is_fuzzable:
+            all_fuzzable_count += 1
+            if is_fuzzed:
+                all_fuzzed_fuzzable_count += 1
+        if is_fuzzed:
+            all_fuzzed_count += 1
+            if 'cross_examination' in phases:
+                all_fuzzed_with_xexam_count += 1
+
     capture_rate = 0.0
-    if fuzzable_accepted_count > 0:
-        capture_rate = float(fuzzed_fuzzable_accepted_count) / fuzzable_accepted_count
+    if all_fuzzable_count > 0:
+        capture_rate = float(all_fuzzed_fuzzable_count) / all_fuzzable_count
     fp_rate = 0.0
-    if fuzzed_accepted_count > 0:
-        fp_rate = float(fuzzed_accepted_with_xexam_count) / fuzzed_accepted_count
+    if all_fuzzed_count > 0:
+        fp_rate = float(all_fuzzed_with_xexam_count) / all_fuzzed_count
 
     DEFAULT_FUZZ_WINDOW = 20
     win_size = window if (window is not None and isinstance(window, int) and window > 0) else DEFAULT_FUZZ_WINDOW
@@ -183,6 +209,21 @@ def compute_fuzz_coverage(ledger_path: Any, window: int | None = None) -> dict[s
     window_accepted = len(window_tasks)
     window_fuzzed = sum(1 for tid in window_tasks if 'fuzzing' in task_phases.get(tid, set()))
     fuzzed_fraction_window = float(window_fuzzed) / window_accepted if window_accepted > 0 else 0.0
+
+    # Calculate capture_rate_window over the same trailing window slice
+    window_fuzzable_count = 0
+    window_fuzzed_fuzzable_count = 0
+    for tid in window_tasks:
+        mtt = get_task_mtt(tid)
+        is_fuzzable = mtt is None or (mtt not in BYPASS_FUZZER_TYPES and mtt not in SKIP_INTERFACE_FUZZ_TYPES)
+        if is_fuzzable:
+            window_fuzzable_count += 1
+            if 'fuzzing' in task_phases.get(tid, set()):
+                window_fuzzed_fuzzable_count += 1
+
+    capture_rate_window = 0.0
+    if window_fuzzable_count > 0:
+        capture_rate_window = float(window_fuzzed_fuzzable_count) / window_fuzzable_count
 
     return {
         'accepted_total': accepted_total,
@@ -194,7 +235,8 @@ def compute_fuzz_coverage(ledger_path: Any, window: int | None = None) -> dict[s
         'window_size': win_size,
         'window_accepted': window_accepted,
         'window_fuzzed': window_fuzzed,
-        'fuzzed_fraction_window': fuzzed_fraction_window
+        'fuzzed_fraction_window': fuzzed_fraction_window,
+        'capture_rate_window': capture_rate_window
     }
 def _purge_stale_sidecars_safe(payload: dict, state_dir=None) -> list[str]:
     """Fail-safe terminal-outcome purge of stale emission sidecars.
