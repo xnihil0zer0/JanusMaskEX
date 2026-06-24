@@ -173,7 +173,9 @@ def _integrated_task_ids(root: Path) -> set:
         if not (isinstance(tid, str) and tid):
             continue
         event = row.get('event')
-        if row.get('phase') == 'accepted' or event == 'no_diff':
+        commit_sha = row.get('commit_sha')
+        is_valid_sha = isinstance(commit_sha, str) and commit_sha
+        if (row.get('phase') == 'accepted' and event == 'auto_commit' and is_valid_sha) or (event == 'no_diff' and is_valid_sha):
             ids.add(tid)
         elif event in ('reject_rollback', 'task_blocked'):
             ids.discard(tid)
