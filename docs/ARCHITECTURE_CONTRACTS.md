@@ -73,7 +73,7 @@ Enumeration of `META_TASK_POLICY` (✓ = flag True; blank = False/absent):
 
 | meta_task_type        | bypass_fuzzer | skip_structural_decomp | skip_smoke_gates |
 |-----------------------|:-------------:|:----------------------:|:----------------:|
-| sandbox_infra         | ✓ | ✓ |   |
+| sandbox_infra         |   | ✓ |   |
 | mcp_server_change     | ✓ |   | ✓ |
 | config_schema         | ✓ |   | ✓ |
 | data_model            | ✓ | ✓ |   |
@@ -85,18 +85,19 @@ Enumeration of `META_TASK_POLICY` (✓ = flag True; blank = False/absent):
 | docs_writing          | ✓ |   | ✓ |
 | refactor              |   |   |   |
 | logging_observability |   |   |   |
-| orchestration         | ✓ | ✓ |   |
+| orchestration         |   | ✓ |   |
 | harness_plumbing      | ✓ | ✓ | ✓ |
-| planner_tooling       | ✓ | ✓ |   |
+| planner_tooling       |   | ✓ |   |
 | hooks_integration     | ✓ |   | ✓ |
-| validation            | ✓ |   |   |
+| validation            |   |   |   |
 | mcp_plumbing          | ✓ | ✓ |   |
 | state_machine         | ✓ | ✓ |   |
 | io_adapter            |   | ✓ |   |
 | harness_self_fix      | ✓ | ✓ | ✓ |
 
 So `BYPASS_FUZZER_TYPES` = every row with ✓ in column 1 (all but `cli_tooling`,
-`refactor`, `logging_observability`, `io_adapter`). `SKIP_SMOKE_GATE_TYPES` =
+`refactor`, `logging_observability`, `io_adapter`, `sandbox_infra`, `orchestration`,
+`planner_tooling`, `validation`). `SKIP_SMOKE_GATE_TYPES` =
 `mcp_server_change`, `config_schema`, `test_unit`, `test_integration`, `test_e2e`,
 `test_acceptance`, `docs_writing`, `harness_plumbing`, `hooks_integration`,
 `harness_self_fix`. `META_TASK_TYPES` is `frozenset(META_TASK_POLICY.keys())`;
@@ -105,6 +106,9 @@ So `BYPASS_FUZZER_TYPES` = every row with ✓ in column 1 (all but `cli_tooling`
 **Invariant:** never narrow `BYPASS_FUZZER_TYPES` (i.e. never remove a type or flip
 a `bypass_fuzzer: True` to False) — it is a do-NOT guarded by
 `tests/.../test_allowlist_promotion_guard.py`-class checks and the post-spawn audit.
+(Exception: the removal of `sandbox_infra`, `orchestration`, `planner_tooling`, and
+`validation` is a sanctioned, reviewed narrowing under the restore-differential-fuzzing
+program.)
 
 ---
 
