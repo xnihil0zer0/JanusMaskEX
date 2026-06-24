@@ -93,7 +93,7 @@ def test_one_sided_ladder_preserved(monkeypatch):
     """The genuinely one-sided degrade ladder (blocking, metamorphic, shadow) is preserved byte-for-byte."""
     code_a = 'def target(x: int) -> int:\n    return x\n'
     code_b = 'def other_b(): pass'
-    bypass_type = 'sandbox_infra'
+    bypass_type = 'test_unit'
     task = {'task_id': 'one_sided_ladder', 'meta_task_type': bypass_type, 'constraints': {'function_signature': 'def target(x: int) -> int'}}
     config = {'fuzzing': {'function_level_inputs': 10, 'float_tolerance': 1e-09, 'seed': 42}, 'batch_execution': {'enabled': False}}
     monkeypatch.setattr(df, '_onesided_oracle_blocking_enabled', lambda: True, raising=False)
