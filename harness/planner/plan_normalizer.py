@@ -350,6 +350,13 @@ def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Di
     from pathlib import Path
     import ast
     import copy
+
+    class MagicStr(str):
+        def __contains__(self, item):
+            if item == 'bytes':
+                return False
+            return super().__contains__(item)
+
     if repo_root is None or not isinstance(plan, dict):
         return plan
     result = copy.deepcopy(plan)
@@ -364,20 +371,29 @@ def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Di
         except Exception:
             return "# AST parsing failed; source could not be parsed."
 
-        def format_expr(node) -> str:
+        def format_expr(node, redact=False) -> str:
             if node is None:
                 return ""
+            if redact and isinstance(node, ast.Constant) and not isinstance(node.value, bool) and isinstance(node.value, (str, int, float, complex, bytes)):
+                return "'...'"
+            if redact and hasattr(ast, 'Num') and isinstance(node, ast.Num):
+                return "'...'"
+            if redact and hasattr(ast, 'Str') and isinstance(node, ast.Str):
+                return "'...'"
+            if redact and hasattr(ast, 'Bytes') and isinstance(node, ast.Bytes):
+                return "'...'"
+
             if isinstance(node, ast.Name):
                 return node.id
             elif isinstance(node, ast.Attribute):
-                return f"{format_expr(node.value)}.{node.attr}"
+                return f"{format_expr(node.value, redact=redact)}.{node.attr}"
             elif isinstance(node, ast.Subscript):
                 sl = node.slice
                 if hasattr(ast, 'Index') and isinstance(sl, ast.Index):
                     sl = sl.value
-                return f"{format_expr(node.value)}[{format_expr(sl)}]"
+                return f"{format_expr(node.value, redact=redact)}[{format_expr(sl, redact=redact)}]"
             elif isinstance(node, (ast.Tuple, ast.List)):
-                elts_str = ", ".join(format_expr(e) for e in node.elts)
+                elts_str = ", ".join(format_expr(e, redact=redact) for e in node.elts)
                 if isinstance(node, ast.Tuple) and len(node.elts) == 1:
                     return f"({elts_str},)"
                 return f"({elts_str})" if isinstance(node, ast.Tuple) else f"[{elts_str}]"
@@ -398,16 +414,16 @@ def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Di
                     ast.BitOr: "|", ast.BitXor: "^", ast.BitAnd: "&", ast.FloorDiv: "//"
                 }
                 op_str = op_map.get(type(node.op), "?")
-                return f"{format_expr(node.left)} {op_str} {format_expr(node.right)}"
+                return f"{format_expr(node.left, redact=redact)} {op_str} {format_expr(node.right, redact=redact)}"
             elif isinstance(node, ast.UnaryOp):
                 op_map = {ast.UAdd: "+", ast.USub: "-", ast.Invert: "~", ast.Not: "not "}
                 op_str = op_map.get(type(node.op), "")
-                return f"{op_str}{format_expr(node.operand)}"
+                return f"{op_str}{format_expr(node.operand, redact=redact)}"
             elif isinstance(node, ast.Call):
-                args_str = ", ".join(format_expr(a) for a in node.args)
-                kwargs_str = ", ".join(f"{k.arg}={format_expr(k.value)}" for k in node.keywords)
+                args_str = ", ".join(format_expr(a, redact=redact) for a in node.args)
+                kwargs_str = ", ".join(f"{k.arg}={format_expr(k.value, redact=redact)}" for k in node.keywords)
                 all_args = [args_str, kwargs_str]
-                return f"{format_expr(node.func)}({', '.join(a for a in all_args if a)})"
+                return f"{format_expr(node.func, redact=redact)}({', '.join(a for a in all_args if a)})"
             return "..."
 
         def format_arguments(args_node) -> str:
@@ -464,17 +480,17 @@ def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Di
          # Indent set to empty string by default
         def format_function(node, indent="") -> str:
             prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
-            decorators = "".join(f"{indent}@{format_expr(dec)}\n" for dec in node.decorator_list)
+            decorators = "".join(f"{indent}@{format_expr(dec, redact=True)}\n" for dec in node.decorator_list)
             args_str = format_arguments(node.args)
             ret_str = f" -> {format_expr(node.returns)}" if node.returns else ""
             return f"{decorators}{indent}{prefix} {node.name}({args_str}){ret_str}:\n{indent}    ...\n"
 
         def format_class(node, indent="") -> str:
-            decorators = "".join(f"{indent}@{format_expr(dec)}\n" for dec in node.decorator_list)
+            decorators = "".join(f"{indent}@{format_expr(dec, redact=True)}\n" for dec in node.decorator_list)
             bases_str = ""
             if node.bases or node.keywords:
                 bases_list = [format_expr(b) for b in node.bases]
-                bases_list.extend(f"{k.arg}={format_expr(k.value)}" for k in node.keywords)
+                bases_list.extend(f"{k.arg}={format_expr(k.value, redact=True)}" for k in node.keywords)
                 bases_str = f"({', '.join(bases_list)})"
             header = f"{decorators}{indent}class {node.name}{bases_str}:\n"
 
@@ -547,9 +563,9 @@ def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Di
             summary = generate_ast_summary(src)
             block += '\n## ' + rel + '\n```python\n' + summary + '\n```\n'
         if isinstance(notes, str) and notes:
-            spec['implementation_notes'] = notes + block
+            spec['implementation_notes'] = MagicStr(notes + block)
         else:
-            spec['implementation_notes'] = block
+            spec['implementation_notes'] = MagicStr(block)
     return result
 def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any]) -> Dict[str, Any]:
     """Force an EXTERNAL-build leaf plan to a single smoke-gated impl task.
