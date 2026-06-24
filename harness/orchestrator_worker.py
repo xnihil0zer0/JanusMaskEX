@@ -70,7 +70,7 @@ def _reap_spent_briefs_safe(payload: dict) -> None:
         reap_for_task(repo_root, task_id, stamp=stamp)
     except Exception:
         return
-def compute_fuzz_coverage(ledger_path: Any, window: int | None=None) -> dict[str, Any]:
+def compute_fuzz_coverage(ledger_path: Any, window: int | None = None) -> dict[str, Any]:
     """Calculate live fuzz coverage metrics from the lifecycle ledger.
 
     Reads from ledger_path and computes accepted_total, fuzzed, bypassed,
@@ -82,7 +82,15 @@ def compute_fuzz_coverage(ledger_path: Any, window: int | None=None) -> dict[str
     ledger = pathlib.Path(ledger_path)
     if not ledger.is_file():
         return res
-    BYPASS_FUZZER_TYPES = {'harness_plumbing', 'orchestration', 'test_e2e', 'hooks_integration', 'planner_tooling', 'test_unit', 'config_schema', 'epic_planning', 'docs_writing', 'validation', 'sandbox_infra', 'test_integration', 'harness_self_fix', 'test_acceptance', 'mcp_plumbing', 'mcp_server_change'}
+    try:
+        from harness.planner.taxonomies import BYPASS_FUZZER_TYPES as dynamic_bypass
+        BYPASS_FUZZER_TYPES = set(dynamic_bypass)
+    except Exception:
+        BYPASS_FUZZER_TYPES = {
+            'mcp_server_change', 'config_schema', 'test_unit', 'test_integration',
+            'test_e2e', 'test_acceptance', 'docs_writing', 'hooks_integration',
+            'mcp_plumbing', 'epic_planning'
+        }
     task_phases: dict[str, set[str]] = {}
     task_types: dict[str, str] = {}
     accepted_tasks: list[str] = []
@@ -119,6 +127,8 @@ def compute_fuzz_coverage(ledger_path: Any, window: int | None=None) -> dict[str
                                 accepted_tasks.append(task_id)
     except Exception:
         return res
+
+    all_accepted_tasks = list(accepted_tasks)
     if window is not None and isinstance(window, int) and (window > 0):
         accepted_tasks = accepted_tasks[-window:]
     accepted_total = len(accepted_tasks)
@@ -141,6 +151,19 @@ def compute_fuzz_coverage(ledger_path: Any, window: int | None=None) -> dict[str
         else:
             bypassed += 1
         mtt = task_types.get(tid)
+        if mtt is None or not isinstance(mtt, str):
+            try:
+                processed_file = ledger.parent / 'tasks' / 'processed' / f'{tid}.json'
+                if processed_file.is_file():
+                    with open(processed_file, 'r', encoding='utf-8', errors='ignore') as pf:
+                        task_data = json.load(pf)
+                        if isinstance(task_data, dict):
+                            candidate_mtt = task_data.get('meta_task_type') or task_data.get('constraints', {}).get('meta_task_type')
+                            if candidate_mtt and isinstance(candidate_mtt, str):
+                                mtt = candidate_mtt
+                                task_types[tid] = mtt
+            except Exception:
+                pass
         is_fuzzable = mtt is None or mtt not in BYPASS_FUZZER_TYPES
         if is_fuzzable:
             fuzzable_accepted_count += 1
@@ -153,7 +176,26 @@ def compute_fuzz_coverage(ledger_path: Any, window: int | None=None) -> dict[str
     fp_rate = 0.0
     if fuzzed_accepted_count > 0:
         fp_rate = float(fuzzed_accepted_with_xexam_count) / fuzzed_accepted_count
-    return {'accepted_total': accepted_total, 'fuzzed': fuzzed, 'bypassed': bypassed, 'fuzzed_fraction': fuzzed_fraction, 'capture_rate': capture_rate, 'fp_rate': fp_rate}
+
+    DEFAULT_FUZZ_WINDOW = 20
+    win_size = window if (window is not None and isinstance(window, int) and window > 0) else DEFAULT_FUZZ_WINDOW
+    window_tasks = all_accepted_tasks[-win_size:]
+    window_accepted = len(window_tasks)
+    window_fuzzed = sum(1 for tid in window_tasks if 'fuzzing' in task_phases.get(tid, set()))
+    fuzzed_fraction_window = float(window_fuzzed) / window_accepted if window_accepted > 0 else 0.0
+
+    return {
+        'accepted_total': accepted_total,
+        'fuzzed': fuzzed,
+        'bypassed': bypassed,
+        'fuzzed_fraction': fuzzed_fraction,
+        'capture_rate': capture_rate,
+        'fp_rate': fp_rate,
+        'window_size': win_size,
+        'window_accepted': window_accepted,
+        'window_fuzzed': window_fuzzed,
+        'fuzzed_fraction_window': fuzzed_fraction_window
+    }
 def _purge_stale_sidecars_safe(payload: dict, state_dir=None) -> list[str]:
     """Fail-safe terminal-outcome purge of stale emission sidecars.
 
