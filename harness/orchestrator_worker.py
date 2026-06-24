@@ -70,7 +70,8 @@ def _reap_spent_briefs_safe(payload: dict) -> None:
         reap_for_task(repo_root, task_id, stamp=stamp)
     except Exception:
         return
-def compute_fuzz_coverage(ledger_path: Any, window: int | None = None) -> dict[str, Any]:
+
+def compute_fuzz_coverage(ledger_path: Any, window: int | None=None) -> dict[str, Any]:
     """Calculate live fuzz coverage metrics from the lifecycle ledger.
 
     Reads from ledger_path and computes accepted_total, fuzzed, bypassed,
@@ -86,11 +87,7 @@ def compute_fuzz_coverage(ledger_path: Any, window: int | None = None) -> dict[s
         from harness.planner.taxonomies import BYPASS_FUZZER_TYPES as dynamic_bypass
         BYPASS_FUZZER_TYPES = set(dynamic_bypass)
     except Exception:
-        BYPASS_FUZZER_TYPES = {
-            'mcp_server_change', 'config_schema', 'test_unit', 'test_integration',
-            'test_e2e', 'test_acceptance', 'docs_writing', 'hooks_integration',
-            'mcp_plumbing', 'epic_planning'
-        }
+        BYPASS_FUZZER_TYPES = {'mcp_server_change', 'config_schema', 'test_unit', 'test_integration', 'test_e2e', 'test_acceptance', 'docs_writing', 'hooks_integration', 'mcp_plumbing', 'epic_planning'}
     try:
         from harness.planner.taxonomies import META_TASK_POLICY
         SKIP_INTERFACE_FUZZ_TYPES = set()
@@ -102,7 +99,6 @@ def compute_fuzz_coverage(ledger_path: Any, window: int | None = None) -> dict[s
             SKIP_INTERFACE_FUZZ_TYPES = {'test_authoring'}
     except Exception:
         SKIP_INTERFACE_FUZZ_TYPES = {'test_authoring'}
-
     task_phases: dict[str, set[str]] = {}
     task_types: dict[str, str] = {}
     accepted_tasks: list[str] = []
@@ -157,15 +153,12 @@ def compute_fuzz_coverage(ledger_path: Any, window: int | None = None) -> dict[s
         except Exception:
             pass
         return None
-
     all_accepted_tasks = list(accepted_tasks)
     if window is not None and isinstance(window, int) and (window > 0):
         accepted_tasks = accepted_tasks[-window:]
     accepted_total = len(accepted_tasks)
     if accepted_total == 0:
         return res
-
-    # Compute fuzzed and bypassed over the sliced accepted_tasks list
     fuzzed = 0
     bypassed = 0
     for tid in accepted_tasks:
@@ -176,8 +169,6 @@ def compute_fuzz_coverage(ledger_path: Any, window: int | None = None) -> dict[s
         else:
             bypassed += 1
     fuzzed_fraction = float(fuzzed) / accepted_total
-
-    # Compute capture_rate and fp_rate over all_accepted_tasks (cumulative/all-time)
     all_fuzzable_count = 0
     all_fuzzed_fuzzable_count = 0
     all_fuzzed_count = 0
@@ -195,22 +186,18 @@ def compute_fuzz_coverage(ledger_path: Any, window: int | None = None) -> dict[s
             all_fuzzed_count += 1
             if 'cross_examination' in phases:
                 all_fuzzed_with_xexam_count += 1
-
     capture_rate = 0.0
     if all_fuzzable_count > 0:
         capture_rate = float(all_fuzzed_fuzzable_count) / all_fuzzable_count
     fp_rate = 0.0
     if all_fuzzed_count > 0:
         fp_rate = float(all_fuzzed_with_xexam_count) / all_fuzzed_count
-
     DEFAULT_FUZZ_WINDOW = 20
-    win_size = window if (window is not None and isinstance(window, int) and window > 0) else DEFAULT_FUZZ_WINDOW
+    win_size = window if window is not None and isinstance(window, int) and (window > 0) else DEFAULT_FUZZ_WINDOW
     window_tasks = all_accepted_tasks[-win_size:]
     window_accepted = len(window_tasks)
-    window_fuzzed = sum(1 for tid in window_tasks if 'fuzzing' in task_phases.get(tid, set()))
+    window_fuzzed = sum((1 for tid in window_tasks if 'fuzzing' in task_phases.get(tid, set())))
     fuzzed_fraction_window = float(window_fuzzed) / window_accepted if window_accepted > 0 else 0.0
-
-    # Calculate capture_rate_window over the same trailing window slice
     window_fuzzable_count = 0
     window_fuzzed_fuzzable_count = 0
     for tid in window_tasks:
@@ -220,24 +207,11 @@ def compute_fuzz_coverage(ledger_path: Any, window: int | None = None) -> dict[s
             window_fuzzable_count += 1
             if 'fuzzing' in task_phases.get(tid, set()):
                 window_fuzzed_fuzzable_count += 1
-
     capture_rate_window = 0.0
     if window_fuzzable_count > 0:
         capture_rate_window = float(window_fuzzed_fuzzable_count) / window_fuzzable_count
+    return {'accepted_total': accepted_total, 'fuzzed': fuzzed, 'bypassed': bypassed, 'fuzzed_fraction': fuzzed_fraction, 'capture_rate': capture_rate, 'fp_rate': fp_rate, 'window_size': win_size, 'window_accepted': window_accepted, 'window_fuzzed': window_fuzzed, 'fuzzed_fraction_window': fuzzed_fraction_window, 'capture_rate_window': capture_rate_window}
 
-    return {
-        'accepted_total': accepted_total,
-        'fuzzed': fuzzed,
-        'bypassed': bypassed,
-        'fuzzed_fraction': fuzzed_fraction,
-        'capture_rate': capture_rate,
-        'fp_rate': fp_rate,
-        'window_size': win_size,
-        'window_accepted': window_accepted,
-        'window_fuzzed': window_fuzzed,
-        'fuzzed_fraction_window': fuzzed_fraction_window,
-        'capture_rate_window': capture_rate_window
-    }
 def _purge_stale_sidecars_safe(payload: dict, state_dir=None) -> list[str]:
     """Fail-safe terminal-outcome purge of stale emission sidecars.
 
@@ -279,6 +253,7 @@ def _purge_stale_sidecars_safe(payload: dict, state_dir=None) -> list[str]:
         return removed
     except Exception:
         return []
+
 def _decode_check_safe(payload, state_dir=None) -> None:
     """AC-WIRE-DECODE (Phase C, default-OFF observability): after the JSON line
     is out, run the post-decode schema validator over the task's raw emission
@@ -304,6 +279,7 @@ def _decode_check_safe(payload, state_dir=None) -> None:
         write_jsonl_row(base / 'impl_progress.jsonl', {'ts': time.time(), 'event': 'decode_check', 'task_id': task_id, 'ok': bool(out.get('ok')), 'repaired': bool(out.get('repaired')), 'dropped_edits': int(out.get('dropped_edits') or 0)})
     except Exception:
         return
+
 def _print_json_line(payload: dict[str, Any]) -> None:
     sys.stdout.write(json.dumps(payload) + '\n')
     sys.stdout.flush()
@@ -357,16 +333,11 @@ def _rollback_live_tree(state_dir: Path, files_touched: list[Any], task_id: str)
     only on accept paths, so this can never delete an operator's untracked WIP.
     """
     import subprocess
-    rels = [r for r in (files_touched or []) if isinstance(r, str) and r.strip()]
+    rels = [r for r in files_touched or [] if isinstance(r, str) and r.strip()]
     if not rels:
         return
-    # Resolve the live worktree STRICTLY from state_dir's git toplevel. In
-    # production state_dir is always <repo>/state; if it does not resolve to a
-    # repo there is no live tree to restore, so skip rather than fall back to a
-    # global root (which could touch an unrelated checkout under test).
     try:
-        top = subprocess.run(['git', 'rev-parse', '--show-toplevel'], cwd=str(state_dir),
-                             capture_output=True, text=True, timeout=30)
+        top = subprocess.run(['git', 'rev-parse', '--show-toplevel'], cwd=str(state_dir), capture_output=True, text=True, timeout=30)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return
     if top.returncode != 0 or not top.stdout.strip():
@@ -374,24 +345,20 @@ def _rollback_live_tree(state_dir: Path, files_touched: list[Any], task_id: str)
     repo_root = top.stdout.strip()
     for rel in rels:
         try:
-            subprocess.run(['git', 'checkout', 'HEAD', '--', rel], cwd=repo_root,
-                           check=False, timeout=30, capture_output=True)
+            subprocess.run(['git', 'checkout', 'HEAD', '--', rel], cwd=repo_root, check=False, timeout=30, capture_output=True)
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
         try:
-            subprocess.run(['git', 'clean', '-f', '--', rel], cwd=repo_root,
-                           check=False, timeout=30, capture_output=True)
+            subprocess.run(['git', 'clean', '-f', '--', rel], cwd=repo_root, check=False, timeout=30, capture_output=True)
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
-    _emit_lifecycle_safe(state_dir, phase='autowork', task_id=task_id,
-                         event='reject_rollback', files=rels)
-
-
+    _emit_lifecycle_safe(state_dir, phase='autowork', task_id=task_id, event='reject_rollback', files=rels)
 
 def _emit_gate_failure(state_dir: Path, task_id: str, gate: str, err: Any) -> None:
     """Record the actual gate-failure error (smoke/embedded/narrow) into the
     ledger so a flaky import can be root-caused. Best-effort; never raises."""
     _emit_lifecycle_safe(state_dir, event='gate_failed', task_id=task_id, gate=gate, detail=str(err)[:2000])
+
 def main() -> int:
     parser = argparse.ArgumentParser(description='JanusMask single-task orchestrator worker (AW2).')
     parser.add_argument('--state-dir', type=Path, required=True, help='Path to the shared state directory.')
@@ -473,14 +440,6 @@ def main() -> int:
             if use_retry_module:
                 locked_read_modify_write(_set_task_state, state_dir)
                 results: dict[str, tuple[bool, str | None]] = {}
-                # SH2B: pre-bind the per-agent AST violation lists so they are
-                # always defined under every code path (timeout, exception,
-                # success) before the S1 telemetry block reads them via
-                # locals().get(...). Each retry-loop branch overwrites the
-                # relevant slot with the third tuple element returned by
-                # synthesize_with_retries / future.result(); the except branch
-                # falls back to [] so a concrete AST violation rule name reaches
-                # the ledger on the retry path instead of the placeholder.
                 agent_a_violations: list[Any] = []
                 agent_b_violations: list[Any] = []
                 if config.get('synthesis', {}).get('antigravity_mode', True):
@@ -525,14 +484,6 @@ def main() -> int:
                     else:
                         set_agent_status(state_dir, agent=agent_name, status='submitted')
                         orch._emit_lifecycle(state_dir, event='agent_status', agent=agent_name, status='submitted', task_id=task_id)
-                # GAP_H4: keep the RECONCILE_TIMEOUT_BUDGETS double-timeout protection
-                # on the use_retry_module path too (parity with the non-retry branch's
-                # `both agents timed out` guard). The per-call wall-budget guard now lives
-                # inside synthesize_with_retries (ast_retry.py), so the budget-exhaustion
-                # re-check the non-retry loop does at retry-start is already covered on
-                # this path; the remaining gap was double-timeout handling. Both agents
-                # produced no code => treat as timeout and exit 2 (the daemon retries a
-                # timeout, vs a hard reject) instead of falling through to ast_validation.
                 if agent_a_code is None and agent_b_code is None:
                     orch._emit_lifecycle(state_dir, event='double_timeout', task_id=task_id, detail='both agents timed out (retry_module); exiting before validation')
                     _print_json_line({'task_id': task_id, 'outcome': 'timeout', 'reason': 'both_agents_timed_out'})
@@ -545,12 +496,6 @@ def main() -> int:
                 ast_retries = 0
                 agent_a_prompt = base_prompt
                 agent_b_prompt = base_prompt
-                # P5a: cache the most recent AST-valid submission per individual
-                # synthesis agent. Initialized to None for each live agent BEFORE the
-                # retry loop and kept LOCAL to main() (never persisted across tasks).
-                # Once an agent's slot is non-None it is reused verbatim and the agent
-                # is not re-synthesized on a later AST retry, so a passed agent does not
-                # burn its budget re-running while the other agent is still failing.
                 valid_cache: dict[str, str | None] = {agent_a: None, agent_b: None}
                 while ast_retries < max_ast_retries:
                     if ast_retries > 0:
@@ -561,10 +506,6 @@ def main() -> int:
                             exit_code = 2
                             return exit_code
                     locked_read_modify_write(_set_task_state, state_dir)
-                    # P5a: cache-aware synthesis. If neither agent has a cached AST-valid
-                    # submission, run both agents exactly as before. Otherwise reuse the
-                    # cached code for the already-valid agent (so it is NOT re-synthesized)
-                    # and send a live prompt only to the agent(s) whose slot is still None.
                     if valid_cache[agent_a] is None and valid_cache[agent_b] is None:
                         agent_a_code, agent_b_code = orch.run_both_agents(agent_a_prompt, agent_b_prompt, config, state_dir, round_number, phase_name='synthesis')
                     else:
@@ -591,12 +532,11 @@ def main() -> int:
                         return exit_code
                     if (agent_a_code is None) != (agent_b_code is None):
                         if agent_a_code is not None:
-                            present_agent, present_code = agent_a, agent_a_code
-                            failing_agent, failing_violations = agent_b, []
+                            present_agent, present_code = (agent_a, agent_a_code)
+                            failing_agent, failing_violations = (agent_b, [])
                         else:
-                            present_agent, present_code = agent_b, agent_b_code
-                            failing_agent, failing_violations = agent_a, []
-
+                            present_agent, present_code = (agent_b, agent_b_code)
+                            failing_agent, failing_violations = (agent_a, [])
                         set_phase(state_dir, phase='ast_validation')
                         orch._emit_lifecycle(state_dir, event='phase_transition', phase='ast_validation', task_id=task_id, phase_transition={'to': 'ast_validation'})
                         present_valid, present_violations = orch._validate_submission(present_code, present_agent, task)
@@ -608,12 +548,10 @@ def main() -> int:
                                     present_code = repaired
                                     present_valid = True
                                     present_violations = revalid_v
-
                         if agent_a_code is not None:
                             agent_a_code = present_code
                         else:
                             agent_b_code = present_code
-
                         if present_valid:
                             valid_cache[present_agent] = present_code
                             try:
@@ -627,13 +565,7 @@ def main() -> int:
                                 approval_ok = isinstance(_decision, str) and _decision.strip().lower() in {'approve', 'approved'}
                             except Exception:
                                 approval_ok = False
-
-                            promote, reason = _single_agent_promotion_decision(
-                                config, task, state_dir,
-                                valid_agent=present_agent, valid_code=present_code,
-                                failing_agent=failing_agent, failing_violations=failing_violations,
-                                consecutive_failures=consecutive_failures, approval_ok=approval_ok
-                            )
+                            promote, reason = _single_agent_promotion_decision(config, task, state_dir, valid_agent=present_agent, valid_code=present_code, failing_agent=failing_agent, failing_violations=failing_violations, consecutive_failures=consecutive_failures, approval_ok=approval_ok)
                             if promote:
                                 orch._emit_lifecycle(state_dir, event='single_agent_promotion', task_id=task_id, detail=reason)
                                 agent_a_code = present_code
@@ -671,22 +603,11 @@ def main() -> int:
                                 agent_b_code = repaired
                                 agent_b_valid = True
                                 agent_b_violations = revalid_v
-                    # P5a: store each agent's validated code in the cache only once it is
-                    # AST-valid (after any auto-repair). A failing agent's slot stays None
-                    # so it is re-synthesized next attempt; a now-valid agent is reused.
                     if agent_a_valid:
                         valid_cache[agent_a] = agent_a_code
                     if agent_b_valid:
                         valid_cache[agent_b] = agent_b_code
                     if not (agent_a_valid and agent_b_valid):
-                        # P5b: when EXACTLY one agent is AST-valid (XOR), consider
-                        # promoting it and dropping the consistently-failing peer instead
-                        # of burning another retry. Every gate (config opt-in, failure
-                        # ceiling, sensitive-target operator approval, and a re-run of the
-                        # canonical AST validator) lives inside
-                        # _single_agent_promotion_decision, which defaults OFF -- so when
-                        # enable_single_agent_promotion is False this block is inert and
-                        # falls through to the unchanged retry/prompt-rebuild logic below.
                         if agent_a_valid != agent_b_valid:
                             if agent_a_valid:
                                 valid_agent, valid_code = (agent_a, agent_a_code)
@@ -694,15 +615,11 @@ def main() -> int:
                             else:
                                 valid_agent, valid_code = (agent_b, agent_b_code)
                                 failing_agent, failing_violations = (agent_a, agent_a_violations)
-                            # consecutive_failures: persisted retry attempts + 1; any
-                            # read/parse error fail-safes to 0 + 1 = 1.
                             try:
                                 _retry_sidecar = state_dir / 'tasks' / 'blocked' / f'{task_id}.retry.json'
                                 consecutive_failures = int(json.loads(_retry_sidecar.read_text(encoding='utf-8')).get('attempts', 0)) + 1
                             except Exception:
                                 consecutive_failures = 1
-                            # approval_ok: fail-closed read of the operator decision file;
-                            # True only for an explicit approve/approved decision.
                             try:
                                 _decision_path = state_dir / 'control' / 'decisions' / f'{task_id}.json'
                                 _decision = json.loads(_decision_path.read_text(encoding='utf-8')).get('decision', '')
@@ -735,18 +652,10 @@ def main() -> int:
             if not synthesis_success:
                 set_phase(state_dir, phase='rejected')
                 orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                # SELFHEAL_01: capture the per-agent AST rejection reason as a
-                # lifecycle ledger row so autowork_daemon._get_errors_for_task can
-                # surface a concrete failure cause to the diagnosing agent. The event
-                # name 'ast_validation_failed' contains 'fail', which is the substring
-                # _get_errors_for_task keys on. Best-effort telemetry: any exception
-                # (including agent_*_violations being undefined on the use_retry_module
-                # path) is swallowed so the _mark_blocked terminal below is reached
-                # exactly as before.
                 try:
                     _ast_reason_parts: list[str] = []
                     for _agent_name, _vlist in (('agent_a', locals().get('agent_a_violations')), ('agent_b', locals().get('agent_b_violations'))):
-                        for _v in (_vlist or []):
+                        for _v in _vlist or []:
                             if getattr(_v, 'severity', None) == 'error':
                                 _rule = getattr(_v, 'rule', None)
                                 _line = getattr(_v, 'line', None)
@@ -770,7 +679,7 @@ def main() -> int:
                         agent_a_code = repaired
                 except Exception:
                     pass
-            _skip_ifz = (mtt == 'test_authoring') and META_TASK_POLICY.get('test_authoring', {}).get('skip_interface_fuzz')
+            _skip_ifz = mtt == 'test_authoring' and META_TASK_POLICY.get('test_authoring', {}).get('skip_interface_fuzz')
             if META_TASK_POLICY.get(mtt, {}).get('stateful_fuzz'):
                 set_phase(state_dir, phase='fuzzing')
                 orch._emit_lifecycle(state_dir, event='phase_transition', phase='fuzzing', task_id=task_id, phase_transition={'to': 'fuzzing'})
@@ -787,11 +696,7 @@ def main() -> int:
                 orch._save_final_output(state_dir, task_id, agent_a_code, fallback_code=agent_b_code)
                 auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
                 no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
-                # REGRESSION INVARIANT: the fallback retry must NEVER alter the
-                # happy path or no_diff behavior -- it is gated on a verification
-                # failure (not auto_commit_ok and not no_diff) and only fires when a
-                # distinct fallback candidate exists to promote.
-                if not auto_commit_ok and not no_diff and orch._promote_fallback_candidate(state_dir, task_id):
+                if not auto_commit_ok and (not no_diff) and orch._promote_fallback_candidate(state_dir, task_id):
                     auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
                     no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
                 if auto_commit_ok or no_diff:
@@ -813,8 +718,8 @@ def main() -> int:
                 orch._emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
                 _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'auto_commit_failed'})
                 return 1
-            if mtt in BYPASS_FUZZER_TYPES or _skip_ifz:
-                if mtt not in SKIP_SMOKE_GATE_TYPES and not _skip_ifz:
+            if _task_bypasses_fuzz(task, mtt) or _skip_ifz:
+                if mtt not in SKIP_SMOKE_GATE_TYPES and (not _skip_ifz):
                     smoke_err = smoke_import('_smoke_candidate', agent_a_code)
                     if smoke_err is not None:
                         set_phase(state_dir, phase='rejected')
@@ -825,18 +730,10 @@ def main() -> int:
                         _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'smoke_failed'})
                         exit_code = 1
                         return exit_code
-                    # FLAG2_EMBEDDED_FUZZ (REV23 §C6): refuse to run the embedded-test
-                    # runner UNJAILED on an EXTERNAL target while agent_sandbox is OFF.
-                    # working_dir is read at the call site only and NEVER threaded into
-                    # the runner (the candidate is a JM-synthesized string in a tempdir,
-                    # repo_root stays PROJECT_ROOT). Self-builds have working_dir absent
-                    # -> _target_is_self(None) == True -> gate INERT. Helpers imported
-                    # lazily in-body (no new module-level import / top symbol); orch does
-                    # not re-export them so they are imported directly here.
                     working_dir = task.get('working_dir')
                     from harness import agent_jail
                     from harness.paths import _target_is_self
-                    if not _target_is_self(working_dir) and not agent_jail.sandbox_enabled(config):
+                    if not _target_is_self(working_dir) and (not agent_jail.sandbox_enabled(config)):
                         raise RuntimeError('FLAG2_EMBEDDED_FUZZ (REV23 §C6): refusing to run embedded tests UNJAILED on an EXTERNAL target while agent_sandbox is disabled (working_dir=%r is outside the JanusMask tree). An external candidate MUST run inside the bubblewrap jail; enable agent_sandbox.bwrap or origin the task against self.' % (working_dir,))
                     embedded_err = run_embedded_tests('_embedded_candidate', agent_a_code)
                     if embedded_err is not None:
@@ -848,14 +745,10 @@ def main() -> int:
                         _print_json_line({'task_id': task_id, 'outcome': 'rejected', 'reason': 'embedded_tests_failed'})
                         exit_code = 1
                         return exit_code
-                    # FLAG2_EMBEDDED_FUZZ (REV23 §C6): same fail-closed gate for the
-                    # narrow-fuzz runner. On the external + sandbox-OFF path the embedded
-                    # gate above fires first, so neither runner is ever reached; this
-                    # guard keeps the narrow site refusal-complete in its own right.
                     working_dir = task.get('working_dir')
                     from harness import agent_jail
                     from harness.paths import _target_is_self
-                    if not _target_is_self(working_dir) and not agent_jail.sandbox_enabled(config):
+                    if not _target_is_self(working_dir) and (not agent_jail.sandbox_enabled(config)):
                         raise RuntimeError('FLAG2_EMBEDDED_FUZZ (REV23 §C6): refusing to run narrow-fuzz UNJAILED on an EXTERNAL target while agent_sandbox is disabled (working_dir=%r is outside the JanusMask tree). An external candidate MUST run inside the bubblewrap jail; enable agent_sandbox.bwrap or origin the task against self.' % (working_dir,))
                     narrow_err = run_narrow_fuzz(mtt, '_narrow_fuzz_candidate', agent_a_code)
                     if narrow_err is not None:
@@ -871,11 +764,7 @@ def main() -> int:
                 orch._save_final_output(state_dir, task_id, agent_a_code, fallback_code=agent_b_code)
                 auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
                 no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
-                # REGRESSION INVARIANT: the fallback retry must NEVER alter the
-                # happy path or no_diff behavior -- it is gated on a verification
-                # failure (not auto_commit_ok and not no_diff) and only fires when a
-                # distinct fallback candidate exists to promote.
-                if not auto_commit_ok and not no_diff and orch._promote_fallback_candidate(state_dir, task_id):
+                if not auto_commit_ok and (not no_diff) and orch._promote_fallback_candidate(state_dir, task_id):
                     auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
                     no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
                 if auto_commit_ok or no_diff:
@@ -916,11 +805,7 @@ def main() -> int:
                 orch._save_final_output(state_dir, task_id, agent_a_code, fallback_code=agent_b_code)
                 auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
                 no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
-                # REGRESSION INVARIANT: the fallback retry must NEVER alter the
-                # happy path or no_diff behavior -- it is gated on a verification
-                # failure (not auto_commit_ok and not no_diff) and only fires when a
-                # distinct fallback candidate exists to promote.
-                if not auto_commit_ok and not no_diff and orch._promote_fallback_candidate(state_dir, task_id):
+                if not auto_commit_ok and (not no_diff) and orch._promote_fallback_candidate(state_dir, task_id):
                     auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
                     no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
                 if auto_commit_ok or no_diff:
@@ -982,11 +867,7 @@ def main() -> int:
                         orch._save_final_output(state_dir, task_id, revised_agent_a, fallback_code=revised_agent_b)
                         auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
                         no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
-                        # REGRESSION INVARIANT: the fallback retry must NEVER alter the
-                        # happy path or no_diff behavior -- it is gated on a verification
-                        # failure (not auto_commit_ok and not no_diff) and only fires when
-                        # a distinct fallback candidate exists to promote.
-                        if not auto_commit_ok and not no_diff and orch._promote_fallback_candidate(state_dir, task_id):
+                        if not auto_commit_ok and (not no_diff) and orch._promote_fallback_candidate(state_dir, task_id):
                             auto_commit_ok = orch._auto_commit_accepted(state_dir, task, task_id)
                             no_diff = not auto_commit_ok and _consume_no_diff_marker(state_dir, task_id)
                         if auto_commit_ok or no_diff:
@@ -1054,16 +935,8 @@ def main() -> int:
             if started_emit:
                 stderr_tail = _stderr_buf.getvalue()[-256:].encode('unicode_escape').decode('ascii', errors='replace')
                 _emit_lifecycle_safe(state_dir, phase='autowork', task_id=task_id, event='worker_exit', exit_code=exit_code, stderr_tail=stderr_tail)
-            # CONTAIN C3: on any non-accept outcome (reject/timeout/decompose/error)
-            # restore the live tree -- a stray absolute-path agent write to a target
-            # only survives because no accept-path staging merge overwrote it.
             if exit_code != 0:
                 _rollback_live_tree(state_dir, task.get('files_touched') or [], task_id)
-                # ROLLB-E (CRASH_SAFE_TERMINAL): if an UNEXPECTED exception left the
-                # task still CLAIMED as <id>.json.processing (no body terminal ran
-                # _mark_processed/_mark_blocked), route it to blocked/ here so the
-                # worker self-heals instead of depending solely on the daemon's
-                # out-of-band _reclaim_orphan_processing sweep. Never raises out of finally.
                 try:
                     if processing.exists():
                         from harness import orchestrator as _orch
@@ -1150,18 +1023,10 @@ def _precompute_baseline_test_results(state_dir: Path, task: dict[str, Any], tas
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
     scrubbed_env = {k: v for k, v in os.environ.items() if not k.startswith('JANUSMASK_')}
-    # H5: derive the baseline-precompute timeout from config (mirrors the accept-path
-    # verify cap in orchestrator._auto_commit_accepted). The hardcoded 600 lagged the
-    # 1200s synthesis window, so a slow baseline was recorded as a false 'timeout'.
-    # Prefer synthesis.verification_timeout_seconds, else floor synthesis.timeout_seconds
-    # at 900; load_config failure falls back to 600 (fail-safe, never unbounded).
     try:
         from harness.orchestrator import load_config as _load_config
         _vcfg = _load_config().get('synthesis', {}) or {}
-        verification_timeout = int(_vcfg.get(
-            'verification_timeout_seconds',
-            max(900, int(_vcfg.get('timeout_seconds', 600))),
-        ))
+        verification_timeout = int(_vcfg.get('verification_timeout_seconds', max(900, int(_vcfg.get('timeout_seconds', 600)))))
     except Exception:
         verification_timeout = 600
     exit_code: int | None
@@ -1192,7 +1057,6 @@ def _precompute_baseline_test_results(state_dir: Path, task: dict[str, Any], tas
     except OSError:
         pass
 RECONCILE_SLACK_SECONDS = 300.0
-
 
 def _single_agent_promotion_decision(config: dict[str, Any], task: dict[str, Any], state_dir: Path, *, valid_agent: str, valid_code: str, failing_agent: str, failing_violations: Any, consecutive_failures: int, approval_ok: bool) -> tuple[bool, str]:
     """P5b: decide whether to promote the lone AST-valid synthesis agent and
@@ -1244,6 +1108,7 @@ def _single_agent_promotion_decision(config: dict[str, Any], task: dict[str, Any
     if not valid_ok:
         return (False, f'Valid agent {valid_agent} code did not pass validation: {valid_violations}')
     return (True, f'Promoting valid agent {valid_agent} and dropping failing agent {failing_agent}')
+
 def _compute_timeout_budgets(config: dict) -> tuple[float, float]:
     """Return (HARD_TIMEOUT_SECONDS, SYNTHESIS_WINDOW_SECONDS) derived from
     synthesis.timeout_seconds. window == timeout (unchanged); hard ==
@@ -1257,6 +1122,15 @@ def _compute_timeout_budgets(config: dict) -> tuple[float, float]:
     synthesis_timeout = float((config or {}).get('synthesis', {}).get('timeout_seconds', 600.0))
     return (synthesis_timeout * 2 + RECONCILE_SLACK_SECONDS, synthesis_timeout)
 
+def _task_bypasses_fuzz(task: Any, mtt: Any) -> bool:
+    """Check if the given task is configured to bypass fuzzing.
 
+    Note: integration is out of scope.
+    """
+    from harness.planner.taxonomies import BYPASS_FUZZER_TYPES
+    smoke_gated = False
+    if isinstance(task, dict):
+        smoke_gated = task.get('smoke_gated') is True
+    return bool(mtt in BYPASS_FUZZER_TYPES or smoke_gated)
 if __name__ == '__main__':
     sys.exit(main())
