@@ -70,6 +70,89 @@ def _reap_spent_briefs_safe(payload: dict) -> None:
         reap_for_task(repo_root, task_id, stamp=stamp)
     except Exception:
         return
+def compute_fuzz_coverage(ledger_path: Any, window: int | None=None) -> dict[str, Any]:
+    """Calculate live fuzz coverage metrics from the lifecycle ledger.
+
+    Reads from ledger_path and computes accepted_total, fuzzed, bypassed,
+    fuzzed_fraction, capture_rate, and fp_rate.
+    """
+    import json
+    import pathlib
+    res = {'accepted_total': 0, 'fuzzed': 0, 'bypassed': 0, 'fuzzed_fraction': 0.0, 'capture_rate': 0.0, 'fp_rate': 0.0}
+    ledger = pathlib.Path(ledger_path)
+    if not ledger.is_file():
+        return res
+    BYPASS_FUZZER_TYPES = {'harness_plumbing', 'orchestration', 'test_e2e', 'hooks_integration', 'planner_tooling', 'test_unit', 'config_schema', 'epic_planning', 'docs_writing', 'validation', 'sandbox_infra', 'test_integration', 'harness_self_fix', 'test_acceptance', 'mcp_plumbing', 'mcp_server_change'}
+    task_phases: dict[str, set[str]] = {}
+    task_types: dict[str, str] = {}
+    accepted_tasks: list[str] = []
+    try:
+        with open(ledger, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(data, dict):
+                    continue
+                task_id = data.get('task_id')
+                if not task_id or not isinstance(task_id, str):
+                    continue
+                mtt = data.get('meta_task_type')
+                if mtt and isinstance(mtt, str):
+                    task_types[task_id] = mtt
+                event = data.get('event')
+                if event == 'phase_transition':
+                    phase = data.get('phase')
+                    if not phase:
+                        phase_trans = data.get('phase_transition')
+                        if isinstance(phase_trans, dict):
+                            phase = phase_trans.get('to')
+                    if phase and isinstance(phase, str):
+                        task_phases.setdefault(task_id, set()).add(phase)
+                        if phase == 'accepted':
+                            if task_id not in accepted_tasks:
+                                accepted_tasks.append(task_id)
+    except Exception:
+        return res
+    if window is not None and isinstance(window, int) and (window > 0):
+        accepted_tasks = accepted_tasks[-window:]
+    accepted_total = len(accepted_tasks)
+    if accepted_total == 0:
+        return res
+    fuzzed = 0
+    bypassed = 0
+    fuzzable_accepted_count = 0
+    fuzzed_fuzzable_accepted_count = 0
+    fuzzed_accepted_with_xexam_count = 0
+    fuzzed_accepted_count = 0
+    for tid in accepted_tasks:
+        phases = task_phases.get(tid, set())
+        is_fuzzed = 'fuzzing' in phases
+        if is_fuzzed:
+            fuzzed += 1
+            fuzzed_accepted_count += 1
+            if 'cross_examination' in phases:
+                fuzzed_accepted_with_xexam_count += 1
+        else:
+            bypassed += 1
+        mtt = task_types.get(tid)
+        is_fuzzable = mtt is None or mtt not in BYPASS_FUZZER_TYPES
+        if is_fuzzable:
+            fuzzable_accepted_count += 1
+            if is_fuzzed:
+                fuzzed_fuzzable_accepted_count += 1
+    fuzzed_fraction = float(fuzzed) / accepted_total
+    capture_rate = 0.0
+    if fuzzable_accepted_count > 0:
+        capture_rate = float(fuzzed_fuzzable_accepted_count) / fuzzable_accepted_count
+    fp_rate = 0.0
+    if fuzzed_accepted_count > 0:
+        fp_rate = float(fuzzed_accepted_with_xexam_count) / fuzzed_accepted_count
+    return {'accepted_total': accepted_total, 'fuzzed': fuzzed, 'bypassed': bypassed, 'fuzzed_fraction': fuzzed_fraction, 'capture_rate': capture_rate, 'fp_rate': fp_rate}
 def _purge_stale_sidecars_safe(payload: dict, state_dir=None) -> list[str]:
     """Fail-safe terminal-outcome purge of stale emission sidecars.
 
@@ -143,6 +226,13 @@ def _print_json_line(payload: dict[str, Any]) -> None:
         _reap_spent_briefs_safe(payload)
         _purge_stale_sidecars_safe(payload)
         _decode_check_safe(payload)
+        try:
+            import pathlib
+            state_dir = pathlib.Path(__file__).resolve().parents[1] / 'state'
+            coverage = compute_fuzz_coverage(state_dir / 'impl_progress.jsonl')
+            _emit_lifecycle_safe(state_dir, event='fuzz_coverage', task_id=payload.get('task_id'), detail=coverage)
+        except Exception:
+            pass
     except Exception:
         pass
 
