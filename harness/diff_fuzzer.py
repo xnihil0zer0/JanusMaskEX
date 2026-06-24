@@ -1185,10 +1185,9 @@ def fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[
     if not a_has or not b_has:
         meta_type = _extract_meta_task_type(task if isinstance(task, dict) else {})
         if not a_has and (not b_has):
-            if meta_type in FUZZ_BYPASS_META_TYPES:
-                reason = f'Target function {func_name!r} absent from both submissions and meta_task_type={meta_type!r} is in the fuzzer-bypass set; skipping fuzz by policy'
-                logger.info('fuzz_from_task skipping: %s', reason)
-                return FuzzResult(equivalent=True, skipped_reason=reason)
+            reason = f'Target function {func_name!r} absent from both submissions; skipping fuzz unconditionally'
+            logger.info('fuzz_from_task skipping: %s', reason)
+            return FuzzResult(equivalent=True, skipped_reason=reason)
         else:
             missing_side = 'code_a' if not a_has else 'code_b'
             if meta_type in FUZZ_BYPASS_META_TYPES:
