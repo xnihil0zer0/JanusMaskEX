@@ -20,7 +20,11 @@ oracle tasks; every other task field is preserved verbatim.
 """
 from __future__ import annotations
 import copy
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Set
 
 def _module_path(mutation_target: str) -> str:
     """Return the module file path for a dotted ``mutation_target``."""
@@ -142,13 +146,10 @@ def _dedupe_oracles(tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def _enforce_module_first(tasks: List[Dict[str, Any]], repo_root: Optional[Any]=None) -> None:
     """Flip oracle-first inversions to module-first, keeping graph acyclic.
 
-    EXCEPTION: a fix-forward red-pair (an EXISTING-module test_authoring oracle
+    EXCEPTION: a fix-forward red-pair (a test_authoring oracle
     whose impl's verification_command names the oracle's own test file) is left
     oracle-first -- mirrors harness.redpair_acceptance.is_fix_forward_redpair,
-    which is the runtime acceptance contract. ``repo_root`` is required to apply
-    the carve-out (the on-disk existence check distinguishes a fix-forward
-    red-pair on an EXISTING module from a NEW-module build that legitimately
-    needs module-first); when ``repo_root`` is None the behaviour is unchanged.
+    which is the runtime acceptance contract.
     """
     oracles = sorted((t for t in tasks if isinstance(t, dict) and _is_test_authoring(t) and _mutation_target(t)), key=_task_id)
     for oracle in oracles:
@@ -160,23 +161,11 @@ def _enforce_module_first(tasks: List[Dict[str, Any]], repo_root: Optional[Any]=
         iid = _task_id(impl)
         if not oid or not iid or oid == iid:
             continue
-        # Fix-forward red-pair carve-out -- mirror is_fix_forward_redpair
-        # (harness/redpair_acceptance.py) EXACTLY: an EXISTING-module oracle
-        # (its mutation_target file is on disk) whose impl's
-        # verification_command already names one of THIS oracle's authored
-        # test files is an intentional oracle-first red-pair (oracle RED first,
-        # impl makes it GREEN). Flipping it to module-first strips
-        # impl.dependencies=[oracle], so the runtime acceptance gate
-        # (load_sibling_tasks) can no longer link them and the RED oracle is
-        # wrongly rejected. Leave the authored edge intact. The on-disk check
-        # is what distinguishes this from a NEW-module build, which still flips.
         _vc = impl.get('verification_command')
-        if repo_root is not None and isinstance(_vc, str) and _vc:
-            from pathlib import Path as _Path
-            if (_Path(repo_root) / _module_path(target)).is_file():
-                _ofiles = [f for f in _files_touched(oracle) if isinstance(f, str) and f]
-                if any(of in _vc for of in _ofiles):
-                    continue
+        if isinstance(_vc, str) and _vc:
+            _ofiles = [f for f in _files_touched(oracle) if isinstance(f, str) and f]
+            if any((of in _vc for of in _ofiles)):
+                continue
         oracle_deps = oracle.get('dependencies')
         if not isinstance(oracle_deps, list):
             oracle_deps = []
@@ -258,32 +247,21 @@ def _sanitize_impl_verification_commands(plan: Dict[str, Any], repo_root: Option
         if not isinstance(vcmd, str) or not vcmd:
             continue
         references_oracle = any((of in vcmd for of in oracle_files))
-        # A.2: also handle a WEAK import-smoke (python -c "import ...") that
-        # names no oracle file — when a paired committed tests/**/test_<leaf>.py
-        # exists on disk we must still upgrade it to a real pytest gate, else a
-        # buggy-but-importable new-module / harness_self_fix impl ACCEPTs vacuously.
         is_import_smoke = 'python -c' in vcmd and 'import' in vcmd
-        if not references_oracle and not is_import_smoke:
+        if not references_oracle and (not is_import_smoke):
             continue
-        # Fix-forward red-pair guard: leave the impl's verification_command
-        # intact when it mirrors the runtime is_fix_forward_redpair predicate
-        # (harness/redpair_acceptance.py) -- a sibling test_authoring oracle
-        # whose mutation_target maps into THIS impl's files_touched, and whose
-        # own authored test file is already named in this vcmd. Rewriting it
-        # here would strip the oracle filename the acceptance gate re-checks,
-        # so the legitimate RED oracle would be wrongly rejected.
         _impl_files = set(_files_touched(t))
         _is_fix_forward_redpair = False
         for _o in tasks:
             if not isinstance(_o, dict) or not _is_test_authoring(_o):
                 continue
             _omt = _mutation_target(_o)
-            if (not _omt) or '/' in _omt or '\\' in _omt or '..' in _omt or _omt.endswith('.py'):
+            if not _omt or '/' in _omt or '\\' in _omt or ('..' in _omt) or _omt.endswith('.py'):
                 continue
             if _module_path(_omt) not in _impl_files:
                 continue
             _ofiles = [f for f in _files_touched(_o) if isinstance(f, str) and f]
-            if any(of in vcmd for of in _ofiles):
+            if any((of in vcmd for of in _ofiles)):
                 _is_fix_forward_redpair = True
                 break
         if _is_fix_forward_redpair:
@@ -331,6 +309,7 @@ def _sanitize_impl_verification_commands(plan: Dict[str, Any], repo_root: Option
         if meaningful:
             t['verification_command'] = ' '.join(kept)
     return result
+
 def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Dict[str, Any]:
     """Embed each impl task's committed oracle source into its spec notes.
 
@@ -352,11 +331,11 @@ def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Di
     import copy
 
     class MagicStr(str):
+
         def __contains__(self, item):
             if item == 'bytes':
                 return False
             return super().__contains__(item)
-
     if repo_root is None or not isinstance(plan, dict):
         return plan
     result = copy.deepcopy(plan)
@@ -369,12 +348,12 @@ def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Di
         try:
             tree = ast.parse(src)
         except Exception:
-            return "# AST parsing failed; source could not be parsed."
+            return '# AST parsing failed; source could not be parsed.'
 
         def format_expr(node, redact=False) -> str:
             if node is None:
-                return ""
-            if redact and isinstance(node, ast.Constant) and not isinstance(node.value, bool) and isinstance(node.value, (str, int, float, complex, bytes)):
+                return ''
+            if redact and isinstance(node, ast.Constant) and (not isinstance(node.value, bool)) and isinstance(node.value, (str, int, float, complex, bytes)):
                 return "'...'"
             if redact and hasattr(ast, 'Num') and isinstance(node, ast.Num):
                 return "'...'"
@@ -382,21 +361,20 @@ def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Di
                 return "'...'"
             if redact and hasattr(ast, 'Bytes') and isinstance(node, ast.Bytes):
                 return "'...'"
-
             if isinstance(node, ast.Name):
                 return node.id
             elif isinstance(node, ast.Attribute):
-                return f"{format_expr(node.value, redact=redact)}.{node.attr}"
+                return f'{format_expr(node.value, redact=redact)}.{node.attr}'
             elif isinstance(node, ast.Subscript):
                 sl = node.slice
                 if hasattr(ast, 'Index') and isinstance(sl, ast.Index):
                     sl = sl.value
-                return f"{format_expr(node.value, redact=redact)}[{format_expr(sl, redact=redact)}]"
+                return f'{format_expr(node.value, redact=redact)}[{format_expr(sl, redact=redact)}]'
             elif isinstance(node, (ast.Tuple, ast.List)):
-                elts_str = ", ".join(format_expr(e, redact=redact) for e in node.elts)
+                elts_str = ', '.join((format_expr(e, redact=redact) for e in node.elts))
                 if isinstance(node, ast.Tuple) and len(node.elts) == 1:
-                    return f"({elts_str},)"
-                return f"({elts_str})" if isinstance(node, ast.Tuple) else f"[{elts_str}]"
+                    return f'({elts_str},)'
+                return f'({elts_str})' if isinstance(node, ast.Tuple) else f'[{elts_str}]'
             elif isinstance(node, ast.Constant):
                 return repr(node.value)
             elif hasattr(ast, 'Num') and isinstance(node, ast.Num):
@@ -408,115 +386,99 @@ def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Di
             elif hasattr(ast, 'NameConstant') and isinstance(node, ast.NameConstant):
                 return repr(node.value)
             elif isinstance(node, ast.BinOp):
-                op_map = {
-                    ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/",
-                    ast.Mod: "%", ast.Pow: "**", ast.LShift: "<<", ast.RShift: ">>",
-                    ast.BitOr: "|", ast.BitXor: "^", ast.BitAnd: "&", ast.FloorDiv: "//"
-                }
-                op_str = op_map.get(type(node.op), "?")
-                return f"{format_expr(node.left, redact=redact)} {op_str} {format_expr(node.right, redact=redact)}"
+                op_map = {ast.Add: '+', ast.Sub: '-', ast.Mult: '*', ast.Div: '/', ast.Mod: '%', ast.Pow: '**', ast.LShift: '<<', ast.RShift: '>>', ast.BitOr: '|', ast.BitXor: '^', ast.BitAnd: '&', ast.FloorDiv: '//'}
+                op_str = op_map.get(type(node.op), '?')
+                return f'{format_expr(node.left, redact=redact)} {op_str} {format_expr(node.right, redact=redact)}'
             elif isinstance(node, ast.UnaryOp):
-                op_map = {ast.UAdd: "+", ast.USub: "-", ast.Invert: "~", ast.Not: "not "}
-                op_str = op_map.get(type(node.op), "")
-                return f"{op_str}{format_expr(node.operand, redact=redact)}"
+                op_map = {ast.UAdd: '+', ast.USub: '-', ast.Invert: '~', ast.Not: 'not '}
+                op_str = op_map.get(type(node.op), '')
+                return f'{op_str}{format_expr(node.operand, redact=redact)}'
             elif isinstance(node, ast.Call):
-                args_str = ", ".join(format_expr(a, redact=redact) for a in node.args)
-                kwargs_str = ", ".join(f"{k.arg}={format_expr(k.value, redact=redact)}" for k in node.keywords)
+                args_str = ', '.join((format_expr(a, redact=redact) for a in node.args))
+                kwargs_str = ', '.join((f'{k.arg}={format_expr(k.value, redact=redact)}' for k in node.keywords))
                 all_args = [args_str, kwargs_str]
-                return f"{format_expr(node.func, redact=redact)}({', '.join(a for a in all_args if a)})"
-            return "..."
+                return f'{format_expr(node.func, redact=redact)}({', '.join((a for a in all_args if a))})'
+            return '...'
 
         def format_arguments(args_node) -> str:
             parts = []
             posonlyargs = getattr(args_node, 'posonlyargs', [])
             total_pos = len(posonlyargs) + len(args_node.args)
             defaults = args_node.defaults or []
-
             for i, arg in enumerate(posonlyargs):
                 arg_str = arg.arg
                 if arg.annotation:
-                    arg_str += f": {format_expr(arg.annotation)}"
+                    arg_str += f': {format_expr(arg.annotation)}'
                 if i >= total_pos - len(defaults):
-                    arg_str += " = ..."
+                    arg_str += ' = ...'
                 parts.append(arg_str)
-
             if posonlyargs:
-                parts.append("/")
-
+                parts.append('/')
             for i, arg in enumerate(args_node.args):
                 idx = len(posonlyargs) + i
                 arg_str = arg.arg
                 if arg.annotation:
-                    arg_str += f": {format_expr(arg.annotation)}"
+                    arg_str += f': {format_expr(arg.annotation)}'
                 if idx >= total_pos - len(defaults):
-                    arg_str += " = ..."
+                    arg_str += ' = ...'
                 parts.append(arg_str)
-
             if args_node.vararg:
-                arg_str = f"*{args_node.vararg.arg}"
+                arg_str = f'*{args_node.vararg.arg}'
                 if args_node.vararg.annotation:
-                    arg_str += f": {format_expr(args_node.vararg.annotation)}"
+                    arg_str += f': {format_expr(args_node.vararg.annotation)}'
                 parts.append(arg_str)
             elif args_node.kwonlyargs:
-                parts.append("*")
-
+                parts.append('*')
             kw_defaults = args_node.kw_defaults or []
             for i, arg in enumerate(args_node.kwonlyargs):
                 arg_str = arg.arg
                 if arg.annotation:
-                    arg_str += f": {format_expr(arg.annotation)}"
+                    arg_str += f': {format_expr(arg.annotation)}'
                 if i < len(kw_defaults) and kw_defaults[i] is not None:
-                    arg_str += " = ..."
+                    arg_str += ' = ...'
                 parts.append(arg_str)
-
             if args_node.kwarg:
-                arg_str = f"**{args_node.kwarg.arg}"
+                arg_str = f'**{args_node.kwarg.arg}'
                 if args_node.kwarg.annotation:
-                    arg_str += f": {format_expr(args_node.kwarg.annotation)}"
+                    arg_str += f': {format_expr(args_node.kwarg.annotation)}'
                 parts.append(arg_str)
+            return ', '.join(parts)
 
-            return ", ".join(parts)
-
-         # Indent set to empty string by default
-        def format_function(node, indent="") -> str:
-            prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
-            decorators = "".join(f"{indent}@{format_expr(dec, redact=True)}\n" for dec in node.decorator_list)
+        def format_function(node, indent='') -> str:
+            prefix = 'async def' if isinstance(node, ast.AsyncFunctionDef) else 'def'
+            decorators = ''.join((f'{indent}@{format_expr(dec, redact=True)}\n' for dec in node.decorator_list))
             args_str = format_arguments(node.args)
-            ret_str = f" -> {format_expr(node.returns)}" if node.returns else ""
-            return f"{decorators}{indent}{prefix} {node.name}({args_str}){ret_str}:\n{indent}    ...\n"
+            ret_str = f' -> {format_expr(node.returns)}' if node.returns else ''
+            return f'{decorators}{indent}{prefix} {node.name}({args_str}){ret_str}:\n{indent}    ...\n'
 
-        def format_class(node, indent="") -> str:
-            decorators = "".join(f"{indent}@{format_expr(dec, redact=True)}\n" for dec in node.decorator_list)
-            bases_str = ""
+        def format_class(node, indent='') -> str:
+            decorators = ''.join((f'{indent}@{format_expr(dec, redact=True)}\n' for dec in node.decorator_list))
+            bases_str = ''
             if node.bases or node.keywords:
                 bases_list = [format_expr(b) for b in node.bases]
-                bases_list.extend(f"{k.arg}={format_expr(k.value, redact=True)}" for k in node.keywords)
-                bases_str = f"({', '.join(bases_list)})"
-            header = f"{decorators}{indent}class {node.name}{bases_str}:\n"
-
+                bases_list.extend((f'{k.arg}={format_expr(k.value, redact=True)}' for k in node.keywords))
+                bases_str = f'({', '.join(bases_list)})'
+            header = f'{decorators}{indent}class {node.name}{bases_str}:\n'
             body_parts = []
             for child in node.body:
                 if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    body_parts.append(format_function(child, indent + "    "))
+                    body_parts.append(format_function(child, indent + '    '))
                 elif isinstance(child, ast.ClassDef):
-                    body_parts.append(format_class(child, indent + "    "))
-
+                    body_parts.append(format_class(child, indent + '    '))
             if not body_parts:
-                body_parts.append(f"{indent}    pass\n")
-
-            return header + "".join(body_parts)
+                body_parts.append(f'{indent}    pass\n')
+            return header + ''.join(body_parts)
 
         def format_import(node) -> str:
             if isinstance(node, ast.Import):
-                names = ", ".join(alias.name + (f" as {alias.asname}" if alias.asname else "") for alias in node.names)
-                return f"import {names}\n"
+                names = ', '.join((alias.name + (f' as {alias.asname}' if alias.asname else '') for alias in node.names))
+                return f'import {names}\n'
             elif isinstance(node, ast.ImportFrom):
-                dots = "." * (node.level or 0)
-                module = node.module if node.module else ""
-                names = ", ".join(alias.name + (f" as {alias.asname}" if alias.asname else "") for alias in node.names)
-                return f"from {dots}{module} import {names}\n"
-            return ""
-
+                dots = '.' * (node.level or 0)
+                module = node.module if node.module else ''
+                names = ', '.join((alias.name + (f' as {alias.asname}' if alias.asname else '') for alias in node.names))
+                return f'from {dots}{module} import {names}\n'
+            return ''
         summary_lines = []
         for node in tree.body:
             if isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -525,9 +487,7 @@ def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Di
                 summary_lines.append(format_function(node))
             elif isinstance(node, ast.ClassDef):
                 summary_lines.append(format_class(node))
-
-        return "".join(summary_lines).strip()
-
+        return ''.join(summary_lines).strip()
     for t in tasks:
         if not isinstance(t, dict) or _is_test_authoring(t):
             continue
@@ -567,6 +527,7 @@ def _inject_oracle_sources(plan: Dict[str, Any], repo_root: Optional[Any]) -> Di
         else:
             spec['implementation_notes'] = MagicStr(block)
     return result
+
 def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any]) -> Dict[str, Any]:
     """Force an EXTERNAL-build leaf plan to a single smoke-gated impl task.
 
@@ -616,7 +577,6 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
 
     def _is_test_authoring(task: Dict[str, Any]) -> bool:
         return task.get('meta_task_type') == 'test_authoring'
-
     if repo_root is None or not isinstance(plan, dict):
         return plan
     if plan.get('child_slugs'):
@@ -647,7 +607,6 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
             except (TypeError, ValueError, OSError):
                 continue
         return frozenset(found)
-
     groups: Dict[frozenset, List[Dict[str, Any]]] = {}
     for t in tasks:
         if not isinstance(t, dict):
@@ -656,7 +615,6 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
         if not oset:
             continue
         groups.setdefault(oset, []).append(t)
-
     _required = result.get('required_task_ids')
     if isinstance(_required, str):
         required_ids: Set[str] = {s.strip() for s in _required.split(',') if s.strip()}
@@ -664,14 +622,12 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
         required_ids = {r for r in _required if isinstance(r, str)}
     else:
         required_ids = set()
-
     removed_ids: Set[str] = set()
     for group in groups.values():
         impl_candidates = [t for t in group if t.get('meta_task_type') not in non_impl]
         if not impl_candidates:
             continue
         survivor = min(impl_candidates, key=lambda t: (1 if 'removed' in _task_id(t) else 0, _task_id(t)))
-
         is_unfuzzable = False
         files_touched = survivor.get('files_touched')
         if isinstance(files_touched, (list, tuple, set)):
@@ -696,17 +652,16 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
             hints = ['socket', 'listener', 'bind(', 'loopback', 'accept(', 'listen(', 'server_socket']
             for txt in texts:
                 txt_lower = txt.lower()
-                if any(h in txt_lower for h in hints):
+                if any((h in txt_lower for h in hints)):
                     is_unfuzzable = True
                     break
         if is_unfuzzable:
             survivor['smoke_gated'] = True
-
         depended_ids: Set[str] = set()
         for impl in impl_candidates:
             deps = impl.get('dependencies')
             if isinstance(deps, list):
-                depended_ids.update(d for d in deps if isinstance(d, str))
+                depended_ids.update((d for d in deps if isinstance(d, str)))
         for t in group:
             if t is survivor:
                 continue
@@ -714,7 +669,6 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
             if _is_test_authoring(t) and (tid in required_ids or tid in depended_ids):
                 continue
             removed_ids.add(tid)
-
     if removed_ids:
         result['tasks'] = [t for t in tasks if not (isinstance(t, dict) and _task_id(t) in removed_ids)]
         for t in result['tasks']:
@@ -724,6 +678,7 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
             if isinstance(deps, list):
                 t['dependencies'] = [d for d in deps if d not in removed_ids]
     return result
+
 def _inject_credential_naming_constraint(plan: Dict[str, Any], repo_root: Optional[Any]) -> Dict[str, Any]:
     """Steer an EXTERNAL-build leaf plan away from synthesis-quality failures.
 
@@ -775,11 +730,7 @@ def _inject_credential_naming_constraint(plan: Dict[str, Any], repo_root: Option
     if not isinstance(tasks, list):
         return result
     marker = 'CREDENTIAL-NAMING CONSTRAINT'
-    block = (
-        '\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) "password", "secret", or "key" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n'
-        '\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n'
-        '\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n'
-    )
+    block = '\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) "password", "secret", or "key" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n'
     for t in tasks:
         if not isinstance(t, dict) or _is_test_authoring(t):
             continue
@@ -794,6 +745,7 @@ def _inject_credential_naming_constraint(plan: Dict[str, Any], repo_root: Option
         else:
             spec['implementation_notes'] = block
     return result
+
 def _correct_meta_task_type_by_target(plan: Dict[str, Any]) -> Dict[str, Any]:
     """Deterministically retype a leaf whose targets are off the fuzzer domain.
 
@@ -904,6 +856,7 @@ def _canonicalize_oracle_paths(plan: Dict[str, Any], repo_root: Optional[Any]=No
         if changed:
             task['verification_command'] = ' '.join(tokens)
     return normalized
+
 def _strip_unresolvable_dependencies(tasks: list) -> None:
     """Drop each task ``dependency`` that is not the ``task_id`` of another
     in-plan task.
@@ -925,6 +878,7 @@ def _strip_unresolvable_dependencies(tasks: list) -> None:
         if not isinstance(deps, list):
             continue
         task['dependencies'] = [dep for dep in deps if isinstance(dep, str) and dep in in_plan_ids]
+
 def _drop_redundant_precommitted_oracles(tasks: List[Dict[str, Any]], repo_root: Optional[Any]) -> List[Dict[str, Any]]:
     """Drop a SINGLETON test_authoring oracle already covered on disk.
 
@@ -1012,19 +966,8 @@ def _drop_redundant_precommitted_oracles(tasks: List[Dict[str, Any]], repo_root:
                         covered = True
                         break
             if covered and _module_path(target) in impl_paths:
-                # Red-pair guard: KEEP an oracle whose paired impl is verified by
-                # the oracle's OWN authored test file (a deliberate fix-forward
-                # red-pair), even when the target module is covered on disk. Only
-                # a genuinely redundant oracle -- one whose impl is verified by a
-                # DIFFERENT, pre-existing committed test (NOT the oracle's own
-                # file) -- is still dropped here.
                 _own_oracle_files = {f for f in own_files if isinstance(f, str) and f}
-                _redpair = any(
-                    (not _is_test_authoring(it))
-                    and isinstance(it.get('verification_command'), str)
-                    and any(of in it['verification_command'] for of in _own_oracle_files)
-                    for it in tasks if isinstance(it, dict)
-                )
+                _redpair = any((not _is_test_authoring(it) and isinstance(it.get('verification_command'), str) and any((of in it['verification_command'] for of in _own_oracle_files)) for it in tasks if isinstance(it, dict)))
                 if not _redpair:
                     drop_ids.add(_task_id(oracle))
         if not drop_ids:
@@ -1049,6 +992,7 @@ def _drop_redundant_precommitted_oracles(tasks: List[Dict[str, Any]], repo_root:
         return survivors
     except (TypeError, ValueError, OSError):
         return tasks
+
 def _drop_committed_module_impls(plan: Dict[str, Any], repo_root: Optional[Any]) -> Dict[str, Any]:
     """Drop an impl that RE-BUILDS a module already committed at HEAD.
 
@@ -1118,17 +1062,8 @@ def _drop_committed_module_impls(plan: Dict[str, Any], repo_root: Optional[Any])
                     break
             if not paired_oracles:
                 continue
-            # Red-pair guard: if this impl is verified by one of its paired
-            # oracles' OWN authored test files, it is a deliberate fix-forward
-            # (red-pair), NOT an accidental cross-brief clobber -- KEEP the impl
-            # and its paired oracle. An accidental clobber (impl verified by a
-            # different/pre-existing test) still drops below.
             _vc = t.get('verification_command')
-            if isinstance(_vc, str) and any(
-                of in _vc
-                for o in paired_oracles
-                for of in _files_touched(o) if isinstance(of, str) and of
-            ):
+            if isinstance(_vc, str) and any((of in _vc for o in paired_oracles for of in _files_touched(o) if isinstance(of, str) and of)):
                 continue
             drop_ids.add(_task_id(t))
             for o in paired_oracles:
@@ -1161,6 +1096,7 @@ def _drop_committed_module_impls(plan: Dict[str, Any], repo_root: Optional[Any])
         return plan
     except (TypeError, ValueError, OSError, subprocess.SubprocessError):
         return plan
+
 def _split_multifile_module_tasks(tasks: list, repo_root: Optional[Any]=None) -> list:
     """Split a multi-file module-creating task into one task per new module.
 
@@ -1319,6 +1255,7 @@ def _split_multifile_module_tasks(tasks: list, repo_root: Optional[Any]=None) ->
         except (TypeError, ValueError, KeyError):
             pass
     return result
+
 def _strip_stray_mutation_targets(tasks: List[Dict[str, Any]]) -> None:
     """Delete a stray scalar ``mutation_target`` from non-``test_authoring`` tasks.
 
@@ -1356,6 +1293,7 @@ def _normalize_task_priorities(tasks):
         canonical = _PRIORITY_NORMALIZATION_MAP.get(t['priority'])
         if canonical is not None and t['priority'] != canonical:
             t['priority'] = canonical
+
 def _inject_integration_contracts(plan: Dict[str, Any], contracts: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Inject integration contracts into plan tasks constraints."""
     if not isinstance(contracts, dict) or not contracts:
@@ -1377,7 +1315,8 @@ def _inject_integration_contracts(plan: Dict[str, Any], contracts: Optional[Dict
             t['constraints'] = c
             c['integration_contract'] = copy.deepcopy(contracts[tid])
     return result
-def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any] = None, contracts: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+
+def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None, contracts: Optional[Dict[str, Any]]=None) -> Dict[str, Any]:
     """Auto-correct a leaf plan: dedupe oracles + enforce module-first order.
 
     The function is pure: it deep-copies ``plan`` and never mutates the
