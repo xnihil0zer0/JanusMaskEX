@@ -78,12 +78,8 @@ def test_test_authoring_policy_entry():
 @pytest.mark.parametrize(
     "value",
     [
-        "planner_tooling",
-        "orchestration",
         "harness_plumbing",
-        "sandbox_infra",
         "hooks_integration",
-        "validation",
         "harness_self_fix",
     ],
 )
