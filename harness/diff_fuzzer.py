@@ -433,6 +433,61 @@ def _code_defines_function(code: str, func_name: str) -> bool:
             return True
     return False
 
+def _patched_symbol_candidates(code_a: Any, code_b: Any) -> tuple[str, str, str] | None:
+    """Parse manifests and extract candidate patched symbol function bodies if they differ."""
+    import ast
+    if not isinstance(code_a, str) or not isinstance(code_b, str):
+        return None
+
+    def parse_patched_fn(code: str) -> tuple[str, str, str, ast.AST] | None:
+        try:
+            tree = ast.parse(code)
+        except Exception:
+            return None
+        patches = None
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == '__JANUSMASK_PATCHES__':
+                        try:
+                            patches = ast.literal_eval(node.value)
+                        except Exception:
+                            return None
+        if not isinstance(patches, list) or len(patches) != 1:
+            return None
+        patch = patches[0]
+        if not isinstance(patch, dict):
+            return None
+        if patch.get('kind') != 'symbol':
+            return None
+        file_path = patch.get('file')
+        symbol_name = patch.get('name')
+        body_code = patch.get('code')
+        if not isinstance(file_path, str) or not isinstance(symbol_name, str) or (not isinstance(body_code, str)):
+            return None
+        try:
+            body_tree = ast.parse(body_code)
+        except Exception:
+            return None
+        if len(body_tree.body) != 1:
+            return None
+        func_node = body_tree.body[0]
+        if not isinstance(func_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return None
+        expected_name = symbol_name.split('.')[-1]
+        if func_node.name != expected_name:
+            return None
+        return (file_path, symbol_name, body_code, body_tree)
+    info_a = parse_patched_fn(code_a)
+    info_b = parse_patched_fn(code_b)
+    if not info_a or not info_b:
+        return None
+    if info_a[0] != info_b[0] or info_a[1] != info_b[1]:
+        return None
+    if ast.dump(info_a[3]) == ast.dump(info_b[3]):
+        return None
+    func_name = info_a[1].split('.')[-1]
+    return (info_a[2], info_b[2], func_name)
 def _extract_meta_task_type(task: dict[str, Any]) -> str | None:
     """Mirror the orchestrator's resolution: task-level wins, then constraints-level."""
     mtt = task.get('meta_task_type')
@@ -1161,6 +1216,46 @@ def fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[
     _js = _maybe_js_fuzz(code_a, code_b, task, config, session_id)
     if _js is not None:
         return _js
+
+    patched_info = _patched_symbol_candidates(code_a, code_b)
+    if patched_info is not None:
+        body_a, body_b, func_name = patched_info
+        if isinstance(task, dict) and task.get('fuzz_str_ascii'):
+            config = {**config, 'rebuild': {**config.get('rebuild', {}), 'fuzz_str_ascii': True}}
+        result = differential_fuzz(body_a, body_b, func_name, config, session_id)
+        _record_population_safe(code_a, code_b, task, result)
+        return result
+    else:
+        import ast
+        def is_identical_patch(ca, cb):
+            try:
+                def get_patch_details(code):
+                    tree = ast.parse(code)
+                    patches = None
+                    for node in tree.body:
+                        if isinstance(node, ast.Assign):
+                            for target in node.targets:
+                                if isinstance(target, ast.Name) and target.id == '__JANUSMASK_PATCHES__':
+                                    patches = ast.literal_eval(node.value)
+                    if isinstance(patches, list) and len(patches) == 1:
+                        p = patches[0]
+                        if isinstance(p, dict) and p.get('kind') == 'symbol':
+                            bt = ast.parse(p.get('code', ''))
+                            if len(bt.body) == 1 and isinstance(bt.body[0], (ast.FunctionDef, ast.AsyncFunctionDef)):
+                                return p.get('file'), p.get('name'), bt
+                    return None
+                details_a = get_patch_details(ca)
+                details_b = get_patch_details(cb)
+                if details_a and details_b and details_a[0] == details_b[0] and details_a[1] == details_b[1]:
+                    if ast.dump(details_a[2]) == ast.dump(details_b[2]):
+                        return True
+            except Exception:
+                pass
+            return False
+
+        if is_identical_patch(code_a, code_b):
+            return FuzzResult(equivalent=True, skipped_reason="Identical/equivalent patched symbol bodies on both sides")
+
     constraints = task.get('constraints', {}) if isinstance(task, dict) else {}
     if not isinstance(constraints, dict):
         constraints = {}
