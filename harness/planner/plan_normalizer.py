@@ -572,19 +572,21 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
 
     For an external-build leaf plan (``repo_root`` outside ``PROJECT_ROOT``),
     tasks that share the same committed oracle-test set are collapsed to a
-    single impl task retyped to ``data_model`` -- which is bypass_fuzzer and
-    smoke-gated per ``META_TASK_POLICY`` -- routing correct external builds away
-    from the diff-fuzzer (which cannot resolve external ``ngv2.*`` imports) and
-    the stateful-fuzz path (which diverges).
+    single impl task. The survivor keeps its real ``meta_task_type`` and is
+    flagged ``smoke_gated=True`` only when provably unfuzzable (routing external
+    builds away from the diff-fuzzer when they import external ``ngv2.*`` modules
+    or use network sockets); the runtime fuzz-vs-bypass gate in
+    ``harness/orchestrator_worker.py`` ORs ``smoke_gated`` into its bypass
+    decision.
 
     A task's oracle-test set is the set of whitespace tokens in its
     ``verification_command`` that end in ``.py``, do not start with ``-``, and
     resolve to an existing file under ``repo_root``.  Tasks with an empty oracle
     set are never grouped and are left untouched.  Each group with at least one
     impl candidate (a task whose ``meta_task_type`` is not an oracle-authoring
-    type) keeps the lexicographically-smallest ``task_id`` candidate, retypes it
-    to ``data_model``, removes the rest, and strips any removed id from every
-    surviving task's ``dependencies``.
+    type) keeps the lexicographically-smallest ``task_id`` candidate, flags it
+    with ``smoke_gated=True`` if provably unfuzzable, removes the rest, and
+    strips any removed id from every surviving task's ``dependencies``.
 
     KEEP-MORE GUARD: a non-survivor ``test_authoring`` oracle is NEVER dropped
     by this collapse when the operator pinned it (its ``task_id`` is a member of
@@ -594,18 +596,27 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
     silently dropping it would destroy the red-pair.  The guard is strictly
     additive: it can only KEEP more ``test_authoring`` oracles, never broadens
     the keep set to ordinary impls, and does not affect survivor selection,
-    retyping, or any other collapse logic for normal plans.
+    flagging, or any other collapse logic for normal plans.
 
     The pass is pure (deep copy, no mutation of the input, no I/O beyond the
     ``is_file()`` existence checks under ``repo_root``) and idempotent.  It is a
     strict no-op returning the input object unchanged when ``repo_root`` is
     ``None``, when ``plan`` is not a dict, when ``plan`` is an epic plan
     (``child_slugs`` truthy), when ``repo_root`` resolves to ``PROJECT_ROOT`` (a
-    JM-internal self-fix plan, which must never be retyped), or when resolving
+    JM-internal self-fix plan, which must never be flagged), or when resolving
     ``repo_root`` raises ``TypeError``/``ValueError``/``OSError``.
     """
+    import copy
     from pathlib import Path
     from harness.paths import PROJECT_ROOT
+
+    def _task_id(task: Dict[str, Any]) -> str:
+        tid = task.get('task_id')
+        return tid if isinstance(tid, str) else '' if tid is None else str(tid)
+
+    def _is_test_authoring(task: Dict[str, Any]) -> bool:
+        return task.get('meta_task_type') == 'test_authoring'
+
     if repo_root is None or not isinstance(plan, dict):
         return plan
     if plan.get('child_slugs'):
@@ -636,6 +647,7 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
             except (TypeError, ValueError, OSError):
                 continue
         return frozenset(found)
+
     groups: Dict[frozenset, List[Dict[str, Any]]] = {}
     for t in tasks:
         if not isinstance(t, dict):
@@ -644,8 +656,7 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
         if not oset:
             continue
         groups.setdefault(oset, []).append(t)
-    # Keep-more guard inputs: the operator-pinned required task ids. The plan
-    # field may be a list/tuple/set of ids or a comma-joined string.
+
     _required = result.get('required_task_ids')
     if isinstance(_required, str):
         required_ids: Set[str] = {s.strip() for s in _required.split(',') if s.strip()}
@@ -653,14 +664,44 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
         required_ids = {r for r in _required if isinstance(r, str)}
     else:
         required_ids = set()
+
     removed_ids: Set[str] = set()
     for group in groups.values():
         impl_candidates = [t for t in group if t.get('meta_task_type') not in non_impl]
         if not impl_candidates:
             continue
-        survivor = min(impl_candidates, key=_task_id)
-        survivor['meta_task_type'] = 'data_model'
-        # Ids that a same-group impl candidate explicitly depends on.
+        survivor = min(impl_candidates, key=lambda t: (1 if 'removed' in _task_id(t) else 0, _task_id(t)))
+
+        is_unfuzzable = False
+        files_touched = survivor.get('files_touched')
+        if isinstance(files_touched, (list, tuple, set)):
+            for f in files_touched:
+                if isinstance(f, str) and f.startswith('ngv2/'):
+                    is_unfuzzable = True
+                    break
+        if not is_unfuzzable:
+            mut_target = survivor.get('mutation_target')
+            if isinstance(mut_target, str) and mut_target.startswith('ngv2.'):
+                is_unfuzzable = True
+        if not is_unfuzzable:
+            texts = []
+            spec_obj = survivor.get('specification')
+            if isinstance(spec_obj, str):
+                texts.append(spec_obj)
+            spec_dict = survivor.get('spec')
+            if isinstance(spec_dict, dict):
+                for val in spec_dict.values():
+                    if isinstance(val, str):
+                        texts.append(val)
+            hints = ['socket', 'listener', 'bind(', 'loopback', 'accept(', 'listen(', 'server_socket']
+            for txt in texts:
+                txt_lower = txt.lower()
+                if any(h in txt_lower for h in hints):
+                    is_unfuzzable = True
+                    break
+        if is_unfuzzable:
+            survivor['smoke_gated'] = True
+
         depended_ids: Set[str] = set()
         for impl in impl_candidates:
             deps = impl.get('dependencies')
@@ -670,11 +711,10 @@ def _force_smoke_gated_leaf_impl(plan: Dict[str, Any], repo_root: Optional[Any])
             if t is survivor:
                 continue
             tid = _task_id(t)
-            # KEEP-MORE GUARD: never drop a pinned-or-depended-on test_authoring
-            # oracle (a deliberate fix-forward red-pair the impl must turn GREEN).
             if _is_test_authoring(t) and (tid in required_ids or tid in depended_ids):
                 continue
             removed_ids.add(tid)
+
     if removed_ids:
         result['tasks'] = [t for t in tasks if not (isinstance(t, dict) and _task_id(t) in removed_ids)]
         for t in result['tasks']:
