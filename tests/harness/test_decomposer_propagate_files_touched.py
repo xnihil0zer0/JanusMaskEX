@@ -20,6 +20,7 @@ def load_decomposer():
     decomposer_path = repo_root / 'harness' / 'task_decomposer.py'
     spec = importlib.util.spec_from_file_location('harness.task_decomposer', str(decomposer_path))
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 td = load_decomposer()
