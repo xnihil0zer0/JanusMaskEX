@@ -39,6 +39,8 @@ class Subtask:
     constraints: dict[str, Any]
     depends_on: list[str] = field(default_factory=list)
     depth: int = 0
+    files_touched: list[str] | None = None
+    mutation_target: str | None = None
 
 @dataclass
 class DecompositionResult:
@@ -221,6 +223,8 @@ def _decompose_by_edge_cases(task: dict[str, Any], failure_categories: dict[str,
     subtasks: list[Subtask] = []
     component_ids: list[str] = []
     category_descriptions = {'empty_input': 'empty collections/strings as inputs', 'single_element': 'single-element collections as inputs', 'boundary': 'boundary values (0, -1, min/max int)', 'type_error': 'inputs that should raise exceptions', 'general': 'standard non-edge-case inputs'}
+    files_touched = task.get('files_touched')
+    mutation_target = task.get('mutation_target')
     for category, failures in failure_categories.items():
         if len(subtasks) >= max_subtasks - 1:
             break
@@ -230,14 +234,14 @@ def _decompose_by_edge_cases(task: dict[str, Any], failure_categories: dict[str,
         example_inputs = []
         for f in failures[:3]:
             example_inputs.append(repr(f.input_args))
-        subtask_spec = f'{spec}\n\nFOCUS: This subtask specifically addresses handling of {desc}.\nExample failing inputs: {', '.join(example_inputs)}\n\nEnsure your implementation correctly handles {desc}.'
-        subtasks.append(Subtask(task_id=subtask_id, parent_task_id=parent_id, specification=subtask_spec, constraints=_preserve_meta_task_type(task, task.get('constraints', {}))))
+        subtask_spec = f'{spec}\n\nFOCUS: This subtask specifically addresses handling of {desc}.\nExample failing inputs: {", ".join(example_inputs)}\n\nEnsure your implementation correctly handles {desc}.'
+        subtasks.append(Subtask(task_id=subtask_id, parent_task_id=parent_id, specification=subtask_spec, constraints=_preserve_meta_task_type(task, task.get('constraints', {})), files_touched=files_touched, mutation_target=mutation_target))
     if component_ids:
         compose_id = f'{parent_id}-compose'
         compose_spec = f'{spec}\n\nCOMPOSITION: Combine the following verified sub-solutions into a single function that handles all cases:\n'
         for cid in component_ids:
             compose_spec += f'  - {cid}\n'
-        subtasks.append(Subtask(task_id=compose_id, parent_task_id=parent_id, specification=compose_spec, constraints=_preserve_meta_task_type(task, task.get('constraints', {})), depends_on=component_ids))
+        subtasks.append(Subtask(task_id=compose_id, parent_task_id=parent_id, specification=compose_spec, constraints=_preserve_meta_task_type(task, task.get('constraints', {})), depends_on=component_ids, files_touched=files_touched, mutation_target=mutation_target))
     return subtasks
 
 def _decompose_by_function_split(task: dict[str, Any], code_a: str, code_b: str, max_subtasks: int) -> list[Subtask]:
@@ -266,16 +270,18 @@ def _decompose_by_function_split(task: dict[str, Any], code_a: str, code_b: str,
     subtasks: list[Subtask] = []
     component_ids: list[str] = []
     seen_types: set[str] = set()
+    files_touched = task.get('files_touched')
+    mutation_target = task.get('mutation_target')
     for i, block_type in enumerate(blocks):
         if block_type in seen_types or len(subtasks) >= max_subtasks - 1:
             continue
         seen_types.add(block_type)
         subtask_id = f'{parent_id}-{block_type}_{i}'
         component_ids.append(subtask_id)
-        subtasks.append(Subtask(task_id=subtask_id, parent_task_id=parent_id, specification=f'{spec}\n\nFOCUS: Implement the {block_type} logic as a helper function.', constraints=_preserve_meta_task_type(task, task.get('constraints', {}))))
+        subtasks.append(Subtask(task_id=subtask_id, parent_task_id=parent_id, specification=f'{spec}\n\nFOCUS: Implement the {block_type} logic as a helper function.', constraints=_preserve_meta_task_type(task, task.get('constraints', {})), files_touched=files_touched, mutation_target=mutation_target))
     if component_ids:
         compose_id = f'{parent_id}-compose'
-        subtasks.append(Subtask(task_id=compose_id, parent_task_id=parent_id, specification=f'{spec}\n\nCOMPOSITION: Compose the helper functions into the final solution.', constraints=_preserve_meta_task_type(task, task.get('constraints', {})), depends_on=component_ids))
+        subtasks.append(Subtask(task_id=compose_id, parent_task_id=parent_id, specification=f'{spec}\n\nCOMPOSITION: Compose the helper functions into the final solution.', constraints=_preserve_meta_task_type(task, task.get('constraints', {})), depends_on=component_ids, files_touched=files_touched, mutation_target=mutation_target))
     return subtasks
 
 def decompose_task(task: dict[str, Any], failures: list[FuzzFailure], config: dict[str, Any], code_a: str='', code_b: str='', depth: int=0) -> DecompositionResult:
@@ -290,12 +296,14 @@ def decompose_task(task: dict[str, Any], failures: list[FuzzFailure], config: di
     max_subtasks = decomp_cfg.get('max_subtasks', 5)
     max_depth = decomp_cfg.get('max_depth', 3)
     parent_id = task.get('task_id', 'unknown')
+    files_touched = task.get('files_touched')
+    mutation_target = task.get('mutation_target')
     if depth >= max_depth:
         review_id = f'{parent_id}-reviewed'
         if len(review_id) > 150:
             import hashlib
             review_id = f'{parent_id[:100]}-{hashlib.md5(review_id.encode()).hexdigest()[:8]}-rev'
-        return DecompositionResult(parent_task_id=parent_id, subtasks=[Subtask(task_id=review_id, parent_task_id=parent_id, specification=_build_context_prefix(task) + _extract_specification(task) + '\n\n[PLANNER REVIEW INITIATED]: The previous agents entered a pathological, degenerate failure mode and reached the maximum decomposition depth without achieving functional equivalence.\nYou must carefully review the specification and your combined instructions. Make a small conceptual tweak or clarification to your implementation strategy that does NOT functionally change the requirement, but will break you out of the previous degenerate failure mode.', constraints=_preserve_meta_task_type(task, task.get('constraints', {})), depth=depth + 1)], strategy='planner_review', reason=f'Max decomposition depth ({max_depth}) reached. Queuing for planner review.')
+        return DecompositionResult(parent_task_id=parent_id, subtasks=[Subtask(task_id=review_id, parent_task_id=parent_id, specification=_build_context_prefix(task) + _extract_specification(task) + '\n\n[PLANNER REVIEW INITIATED]: The previous agents entered a pathological, degenerate failure mode and reached the maximum decomposition depth without achieving functional equivalence.\nYou must carefully review the specification and your combined instructions. Make a small conceptual tweak or clarification to your implementation strategy that does NOT functionally change the requirement, but will break you out of the previous degenerate failure mode.', constraints=_preserve_meta_task_type(task, task.get('constraints', {})), depth=depth + 1, files_touched=files_touched, mutation_target=mutation_target)], strategy='planner_review', reason=f'Max decomposition depth ({max_depth}) reached. Queuing for planner review.')
     failure_categories = _classify_failures(failures)
     logger.info('Failure categories for %s: %s', parent_id, {k: len(v) for k, v in failure_categories.items()})
     applicable, guard_reason = is_structural_decomposition_applicable(task, failure_categories, depth, max_depth)
@@ -306,13 +314,13 @@ def decompose_task(task: dict[str, Any], failures: list[FuzzFailure], config: di
             import hashlib
             review_id = f'{parent_id[:100]}-{hashlib.md5(review_id.encode()).hexdigest()[:8]}-rev'
         review_spec = f'[PLANNER REVIEW INITIATED — structural decomposition skipped: {guard_reason}]\n' + _build_context_prefix(task) + _extract_specification(task)
-        return DecompositionResult(parent_task_id=parent_id, subtasks=[Subtask(task_id=review_id, parent_task_id=parent_id, specification=review_spec, constraints=_preserve_meta_task_type(task, task.get('constraints', {})), depth=depth + 1)], strategy='planner_review', reason=f'Structural decomposition guard fired: {guard_reason}')
+        return DecompositionResult(parent_task_id=parent_id, subtasks=[Subtask(task_id=review_id, parent_task_id=parent_id, specification=review_spec, constraints=_preserve_meta_task_type(task, task.get('constraints', {})), depth=depth + 1, files_touched=files_touched, mutation_target=mutation_target)], strategy='planner_review', reason=f'Structural decomposition guard fired: {guard_reason}')
     if len(failure_categories) >= 2:
         subtasks = _decompose_by_edge_cases(task, failure_categories, max_subtasks)
         if subtasks:
             for st in subtasks:
                 st.depth = depth + 1
-            return DecompositionResult(parent_task_id=parent_id, subtasks=subtasks, strategy='edge_case', reason=f'Failures cluster into {len(failure_categories)} categories: {', '.join(failure_categories.keys())}')
+            return DecompositionResult(parent_task_id=parent_id, subtasks=subtasks, strategy='edge_case', reason=f'Failures cluster into {len(failure_categories)} categories: {", ".join(failure_categories.keys())}')
     if code_a:
         subtasks = _decompose_by_function_split(task, code_a, code_b, max_subtasks)
         if subtasks:
@@ -325,7 +333,7 @@ def decompose_task(task: dict[str, Any], failures: list[FuzzFailure], config: di
             st.depth = depth + 1
         return DecompositionResult(parent_task_id=parent_id, subtasks=subtasks, strategy='edge_case', reason='Fallback edge-case decomposition')
     retry_id = f'{parent_id}-retry'
-    return DecompositionResult(parent_task_id=parent_id, subtasks=[Subtask(task_id=retry_id, parent_task_id=parent_id, specification=_build_context_prefix(task) + _extract_specification(task) + '\n\nIMPORTANT: Previous attempts at this task produced divergent results. Pay extra attention to edge cases and specification ambiguity.', constraints=_preserve_meta_task_type(task, task.get('constraints', {})), depth=depth + 1)], strategy='retry', reason='No decomposition pattern found; retrying with emphasis on edge cases')
+    return DecompositionResult(parent_task_id=parent_id, subtasks=[Subtask(task_id=retry_id, parent_task_id=parent_id, specification=_build_context_prefix(task) + _extract_specification(task) + '\n\nIMPORTANT: Previous attempts at this task produced divergent results. Pay extra attention to edge cases and specification ambiguity.', constraints=_preserve_meta_task_type(task, task.get('constraints', {})), depth=depth + 1, files_touched=files_touched, mutation_target=mutation_target)], strategy='retry', reason='No decomposition pattern found; retrying with emphasis on edge cases')
 
 def enqueue_subtasks(subtasks: list[Subtask], state_dir: Path) -> None:
     """Write subtask JSON files to the task queue."""
@@ -340,6 +348,10 @@ def enqueue_subtasks(subtasks: list[Subtask], state_dir: Path) -> None:
             for _flag in ('fuzz_str_ascii', 'partial_edit'):
                 if subtask.constraints.get(_flag):
                     task_data[_flag] = subtask.constraints[_flag]
+        if subtask.files_touched is not None:
+            task_data['files_touched'] = subtask.files_touched
+        if subtask.mutation_target is not None:
+            task_data['mutation_target'] = subtask.mutation_target
         path = tasks_dir / f'{subtask.task_id}.json'
         with open(path, 'w') as f:
             json.dump(task_data, f, indent=2, ensure_ascii=False)
