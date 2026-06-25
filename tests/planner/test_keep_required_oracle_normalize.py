@@ -26,7 +26,7 @@ def test_required_oracle_is_kept(tmp_path):
     assert 'ORACLE_1' in ids
     assert 'IMPL_1' in ids
 
-def test_no_regression_drop_still_fires(tmp_path):
+def test_non_required_oracle_is_dropped(tmp_path):
     setup_synthetic_repo(tmp_path)
     plan = {'plan_kind': 'implementation', 'required_task_ids': ['IMPL_1'], 'tasks': [_impl('pkg/mod.py', 'python -m pytest tests/pkg/test_mod.py -q'), _oracle('pkg.mod')]}
     out = normalize_plan(plan, repo_root=tmp_path)
@@ -51,12 +51,64 @@ def test_determinism_idempotence(tmp_path):
     ids2 = [t['task_id'] for t in out2['tasks'] if isinstance(t, dict)]
     assert ids1 == ids2
 
-def test_plan_carried_required_honored(tmp_path):
+def test_required_oracle_is_kept_without_kwarg(tmp_path):
     setup_synthetic_repo(tmp_path)
     plan = {'plan_kind': 'implementation', 'required_task_ids': ['ORACLE_1'], 'tasks': [_impl('pkg/mod.py', 'python -m pytest tests/pkg/test_mod.py -q'), _oracle('pkg.mod')]}
     out = normalize_plan(plan, repo_root=tmp_path)
     ids = {t['task_id'] for t in out['tasks'] if isinstance(t, dict)}
     assert 'ORACLE_1' in ids
+    assert 'IMPL_1' in ids
+
+def test_required_oracle_is_kept_with_explicit_kwarg(tmp_path):
+    setup_synthetic_repo(tmp_path)
+    plan = {'plan_kind': 'implementation', 'required_task_ids': [], 'tasks': [_impl('pkg/mod.py', 'python -m pytest tests/pkg/test_mod.py -q'), _oracle('pkg.mod')]}
+    out = normalize_plan(plan, repo_root=tmp_path, required_task_ids=['ORACLE_1'])
+    ids = {t['task_id'] for t in out['tasks'] if isinstance(t, dict)}
+    assert 'ORACLE_1' in ids
+    assert 'IMPL_1' in ids
+
+def test_required_oracle_empty_is_dropped(tmp_path):
+    setup_synthetic_repo(tmp_path)
+    plan = {'plan_kind': 'implementation', 'required_task_ids': [], 'tasks': [_impl('pkg/mod.py', 'python -m pytest tests/pkg/test_mod.py -q'), _oracle('pkg.mod')]}
+    out = normalize_plan(plan, repo_root=tmp_path)
+    ids = {t['task_id'] for t in out['tasks'] if isinstance(t, dict)}
+    assert 'ORACLE_1' not in ids
+
+def test_required_oracle_none_is_dropped(tmp_path):
+    setup_synthetic_repo(tmp_path)
+    plan = {'plan_kind': 'implementation', 'required_task_ids': None, 'tasks': [_impl('pkg/mod.py', 'python -m pytest tests/pkg/test_mod.py -q'), _oracle('pkg.mod')]}
+    out = normalize_plan(plan, repo_root=tmp_path)
+    ids = {t['task_id'] for t in out['tasks'] if isinstance(t, dict)}
+    assert 'ORACLE_1' not in ids
+
+def test_required_oracle_invalid_types_are_dropped(tmp_path):
+    setup_synthetic_repo(tmp_path)
+    plan = {'plan_kind': 'implementation', 'required_task_ids': [123, None, '', {}], 'tasks': [_impl('pkg/mod.py', 'python -m pytest tests/pkg/test_mod.py -q'), _oracle('pkg.mod')]}
+    out = normalize_plan(plan, repo_root=tmp_path)
+    ids = {t['task_id'] for t in out['tasks'] if isinstance(t, dict)}
+    assert 'ORACLE_1' not in ids
+
+def test_required_oracle_comma_separated_is_kept(tmp_path):
+    setup_synthetic_repo(tmp_path)
+    plan = {'plan_kind': 'implementation', 'required_task_ids': 'ORACLE_1, ORACLE_2', 'tasks': [_impl('pkg/mod.py', 'python -m pytest tests/pkg/test_mod.py -q'), _oracle('pkg.mod')]}
+    out = normalize_plan(plan, repo_root=tmp_path)
+    ids = {t['task_id'] for t in out['tasks'] if isinstance(t, dict)}
+    assert 'ORACLE_1' in ids
+
+def test_required_oracle_nonexistent_ids_ignored(tmp_path):
+    setup_synthetic_repo(tmp_path)
+    plan = {'plan_kind': 'implementation', 'required_task_ids': ['NONEXISTENT_1', 'NONEXISTENT_2'], 'tasks': [_impl('pkg/mod.py', 'python -m pytest tests/pkg/test_mod.py -q'), _oracle('pkg.mod')]}
+    out = normalize_plan(plan, repo_root=tmp_path)
+    ids = {t['task_id'] for t in out['tasks'] if isinstance(t, dict)}
+    assert 'ORACLE_1' not in ids
+    assert 'IMPL_1' in ids
+
+def test_required_oracle_non_oracle_id_ignored(tmp_path):
+    setup_synthetic_repo(tmp_path)
+    plan = {'plan_kind': 'implementation', 'required_task_ids': ['IMPL_1'], 'tasks': [_impl('pkg/mod.py', 'python -m pytest tests/pkg/test_mod.py -q'), _oracle('pkg.mod')]}
+    out = normalize_plan(plan, repo_root=tmp_path)
+    ids = {t['task_id'] for t in out['tasks'] if isinstance(t, dict)}
+    assert 'ORACLE_1' not in ids
     assert 'IMPL_1' in ids
 
 def test_cli_source_asserts_normalize_plan_threads_required_task_ids():
@@ -99,31 +151,3 @@ def test_cli_source_asserts_normalize_plan_threads_required_task_ids():
     idx = content.find('normalize_plan(')
     window = content[max(0, idx - 50):min(len(content), idx + 250)]
     assert 'required_task_ids=' in window
-
-def test_required_task_ids_empty(tmp_path):
-    setup_synthetic_repo(tmp_path)
-    plan = {'plan_kind': 'implementation', 'required_task_ids': [], 'tasks': [_impl('pkg/mod.py', 'python -m pytest tests/pkg/test_mod.py -q'), _oracle('pkg.mod')]}
-    out = normalize_plan(plan, repo_root=tmp_path)
-    ids = {t['task_id'] for t in out['tasks'] if isinstance(t, dict)}
-    assert 'ORACLE_1' not in ids
-
-def test_required_task_ids_none(tmp_path):
-    setup_synthetic_repo(tmp_path)
-    plan = {'plan_kind': 'implementation', 'required_task_ids': None, 'tasks': [_impl('pkg/mod.py', 'python -m pytest tests/pkg/test_mod.py -q'), _oracle('pkg.mod')]}
-    out = normalize_plan(plan, repo_root=tmp_path)
-    ids = {t['task_id'] for t in out['tasks'] if isinstance(t, dict)}
-    assert 'ORACLE_1' not in ids
-
-def test_required_task_ids_invalid_types(tmp_path):
-    setup_synthetic_repo(tmp_path)
-    plan = {'plan_kind': 'implementation', 'required_task_ids': [123, None, '', {}], 'tasks': [_impl('pkg/mod.py', 'python -m pytest tests/pkg/test_mod.py -q'), _oracle('pkg.mod')]}
-    out = normalize_plan(plan, repo_root=tmp_path)
-    ids = {t['task_id'] for t in out['tasks'] if isinstance(t, dict)}
-    assert 'ORACLE_1' not in ids
-
-def test_required_task_ids_comma_separated_string(tmp_path):
-    setup_synthetic_repo(tmp_path)
-    plan = {'plan_kind': 'implementation', 'required_task_ids': 'ORACLE_1, ORACLE_2', 'tasks': [_impl('pkg/mod.py', 'python -m pytest tests/pkg/test_mod.py -q'), _oracle('pkg.mod')]}
-    out = normalize_plan(plan, repo_root=tmp_path)
-    ids = {t['task_id'] for t in out['tasks'] if isinstance(t, dict)}
-    assert 'ORACLE_1' in ids
