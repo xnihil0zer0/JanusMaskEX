@@ -1009,7 +1009,7 @@ def _drop_redundant_precommitted_oracles(tasks: List[Dict[str, Any]], repo_root:
     except (TypeError, ValueError, OSError):
         return tasks
 
-def _drop_committed_module_impls(plan: Dict[str, Any], repo_root: Optional[Any]) -> Dict[str, Any]:
+def _drop_committed_module_impls(plan: Dict[str, Any], repo_root: Optional[Any], required_task_ids=None) -> Dict[str, Any]:
     """Drop an impl that RE-BUILDS a module already committed at HEAD.
 
     The planner decomposes each brief in isolation and only dedups
@@ -1040,6 +1040,12 @@ def _drop_committed_module_impls(plan: Dict[str, Any], repo_root: Optional[Any])
     """
     if repo_root is None or not isinstance(plan, dict):
         return plan
+    if isinstance(required_task_ids, str):
+        req_set = {s.strip() for s in required_task_ids.split(',') if s.strip()}
+    elif isinstance(required_task_ids, (list, tuple, set)):
+        req_set = {r for r in required_task_ids if isinstance(r, str)}
+    else:
+        req_set = set()
     import subprocess
     try:
         tasks = plan.get('tasks')
@@ -1081,7 +1087,11 @@ def _drop_committed_module_impls(plan: Dict[str, Any], repo_root: Optional[Any])
             _vc = t.get('verification_command')
             if isinstance(_vc, str) and any((of in _vc for o in paired_oracles for of in _files_touched(o) if isinstance(of, str) and of)):
                 continue
-            drop_ids.add(_task_id(t))
+            impl_id = _task_id(t)
+            paired_oracle_ids = {_task_id(o) for o in paired_oracles}
+            if impl_id in req_set or any(oid in req_set for oid in paired_oracle_ids):
+                continue
+            drop_ids.add(impl_id)
             for o in paired_oracles:
                 drop_ids.add(_task_id(o))
             markers.append('duplicate_module_skipped:' + matched_path)
@@ -1358,7 +1368,7 @@ def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None, contract
     tasks = _dedupe_oracles(tasks)
     tasks = _drop_redundant_precommitted_oracles(tasks, repo_root, required_task_ids=req_ids)
     normalized['tasks'] = tasks
-    normalized = _drop_committed_module_impls(normalized, repo_root)
+    normalized = _drop_committed_module_impls(normalized, repo_root, required_task_ids=req_ids)
     _enforce_module_first(tasks, repo_root)
     _strip_unresolvable_dependencies(tasks)
     normalized = _correct_meta_task_type_by_target(normalized)
