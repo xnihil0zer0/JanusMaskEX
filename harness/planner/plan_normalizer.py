@@ -886,7 +886,7 @@ def _strip_unresolvable_dependencies(tasks: list) -> None:
             continue
         task['dependencies'] = [dep for dep in deps if isinstance(dep, str) and dep in in_plan_ids]
 
-def _drop_redundant_precommitted_oracles(tasks: List[Dict[str, Any]], repo_root: Optional[Any]) -> List[Dict[str, Any]]:
+def _drop_redundant_precommitted_oracles(tasks: List[Dict[str, Any]], repo_root: Optional[Any], *, required_task_ids=None) -> List[Dict[str, Any]]:
     """Drop a SINGLETON test_authoring oracle already covered on disk.
 
     A *singleton* oracle is a ``test_authoring`` task whose non-empty
@@ -922,6 +922,12 @@ def _drop_redundant_precommitted_oracles(tasks: List[Dict[str, Any]], repo_root:
     """
     if repo_root is None:
         return tasks
+    if isinstance(required_task_ids, str):
+        req_set = {s.strip() for s in required_task_ids.split(',') if s.strip()}
+    elif isinstance(required_task_ids, (list, tuple, set)):
+        req_set = {r for r in required_task_ids if isinstance(r, str)}
+    else:
+        req_set = set()
     from pathlib import Path
     try:
         root = Path(repo_root)
@@ -939,6 +945,9 @@ def _drop_redundant_precommitted_oracles(tasks: List[Dict[str, Any]], repo_root:
             if len(group) != 1:
                 continue
             oracle = group[0]
+            oid = _task_id(oracle)
+            if oid in req_set:
+                continue
             module_path = _module_path(target)
             if not Path(root, module_path).is_file():
                 continue
@@ -976,7 +985,7 @@ def _drop_redundant_precommitted_oracles(tasks: List[Dict[str, Any]], repo_root:
                 _own_oracle_files = {f for f in own_files if isinstance(f, str) and f}
                 _redpair = any((not _is_test_authoring(it) and isinstance(it.get('verification_command'), str) and any((of in it['verification_command'] for of in _own_oracle_files)) for it in tasks if isinstance(it, dict)))
                 if not _redpair:
-                    drop_ids.add(_task_id(oracle))
+                    drop_ids.add(oid)
         if not drop_ids:
             return tasks
         survivors = [t for t in tasks if not (isinstance(t, dict) and _task_id(t) in drop_ids)]
@@ -1323,7 +1332,7 @@ def _inject_integration_contracts(plan: Dict[str, Any], contracts: Optional[Dict
             c['integration_contract'] = copy.deepcopy(contracts[tid])
     return result
 
-def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None, contracts: Optional[Dict[str, Any]]=None) -> Dict[str, Any]:
+def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None, contracts: Optional[Dict[str, Any]]=None, *, required_task_ids=None) -> Dict[str, Any]:
     """Auto-correct a leaf plan: dedupe oracles + enforce module-first order.
 
     The function is pure: it deep-copies ``plan`` and never mutates the
@@ -1342,9 +1351,12 @@ def normalize_plan(plan: Dict[str, Any], repo_root: Optional[Any]=None, contract
     tasks = normalized.get('tasks')
     if not isinstance(tasks, list):
         return normalized
+    req_ids = required_task_ids
+    if req_ids is None:
+        req_ids = normalized.get('required_task_ids')
     tasks = _split_multifile_module_tasks(tasks, repo_root)
     tasks = _dedupe_oracles(tasks)
-    tasks = _drop_redundant_precommitted_oracles(tasks, repo_root)
+    tasks = _drop_redundant_precommitted_oracles(tasks, repo_root, required_task_ids=req_ids)
     normalized['tasks'] = tasks
     normalized = _drop_committed_module_impls(normalized, repo_root)
     _enforce_module_first(tasks, repo_root)
