@@ -120,6 +120,76 @@ def check_missing_fields(task: Dict[str, Any], path_prefix: str) -> List[PlanVio
             violations.append(PlanViolation('missing_field', f'{path_prefix}.attribution_metadata.{field}', f'Missing required field attribution_metadata.{field}'))
     return violations
 
+def _circular_vcmd_downstream_violations(tasks: List[Any], graph: Dict[str, Any]) -> List[PlanViolation]:
+    violations = []
+    if not isinstance(tasks, list):
+        return violations
+    if not isinstance(graph, dict):
+        return violations
+    rev_graph = {}
+    for node, deps in graph.items():
+        if not isinstance(deps, list):
+            continue
+        for dep in deps:
+            if isinstance(dep, str):
+                rev_graph.setdefault(dep, []).append(node)
+
+    def get_downstream(start_id: str) -> set:
+        visited = set()
+        stack = [start_id]
+        while stack:
+            curr = stack.pop()
+            for nxt in rev_graph.get(curr, []):
+                if nxt not in visited:
+                    visited.add(nxt)
+                    stack.append(nxt)
+        return visited
+    task_by_id = {}
+    for idx, t in enumerate(tasks):
+        if isinstance(t, dict):
+            tid = t.get('task_id')
+            if isinstance(tid, str) and tid:
+                task_by_id[tid] = t
+    for idx, task in enumerate(tasks):
+        if not isinstance(task, dict):
+            continue
+        task_id = task.get('task_id')
+        if not isinstance(task_id, str) or not task_id:
+            continue
+        vcmd = task.get('verification_command')
+        if not isinstance(vcmd, str) or not vcmd.strip():
+            continue
+        tokens = vcmd.split()
+        if any((t == '-k' or t.startswith('-k') for t in tokens)):
+            continue
+        run_files = []
+        for t in tokens:
+            clean_t = t.strip('\'"')
+            if '.py' in clean_t:
+                if '::' in clean_t:
+                    continue
+                else:
+                    norm_path = clean_t.replace('\\', '/')
+                    run_files.append(norm_path)
+        if not run_files:
+            continue
+        downstream_ids = get_downstream(task_id)
+        for d_id in downstream_ids:
+            d_task = task_by_id.get(d_id)
+            if not d_task:
+                continue
+            files_touched = d_task.get('files_touched')
+            if not isinstance(files_touched, list):
+                continue
+            for f in files_touched:
+                if not isinstance(f, str):
+                    continue
+                norm_f = f.replace('\\', '/')
+                if norm_f in run_files:
+                    path_prefix = f'tasks[{idx}](id={task_id})'
+                    msg = f'Task {task_id!r} verification_command runs test file {norm_f!r} whole, but that test file is modified/touched downstream by task {d_id!r}.'
+                    violations.append(PlanViolation('circular_vcmd_downstream_testfile', f'{path_prefix}.verification_command', msg))
+    return violations
 def _sensitive_glob_violations(task: dict, path_prefix: str) -> List[PlanViolation]:
     """Reject a non-``harness_self_fix`` task that lists a path under
     ``_SENSITIVE_APPLY_GLOBS`` (``harness/**``, ``config/**``, ``scripts/**``,
@@ -155,7 +225,7 @@ def _sensitive_glob_violations(task: dict, path_prefix: str) -> List[PlanViolati
             continue
         norm = entry.replace('\\', '/')
         if any((fnmatch.fnmatch(norm, glob) for glob in _GLOBS)):
-            violations.append(PlanViolation('sensitive_files_touched', f'{path_prefix}.files_touched', f'files_touched lists sensitive path {entry!r}: a non-harness_self_fix task can never commit a path under _SENSITIVE_APPLY_GLOBS ({', '.join(_GLOBS)}) — _enforce_apply_scope refuses the write at accept, so the plan is rejected at planning time'))
+            violations.append(PlanViolation('sensitive_files_touched', f'{path_prefix}.files_touched', f"files_touched lists sensitive path {entry!r}: a non-harness_self_fix task can never commit a path under _SENSITIVE_APPLY_GLOBS ({', '.join(_GLOBS)}) — _enforce_apply_scope refuses the write at accept, so the plan is rejected at planning time"))
     return violations
 
 def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]:
@@ -270,6 +340,7 @@ def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]
         missing = [tid for tid in required if isinstance(tid, str) and tid not in seen_task_ids]
         if missing:
             violations.append(PlanViolation('missing_required_task', 'plan.tasks', f'Plan is missing required task_ids declared by the brief: {missing}'))
+    violations.extend(_circular_vcmd_downstream_violations(tasks, graph))
     visited = set()
     path = []
     path_set = set()
@@ -278,7 +349,7 @@ def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]
         if node in path_set:
             idx = path.index(node)
             cycle = path[idx:] + [node]
-            violations.append(PlanViolation('dependency_cycle', 'plan.tasks', f'Cycle: {' -> '.join(cycle)}'))
+            violations.append(PlanViolation('dependency_cycle', 'plan.tasks', f'Cycle: {" -> ".join(cycle)}'))
             return True
         if node in visited:
             return False
@@ -301,7 +372,7 @@ def validate_plan(plan: Union[Dict[str, Any], str, Path]) -> List[PlanViolation]
             cycle_key = tuple(sorted(current_path[idx:]))
             if cycle_key not in found_cycles_nodes:
                 found_cycles_nodes.add(cycle_key)
-                violations.append(PlanViolation('dependency_cycle', 'plan.tasks', f'Cycle: {' -> '.join(cycle)}'))
+                violations.append(PlanViolation('dependency_cycle', 'plan.tasks', f'Cycle: {" -> ".join(cycle)}'))
             return
         if node in visited:
             return
