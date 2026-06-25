@@ -78,7 +78,52 @@ def _archive_name(archive_result: Any) -> str:
         return os.path.basename(str(path))
     return str(archive_result)
 
-def run_backup(repo_root: Any, refs: Iterable[Any], *, archiver: Callable[..., Any], uploader: Callable[..., Any], ledger: Any, log: Callable[..., Any]) -> int:
+def _prune_local_snapshots(artifacts_dir: Optional[str], ledger_entries: List[Any], keep: int=1) -> List[str]:
+    if not artifacts_dir:
+        return []
+
+    def _get_field(entry: Any, key: str) -> Any:
+        if isinstance(entry, dict):
+            return entry.get(key)
+        return getattr(entry, key, None)
+    repos = {}
+    for entry in ledger_entries:
+        repo = _get_field(entry, 'repo')
+        if repo not in repos:
+            repos[repo] = []
+        repos[repo].append(entry)
+    stems_to_prune = []
+    for repo, repo_entries in repos.items():
+        stems = []
+        seen_stems = set()
+        stem_uploaded = {}
+        for entry in repo_entries:
+            stem = _get_field(entry, 'archive_name')
+            uploaded = _get_field(entry, 'uploaded')
+            if stem:
+                if stem not in seen_stems:
+                    seen_stems.add(stem)
+                    stems.append(stem)
+                stem_uploaded[stem] = uploaded is True
+        keep_count = max(0, keep)
+        stems_to_keep = set(stems[-keep_count:]) if keep_count > 0 else set()
+        for stem in stems:
+            if stem not in stems_to_keep:
+                if stem_uploaded.get(stem) is True:
+                    stems_to_prune.append(stem)
+    deleted_stems = []
+    for stem in stems_to_prune:
+        tar_path = os.path.join(str(artifacts_dir), f'{stem}.tar.zst')
+        diff_path = os.path.join(str(artifacts_dir), f'{stem}.diff')
+        for path in (tar_path, diff_path):
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except OSError:
+                pass
+        deleted_stems.append(stem)
+    return deleted_stems
+def run_backup(repo_root: Any, refs: Iterable[Any], *, archiver: Callable[..., Any], uploader: Callable[..., Any], ledger: Any, log: Callable[..., Any], artifacts_dir: Optional[str] = None) -> int:
     """Orchestrate archiver -> uploader -> ledger.record for pushed shas.
 
     Reads ``ledger.last_backed_up_sha(repo)`` as the base for incremental
@@ -115,6 +160,10 @@ def run_backup(repo_root: Any, refs: Iterable[Any], *, archiver: Callable[..., A
             ledger.record(sha, _archive_name(archive_result), uploaded, repo=repo_name)
         except Exception as exc:
             log('drive_backup: ledger record failed', sha=sha, error=repr(exc))
+        try:
+            _prune_local_snapshots(artifacts_dir, ledger.entries(), keep=1)
+        except Exception as exc:
+            log('drive_backup: pruning failed', error=repr(exc))
     return 0
 
 def _resolve_repo_root() -> str:
@@ -191,7 +240,7 @@ def _default_build_deps(repo_root: Any) -> Any:
         extra = ' '.join((f'{k}={v!r}' for k, v in fields.items()))
         line = message if not extra else f'{message} {extra}'
         print(line, file=sys.stderr)
-    return SimpleNamespace(archiver=archiver, uploader=uploader, ledger=ledger_mod.BackupLedger(ledger_path), log=log)
+    return SimpleNamespace(archiver=archiver, uploader=uploader, ledger=ledger_mod.BackupLedger(ledger_path), log=log, artifacts_dir=out_dir)
 
 def main(argv: Optional[List[str]]=None, *, stdin: Any=None, repo_root: Any=None, build_deps: Optional[Callable[[Any], Any]]=None) -> int:
     """Pre-push entrypoint: read refs, build deps, run the backup.
@@ -207,7 +256,8 @@ def main(argv: Optional[List[str]]=None, *, stdin: Any=None, repo_root: Any=None
         root = repo_root if repo_root is not None else _resolve_repo_root()
         factory = build_deps if build_deps is not None else _default_build_deps
         deps = factory(root)
-        return run_backup(root, refs, archiver=deps.archiver, uploader=deps.uploader, ledger=deps.ledger, log=deps.log)
+        artifacts_dir = getattr(deps, 'artifacts_dir', None)
+        return run_backup(root, refs, archiver=deps.archiver, uploader=deps.uploader, ledger=deps.ledger, log=deps.log, artifacts_dir=artifacts_dir)
     except Exception as exc:
         print(f'drive_backup: hook runner failed: {exc!r}', file=sys.stderr)
         return 0
