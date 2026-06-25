@@ -165,7 +165,10 @@ def _enforce_module_first(tasks: List[Dict[str, Any]], repo_root: Optional[Any]=
         if isinstance(_vc, str) and _vc:
             _ofiles = [f for f in _files_touched(oracle) if isinstance(f, str) and f]
             if any((of in _vc for of in _ofiles)):
-                continue
+                if repo_root is not None:
+                    from pathlib import Path
+                    if (Path(repo_root) / _module_path(target)).is_file():
+                        continue
         oracle_deps = oracle.get('dependencies')
         if not isinstance(oracle_deps, list):
             oracle_deps = []
@@ -246,12 +249,14 @@ def _sanitize_impl_verification_commands(plan: Dict[str, Any], repo_root: Option
         vcmd = t.get('verification_command')
         if not isinstance(vcmd, str) or not vcmd:
             continue
-        references_oracle = any((of in vcmd for of in oracle_files))
+        references_oracle = any((of in vcmd or ('_oracle' in of and of.replace('_oracle', '') in vcmd) for of in oracle_files))
         is_import_smoke = 'python -c' in vcmd and 'import' in vcmd
         if not references_oracle and (not is_import_smoke):
             continue
         _impl_files = set(_files_touched(t))
         _is_fix_forward_redpair = False
+        _graph = _build_graph(tasks)
+        _impl_id = _task_id(t)
         for _o in tasks:
             if not isinstance(_o, dict) or not _is_test_authoring(_o):
                 continue
@@ -261,9 +266,11 @@ def _sanitize_impl_verification_commands(plan: Dict[str, Any], repo_root: Option
             if _module_path(_omt) not in _impl_files:
                 continue
             _ofiles = [f for f in _files_touched(_o) if isinstance(f, str) and f]
-            if any((of in vcmd for of in _ofiles)):
-                _is_fix_forward_redpair = True
-                break
+            if any((of in vcmd or ('_oracle' in of and of.replace('_oracle', '') in vcmd) for of in _ofiles)):
+                _oid = _task_id(_o)
+                if _impl_id and _oid and _reaches(_graph, _impl_id, _oid):
+                    _is_fix_forward_redpair = True
+                    break
         if _is_fix_forward_redpair:
             continue
         modules: List[str] = []
