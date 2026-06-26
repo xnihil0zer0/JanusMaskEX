@@ -175,7 +175,12 @@ workers:
   # 2026-06-14..2026-06-23 (e1f5aab, owner directive: tmux-jailed-claude over a
   # direct PTY, OAuth/Max-billed; live-validated e2e ~11s). Flip back to 'tmux'
   # to restore that jailed-interactive PTY backend + --continue warm resume.
-  claude_backend: tmux
+  # 2026-06-25: fa9f44d flipped this to tmux on a FALSE premise (claimed `-p`
+  # can't resolve OAuth / claude went dark for ~2 days). DISPROVEN empirically:
+  # `claude -p` authenticates via OAuth with NO API key (v2.1.193, returns PONG),
+  # and the ledger shows 190 claude drafts under headless 06-23..06-25 20:20.
+  # Reverted to headless `-p` per owner directive 2026-06-25.
+  claude_backend: headless
   # VERDICT_v3 efficiency flags ACTIVATED 2026-06-19 (owner directive; both
   # OFF=byte-identical-to-HEAD). pin_task_cwd (Int 3, 421ba38): deterministic
   # per-task cwd/CLAUDE_CONFIG_DIR from task_id (sha1-digest8) via the work_dir
