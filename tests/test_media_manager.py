@@ -7,7 +7,7 @@ import hashlib
 from typing import Optional
 from unittest.mock import patch, MagicMock
 import pytest
-from harness.media_manager import start_xvfb_display, verify_port_ready_hmac
+from harness.media_manager import start_xvfb_display, verify_port_ready_hmac, start_screencast
 
 class FakeProcess:
     """A process fake that is NOT an instance of unittest.mock.Mock to bypass is_mock checks."""
@@ -215,3 +215,123 @@ def test_start_xvfb_display_failure_on_fluxbox_spawn():
             start_xvfb_display(1)
         assert mock_xvfb.kill_mock.call_count >= 1
         assert mock_xvfb.wait_mock.call_count >= 1
+
+def test_start_screencast_starts_ffmpeg(tmp_path):
+    output_file = tmp_path / 'test.mp4'
+    with patch('subprocess.run') as mock_run, patch('subprocess.Popen') as mock_popen:
+        mock_run.return_value = MagicMock(returncode=1, stdout='', stderr='')
+        mock_proc = MagicMock()
+        mock_popen.return_value = mock_proc
+        proc = start_screencast(':99', str(output_file))
+        assert proc == mock_proc
+        mock_popen.assert_called_once()
+        cmd = mock_popen.call_args[0][0]
+        assert cmd[0] == 'ffmpeg'
+        assert '-y' in cmd
+        assert '-f' in cmd
+        assert 'x11grab' in cmd
+        assert '-movflags' in cmd
+        assert 'empty_moov+omit_tfhd_offset+frag_keyframe+default_base_moof' in cmd
+        assert '-flush_packets' in cmd
+        assert '1' in cmd
+
+def test_xdpyinfo_parsing_success(tmp_path):
+    output_file = tmp_path / 'test.mp4'
+    with patch('subprocess.run') as mock_run, patch('subprocess.Popen') as mock_popen:
+        mock_run.return_value = MagicMock(returncode=0, stdout='screen #0:\n  dimensions:    1920x1080 pixels (508x285 millimeters)\n  resolution:    96x96 dots per inch', stderr='')
+        mock_popen.return_value = MagicMock()
+        start_screencast(':99', str(output_file))
+        mock_run.assert_called_once_with(['xdpyinfo', '-display', ':99'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+        cmd = mock_popen.call_args[0][0]
+        idx = cmd.index('-video_size')
+        assert cmd[idx + 1] == '1920x1080'
+
+def test_xdpyinfo_parsing_fallback_on_error(tmp_path):
+    output_file = tmp_path / 'test.mp4'
+    with patch('subprocess.run') as mock_run, patch('subprocess.Popen') as mock_popen:
+        mock_run.return_value = MagicMock(returncode=1, stdout='', stderr='error')
+        mock_popen.return_value = MagicMock()
+        start_screencast(':99', str(output_file))
+        cmd = mock_popen.call_args[0][0]
+        idx = cmd.index('-video_size')
+        assert cmd[idx + 1] == '1280x1024'
+    with patch('subprocess.run') as mock_run, patch('subprocess.Popen') as mock_popen:
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd=['xdpyinfo'], timeout=5)
+        mock_popen.return_value = MagicMock()
+        start_screencast(':99', str(output_file))
+        cmd = mock_popen.call_args[0][0]
+        idx = cmd.index('-video_size')
+        assert cmd[idx + 1] == '1280x1024'
+
+def test_xdpyinfo_parsing_fallback_on_missing_binary(tmp_path):
+    output_file = tmp_path / 'test.mp4'
+    with patch('subprocess.run') as mock_run, patch('subprocess.Popen') as mock_popen:
+        mock_run.side_effect = FileNotFoundError("[Errno 2] No such file or directory: 'xdpyinfo'")
+        mock_popen.return_value = MagicMock()
+        start_screencast(':99', str(output_file))
+        cmd = mock_popen.call_args[0][0]
+        idx = cmd.index('-video_size')
+        assert cmd[idx + 1] == '1280x1024'
+
+def test_screencast_integration_recording(tmp_path):
+    non_existent_dir = tmp_path / 'does_not_exist'
+    output_file = non_existent_dir / 'recording.mp4'
+    with pytest.raises(FileNotFoundError):
+        start_screencast(':99', str(output_file))
+    recording_dir = tmp_path / 'recordings'
+    recording_dir.mkdir()
+    valid_output = recording_dir / 'recording.mp4'
+    with patch('subprocess.run') as mock_run, patch('subprocess.Popen') as mock_popen:
+        mock_run.return_value = MagicMock(returncode=0, stdout='dimensions:    1024x768 pixels', stderr='')
+        fake_ffmpeg = FakeProcess(poll_val=None)
+        mock_popen.return_value = fake_ffmpeg
+        proc = start_screencast(':99', str(valid_output))
+        assert proc == fake_ffmpeg
+        mock_popen.assert_called_once()
+        cmd = mock_popen.call_args[0][0]
+        assert cmd[cmd.index('-video_size') + 1] == '1024x768'
+        assert cmd[-1] == str(valid_output)
+
+def test_resolution_parsing_property(tmp_path):
+    output_file = tmp_path / 'test.mp4'
+    cases = [('dimensions:    800x600 pixels', '800x600'), ('  dimensions:    1920x1200 pixels (508x285 millimeters)', '1920x1200'), ('dimensions: 0x0 pixels', '1280x1024'), ('dimensions: -10x20 pixels', '1280x1024'), ('dimensions: 1024x-768 pixels', '1280x1024'), ('dimensions:    abcxdef pixels', '1280x1024'), ('', '1280x1024'), ('no dimensions info', '1280x1024')]
+    for stdout_content, expected_res in cases:
+        with patch('subprocess.run') as mock_run, patch('subprocess.Popen') as mock_popen:
+            mock_run.return_value = MagicMock(returncode=0, stdout=stdout_content, stderr='')
+            mock_popen.return_value = MagicMock()
+            start_screencast(':99', str(output_file))
+            cmd = mock_popen.call_args[0][0]
+            idx = cmd.index('-video_size')
+            assert cmd[idx + 1] == expected_res
+
+def test_ffmpeg_handles_empty_display_string(tmp_path):
+    output_file = tmp_path / 'test.mp4'
+    invalid_displays = ['', '   ', None, 123, 'display_no_colon']
+    for disp in invalid_displays:
+        with pytest.raises(ValueError, match='Display argument is empty or malformed'):
+            start_screencast(disp, str(output_file))
+
+def test_start_screencast_invalid_output_path():
+    invalid_paths = ['', '  ', None, 123]
+    for path in invalid_paths:
+        with pytest.raises(ValueError, match='Output path argument is empty or malformed'):
+            start_screencast(':99', path)
+
+def test_ffmpeg_crash_resilience_format_flags(tmp_path):
+    output_file = tmp_path / 'test.mp4'
+    with patch('subprocess.run') as mock_run, patch('subprocess.Popen') as mock_popen:
+        mock_run.return_value = MagicMock(returncode=1, stdout='', stderr='')
+        mock_popen.return_value = MagicMock()
+        start_screencast(':99', str(output_file))
+        cmd = mock_popen.call_args[0][0]
+        assert '-movflags' in cmd
+        movflags_idx = cmd.index('-movflags')
+        movflags_val = cmd[movflags_idx + 1]
+        flags = movflags_val.split('+')
+        assert 'empty_moov' in flags
+        assert 'omit_tfhd_offset' in flags
+        assert 'frag_keyframe' in flags
+        assert 'default_base_moof' in flags
+        assert '-flush_packets' in cmd
+        flush_idx = cmd.index('-flush_packets')
+        assert cmd[flush_idx + 1] == '1'
