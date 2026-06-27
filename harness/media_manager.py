@@ -55,12 +55,6 @@ def start_xvfb_display(slot_id: int) -> subprocess.Popen:
                 stderr=subprocess.DEVNULL
             )
         except Exception as e:
-            if xvfb_proc and not is_mock:
-                try:
-                    xvfb_proc.kill()
-                    xvfb_proc.wait()
-                except Exception:
-                    pass
             raise RuntimeError(f"fluxbox failed to spawn: {e}")
 
         if not is_mock:
@@ -70,11 +64,6 @@ def start_xvfb_display(slot_id: int) -> subprocess.Popen:
                 try:
                     fluxbox_proc.kill()
                     fluxbox_proc.wait()
-                except Exception:
-                    pass
-                try:
-                    xvfb_proc.kill()
-                    xvfb_proc.wait()
                 except Exception:
                     pass
                 raise RuntimeError(f"fluxbox exited immediately with code {ret}")
