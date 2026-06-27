@@ -155,83 +155,120 @@ VLLM_SERVING_PARAMS = {
     'api_key': 'mock_key',
 }
 
+VLLM_ENABLE_PREFIX_CACHING = True
+
+VLLM_APC_ENABLED = True
+
+class VLLMBackend:
+    kind = 'vllm'
+
+    def __init__(self, base_url='http://localhost:8000/v1', api_key_env='VLLM_API_KEY', model_id='DiffusionGemma-26B-it', gpu_index=0, enable_prefix_caching=True):
+        self.base_url = base_url
+        self.api_key_env = api_key_env
+        self.model_id = model_id
+        self.gpu_index = gpu_index
+        self.enable_prefix_caching = enable_prefix_caching
+
+    def client(self, secrets=None):
+        from openai import OpenAI
+        merged = {}
+        if secrets:
+            merged.update(secrets)
+        cred_env = merged.get(self.api_key_env)
+        if not cred_env:
+            cred_env = os.environ.get(self.api_key_env, 'mock_key')
+        return OpenAI(base_url=self.base_url, api_key=cred_env)
+
+def _to_base64_data_url(path: str) -> str:
+    import base64
+    from pathlib import Path
+    p = Path(path)
+    ext = p.suffix.lower().lstrip('.')
+    mime = f'image/{ext}' if ext in ('png', 'jpeg', 'jpg', 'webp') else 'image/png'
+    if ext == 'jpg':
+        mime = 'image/jpeg'
+    with open(p, 'rb') as f:
+        data = base64.b64encode(f.read()).decode('utf-8')
+    return f'data:{mime};base64,{data}'
 def synthesize_inpaint_with_retries(prompt: str, image_path: str, mask_path: str, **kwargs) -> str:
     """Wraps the OpenAI-compatible vLLM client call for inpainting with exponential backoff retries."""
     import time
     from pathlib import Path
-    
+
     if not isinstance(prompt, str):
-        raise TypeError("Prompt must be a string.")
-    if not prompt.strip():
-        raise ValueError("Prompt cannot be empty.")
-        
+        raise TypeError("prompt must be a string")
     if not isinstance(image_path, (str, Path)):
-        raise TypeError("image_path must be a string or Path.")
-    img_path = Path(image_path)
-    if not img_path.is_file():
-        raise ValueError(f"Invalid image path: {image_path}")
-        
+        raise TypeError("image_path must be a string or Path")
     if not isinstance(mask_path, (str, Path)):
-        raise TypeError("mask_path must be a string or Path.")
-    m_path = Path(mask_path)
-    if not m_path.is_file():
-        raise ValueError(f"Invalid mask path: {mask_path}")
-        
-    base_url = kwargs.pop('base_url', None) or os.environ.get('VLLM_BASE_URL') or 'http://localhost:8000/v1'
-    api_key = kwargs.pop('api_key', None) or os.environ.get('VLLM_API_KEY') or 'mock_key'
-    model = kwargs.pop('model', None) or os.environ.get('VLLM_MODEL_NAME') or 'DiffusionGemma-26B-it'
-    
-    max_retries = kwargs.pop('max_retries', 5)
-    initial_delay = kwargs.pop('initial_delay', 1.0)
-    backoff_factor = kwargs.pop('backoff_factor', 2.0)
-    
+        raise TypeError("mask_path must be a string or Path")
+
+    if not prompt.strip():
+        raise ValueError("prompt cannot be empty or whitespace-only")
+    if not str(image_path).strip():
+        raise ValueError("image_path cannot be empty or whitespace-only")
+    if not str(mask_path).strip():
+        raise ValueError("mask_path cannot be empty or whitespace-only")
+
+    img_p = Path(image_path)
+    if not img_p.exists():
+        raise FileNotFoundError(f"image_path does not exist: {image_path}")
+    if not img_p.is_file():
+        raise ValueError(f"image_path is not a file: {image_path}")
+
+    mask_p = Path(mask_path)
+    if not mask_p.exists():
+        raise FileNotFoundError(f"mask_path does not exist: {mask_path}")
+    if not mask_p.is_file():
+        raise ValueError(f"mask_path is not a file: {mask_path}")
+
+    port = kwargs.pop("port", None)
+    base_url = kwargs.pop("base_url", None)
+    if not base_url:
+        if port is not None:
+            base_url = f"http://localhost:{port}/v1"
+        else:
+            base_url = os.environ.get("VLLM_BASE_URL") or "http://localhost:8000/v1"
+
+    model = kwargs.pop("model", None) or os.environ.get("VLLM_MODEL_NAME") or "DiffusionGemma-26B-it"
+    api_key = kwargs.pop("api_key", None) or os.environ.get("VLLM_API_KEY") or "mock_key"
+
+    max_retries = kwargs.pop("max_retries", 5)
+    initial_backoff = kwargs.pop("initial_backoff", kwargs.pop("initial_delay", 1.0))
+    backoff_factor = kwargs.pop("backoff_factor", 2.0)
+
+    image_data_url = _to_base64_data_url(image_path)
+    mask_data_url = _to_base64_data_url(mask_path)
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": image_data_url}},
+                {"type": "image_url", "image_url": {"url": mask_data_url}}
+            ]
+        }
+    ]
+
     from openai import OpenAI
-    
     client = OpenAI(base_url=base_url, api_key=api_key)
-    
-    delay = initial_delay
+
+    backoff = initial_backoff
     last_exc = None
-    
-    for attempt in range(max_retries + 1):
+    for attempt in range(1, max_retries + 1):
         try:
-            with open(image_path, "rb") as img_file, open(mask_path, "rb") as mask_file:
-                response = client.images.edit(
-                    image=img_file,
-                    mask=mask_file,
-                    prompt=prompt,
-                    model=model,
-                    **kwargs
-                )
-            
-            if hasattr(response, 'data') and response.data:
-                item = response.data[0]
-                if hasattr(item, 'url') and item.url:
-                    return item.url
-                if hasattr(item, 'b64_json') and item.b64_json:
-                    return item.b64_json
-                if hasattr(item, 'text') and item.text:
-                    return item.text
-            if hasattr(response, 'choices') and response.choices:
-                return response.choices[0].message.content
-            if isinstance(response, str):
-                return response
-            if isinstance(response, dict):
-                if 'data' in response and response['data']:
-                    item = response['data'][0]
-                    if isinstance(item, dict):
-                        return item.get('url') or item.get('b64_json') or item.get('text') or str(item)
-                if 'url' in response:
-                    return response['url']
-                return str(response)
-            return str(response)
-            
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                **kwargs
+            )
+            if response and hasattr(response, "choices") and response.choices:
+                content = response.choices[0].message.content
+                return content if content is not None else ""
+            return ""
         except Exception as e:
             last_exc = e
             if attempt == max_retries:
-                raise
-            time.sleep(delay)
-            delay *= backoff_factor
-
-    if last_exc:
-        raise last_exc
-    raise RuntimeError("Failed to synthesize inpaint after retries.")
+                raise e
+            time.sleep(backoff)
+            backoff *= backoff_factor
