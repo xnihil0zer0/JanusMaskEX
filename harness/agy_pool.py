@@ -73,6 +73,7 @@ def allocate_slot(busy: set[int] | list[int], size: int=POOL_SIZE, allow_home_fa
             raise RuntimeError('No slot available')
         return None
     for i in range(size):
+        cleanup_stale_lockfiles(i)
         if i in busy:
             continue
         if repo_root is not None:
@@ -97,6 +98,29 @@ def allocate_slot(busy: set[int] | list[int], size: int=POOL_SIZE, allow_home_fa
         raise RuntimeError('No slot available')
     return None
 
+def cleanup_stale_lockfiles(slot_id: int) -> None:
+    lock_path = Path(f'/tmp/.X{100 + slot_id}-lock')
+    if not lock_path.exists():
+        return
+    should_remove = False
+    try:
+        content = lock_path.read_text().strip()
+        if not content:
+            should_remove = True
+        else:
+            first_line = content.split('\n')[0].strip()
+            pid = int(first_line)
+            if not _is_pid_alive(pid):
+                should_remove = True
+    except ValueError:
+        should_remove = True
+    except IOError:
+        pass
+    if should_remove:
+        try:
+            lock_path.unlink()
+        except IOError:
+            pass
 class PoolInvariantError(ValueError):
     """Raised when an enabled pool's ``size`` cannot cover ``parallel_cap``.
 
