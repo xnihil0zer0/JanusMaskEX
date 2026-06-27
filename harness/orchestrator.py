@@ -45,6 +45,14 @@ from harness.paths import CONFIG_DIR_STR
 from harness.paths import STATE_DIR as DEFAULT_STATE_DIR
 from harness.paths import agent_work_dir
 DEFAULT_CONFIG_PATH = HARNESS_DIR / 'config.yaml'
+try:
+    import harness.boundary_smoothing
+except ImportError:
+    pass
+try:
+    import harness.grounding
+except ImportError:
+    pass
 POLL_INTERVAL = 2
 logger = logging.getLogger('janusmask.orchestrator')
 
