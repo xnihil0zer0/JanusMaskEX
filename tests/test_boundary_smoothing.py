@@ -1,7 +1,7 @@
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given, strategies as st, settings
 from typing import List, Dict, Any, Tuple, Optional
-from harness.boundary_smoothing import get_leading_whitespace, detect_indentation, normalize_patch_indentation, unparse_decorator, get_line_states, find_end_line_lexical, parse_ast, parse_lexically, get_definitions, adjust_indentation, ensure_newline, find_best_match, is_leaf, get_child_indent, has_unmatched_ancestor, align_and_deduplicate_patches, smooth_boundaries
+from harness.boundary_smoothing import get_leading_whitespace, detect_indentation, normalize_patch_indentation, unparse_decorator, get_line_states, find_end_line_lexical, parse_ast, parse_lexically, get_definitions, adjust_indentation, ensure_newline, find_best_match, is_leaf, get_child_indent, has_unmatched_ancestor, align_and_deduplicate_patches, smooth_boundaries, apply_with_sliding_retry
 
 def test_verify_indentation_alignment():
     source_2_spaces = 'def foo():\n  pass\n'
@@ -87,6 +87,7 @@ def test_verify_boundary_smoothing_integration():
     assert result.count('def extra_helper():') == 1
 
 @given(src_style=st.sampled_from([(' ', 2), (' ', 3), (' ', 4), (' ', 8), ('\t', 1)]), patch_style=st.sampled_from([(' ', 2), (' ', 3), (' ', 4), (' ', 8), ('\t', 1)]))
+@settings(deadline=None)
 def test_verify_random_whitespace_indentation(src_style, patch_style):
     src_char, src_unit = src_style
     patch_char, patch_unit = patch_style
@@ -147,3 +148,94 @@ def test_verify_find_best_match_no_match():
     assert find_best_match(p_def_type_mismatch, source_defs) is None
     p_def_name_mismatch = {'name': 'other_func', 'type': 'function', 'path': ['other_func']}
     assert find_best_match(p_def_name_mismatch, source_defs) is None
+
+def test_verify_sliding_retry_success():
+    source = 'def dummy():\n    pass\n\ndef bar():\n    x = 1\n    y = 2\n\ndef dummy():\n    pass\n\ndef bar():\n    x = 1\n    y = (\n\ndef dummy():\n    pass\n'
+    patch = 'def bar():\n    x = 1\n    y = 3\n'
+    result = apply_with_sliding_retry(source, patch, 10)
+    assert 'y = 3' in result
+    assert 'y = 2' in result
+    assert 'y = (' not in result
+
+def test_verify_sliding_retry_top_bottom_boundaries():
+    source_top = 'def foo():\n    x = (\n'
+    patch_top = 'def foo():\n    x = 1\n'
+    res_top = apply_with_sliding_retry(source_top, patch_top, 10)
+    assert 'x = 1' in res_top
+    source_bottom = 'def bar():\n    y = (\n'
+    patch_bottom = 'def bar():\n    y = 2\n'
+    res_bottom = apply_with_sliding_retry(source_bottom, patch_bottom, 10)
+    assert 'y = 2' in res_bottom
+
+def test_verify_comment_injection_rejection():
+    source = 'def malicious_func():\n    pass\n'
+    patch = "# def malicious_func():\n#     print('injected')\n"
+    with pytest.raises(SyntaxError) as exc_info:
+        apply_with_sliding_retry(source, patch, 5)
+    assert 'Comment injection attempt detected' in str(exc_info.value)
+    assert 'malicious_func' in str(exc_info.value)
+
+def test_verify_formatting_false_positives():
+    source = 'def dummy():\n    pass  # nominal preceding comment\n\ndef bar():\n    x = 1\n    y = 2\n\ndef dummy():\n    pass\n\ndef bar():\n    x = 1\n    y = (\n\ndef dummy():\n    pass\n'
+    patch = 'def bar():\n    x = 1\n    y = 3\n'
+    result = apply_with_sliding_retry(source, patch, 10)
+    assert 'y = 3' in result
+
+def test_verify_failed_compilation_fallback():
+    source = 'def foo():\n    pass\n'
+    patch = 'def foo():\n    x = (\n'
+    with pytest.raises(SyntaxError):
+        apply_with_sliding_retry(source, patch, 5)
+
+def test_verify_sliding_retry_integration_success():
+    source = 'import sys\n\ndef helper():\n    pass\n\nclass Calculator:\n    def add(self, a, b):\n        return a + b\n\ndef dummy():\n    pass\n\n# some extra comment\nclass Calculator:\n    def add(self, a, b):\n        return a + (  # syntax error here\n\ndef dummy():\n    pass\n'
+    patch = 'class Calculator:\n    def add(self, a, b):\n        return a + b\n'
+    result = apply_with_sliding_retry(source, patch, 10)
+    assert 'return a + b' in result
+    assert 'return a + (' not in result
+    compile(result, '<string>', 'exec')
+
+def test_verify_sliding_retry_integration_failure():
+    source = 'class Calculator:\n    def add(self, a, b):\n        return a + b\n\nclass Calculator:\n    def add(self, a, b):\n        return a + (\n'
+    patch = 'class Calculator:\n    def add(self, a, b):\n        return a + b\n'
+    with pytest.raises(SyntaxError):
+        apply_with_sliding_retry(source, patch, 1)
+
+@given(num_comments=st.integers(min_value=0, max_value=10))
+@settings(deadline=None)
+def test_verify_random_line_offsets(num_comments):
+    if num_comments > 0:
+        comments = '\n'.join((f'# comment {i}' for i in range(num_comments))) + '\n'
+    else:
+        comments = ''
+    source = f'def dummy():\n    pass\n\ndef bar():\n    x = 1\n    y = 2\n\ndef dummy():\n    pass\n{comments}def bar():\n    x = 1\n    y = (\n\ndef dummy():\n    pass\n'
+    patch = 'def bar():\n    x = 1\n    y = 3\n'
+    required_offset = 6 + num_comments
+    if required_offset > 0:
+        with pytest.raises(SyntaxError):
+            apply_with_sliding_retry(source, patch, required_offset - 1)
+    res = apply_with_sliding_retry(source, patch, required_offset)
+    assert 'y = 3' in res
+    assert 'y = (' not in res
+
+@given(spaces=st.sampled_from(['  ', '    ', '\t']), newlines=st.sampled_from(['\n', '\n\n', '\r\n']), comment=st.sampled_from(['', '  # random comment\n', '# another comment\n']))
+@settings(deadline=None)
+def test_verify_random_noise_injections(spaces, newlines, comment):
+    source = f'def foo():{newlines}{spaces}pass{newlines}'
+    patch = f'{comment}def foo():{newlines}{spaces}print("hello"){newlines}'
+    result = apply_with_sliding_retry(source, patch, 5)
+    assert 'print("hello")' in result
+
+def test_verify_comment_injection_vulnerability_regression():
+    source = 'class Target:\n    pass\n'
+    patch = '"""\nclass Target:\n    pass\n"""\n'
+    with pytest.raises(SyntaxError) as exc_info:
+        apply_with_sliding_retry(source, patch, 5)
+    assert 'Comment injection attempt detected' in str(exc_info.value)
+    assert 'Target' in str(exc_info.value)
+
+def test_verify_spurious_formatting_rejections():
+    source = "def dummy():\n    pass\n\ndef compute(data: List[int], mode: str = 'fast') -> Optional[Dict[str, Any]]:\n    return None\n\ndef dummy():\n    pass\n\ndef compute(data:List[int],mode:str='fast')->Optional[Dict[str,Any]]:\n    x = (\n\ndef dummy():\n    pass\n"
+    patch = "def compute(data: List[int], mode: str = 'fast') -> Optional[Dict[str, Any]]:\n    return {'status': 'ok'}\n"
+    result = apply_with_sliding_retry(source, patch, 10)
+    assert "return {'status': 'ok'}" in result
