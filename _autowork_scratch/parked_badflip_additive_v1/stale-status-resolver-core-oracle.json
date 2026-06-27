@@ -1,0 +1,121 @@
+{
+  "task_id": "stale-status-resolver-core-oracle",
+  "title": "RED oracle: assert classify_product status resolution for stale-status-resolver-core",
+  "meta_task_type": "test_authoring",
+  "mutation_target": "harness.state_reconciler",
+  "priority": "high",
+  "dependencies": [
+    "stale-status-resolver-core-impl"
+  ],
+  "files_touched": [
+    "tests/harness/test_status_resolver_core.py"
+  ],
+  "acceptance_criteria": [
+    "Create exactly one new pytest file tests/harness/test_status_resolver_core.py that imports classify_product from harness.state_reconciler.",
+    "The oracle runs hermetically over synthesized product paths in its own tmp_path, touching no live state/ directory and no network.",
+    "Assert UNPLANNED status is returned when os.path.lexists(plan_path) is False.",
+    "Assert FOREIGN status is returned when the plan path is a symlink.",
+    "Assert FOREIGN status is returned when the plan file is parseable but lacks JanusMask provenance (no top-level source_brief_sha256 string and tasks list).",
+    "Assert LIVE status is returned when the plan file's mtime is within the 60 s grace period (default) or has a sibling .processing/.json.processing marker.",
+    "Assert LIVE status is returned when a task ID in the plan file has a live pidfile (matching exact parsed task_id equality, never substring) under state_dir/running/.",
+    "Assert CORRUPT status is returned when the plan path is a directory, has unparseable content, or violates the schema (not a dict, or missing tasks list, or tasks is not a list) after the settle grace period.",
+    "Assert PLANNED_FRESH, PLANNED_STALE, and SPENT statuses are correctly resolved against the brief SHA-256 and the ledger (impl_progress.jsonl).",
+    "The oracle is RED on HEAD (since classify_product is not implemented yet) and turns GREEN once the impl lands."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/harness/test_status_resolver_core.py -q",
+  "spec": {
+    "objective": "Author a RED test_authoring oracle tests/harness/test_status_resolver_core.py that asserts the status classification contract for classify_product, covering UNPLANNED, FOREIGN, LIVE, CORRUPT, PLANNED_FRESH, PLANNED_STALE, and SPENT.",
+    "functional_requirements": [
+      "Verify classify_product returns UNPLANNED when os.path.lexists is False.",
+      "Verify classify_product returns FOREIGN when the path is a symlink or does not carry JanusMask provenance.",
+      "Verify classify_product returns LIVE when mtime is within grace, sibling .processing exists, or has a live pidfile.",
+      "Verify classify_product returns CORRUPT when the plan path is a directory, unparseable, or wrong-schema after grace.",
+      "Verify classify_product returns PLANNED_FRESH when the plan's source_brief_sha256 matches the brief's SHA (or is unstamped).",
+      "Verify classify_product returns PLANNED_STALE when the plan's source_brief_sha256 mismatches the brief's SHA and tasks remain uncompleted.",
+      "Verify classify_product returns SPENT when all plan tasks are terminal-accepted in the ledger."
+    ],
+    "interfaces": "classify_product(root, product_path, *, now=None) -> ProductStatus",
+    "edge_cases": [
+      "Plan file is a directory: classified as CORRUPT after grace.",
+      "Plan file is unparseable: classified as LIVE if within grace, otherwise CORRUPT.",
+      "Plan file is missing: classified as UNPLANNED.",
+      "Symlink: classified as FOREIGN.",
+      "Grace period active: a mid-write plan with mtime < 60s is classified as LIVE, not CORRUPT, even if unparseable."
+    ],
+    "non_goals": [
+      "integration \u2014 no live-daemon run; the oracle is a hermetic unit drive over synthesized paths in tmp_path.",
+      "Do not implement the production classify_product in this task.",
+      "Do not perform any moves, deletions, or status-apply actions."
+    ],
+    "implementation_notes": "Use pytest's tmp_path fixture. Create dummy plan files and brief files. Mock/synthesize live pidfiles using the current process PID to assert the live process check. Verify that the correct ProductStatus dict with keys id, kind, status, path, action, and reason is returned."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_unplanned_when_path_not_exists"
+      },
+      {
+        "name": "test_foreign_when_symlink"
+      },
+      {
+        "name": "test_foreign_when_no_provenance"
+      },
+      {
+        "name": "test_live_when_within_mtime_grace"
+      },
+      {
+        "name": "test_live_when_sibling_processing_exists"
+      },
+      {
+        "name": "test_live_when_task_id_has_live_pidfile"
+      },
+      {
+        "name": "test_corrupt_when_directory"
+      },
+      {
+        "name": "test_corrupt_when_unparseable"
+      },
+      {
+        "name": "test_corrupt_when_wrong_schema"
+      },
+      {
+        "name": "test_planned_fresh_matching_sha"
+      },
+      {
+        "name": "test_planned_fresh_unstamped"
+      },
+      {
+        "name": "test_planned_stale_mismatched_sha"
+      },
+      {
+        "name": "test_spent_all_tasks_accepted"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [],
+    "regression_tests": [
+      {
+        "name": "tests/test_brief_status.py"
+      },
+      {
+        "name": "tests/harness/test_brief_status_completeness.py"
+      }
+    ],
+    "minimum_test_count": 11,
+    "test_data_requirements": "Synthesized brief and plan files in tmp_path. Dummy pidfiles in a temporary state/running/ directory. No live state/ or network dependencies."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 0,
+    "test_tokens": 150,
+    "note": "Pure test_authoring oracle task; no production changes."
+  },
+  "attribution_metadata": {
+    "proposed_by": "gemini",
+    "reconciled": false,
+    "diff_resolution": null
+  },
+  "_debug_stamping_reason": "Task was only proposed by Gemini.",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR"
+}

@@ -1,0 +1,91 @@
+{
+  "responses": [
+    {"diff_item_id": "__critique__", "stance": "amend"}
+  ],
+  "findings": [
+    {
+      "finding_id": "fz-ast-missing-nested-attribute-edge-case",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "RB_JR_fix_is_fuzzable_annotation_ast_AST",
+      "field_path": "/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "details": "Cover an ast.Attribute whose `node.value` is itself an ast.Attribute (e.g. annotation `mod.ast.AST` or `pkg.ast.FunctionDef`). The current `_is_fuzzable_annotation` Attribute branch only matches `isinstance(node.value, ast.Name)`, so any nested-Attribute base falls through to `return False`. After the fix the function still must NOT misclassify nested dotted forms as fuzzable, but neither the edge_cases list nor `test_data_requirements` mentions this shape; a regression here could go undetected."
+      },
+      "message": "Task RB_JR_fix_is_fuzzable_annotation_ast_AST changes the `base == 'ast'` arm of the `ast.Attribute & ast.Name` branch but does not enumerate or test the sibling case where `node.value` is a nested ast.Attribute. Add an edge case and a unit test asserting that `mod.ast.AST` (i.e. `ast.Attribute(value=ast.Attribute(...), attr='AST')`) still returns False, so future refactors don't accidentally widen the predicate."
+    },
+    {
+      "finding_id": "fz-ast-missing-none-and-non-name-base-tests",
+      "category": "missing_edge_case",
+      "severity": "info",
+      "task_id": "RB_JR_fix_is_fuzzable_annotation_ast_AST",
+      "field_path": "/test_spec/unit_tests",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "details": "Add unit tests covering (a) `_is_fuzzable_annotation(None)` -> False (signature is `ast.expr | None`, contract not currently asserted) and (b) `ast.Subscript`/`ast.BinOp` paths whose elements include `ast.AST` -- after the change, `Optional[ast.AST]` and `ast.AST | None` should now be classified True via recursive descent, which is a behavior shift worth pinning."
+      },
+      "message": "The spec promises that `Optional[ast.AST]` and `ast.AST | None` benefit from the change via the recursive Subscript/BinOp branches, but no test_spec entry pins these composite forms. Also `_is_fuzzable_annotation(None)` is unpinned. Add at least one Subscript and one BinOp regression covering ast.AST inside a container/union, plus an explicit None test."
+    },
+    {
+      "finding_id": "hi-read-input-missing-ioerror-edge-case",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "RB_JR_fix_read_input_hookinputerror",
+      "field_path": "/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "details": "Add an edge case + test for a stream whose `.read()` raises (e.g. OSError/IOError on a closed file or broken pipe). The current implementation does not catch this, so it propagates as OSError -- callers using `except ValueError` would NOT catch it. Spec should explicitly declare this is intentional non-goal OR be amended to wrap it in HookInputError; right now the behavior is unspecified."
+      },
+      "message": "Task RB_JR_fix_read_input_hookinputerror narrows the exception type for JSON-shaped failures but is silent on stream read errors. Either pin the current behavior in a non-goal (`read errors propagate as-is`) or add HookInputError wrapping; otherwise the typed-exception contract is only partial and the test suite will not catch a future change that wraps these too."
+    },
+    {
+      "finding_id": "hi-read-input-missing-non-dict-variants",
+      "category": "missing_edge_case",
+      "severity": "info",
+      "task_id": "RB_JR_fix_read_input_hookinputerror",
+      "field_path": "/test_spec/unit_tests",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "details": "Parametrize `test_read_input_raises_hookinputerror_on_non_dict_payload` over JSON list, JSON scalar (string/number/bool), and JSON null. The spec lists these in edge_cases but the test_spec collapses them into a single named test, so a regression that allows lists through (but still rejects scalars) would pass."
+      },
+      "message": "edge_cases enumerates list/scalar/null as separate non-dict variants, but only one unit test covers 'non-dict payload'. Either parametrize the test or add discrete cases for list, scalar, and null so each branch of `type(data).__name__` formatting is exercised."
+    },
+    {
+      "finding_id": "spec-author-null-with-authored-spec-both-tasks",
+      "category": "bad_spec_author",
+      "severity": "info",
+      "task_id": "RB_JR_fix_is_fuzzable_annotation_ast_AST",
+      "field_path": "/spec_author",
+      "suggested_patch": {
+        "op": "set_spec_author",
+        "details": "Both tasks carry `spec_author: null` while embedding fully fleshed `spec` blocks (objective, functional_requirements, interfaces, edge_cases, non_goals, implementation_notes) and `_debug_stamping_reason: 'Task was only proposed by Claude.'`. If the convention is that an authored, non-skeleton spec must record its author, set `spec_author: 'claude'`. If the convention is that trivial single-author tasks legitimately keep spec_author null, leave as-is -- but the current shape is ambiguous and worth a reviewer confirmation."
+      },
+      "message": "Both tasks have non-trivial authored spec content but `spec_author: null`. Worth confirming whether the planner convention requires `spec_author` to be set whenever a `spec` block contains more than a skeleton. Flagged as info -- direction depends on the planner schema's intent."
+    },
+    {
+      "finding_id": "test-budget-borderline-for-trivial-fixes",
+      "category": "test_heavy_violation",
+      "severity": "info",
+      "task_id": "RB_JR_fix_read_input_hookinputerror",
+      "field_path": "/token_budget_ratio",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "details": "Implementation is a literal two-line `ValueError -> HookInputError` substitution; 100 impl tokens is generous. Tighten to ~40 impl and bump tests accordingly so the ratio reflects the trivial-implementation / heavy-verification posture the test-heavy rule expects (target test:impl >= 4:1 for trivial fixes)."
+      },
+      "message": "Token budget ratio of 100 impl : 200 test is only 2:1, which is tight for a trivial one/two-line change where almost all effort is verification. Other trivial-fix tasks in this planner family typically push the impl budget down and the test budget up; consider rebalancing both tasks (the same observation applies to RB_JR_fix_is_fuzzable_annotation_ast_AST)."
+    },
+    {
+      "finding_id": "acceptance-criteria-overbroad-full-suite",
+      "category": "other",
+      "severity": "info",
+      "task_id": "RB_JR_fix_read_input_hookinputerror",
+      "field_path": "/acceptance_criteria",
+      "suggested_patch": {
+        "op": "add_non_goal",
+        "details": "Replace the blanket 'The full pytest suite passes' acceptance criterion with the specific suites the change is expected to influence (hooks unit tests + the named adversarial files). A blanket-suite assertion makes the task effectively responsible for unrelated breakage and inflates the verification claim."
+      },
+      "message": "Both tasks include 'The full pytest suite passes' as an acceptance criterion in addition to the named adversarial files. This is an overbroad / mildly inflated success claim for a one-line fix -- pre-existing unrelated failures would block acceptance. Narrow the criterion to the actually-affected suites or move the full-suite check to a separate verification step."
+    }
+  ]
+}

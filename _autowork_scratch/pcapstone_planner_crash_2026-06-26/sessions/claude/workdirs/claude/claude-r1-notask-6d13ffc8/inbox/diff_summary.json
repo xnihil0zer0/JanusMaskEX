@@ -1,0 +1,112 @@
+{
+  "items": [
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "In _ast_merge, the loop that drains remaining out_nodes (around lines 392-397 of harness/git_integration.py) detects __future__ imports by checking isinstance(node, ast.ImportFrom) and node.module == '__future__'.",
+          "When a node from out_nodes is a __future__ import, it is inserted at index 0 of tgt_tree.body rather than appended at the end or inserted at guard_idx.",
+          "When such a __future__ import is inserted at index 0 and guard_idx is not None, guard_idx is incremented by 1 so it continues to point at the if __name__ == '__main__': guard after the shift.",
+          "For all non-__future__ nodes in out_nodes, insertion behavior is unchanged: append to body when guard_idx is None, otherwise insert at guard_idx and increment guard_idx.",
+          "Namespace keying, collision matching, _merge_class_body behavior, and the out_no_key handling block remain functionally unchanged for non-__future__ inputs.",
+          "Merged source produced by _ast_merge containing a submission-introduced 'from __future__ import X' compiles via ast.parse and compile(...) without raising SyntaxError: 'from __future__ imports must occur at the beginning of the file'."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "low",
+        "files_touched": [
+          "harness/git_integration.py"
+        ],
+        "meta_task_type": "refactor",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "Submission introduces a __future__ import while the target module has no main guard (guard_idx is None): the future node lands at index 0 and no guard_idx update is performed.",
+            "Submission introduces a __future__ import while the target module has a main guard: the future node lands at index 0 and guard_idx is incremented by 1 so subsequent non-future nodes still insert directly before the guard.",
+            "Submission introduces multiple __future__ imports (e.g., annotations and division). Each is inserted at index 0; the relative ordering between them is not asserted by the brief, but each individual insertion still increments guard_idx when applicable.",
+            "Submission introduces no __future__ imports: behavior is byte-identical to the prior implementation.",
+            "Target already contains the same __future__ import; the existing namespace-key collision handling at lines 359-367 replaces it in place via tgt_tree.body[i] = agent_node, so it never reaches the out_nodes drain loop and the new branch is not exercised.",
+            "A __future__ import is captured under out_no_key (cannot happen today because ImportFrom with a single alias always produces an import_from key, but defensively the brief restricts the modification to the out_nodes drain loop only)."
+          ],
+          "functional_requirements": [
+            "Detection: In the out_nodes drain loop inside _ast_merge (currently lines 392-397 of harness/git_integration.py), classify each node as a __future__ import when isinstance(node, ast.ImportFrom) and getattr(node, 'module', None) == '__future__'.",
+            "Placement: When a node is a __future__ import, insert it at index 0 of tgt_tree.body (tgt_tree.body.insert(0, node)) instead of appending or inserting at guard_idx.",
+            "Guard tracking: When a __future__ import is inserted at index 0 and guard_idx is not None, increment guard_idx by 1 so it continues to reference the same if __name__ == '__main__' node after the shift; when guard_idx is None, no increment is needed.",
+            "Non-future preservation: For every node in out_nodes that is NOT a __future__ import, retain the prior behavior exactly \u2014 append to tgt_tree.body when guard_idx is None, otherwise insert at guard_idx and increment guard_idx by 1."
+          ],
+          "implementation_notes": "Inside _ast_merge, replace the loop body at approximately lines 392-397 with a branch that first checks `isinstance(node, ast.ImportFrom) and node.module == '__future__'`. On a match: tgt_tree.body.insert(0, node) and, if guard_idx is not None, guard_idx += 1. Otherwise execute the prior append/insert-at-guard logic unchanged. Keep the existing variable names (out_nodes, guard_idx, tgt_tree). The out_no_key block (lines 398-412) is intentionally left untouched per the brief \u2014 _node_key always returns an 'import_from' key for ImportFrom nodes with a single alias, so __future__ imports do not flow through out_no_key in practice.",
+          "interfaces": "Function signature unchanged: _ast_merge(output_code: str, target_code: str) -> str. The function still returns ast.unparse(tgt_tree). No new helpers are required for the brief, but a small inline predicate (e.g., a lambda or a local helper named _is_future_import) is acceptable as long as it is used only within _ast_merge.",
+          "non_goals": [
+            "Do not alter _node_key, _is_main_guard, _expand_imports, _bound_names, or any other helper.",
+            "Do not change _merge_class_body \u2014 class bodies cannot legally contain __future__ imports.",
+            "Do not modify the namespace-collision branch at lines 359-367 or the dependency-ordering insert at lines 388-390.",
+            "Do not modify any file other than harness/git_integration.py.",
+            "Do not reorder or dedupe existing __future__ imports already present in the target body."
+          ],
+          "objective": "Modify the AST merging logic in harness/git_integration.py so that any __future__ imports introduced by a submission overlay are placed at index 0 of the merged module body, eliminating SyntaxError caused by misplaced __future__ imports while preserving existing merge semantics for all other nodes."
+        },
+        "spec_author": null,
+        "task_id": "RB_JR_ast_merge_future_imports_placement",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_ast_merge_submission_introduces_future_annotations_round_trip_compiles"
+            },
+            {
+              "name": "test_ast_merge_no_future_import_behavior_unchanged_against_golden_output"
+            }
+          ],
+          "minimum_test_count": 10,
+          "property_tests": [
+            {
+              "name": "test_future_imports_always_appear_before_any_non_future_statement_in_merged_body"
+            }
+          ],
+          "regression_tests": [
+            {
+              "name": "test_existing_future_import_in_target_not_duplicated_when_submission_repeats_it"
+            },
+            {
+              "name": "test_class_body_merge_unaffected_by_future_import_handling"
+            }
+          ],
+          "test_data_requirements": "Synthetic pairs of (output_code, target_code) strings: (a) submission with `from __future__ import annotations` against a target with imports + a main guard; (b) same submission against a target with no main guard; (c) submission with two __future__ imports; (d) submission with a non-__future__ ImportFrom (e.g., `from typing import List`); (e) target already containing the same __future__ import; (f) target containing a ClassDef that the submission also defines, to confirm class-body merge path is untouched. Each test calls _ast_merge and asserts on the parsed body shape of the returned source plus compile(result, '<merged>', 'exec') succeeding.",
+          "unit_tests": [
+            {
+              "name": "test_future_import_inserted_at_index_zero_no_main_guard"
+            },
+            {
+              "name": "test_future_import_inserted_at_index_zero_with_main_guard_increments_guard_idx"
+            },
+            {
+              "name": "test_multiple_future_imports_all_land_before_other_body_nodes"
+            },
+            {
+              "name": "test_non_future_import_from_still_inserted_at_guard_idx"
+            },
+            {
+              "name": "test_merged_source_with_future_import_compiles_without_syntax_error"
+            }
+          ]
+        },
+        "title": "Place __future__ imports at index 0 in _ast_merge merged body",
+        "token_budget_ratio": {
+          "implementation_tokens": 400,
+          "note": "Implementation is a ~6-line modification inside one loop. The bulk of effort is in writing thorough merge-result assertions and round-trip compile checks across the matrix of guard/no-guard, single/multiple future imports, and pre-existing future imports.",
+          "test_tokens": 900
+        },
+        "verification_command": "python -m pytest tests/test_ast_merge_future_imports.py -xvs"
+      },
+      "diff_item_id": "c22f1483dc15332fd0b605ebcb6ef5d13ecf04cd",
+      "field_divergences": [],
+      "gemini_task": null,
+      "kind": "claude_only",
+      "match_reason": null
+    }
+  ]
+}

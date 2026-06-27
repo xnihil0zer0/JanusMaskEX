@@ -1,0 +1,37 @@
+===== ledger accept/auto_commit rows for closure slugs =====
+--- p11-xproc-middle-phase ---
+--- p11-hunt-triage-findings ---
+--- p12-classify-poc-authenticity ---
+--- p12-detonation-verdict-provenance ---
+--- wire-loopback-per-cwe ---
+--- p21-c0 ---
+--- p21-c1-fsm-detect ---
+--- p21-c2-fsm-provision ---
+--- p21-c3-fsm-jail ---
+--- stop-oracle-answerkey-leak ---
+
+===== answer-key leak fix timestamp (M5/X3.5) =====
+2026-06-24 10:50:15 -0400 3f9af361c310aa0e005cd3ba1fa9dc4435c0e344 Integrate validated code for stop-oracle-answerkey-leak-impl
+(M5 claims leak closed 2026-06-24 14:50 UTC = 10:50 EDT)
+
+===== P0.2 NGv2 side: is poc_runner_live._default_pip_installer still host/net-on? =====
+23:  * ``--unshare-net``/``--unshare-ipc``/``--unshare-pid`` -- no off-host exfil, no
+36:NOTE: this module is impure by design (subprocess, clock, tmpfs). Do NOT import it
+43:import subprocess
+83:      * ``False`` (default, legacy path): ``--unshare-net`` -- a fresh netns the PoC
+87:        (``--unshare-user --uid 0 --gid 0 --cap-add CAP_NET_ADMIN --unshare-net
+88:        --unshare-ipc --unshare-pid``) so the FIRST process of the jail -- the
+96:        (``--unshare-pid``) is RETAINED for host-process isolation: it works inside the
+112:        # outbound stays blocked. `--unshare-pid` IS retained on this path: a private
+119:        # The PoC also remains a child subprocess (no parent-memory access).
+120:        net_flags: list[str] = ['--unshare-user', '--uid', '0', '--gid', '0', '--cap-add', 'CAP_NET_ADMIN', '--unshare-net', '--unshare-ipc', '--unshare-pid']
+122:        net_flags = ['--unshare-net', '--unshare-ipc', '--unshare-pid']
+249:    the missing dep is ``pip install``-ed HOST-SIDE (network available, outside the
+254:    :data:`MAX_DEP_INSTALL_ROUNDS` rounds; pip failure degrades to the original
+260:    are injectable seams (defaulting to the real host-pip / subprocess-in-bwrap
+272:        pip_installer = lambda _name, _target_dir: _default_pip_installer(_name, _target_dir, _jail_py)
+331:        for _round in range(MAX_DEP_INSTALL_ROUNDS):
+388:MAX_DEP_INSTALL_ROUNDS: int = 3
+395:    ``pip install`` operates on the distribution's top-level import package; the
+434:def _default_pip_installer(name: str, target_dir: str, python_bin: str='/usr/bin/python3') -> bool:
+435:    """Host-side ``pip install --target`` of a single dep, run with the JAIL's

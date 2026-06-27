@@ -1,0 +1,150 @@
+{
+  "tasks": [
+    {
+      "task_id": "redpair-newmodule-order-oracle",
+      "title": "Author data-driven unit test verifying red-pair dependency order for new modules",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "harness.planner.plan_normalizer",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tests/harness/test_redpair_newmodule_order.py"
+      ],
+      "acceptance_criteria": [
+        "Test is successfully authored at tests/harness/test_redpair_newmodule_order.py",
+        "Test contains assertions for new-module red-pair bug, non-vacuity regression, and existing-module control",
+        "Test passes successfully when run via pytest"
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/harness/test_redpair_newmodule_order.py -q",
+      "spec": {
+        "objective": "Author a data-driven test tests/harness/test_redpair_newmodule_order.py to verify dependency order preservation for new-module oracles.",
+        "functional_requirements": [
+          "Verify that for a new-module red-pair with empty repo_root (absent module), dependencies are preserved (impl depends on oracle, oracle dependencies are empty).",
+          "Verify narrowness: if the verification command does not substring-name the oracle test, the dependency direction is flipped (oracle depends on impl).",
+          "Verify existing-module control: when the module file is present in the repo_root, the dependency direction is preserved (impl depends on oracle)."
+        ],
+        "interfaces": "from harness.planner.plan_normalizer import normalize_plan",
+        "edge_cases": [
+          "Absent module file in a temporary directory",
+          "Present module file in a temporary directory",
+          "Verification command naming/not naming the oracle test file"
+        ],
+        "non_goals": [
+          "Integration is out of scope (no integration testing is performed)."
+        ],
+        "implementation_notes": "The test must be data-driven (no clock/uuid/random/network/hardcoded keys) and assert the dependencies of normalize_plan results."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_new_module_redpair_bug"
+          },
+          {
+            "name": "test_non_vacuity_regression"
+          },
+          {
+            "name": "test_existing_module_control"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [],
+        "minimum_test_count": 10,
+        "test_data_requirements": "pytest tmp_path directory for temporary files"
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 100,
+        "note": "Test authoring task only."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "redpair-newmodule-order-impl",
+      "title": "Preserve red-pair dependency order for new-module oracles in _enforce_module_first",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [
+        "redpair-newmodule-order-oracle"
+      ],
+      "files_touched": [
+        "harness/planner/plan_normalizer.py"
+      ],
+      "acceptance_criteria": [
+        "harness/planner/plan_normalizer.py is edited to remove the is_file() on-disk existence check and repo_root is not None guard in _enforce_module_first",
+        "The fix-forward red-pair carve-out fires whenever verification_command substring-names an oracle test file",
+        "Tests authored in tests/harness/test_redpair_newmodule_order.py pass successfully"
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/harness/test_redpair_newmodule_order.py -q",
+      "spec": {
+        "objective": "Modify plan_normalizer.py::_enforce_module_first to drop the is_file() existence check and the repo_root guard.",
+        "functional_requirements": [
+          "Drop the `is_file()` on-disk existence check in the carve-out of `_enforce_module_first`.",
+          "Drop the now-unused `repo_root is not None` guard in the same carve-out.",
+          "Keep all other logic in `_enforce_module_first` byte-identical, preserving the function signature."
+        ],
+        "interfaces": "harness/planner/plan_normalizer.py::_enforce_module_first",
+        "edge_cases": [
+          "Missing module on disk (new-module scenario) should not trigger a flip if verification command matches",
+          "Verification command does not substring-name the oracle test: flip should still occur"
+        ],
+        "non_goals": [
+          "Integration is out of scope (no integration tests or modifications outside of _enforce_module_first)."
+        ],
+        "implementation_notes": "Emit a `__JANUSMASK_PATCHES__` patch replacing only `_enforce_module_first`. Do not emit a manifest."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_new_module_redpair_bug"
+          },
+          {
+            "name": "test_non_vacuity_regression"
+          },
+          {
+            "name": "test_existing_module_control"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_new_module_redpair_bug"
+          },
+          {
+            "name": "test_non_vacuity_regression"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Verify using the tests authored in tests/harness/test_redpair_newmodule_order.py."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation and test validation."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_redpair_newmodule_preserve_order.md",
+  "source_brief_sha256": "fb15eb511da853eb763d6b4dd8aefbd3dd2e68ccfe6afce7d97f7adad5a77cfe",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+  "required_task_ids": [
+    "redpair-newmodule-order-oracle",
+    "redpair-newmodule-order-impl"
+  ]
+}

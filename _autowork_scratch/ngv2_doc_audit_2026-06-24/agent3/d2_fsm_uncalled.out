@@ -1,0 +1,36 @@
+=== D2: are env-FSM handlers called by the live run_hunt conductor? ===
+
+Landed FSM handler symbols to trace: ['fsm_evidence', 'jail_build_gate', 'fsm_jail_build', 'phase_artifact_hash', 'advance_gate', 'ENV_PHASE_ORDER']
+
+--- References to FSM handlers in the LIVE conductor path ---
+  ngv2/run_hunt.py: 0 handler-CALL references
+  ngv2/transition_planner.py: 0 handler-CALL references
+  ngv2/conductor_seams.py: 0 handler-CALL references
+  ngv2/gate_executor.py: 0 handler-CALL references
+  ngv2/workers: 0 handler-CALL references
+
+--- fsm_evidence is imported by (passes wire-up via import graph): ---
+    ngv2/fsm_jail_build.py:3:from ngv2.fsm_evidence import phase_artifact_hash, advance_gate, ENV_PHASE_ORDER
+    ngv2/transition_planner.py:60:from ngv2.fsm_evidence import PHASE_ORDER
+    ngv2/gate_executor.py:107:from ngv2.fsm_evidence import PHASE_ORDER
+
+--- but is any FSM-state GATE invoked in the phase loop? ---
+   transition_planner PHASE_ORDER lines:
+      14:    if phase in PHASE_ORDER:
+      15:        idx = PHASE_ORDER.index(phase)
+      16:        if idx + 1 < len(PHASE_ORDER):
+      17:            return PHASE_ORDER[idx + 1]
+      60:from ngv2.fsm_evidence import PHASE_ORDER
+   worker/agent phase definitions:
+      ngv2/stage_command_map.py:10:AGENT_PHASES = frozenset({'hunt', 'triage', 'verify', 'poc', 'detonate', 'novelty', 'report'})
+      ngv2/stage_command_map.py:30:    if phase not in AGENT_PHASES:
+      ngv2/transition_planner.py:53:    worker_phases = [('hunt', 'findings', 'triage'), ('triage', 'triaged', 'verify'), ('verify', 've
+      ngv2/transition_planner.py:54:    for worker_phase, count_field, next_phase in worker_phases:
+
+
+=== VERDICT ===
+If the live-path files show 0 handler-CALL references AND the brief
+explicitly defers wiring -> CONFIRMED DECOMP-DEVIATION: the FSM handlers
+land green via IMPORT reachability but run_hunt never CALLS them. The doc
+wire-up clause ("reachable from run_hunt") is satisfied vacuously by the
+import edge, not by a real invocation -> BUILT, not WORKS.

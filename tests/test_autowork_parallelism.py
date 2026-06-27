@@ -51,12 +51,12 @@ def test_project_isolation():
     a = {'task_id': 'A', 'files_touched': ['foo.py'], 'working_dir': ext}
     b = {'task_id': 'B', 'files_touched': ['bar.py']}
     assert can_run_parallel(a, b) is True
-    a = {'task_id': 'A', 'files_touched': ['foo.py'], 'working_dir': '/home/xnihil0zer0/JanusMaskJR'}
-    b = {'task_id': 'B', 'files_touched': ['bar.py'], 'working_dir': '/home/xnihil0zer0/JanusMaskJR'}
+    a = {'task_id': 'A', 'files_touched': ['foo.py'], 'working_dir': '/home/xnihil0zer0/AI-Data/JanusMaskEX'}
+    b = {'task_id': 'B', 'files_touched': ['bar.py'], 'working_dir': '/home/xnihil0zer0/AI-Data/JanusMaskEX'}
     assert can_run_parallel(a, b) is True
 
 def test_project_isolation_exact_path():
-    fixtures = '/home/xnihil0zer0/JanusMaskJR/fixtures/NobleGreedv2-samples'
+    fixtures = '/home/xnihil0zer0/AI-Data/JanusMaskEX/fixtures/NobleGreedv2-samples'
     a = {'task_id': 'A', 'files_touched': ['foo.py'], 'working_dir': fixtures}
     b = {'task_id': 'B', 'files_touched': ['bar.py'], 'working_dir': fixtures}
     assert can_run_parallel(a, b) is True

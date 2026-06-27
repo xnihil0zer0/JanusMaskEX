@@ -1,0 +1,93 @@
+{
+  "task_id": "claudecap-parallel-isolation-impl",
+  "title": "Implementation: Enable up to N concurrent Claude workers across different tasks with per-worker CLAUDE_CONFIG_DIR isolation",
+  "meta_task_type": "harness_self_fix",
+  "priority": "critical",
+  "dependencies": [
+    "claudecap-parallel-isolation-oracle"
+  ],
+  "files_touched": [
+    "harness/autowork_daemon.py",
+    "harness/orchestrator.py",
+    "harness/config.yaml"
+  ],
+  "acceptance_criteria": [
+    "harness/config.yaml has workers.claude_parallel_cap set to 4.",
+    "harness/autowork_daemon.py dispatches up to claude_parallel_cap workers concurrently in parallel, falling back to sequential only when exceeding the cap.",
+    "harness/orchestrator.py builds a distinct per-task CLAUDE_CONFIG_DIR env variable for headless Claude and seeds it idempotently.",
+    "The authored tests in tests/harness/test_claudecap_parallel_isolation.py pass green: python -m pytest tests/harness/test_claudecap_parallel_isolation.py -q"
+  ],
+  "spec_author": null,
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/harness/test_claudecap_parallel_isolation.py -q",
+  "spec": {
+    "objective": "Implement the configurable workers.claude_parallel_cap parameter, modify the dispatch loop to support concurrent spawning of Claude workers in parallel up to the cap, and configure distinct per-task seeded config directory environment variables for headless Claude workers.",
+    "functional_requirements": [
+      "Implement configurable `workers.claude_parallel_cap` in autowork config with a default of 4, clamped to `[1, parallel_cap]`.",
+      "Modify the `autowork_daemon` iteration loop to dispatch up to `claude_parallel_cap` concurrent Claude workers in parallel using `_spawn_worker` without blocking or suspending.",
+      "Ensure sequential fallback (suspension and blocking) is only triggered when in-flight Claude workers would exceed `claude_parallel_cap`.",
+      "In `orchestrator._build_agent_env`, for headless Claude backend, generate a distinct `CLAUDE_CONFIG_DIR` based on task work directory and seed it idempotently with credential files.",
+      "Implement the environment changes and seeding in a fail-safe manner, falling back to HEAD behavior on any exception."
+    ],
+    "interfaces": "harness/autowork_daemon.py, harness/orchestrator.py, and harness/config.yaml.",
+    "edge_cases": [
+      "test_claude_parallel_cap_4_disjoint_tasks_run_concurrently: cap=4 with two disjoint-files claude tasks dispatch via the parallel branch (no mutual SIGSTOP).",
+      "test_claude_parallel_cap_1_is_fully_sequential: cap=1 reproduces today's sequential/suspend behavior (back-compat).",
+      "test_overlapping_files_still_serialize_under_cap: overlapping files_touched still serialize (veto holds).",
+      "test_headless_claude_env_gets_distinct_config_dir: each claude worker env gets a distinct per-task CLAUDE_CONFIG_DIR; gemini/agy env unchanged."
+    ],
+    "non_goals": [
+      "An integration shim, an integration-level e2e harness, or a live-concurrency integration test is explicitly out of scope."
+    ],
+    "implementation_notes": "Write _claude_parallel_cap in autowork_daemon.py, update the dispatch loop condition in autowork_daemon.py, modify _build_agent_env in orchestrator.py, and add workers.claude_parallel_cap: 4 to config.yaml."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_impl_config_cap_read_defaults"
+      },
+      {
+        "name": "test_impl_dispatch_parallel_under_cap"
+      },
+      {
+        "name": "test_impl_dispatch_sequential_over_cap"
+      },
+      {
+        "name": "test_impl_orchestrator_seeds_config_dir"
+      },
+      {
+        "name": "test_impl_failsafe_degradation"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [],
+    "regression_tests": [
+      {
+        "name": "test_claude_parallel_cap_4_disjoint_tasks_run_concurrently"
+      },
+      {
+        "name": "test_claude_parallel_cap_1_is_fully_sequential"
+      },
+      {
+        "name": "test_overlapping_files_still_serialize_under_cap"
+      },
+      {
+        "name": "test_headless_claude_env_gets_distinct_config_dir"
+      }
+    ],
+    "minimum_test_count": 10,
+    "test_data_requirements": "Pre-committed tests in tests/harness/test_claudecap_parallel_isolation.py"
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 100,
+    "test_tokens": 200,
+    "note": "Implementation of parallel cap and config dir isolation, verified by tests."
+  },
+  "attribution_metadata": {
+    "proposed_by": "gemini",
+    "reconciled": false,
+    "diff_resolution": null
+  },
+  "_debug_stamping_reason": "Task was only proposed by Gemini.",
+  "repair_feedback": "event=verification_failed\nexit=4\nstdout_tail:\n\nno tests ran in 0.00s\n\nstderr_tail:\nERROR: file or directory not found: tests/harness/test_claudecap_parallel_isolation.py\n\n"
+}

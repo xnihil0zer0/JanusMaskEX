@@ -92,24 +92,20 @@ else
   echo "state/STATE.json already exists, skipping."
 fi
 
-# Operator memory seed (REPL-9) — copy the clone-survivable MEMORY.bootstrap.md
-# into the per-CWD memory slug dir so a fresh clone has the operating procedure
-# even though ~/.claude/projects/<slug>/memory/ is not part of the checkout.
-# Slug derivation mirrors scripts/impl_pre_write.py:170-172
-# (absolute CWD with '/' -> '-', single leading '-'). Warn-don't-fail and never
-# clobber an existing live MEMORY.md.
-if [ -f "$PROJ/config/MEMORY.bootstrap.md" ]; then
+# Operator memory seed (REPL-9) — copy the clone-survivable memory files
+# from local-memory/ into the per-CWD memory slug dir so a fresh clone has
+# the operating procedure even though ~/.claude/projects/<slug>/memory/ is not
+# part of the checkout. Slug derivation mirrors scripts/impl_pre_write.py:170-172
+# (absolute CWD with '/' -> '-', single leading '-'). Warn-don't-fail.
+if [ -d "$PROJ/local-memory" ]; then
   _MEM_SLUG="-$(printf '%s' "$PROJ" | sed 's#/#-#g' | sed 's#^-*##')"
   _MEM_DIR="$HOME/.claude/projects/$_MEM_SLUG/memory"
   if mkdir -p "$_MEM_DIR" 2>/dev/null; then
-    if [ ! -f "$_MEM_DIR/MEMORY.md" ]; then
-      if cp "$PROJ/config/MEMORY.bootstrap.md" "$_MEM_DIR/MEMORY.md" 2>/dev/null; then
-        echo "Seeded operator memory at $_MEM_DIR/MEMORY.md."
-      else
-        echo "WARNING: failed to seed MEMORY.md into $_MEM_DIR" >&2
-      fi
+    echo "Seeding operator memory files from local-memory to $_MEM_DIR..."
+    if cp -p "$PROJ/local-memory/"*.md "$_MEM_DIR/" 2>/dev/null; then
+      echo "Seeded operator memory files at $_MEM_DIR."
     else
-      echo "$_MEM_DIR/MEMORY.md already exists, skipping seed."
+      echo "WARNING: failed to seed memory files into $_MEM_DIR" >&2
     fi
   else
     echo "WARNING: failed to create memory slug dir $_MEM_DIR" >&2

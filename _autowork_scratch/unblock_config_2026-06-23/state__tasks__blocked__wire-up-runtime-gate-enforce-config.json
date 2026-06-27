@@ -1,0 +1,90 @@
+{
+  "task_id": "wire-up-runtime-gate-enforce-config",
+  "title": "Land both default-OFF knobs (wire_up_runtime_gate + wire_up_runtime_gate_enforce, both false) in committed harness/config.yaml",
+  "meta_task_type": "harness_self_fix",
+  "priority": "high",
+  "dependencies": [
+    "wire-up-runtime-gate-enforce-oracle"
+  ],
+  "files_touched": [
+    "harness/config.yaml"
+  ],
+  "acceptance_criteria": [
+    "harness/config.yaml gains two new keys under the autowork: mapping (near wire_up_gate: true): wire_up_runtime_gate: false and wire_up_runtime_gate_enforce: false.",
+    "Every other byte of harness/config.yaml is preserved verbatim - wire_up_gate: true is unchanged and no other key is mutated; YAML mapping order is not semantic so placement near wire_up_gate is fine.",
+    "Both keys are false, so prod behavior is byte-identical to today (both false == both absent); the shadow path becomes activatable by flipping a committed key and the enforce flip becomes a one-line owner change.",
+    "Submitted via a SINGLE __JANUSMASK_MANIFEST__ whole-file replacement of harness/config.yaml (config.yaml is non-.py, so a symbol patch is not applicable); NO __JANUSMASK_PATCHES__ is emitted.",
+    "harness/config.yaml is NOT in _NEVER_AUTO_APPROVE, so the task is auto-approve-eligible and needs no operator decision file.",
+    "non_goals contains the literal word 'integration'; regression_tests >= 2; the scoped verification_command passes with N>=2 (config still loads and the keys are present and false)."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "low",
+  "verification_command": "python -m pytest tests/harness/test_wire_up_runtime_gate_enforce.py -q",
+  "spec": {
+    "objective": "Land the two committed knobs and nothing else, so the PHASE-2 shadow path is no longer dormant (activatable by a committed-key flip) and the PHASE-3 enforce flip is a one-line owner change. Both keys ship as false, preserving byte-identical prod behavior today; this is exactly how wire_up_gate shipped (added to config, then flipped on in a separate owner commit).",
+    "functional_requirements": [
+      "Emit a __JANUSMASK_MANIFEST__ whole-file replacement of harness/config.yaml that inserts wire_up_runtime_gate: false and wire_up_runtime_gate_enforce: false into the autowork: mapping near wire_up_gate: true, with every other byte preserved verbatim.",
+      "Do NOT change wire_up_gate: true or any other key in the file; YAML mapping order is not semantic so the two new keys may sit adjacent to wire_up_gate.",
+      "Both keys are false so prod is byte-identical to today (both false == both absent); the keys make the shadow path activatable by a committed-key flip and the enforce flip a one-line owner change.",
+      "The task is auto-approve-eligible (harness/config.yaml is NOT in _NEVER_AUTO_APPROVE) and needs no operator decision file; emit no __JANUSMASK_PATCHES__."
+    ],
+    "interfaces": "Config surface only: config['autowork']['wire_up_runtime_gate'] == False and config['autowork']['wire_up_runtime_gate_enforce'] == False after this lands. These are the keys read by the PHASE-2 _wire_up_runtime_gate_enabled and the PHASE-3 _wire_up_runtime_gate_enforce_enabled readers (both default False, so absence and false are equivalent for prod behavior). No Python symbol changes.",
+    "edge_cases": [
+      "The whole-file manifest must reproduce the existing 196-line config.yaml exactly except for the two inserted keys; any incidental reflow or comment change would be a regression.",
+      "Both readers default to False, so even if the keys were mis-indented the loader would fall back to False - but the keys must land under autowork: for the activation/flip story to hold.",
+      "The vcmd does not depend on the committed values (the oracle monkeypatches the readers); this task's check is only that config still LOADS and the keys are present and false."
+    ],
+    "non_goals": [
+      "Integration testing is out of scope; the literal word integration appears here to excuse the integration-test requirement.",
+      "Flipping either knob to true, or the soak (>= M=25 clean phase:'report' rows, zero false positives, operator-tunable) that must precede the enforce flip - a separate owner-gated manual step.",
+      "Editing harness/orchestrator.py (TASK 2), harness/wire_up.py, or any other file; changing wire_up_gate or any unrelated autowork key.",
+      "Emitting a symbol patch (config.yaml is non-.py, whole-file manifest is the only YAML channel)."
+    ],
+    "implementation_notes": "Read harness/config.yaml verbatim and reproduce it exactly as the manifest body, inserting the two new keys into the autowork: block (which currently ends with wire_up_gate: true at ~line 80). A natural placement is immediately after wire_up_gate: true: 'wire_up_runtime_gate: false' then 'wire_up_runtime_gate_enforce: false', at the same two-space indentation as the sibling autowork keys. Do not touch the VERDICT_v3 comment block or any other key. Because config.yaml is not .py, the only sidecar channel is __JANUSMASK_MANIFEST__; emit exactly one. Re-run the exact verification_command before dispatch and confirm N passed with N>=2."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_config_loads_after_adding_two_keys"
+      },
+      {
+        "name": "test_wire_up_runtime_gate_present_and_false"
+      },
+      {
+        "name": "test_wire_up_runtime_gate_enforce_present_and_false"
+      },
+      {
+        "name": "test_wire_up_gate_still_true_and_other_keys_unchanged"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [
+      {
+        "name": "test_both_new_keys_default_off_equivalent_to_absent"
+      }
+    ],
+    "regression_tests": [
+      {
+        "name": "test_prod_behavior_byte_identical_when_both_keys_false"
+      },
+      {
+        "name": "test_no_other_autowork_key_mutated_by_manifest"
+      }
+    ],
+    "minimum_test_count": 6,
+    "test_data_requirements": "The verification_command drives the same TASK 1 enforce oracle (which monkeypatches the readers and so is independent of the committed values); the config-presence/load assertions read the real harness/config.yaml. No new fixtures committed."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 40,
+    "test_tokens": 80,
+    "note": "Two literal config keys; the oracle does not depend on the committed values, so test tokens stay >= 1.5x the tiny impl."
+  },
+  "attribution_metadata": {
+    "proposed_by": "reconciled",
+    "reconciled": true,
+    "diff_resolution": "reconciled"
+  },
+  "_debug_stamping_reason": "Task was divergent and resolved via reconciliation.",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+  "repair_feedback": "nam0')\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x71a5918cc050>\n\n    def test_reject_rows_only_ever_name_new_in_commit_symbols(tmp_path, monkeypatch):\n        _arm(monkeypatch, shadow=True, enforce=True)\n        state_dir, repo, staging, sha = _build_tree(tmp_path, _PARENT_OLD, _CHILD_OLD_BRANDNEW)\n        parent_on_disk = _git(repo, 'show', f'HEAD:{_REL}').stdout\n        child_on_disk = (staging / _REL).read_text(encoding='utf-8')\n        new_syms = set(new_top_level_callables(parent_on_disk, child_on_disk))\n        assert 'brand_new' in new_syms and 'old_uncalled' not in new_syms and ('already' not in new_syms)\n        tid = 'WURGE_PROP'\n        task = _task(tid)\n        _stage_task_file(state_dir, tid, task)\n        returned, rows, tip, exists = _drive(task, state_dir, repo, staging, sha, tid)\n>       assert returned is True, 'enforce ON + uncovered must reject (the property has teeth only when a reject occurs)'\nE       AssertionError: enforce ON + uncovered must reject (the property has teeth only when a reject occurs)\nE       assert False is True\n\ntests/harness/test_wire_up_runtime_gate_enforce.py:356: AssertionError\n------------------------------ Captured log call -------------------------------\nWARNING  janusmask.orchestrator:orchestrator.py:2289 orphan_symbol_unwired: task=WURGE_PROP module pkg/mod.py adds new top-level callable(s) ['brand_new'] with no valid per-symbol runtime-reachability contract -- REPORT-ONLY shadow finding (default-OFF runtime gate); staged commit NOT rolled back\n=========================== short test summary info ============================\nFAILED tests/harness/test_wire_up_runtime_gate_enforce.py::test_enforce_on_uncovered_rejects_rolls_back_blocks_returns_true\nFAILED tests/harness/test_wire_up_runtime_gate_enforce.py::test_enforce_on_self_cert_contract_still_rejects_brand_new\nFAILED tests/harness/test_wire_up_runtime_gate_enforce.py::test_reject_rows_only_ever_name_new_in_commit_symbols\n3 failed, 10 passed in 0.61s\n"
+}

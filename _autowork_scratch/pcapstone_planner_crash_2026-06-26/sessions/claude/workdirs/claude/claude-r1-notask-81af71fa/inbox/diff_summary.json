@@ -1,0 +1,735 @@
+{
+  "items": [
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "On the first-prompt branch (no task_read row yet), the Gemini hook calls _paths.load_inbox_task on the agent's inbox dir to retrieve files_touched",
+          "If state/control/autowork/self_healing_history.jsonl exists, the hook calls the new shared helpers to find overlapping records",
+          "When matches are found, the formatted section is appended to systemMessage in the returned payload"
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [
+          "RB_JR_self_heal_history_lookup"
+        ],
+        "estimated_complexity": "low",
+        "files_touched": [
+          "harness/hooks/gemini/user_prompt_submit.py"
+        ],
+        "meta_task_type": "hooks_integration",
+        "priority": "medium",
+        "spec": {
+          "edge_cases": [],
+          "functional_requirements": [
+            "In the first-prompt branch of harness/hooks/gemini/user_prompt_submit.py, after the task body is read, call _paths.load_inbox_task(_env.inbox_dir(session_id)) and extract files_touched.",
+            "When state/control/autowork/self_healing_history.jsonl exists and the shared helper returns matches, append the formatted section to the sections list so it is included in the joined systemMessage."
+          ],
+          "implementation_notes": "Mirror the Claude edit exactly so the two hooks diverge only on the response shape (additionalContext vs systemMessage). Keep the existence-check guard on self_healing_history.jsonl so cold state dirs incur no extra I/O.",
+          "interfaces": "Edits main() in harness/hooks/gemini/user_prompt_submit.py inside the existing `if not _ledger.has_verb(events, 'task_read', ...)` block. No public signature changes.",
+          "non_goals": [
+            "Do not modify the locked-fields reminder, cross-examination feedback branch, or ledger semantics.",
+            "Do not change the systemMessage join separator.",
+            "No integration test against a live Gemini binary is required: hook is exercised by feeding stdin into main() with stubbed _paths and _ledger modules."
+          ],
+          "objective": "Mirror the Claude history-injection change on the Gemini BeforeModel hook so both agents see the same self-healing context."
+        },
+        "spec_author": null,
+        "task_id": "RB_JR_self_heal_gemini_hook",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 3,
+          "property_tests": [],
+          "regression_tests": [],
+          "test_data_requirements": "tmp state_dir with an inbox containing task.json{files_touched: [...]}, plus a populated self_healing_history.jsonl with overlapping and non-overlapping records; monkeypatch _ledger to report no prior task_read event.",
+          "unit_tests": [
+            {
+              "name": "test_gemini_hook_appends_history_section_when_matches_found"
+            },
+            {
+              "name": "test_gemini_hook_omits_section_when_history_file_absent"
+            },
+            {
+              "name": "test_gemini_hook_omits_section_when_no_files_overlap"
+            }
+          ]
+        },
+        "title": "Inject self-healing history into Gemini BeforeModel context",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Hook edit is roughly ten lines and parallels the Claude edit; tests verify presence/absence under three orthogonal conditions.",
+          "test_tokens": 200
+        },
+        "verification_command": "python -m pytest tests/test_self_heal_gemini_hook.py -q"
+      },
+      "diff_item_id": "e55f8ded8dfebf6bbe936629941030092185ea51",
+      "field_divergences": [
+        [
+          "scope",
+          [
+            "Mirror the Claude history-injection change on the Gemini BeforeModel hook so both agents see the same self-healing context.",
+            [
+              "In the first-prompt branch of harness/hooks/gemini/user_prompt_submit.py, after the task body is read, call _paths.load_inbox_task(_env.inbox_dir(session_id)) and extract files_touched.",
+              "When state/control/autowork/self_healing_history.jsonl exists and the shared helper returns matches, append the formatted section to the sections list so it is included in the joined systemMessage."
+            ]
+          ],
+          [
+            "Inject recent self-healing history warnings into Gemini's first user prompt submit interceptor.",
+            [
+              "Verify existence of `self_healing_history.jsonl` in state directory.",
+              "Load inbox task details via `_paths.load_inbox_task()`.",
+              "Filter self-healing history records for any files_touched overlapping with current task's target files.",
+              "Format overlapping records into `--- RECENT SELF-HEALING HISTORY FOR RELATED COMPONENTS ---` warning section and append to returned prompt context."
+            ]
+          ]
+        ],
+        [
+          "dependencies",
+          [
+            "RB_JR_self_heal_history_lookup"
+          ],
+          [
+            "daemon_escalation_hook"
+          ]
+        ],
+        [
+          "non_goals",
+          [
+            "Do not modify the locked-fields reminder, cross-examination feedback branch, or ledger semantics.",
+            "Do not change the systemMessage join separator.",
+            "No integration test against a live Gemini binary is required: hook is exercised by feeding stdin into main() with stubbed _paths and _ledger modules."
+          ],
+          [
+            "Do not change how parallel task scheduling is validated or executed.",
+            "Do not modify other validation checks or gates on task promotion."
+          ]
+        ],
+        [
+          "tests",
+          {
+            "integration_tests": [],
+            "minimum_test_count": 3,
+            "property_tests": [],
+            "regression_tests": [],
+            "test_data_requirements": "tmp state_dir with an inbox containing task.json{files_touched: [...]}, plus a populated self_healing_history.jsonl with overlapping and non-overlapping records; monkeypatch _ledger to report no prior task_read event.",
+            "unit_tests": [
+              {
+                "name": "test_gemini_hook_appends_history_section_when_matches_found"
+              },
+              {
+                "name": "test_gemini_hook_omits_section_when_history_file_absent"
+              },
+              {
+                "name": "test_gemini_hook_omits_section_when_no_files_overlap"
+              }
+            ]
+          },
+          {
+            "integration_tests": [
+              {
+                "name": "test_gemini_prompt_interceptor_integration"
+              }
+            ],
+            "minimum_test_count": 10,
+            "property_tests": [],
+            "regression_tests": [],
+            "test_data_requirements": "Sample self-healing history JSONL files and staged inbox task configurations.",
+            "unit_tests": [
+              {
+                "name": "test_gemini_hook_injects_warning_on_overlap"
+              },
+              {
+                "name": "test_gemini_hook_skips_warning_on_no_overlap"
+              },
+              {
+                "name": "test_gemini_hook_skips_warning_if_no_history_file"
+              },
+              {
+                "name": "test_gemini_hook_survives_corrupt_history_file"
+              }
+            ]
+          }
+        ]
+      ],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "The first-prompt initialization branch checks for the existence of `self_healing_history.jsonl`.",
+          "The current task details are loaded using `_paths.load_inbox_task()` to get its `files_touched`.",
+          "The self-healing history is queried to find records with overlapping files_touched.",
+          "Overlapping attempts are formatted into a warning section and appended to the session's `systemMessage` and `additionalContext` in the hook response."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [
+          "daemon_escalation_hook"
+        ],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "harness/hooks/gemini/user_prompt_submit.py"
+        ],
+        "meta_task_type": "hooks_integration",
+        "priority": "medium",
+        "spec": {
+          "edge_cases": [],
+          "functional_requirements": [
+            "Verify existence of `self_healing_history.jsonl` in state directory.",
+            "Load inbox task details via `_paths.load_inbox_task()`.",
+            "Filter self-healing history records for any files_touched overlapping with current task's target files.",
+            "Format overlapping records into `--- RECENT SELF-HEALING HISTORY FOR RELATED COMPONENTS ---` warning section and append to returned prompt context."
+          ],
+          "implementation_notes": "Read the history log line-by-line, parsing JSON records and checking if set intersection between current task's files_touched and history record's files_touched is non-empty.",
+          "interfaces": "Updates `main()` in `harness/hooks/gemini/user_prompt_submit.py`.",
+          "non_goals": [
+            "Do not change how parallel task scheduling is validated or executed.",
+            "Do not modify other validation checks or gates on task promotion."
+          ],
+          "objective": "Inject recent self-healing history warnings into Gemini's first user prompt submit interceptor."
+        },
+        "spec_author": null,
+        "task_id": "gemini_prompt_history_hook",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_gemini_prompt_interceptor_integration"
+            }
+          ],
+          "minimum_test_count": 10,
+          "property_tests": [],
+          "regression_tests": [],
+          "test_data_requirements": "Sample self-healing history JSONL files and staged inbox task configurations.",
+          "unit_tests": [
+            {
+              "name": "test_gemini_hook_injects_warning_on_overlap"
+            },
+            {
+              "name": "test_gemini_hook_skips_warning_on_no_overlap"
+            },
+            {
+              "name": "test_gemini_hook_skips_warning_if_no_history_file"
+            },
+            {
+              "name": "test_gemini_hook_survives_corrupt_history_file"
+            }
+          ]
+        },
+        "title": "Integrate self-healing history context hook for Gemini",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Standard budget for Gemini hook script integration and prompt output validation.",
+          "test_tokens": 150
+        },
+        "verification_command": "python3 -m unittest discover -s tests -p '*test_hooks*'"
+      },
+      "kind": "divergent",
+      "match_reason": "files_and_title"
+    },
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "On the first-prompt branch (no task_read row yet), the hook calls _paths.load_inbox_task on the agent's inbox dir to retrieve files_touched",
+          "If state/control/autowork/self_healing_history.jsonl exists, the hook calls the new shared helpers to find overlapping records",
+          "When matches are found, the formatted section is appended to additionalContext in the returned hookSpecificOutput payload"
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [
+          "RB_JR_self_heal_history_lookup"
+        ],
+        "estimated_complexity": "low",
+        "files_touched": [
+          "harness/hooks/claude/user_prompt_submit.py"
+        ],
+        "meta_task_type": "hooks_integration",
+        "priority": "medium",
+        "spec": {
+          "edge_cases": [],
+          "functional_requirements": [
+            "In the first-prompt initialisation branch, after the task body is read, call _paths.load_inbox_task(_env.inbox_dir(session_id)) and extract its files_touched list defensively.",
+            "Check whether state/control/autowork/self_healing_history.jsonl exists before invoking the new shared lookup; when it does and matches are returned, append the formatted section as an extra entry in the sections list so it is included in the joined additionalContext."
+          ],
+          "implementation_notes": "Reuse the existing sections list so the warning section is concatenated by the existing '\\n\\n'.join(sections). Guard the helper call with a state_dir-relative existence check on the jsonl file to avoid unnecessary I/O on fresh state dirs.",
+          "interfaces": "Edits main() in harness/hooks/claude/user_prompt_submit.py inside the existing `if not _ledger.has_verb(events, 'task_read', ...)` block. No public signature changes.",
+          "non_goals": [
+            "Do not modify the locked-fields reminder, cross-examination feedback branch, or ledger semantics.",
+            "Do not change the additionalContext join separator.",
+            "No integration test against a live Claude binary is required: hook is exercised by feeding stdin into main() with stubbed _paths and _ledger modules."
+          ],
+          "objective": "Make the Claude UserPromptSubmit hook surface prior self-healing attempts that touched the same files as the current task so the worker can avoid repeating a known failing trajectory."
+        },
+        "spec_author": null,
+        "task_id": "RB_JR_self_heal_claude_hook",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 3,
+          "property_tests": [],
+          "regression_tests": [],
+          "test_data_requirements": "tmp state_dir with an inbox containing task.json{files_touched: [...]}, plus a populated self_healing_history.jsonl with overlapping and non-overlapping records; monkeypatch _ledger to report no prior task_read event.",
+          "unit_tests": [
+            {
+              "name": "test_claude_hook_appends_history_section_when_matches_found"
+            },
+            {
+              "name": "test_claude_hook_omits_section_when_history_file_absent"
+            },
+            {
+              "name": "test_claude_hook_omits_section_when_no_files_overlap"
+            }
+          ]
+        },
+        "title": "Inject self-healing history into Claude UserPromptSubmit context",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Hook edit is roughly ten lines; tests verify presence/absence under three orthogonal conditions.",
+          "test_tokens": 200
+        },
+        "verification_command": "python -m pytest tests/test_self_heal_claude_hook.py -q"
+      },
+      "diff_item_id": "f69c4bd00d36ba1586e0ffe52005d3787337734c",
+      "field_divergences": [
+        [
+          "scope",
+          [
+            "Make the Claude UserPromptSubmit hook surface prior self-healing attempts that touched the same files as the current task so the worker can avoid repeating a known failing trajectory.",
+            [
+              "In the first-prompt initialisation branch, after the task body is read, call _paths.load_inbox_task(_env.inbox_dir(session_id)) and extract its files_touched list defensively.",
+              "Check whether state/control/autowork/self_healing_history.jsonl exists before invoking the new shared lookup; when it does and matches are returned, append the formatted section as an extra entry in the sections list so it is included in the joined additionalContext."
+            ]
+          ],
+          [
+            "Inject recent self-healing history warnings into Claude's first user prompt submit interceptor.",
+            [
+              "Verify existence of `self_healing_history.jsonl` in state directory.",
+              "Load inbox task details via `_paths.load_inbox_task()`.",
+              "Filter self-healing history records for any files_touched overlapping with current task's target files.",
+              "Format overlapping records into `--- RECENT SELF-HEALING HISTORY FOR RELATED COMPONENTS ---` warning section and append to returned `additionalContext`."
+            ]
+          ]
+        ],
+        [
+          "dependencies",
+          [
+            "RB_JR_self_heal_history_lookup"
+          ],
+          [
+            "daemon_escalation_hook"
+          ]
+        ],
+        [
+          "non_goals",
+          [
+            "Do not modify the locked-fields reminder, cross-examination feedback branch, or ledger semantics.",
+            "Do not change the additionalContext join separator.",
+            "No integration test against a live Claude binary is required: hook is exercised by feeding stdin into main() with stubbed _paths and _ledger modules."
+          ],
+          [
+            "Do not change how parallel task scheduling is validated or executed.",
+            "Do not modify other validation checks or gates on task promotion."
+          ]
+        ],
+        [
+          "tests",
+          {
+            "integration_tests": [],
+            "minimum_test_count": 3,
+            "property_tests": [],
+            "regression_tests": [],
+            "test_data_requirements": "tmp state_dir with an inbox containing task.json{files_touched: [...]}, plus a populated self_healing_history.jsonl with overlapping and non-overlapping records; monkeypatch _ledger to report no prior task_read event.",
+            "unit_tests": [
+              {
+                "name": "test_claude_hook_appends_history_section_when_matches_found"
+              },
+              {
+                "name": "test_claude_hook_omits_section_when_history_file_absent"
+              },
+              {
+                "name": "test_claude_hook_omits_section_when_no_files_overlap"
+              }
+            ]
+          },
+          {
+            "integration_tests": [
+              {
+                "name": "test_claude_prompt_interceptor_integration"
+              }
+            ],
+            "minimum_test_count": 10,
+            "property_tests": [],
+            "regression_tests": [],
+            "test_data_requirements": "Sample self-healing history JSONL files and staged inbox task configurations.",
+            "unit_tests": [
+              {
+                "name": "test_claude_hook_injects_warning_on_overlap"
+              },
+              {
+                "name": "test_claude_hook_skips_warning_on_no_overlap"
+              },
+              {
+                "name": "test_claude_hook_skips_warning_if_no_history_file"
+              },
+              {
+                "name": "test_claude_hook_survives_corrupt_history_file"
+              }
+            ]
+          }
+        ]
+      ],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "The first-prompt initialization branch checks for the existence of `self_healing_history.jsonl`.",
+          "The current task details are loaded using `_paths.load_inbox_task()` to get its `files_touched`.",
+          "The self-healing history is queried to find records with overlapping files_touched.",
+          "Overlapping attempts are formatted into a warning section and appended to the session's `additionalContext` in the hook response."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [
+          "daemon_escalation_hook"
+        ],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "harness/hooks/claude/user_prompt_submit.py"
+        ],
+        "meta_task_type": "hooks_integration",
+        "priority": "medium",
+        "spec": {
+          "edge_cases": [],
+          "functional_requirements": [
+            "Verify existence of `self_healing_history.jsonl` in state directory.",
+            "Load inbox task details via `_paths.load_inbox_task()`.",
+            "Filter self-healing history records for any files_touched overlapping with current task's target files.",
+            "Format overlapping records into `--- RECENT SELF-HEALING HISTORY FOR RELATED COMPONENTS ---` warning section and append to returned `additionalContext`."
+          ],
+          "implementation_notes": "Read the history log line-by-line, parsing JSON records and checking if set intersection between current task's files_touched and history record's files_touched is non-empty.",
+          "interfaces": "Updates `main()` in `harness/hooks/claude/user_prompt_submit.py`.",
+          "non_goals": [
+            "Do not change how parallel task scheduling is validated or executed.",
+            "Do not modify other validation checks or gates on task promotion."
+          ],
+          "objective": "Inject recent self-healing history warnings into Claude's first user prompt submit interceptor."
+        },
+        "spec_author": null,
+        "task_id": "claude_prompt_history_hook",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_claude_prompt_interceptor_integration"
+            }
+          ],
+          "minimum_test_count": 10,
+          "property_tests": [],
+          "regression_tests": [],
+          "test_data_requirements": "Sample self-healing history JSONL files and staged inbox task configurations.",
+          "unit_tests": [
+            {
+              "name": "test_claude_hook_injects_warning_on_overlap"
+            },
+            {
+              "name": "test_claude_hook_skips_warning_on_no_overlap"
+            },
+            {
+              "name": "test_claude_hook_skips_warning_if_no_history_file"
+            },
+            {
+              "name": "test_claude_hook_survives_corrupt_history_file"
+            }
+          ]
+        },
+        "title": "Integrate self-healing history context hook for Claude",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Standard budget for hook script integration and prompt output validation.",
+          "test_tokens": 150
+        },
+        "verification_command": "python3 -m unittest discover -s tests -p '*test_hooks*'"
+      },
+      "kind": "divergent",
+      "match_reason": "files_and_title"
+    },
+    {
+      "candidate_near_miss": null,
+      "candidates": [
+        [
+          "RB_JR_self_heal_escalate_helper",
+          "files_jaccard_high",
+          [
+            1.0,
+            0.29411764705882354
+          ]
+        ],
+        [
+          "RB_JR_self_heal_retry_wiring",
+          "files_jaccard_high",
+          [
+            1.0,
+            0.35514018691588783
+          ]
+        ]
+      ],
+      "claude_task": null,
+      "diff_item_id": "a8cf2a5327b4affdf445aa8c0c43357dd831a7d9",
+      "field_divergences": [],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "The helper function `_escalate_to_autobrief` safe-loads `config.yaml` using standard safe-loading.",
+          "A record of the escalation is appended to `state/control/autowork/self_healing_history.jsonl` with correct schema.",
+          "The default agent is looked up and command/args are retrieved and interpolated with configuration paths.",
+          "An instruction prompt is compiled with traceback/fuzz error logs and file directions.",
+          "The agent command is spawned in the background via subprocess.Popen.",
+          "The escalation hook is invoked in `_retry_blocked_tasks` when attempts reach the effective maximum."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "harness/autowork_daemon.py"
+        ],
+        "meta_task_type": "harness_plumbing",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [],
+          "functional_requirements": [
+            "Load and parse `<state_dir>/tasks/blocked/{task_id}.json` to extract `files_touched` and `objective`.",
+            "Safe-load `config.yaml` and look up `control.autobrief_default_agent` with fallback to 'claude'.",
+            "Retrieve command and args for the selected agent, substituting configuration path placeholders.",
+            "Compile instructions with traceback/fuzz errors, brief-creation targets, and auto-promote allowlist additions.",
+            "Spawn the agent subprocess in the background using `subprocess.Popen` in planning mode.",
+            "Invoke `_escalate_to_autobrief` inside `_retry_blocked_tasks` when attempts meet or exceed effective_max retry budget."
+          ],
+          "implementation_notes": "Write the self_healing_history.jsonl record dynamically using thread-safe/append-only logic. Ensure the spawned Popen handles inherit proper environment settings.",
+          "interfaces": "Internal helper function `_escalate_to_autobrief(state_dir: pathlib.Path, task_id: str, last_outcome: str)` added to `harness/autowork_daemon.py`.",
+          "non_goals": [
+            "Do not change how parallel task scheduling is validated or executed.",
+            "Do not modify other validation checks or gates on task promotion."
+          ],
+          "objective": "Integrate exhaustion escalation hook and dynamic self-healing tracker in the autowork daemon."
+        },
+        "spec_author": null,
+        "task_id": "daemon_escalation_hook",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_daemon_full_escalation_flow"
+            }
+          ],
+          "minimum_test_count": 10,
+          "property_tests": [],
+          "regression_tests": [],
+          "test_data_requirements": "Valid and invalid config.yaml configurations, mock blocked tasks with valid files_touched and objectives.",
+          "unit_tests": [
+            {
+              "name": "test_escalate_to_autobrief_safe_loads_config"
+            },
+            {
+              "name": "test_escalate_to_autobrief_writes_history_record"
+            },
+            {
+              "name": "test_escalate_to_autobrief_resolves_agent_command"
+            },
+            {
+              "name": "test_escalate_to_autobrief_spawns_subprocess"
+            },
+            {
+              "name": "test_retry_blocked_tasks_triggers_escalation"
+            },
+            {
+              "name": "test_retry_blocked_tasks_does_not_double_escalate"
+            }
+          ]
+        },
+        "title": "Implement daemon self-healing auto-escalation hook",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Standard tokens for implementing plumbing hook and verifying subprocess execution.",
+          "test_tokens": 150
+        },
+        "verification_command": "python3 -m unittest discover -s tests -p '*test_autowork*'"
+      },
+      "kind": "ambiguous_match",
+      "match_reason": null
+    },
+    {
+      "candidate_near_miss": "claude_prompt_history_hook",
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "harness.hooks._paths.load_self_healing_history(state_dir) returns a list[dict] parsed line-by-line from state/control/autowork/self_healing_history.jsonl (or [] when absent)",
+          "harness.hooks._paths.matching_history_records(records, files_touched) returns the subset whose files_touched share at least one entry with the provided list",
+          "harness.hooks._paths.format_self_healing_section(matches) returns a string opening with '--- RECENT SELF-HEALING HISTORY FOR RELATED COMPONENTS ---' or '' when matches is empty"
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "harness/hooks/_paths.py"
+        ],
+        "meta_task_type": "hooks_integration",
+        "priority": "medium",
+        "spec": {
+          "edge_cases": [
+            "self_healing_history.jsonl is missing.",
+            "self_healing_history.jsonl contains malformed JSON lines mixed with valid ones.",
+            "Records use a string instead of a list for files_touched."
+          ],
+          "functional_requirements": [
+            "Implement load_self_healing_history(state_dir: pathlib.Path) -> list[dict] that reads state/control/autowork/self_healing_history.jsonl line by line, skipping blank or malformed lines, and returns [] when the file is absent or unreadable.",
+            "Implement matching_history_records(records: list[dict], files_touched: list[str]) -> list[dict] that returns the records whose files_touched share at least one path string with the provided files_touched list, preserving input order.",
+            "Implement format_self_healing_section(matches: list[dict]) -> str that returns '' when matches is empty, otherwise a section beginning with the literal header '--- RECENT SELF-HEALING HISTORY FOR RELATED COMPONENTS ---' followed by one line per record summarising ts, task_id, outcome, and shared files."
+          ],
+          "implementation_notes": "Use json.loads inside a try/except per line so a single corrupt row does not poison the rest of the file. Coerce files_touched to list[str] defensively before set-intersection. The section format should be machine-readable but agent-facing: include ISO timestamp formatted from the float ts via datetime.fromtimestamp.",
+          "interfaces": "Three new module-level functions exported from harness/hooks/_paths.py. No changes to existing functions.",
+          "non_goals": [
+            "Do not modify other validation checks or gates on task promotion.",
+            "Do not alter the existing load_inbox_task contract or other path helpers."
+          ],
+          "objective": "Centralise the JSONL history read, overlap filter, and warning-section formatter so Claude and Gemini hooks share one implementation and one test surface."
+        },
+        "spec_author": null,
+        "task_id": "RB_JR_self_heal_history_lookup",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_history_helper_round_trip_with_real_jsonl_fixture"
+            }
+          ],
+          "minimum_test_count": 8,
+          "property_tests": [
+            {
+              "name": "test_load_history_skips_malformed_lines_without_raising"
+            }
+          ],
+          "regression_tests": [
+            {
+              "name": "test_matching_records_handles_non_list_files_touched_defensively"
+            }
+          ],
+          "test_data_requirements": "tmp state_dir with a self_healing_history.jsonl containing three valid records, one blank line, and one malformed line; sample current-task files_touched list overlapping two of the records.",
+          "unit_tests": [
+            {
+              "name": "test_load_history_returns_empty_when_file_missing"
+            },
+            {
+              "name": "test_load_history_parses_valid_jsonl_records"
+            },
+            {
+              "name": "test_matching_records_filters_by_files_touched_overlap"
+            },
+            {
+              "name": "test_format_section_returns_empty_string_for_no_matches"
+            },
+            {
+              "name": "test_format_section_header_and_record_lines"
+            }
+          ]
+        },
+        "title": "Shared self-healing history lookup helper for hooks",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Three small pure helpers; test surface is wider than implementation to lock the JSONL contract.",
+          "test_tokens": 200
+        },
+        "verification_command": "python -m pytest tests/test_self_heal_history_lookup.py -q"
+      },
+      "diff_item_id": "960a09ad455b798a9abefc7b50975be3011a042f",
+      "field_divergences": [],
+      "gemini_task": null,
+      "kind": "claude_only",
+      "match_reason": null
+    },
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": null,
+      "diff_item_id": "6edae2acdd8ecfc6222e0d9b195f7984260ee41f",
+      "field_divergences": [],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "Verify `_escalate_to_autobrief` safely loads `config.yaml` and parses task details correctly.",
+          "Verify `_escalate_to_autobrief` appends history log records correctly.",
+          "Verify `_escalate_to_autobrief` compiles the instruction prompt and executes the agent subprocess.",
+          "Verify prompt hooks detect overlapping `files_touched` in history log and inject the warning section correctly."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [
+          "claude_prompt_history_hook",
+          "gemini_prompt_history_hook"
+        ],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "tests/adversarial/test_autowork_self_healing.py"
+        ],
+        "meta_task_type": "test_unit",
+        "priority": "medium",
+        "spec": {
+          "edge_cases": [],
+          "functional_requirements": [
+            "Verify the history lookup, command building, and hook context formatting functions through unit tests."
+          ],
+          "implementation_notes": "Use unittest or pytest mock features to isolate subprocess calls, config loading, and file reading. Setup and teardown mock directories for state, inbox, and history log.",
+          "interfaces": "A new test suite at `tests/adversarial/test_autowork_self_healing.py`.",
+          "non_goals": [
+            "Do not change how parallel task scheduling is validated or executed.",
+            "Do not modify other validation checks or gates on task promotion."
+          ],
+          "objective": "Implement comprehensive unit tests validating escalation logic, command building, and prompt hooks warning context injection."
+        },
+        "spec_author": null,
+        "task_id": "self_healing_tests",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_end_to_end_escalation_and_warning_injection"
+            }
+          ],
+          "minimum_test_count": 10,
+          "property_tests": [],
+          "regression_tests": [],
+          "test_data_requirements": "Mock yaml configs, mock tasks, and mock history log files.",
+          "unit_tests": [
+            {
+              "name": "test_escalation_history_logging"
+            },
+            {
+              "name": "test_prompt_hook_warning_context"
+            }
+          ]
+        },
+        "title": "Verify history lookup, command building, and hook context formatting",
+        "token_budget_ratio": {
+          "implementation_tokens": 0,
+          "note": "Tokens reserved exclusively for testing.",
+          "test_tokens": 150
+        },
+        "verification_command": "python3 run_pytest.py tests/adversarial/test_autowork_self_healing.py"
+      },
+      "kind": "gemini_only",
+      "match_reason": null
+    }
+  ]
+}

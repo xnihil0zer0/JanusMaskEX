@@ -1,0 +1,27 @@
+=== persist closure + build_evidence in NGv2 conductor_seams ===
+48:    def persist(sid: Any, phase: Any, arts: Any) -> None:
+112:    def build_evidence(state: Dict[str, Any]) -> Dict[str, Any]:
+--- nested defs inside build_default_seams (39..) ---
+39: def build_default_seams(session_id: str, db: Any, llm_client: Any, ctx: dict) -> dict:
+44:     def load_state(sid: Any) -> Dict[str, Any]:
+48:     def persist(sid: Any, phase: Any, arts: Any) -> None:
+112:     def build_evidence(state: Dict[str, Any]) -> Dict[str, Any]:
+244:     def advance(sid: Any, approval: Any=None) -> None:
+
+--- what is at lines 48-58 (cited as persist) ---
+    def persist(sid: Any, phase: Any, arts: Any) -> None:
+        if db is None:
+            return
+        row = db.get_session(sid)
+        state = dict(row) if isinstance(row, dict) else {}
+        artifacts = list(state.get('artifacts') or [])
+        artifacts.extend(arts or [])
+        state['artifacts'] = artifacts
+        lbl = _PHASE_COUNT_KEY.get(phase)
+        if lbl is not None:
+            state[lbl] = int(state.get(lbl, 0) or 0) + _count_real(arts)
+
+=== render_source_driving_py def line (doc cites :342-369) ===
+342:def render_source_driving_py(g: Grounding, cwe: str) -> str:
+=== is_source_driving (doc cites :315-327) ===
+315:def is_source_driving(grounding: Grounding, cwe: str) -> bool:

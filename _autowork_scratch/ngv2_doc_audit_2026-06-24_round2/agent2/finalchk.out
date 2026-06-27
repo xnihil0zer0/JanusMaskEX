@@ -1,0 +1,21 @@
+=== _make_detonation_seam: does it thread target_spec/env beyond repo_root? (M3 claim) ===
+/home/xnihil0zer0/NobleGreedv2/ngv2/workers/_runner.py:116:            det = _make_detonation_seam()
+/home/xnihil0zer0/NobleGreedv2/ngv2/workers/_runner.py:221:def _make_detonation_seam():
+236:        from ngv2.loopback_listener import LoopbackListener
+264:        repo_root = ctx.get('repo') or (target if isinstance(target, str) else None)
+281:            # in-jail bootstrap (``poc_runner_live.run_jailed_poc_with_loopback``)
+291:            target_spec = {'repo_root': repo_root, 'env': {'NGV2_SSRF_CALLBACK': listener.url_for(nonce), 'NGV2_SSRF_NONCE': nonce}}
+295:                dlr = detonate_live(poc_obj, target_spec, success_marker=marker, expected_fs_signature=fs_sig, jail_runner=injected_runner)
+297:                # PRODUCTION: shared-loopback-netns path -- the REAL jailed PoC reaches
+298:                # an in-netns listener; callbacks come back in ``loopback_hits``.
+299:                dlr = detonate_live(poc_obj, target_spec, success_marker=marker, expected_fs_signature=fs_sig, loopback=True)
+301:            # (``loopback_hits`` -- the real jailed path) OR this host listener (the
+303:            lb_hits = dlr.get('loopback_hits') or []
+
+=== leaf7-auth-bootstrap landed yet auth_bootstrap still 0 importers (confirms BUILT-not-WIRED) ===
+3fd532a Integrate validated code for leaf7-auth-bootstrap
+=== detonation.py line for semantic_verdict (§2 G2 cited :267 / :3 / :21 -- drift check) ===
+4:def semantic_verdict(exit_code, stdout: str, stderr: str, fs_snapshot_diff: str, *, success_marker: str, expected_fs_signature: str, nonce: str='') -> str:
+=== gate_executor TypedTerminal count (X4) + transition count ===
+39:_TRANSITION_GATES: Dict[Tuple[str, str], Tuple[_GateSpec, ...]] = {('source', 'hunt'): (('source_ready', ('source_ready',), lambda ev: {'may_confirm': bool(ev.get('source_ready')), 'terminal': TypedTerminal.NO_SOURCE}),), ('hunt', 'triage'): (('findings', ('findings',), lambda ev: {'may_confirm': bool(ev.get('findings')), 'terminal': TypedTerminal.NO_FINDINGS}),), ('triage', 'verify'): (('triage_result', ('triage_result',), lambda ev: {'may_confirm': bool(ev.get('triage_result')), 'terminal': TypedTerminal.NO_TRIAGE}),), ('verify', 'poc'): (('verify_result', ('verify_result',), lambda ev: {'may_confirm': bool(ev.get('verify_result')), 'terminal': TypedTerminal.NO_VERIFY}),), ('poc', 'detonate'): (('poc_authenticity', ('poc_source', 'target_import_names'), lambda ev: classify_poc_authenticity(ev['poc_source'], ev['target_import_names'])),), ('detonate', 'novelty'): (('detonation_evidence', ('detonation_report',), lambda ev: classify_detonation_evidence(ev['detonation_report'])), ('sink_presence', ('target_source', 'expected_signature'), lambda ev: verify_sink_present(ev['target_source'], ev['expected_signature'])), ('sink_reachability', ('sink_name', 'call_sites'), lambda ev: assess_sink_reachability(ev['sink_name'], ev['call_sites']))), ('novelty', 'report'): (('novelty_result', ('novelty_result',), lambda ev: {'may_confirm': bool(ev.get('novelty_result')), 'terminal': TypedTerminal.NO_NOVELTY}),), ('report', 'awaiting_submission'): (('report_artifact', ('report_artifact',), lambda ev: {'may_confirm': bool(ev.get('report_artifact')), 'terminal': TypedTerminal.NO_REPORT}),), ('awaiting_submission', 'submitted'): (('approval', ('approval',), lambda ev: {'may_confirm': bool(ev.get('approval')), 'terminal': TypedTerminal.NO_APPROVAL}),), ('submitted', 'done'): (('submission_result', ('submission_result',), lambda ev: {'may_confirm': bool(ev.get('submission_result')), 'terminal': TypedTerminal.NO_SUBMISSION}),)}
+63:    gates = _TRANSITION_GATES.get((from_phase, to_phase), ())

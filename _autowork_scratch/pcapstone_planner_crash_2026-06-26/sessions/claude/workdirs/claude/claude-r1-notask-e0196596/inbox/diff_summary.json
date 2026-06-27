@@ -1,0 +1,117 @@
+{
+  "items": [
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "harness/smoke_target.py defines a top-level __version__ = '0.0.1' assignment.",
+          "The module docstring is preserved byte-for-byte.",
+          "No other statement, import, function, or class is added.",
+          "harness/smoke_target.py still py_compiles successfully.",
+          "An auto_commit ledger row for SMOKE_VERSION is appended to state/impl_progress.jsonl.",
+          "A new git commit scoped to harness/smoke_target.py is created by the harness."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "trivial",
+        "files_touched": [
+          "harness/smoke_target.py"
+        ],
+        "meta_task_type": "harness_self_fix",
+        "priority": "low",
+        "spec": {
+          "edge_cases": [
+            "The change must differ from the committed stub (which has no __version__), else the commit is rejected as no_diff.",
+            "Do not introduce nondeterminism, imports, or any statement beyond the __version__ assignment.",
+            "Do not duplicate the docstring or introduce trailing whitespace differences that obscure the diff.",
+            "Use single quotes around '0.0.1' to match the canonical form; the literal value must be the string '0.0.1'."
+          ],
+          "functional_requirements": [
+            "Emit the WHOLE file harness/smoke_target.py as a single-file submission to be AST-merged by the harness.",
+            "Preserve the existing module docstring byte-for-byte; do not reword, reformat, or remove it.",
+            "Add exactly one new top-level statement: __version__ = '0.0.1' (a string literal assignment).",
+            "Write the result to {OUTBOX_PATH}/submission.py so the harness can pick it up for AST merge.",
+            "Ensure the resulting module still parses (ast.parse) and py_compiles without errors.",
+            "Produce a real diff against the committed stub so the auto_commit gate is not rejected as no_diff."
+          ],
+          "implementation_notes": "Emit EXACTLY this as the full content of submission.py (verbatim, including the closing newline):\n\n\"\"\"JanusMask pipeline smoke-test target (REPL-2).\n\nThis module is the deliberate target of the canonical \"Prove the pipeline\"\ndispatch (``brief_hooks_smoke.md`` + ``plan_hooks_smoke.json``). A fresh clone\nruns that dispatch to confirm the dual-agent -> AST-merge -> auto-commit path\nworks end-to-end on this machine: both agents add a ``__version__`` assignment\nbelow, the harness AST-merges + auto-commits the result, and an ``auto_commit``\nrow lands in ``state/impl_progress.jsonl``.\n\nThe committed stub intentionally does NOT define ``__version__`` so the first\ndispatch produces a real diff (and a real commit). See README \"Prove the\npipeline\".\n\"\"\"\n__version__ = '0.0.1'\n",
+          "interfaces": "Module-level __version__ string only. No functions, no classes, no imports, no other top-level statements beyond the preserved docstring and the new __version__ assignment.",
+          "non_goals": [
+            "Do NOT modify any file other than harness/smoke_target.py.",
+            "Do NOT remove, reword, or reformat the module docstring.",
+            "Do NOT add imports, functions, classes, or any statement other than __version__.",
+            "Do NOT use pytest or xfail-strict markers in the verification_command."
+          ],
+          "objective": "Canonical 'prove the pipeline' smoke. Add a single top-level __version__ = '0.0.1' assignment to harness/smoke_target.py, preserving the existing module docstring exactly. This exercises the full dual-agent synthesis -> AST-merge -> verification gate -> scoped auto-commit path so a fresh clone can confirm the harness works end-to-end on their machine."
+        },
+        "spec_author": null,
+        "task_id": "SMOKE_VERSION",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_ast_merge_accepts_single_file_submission"
+            },
+            {
+              "name": "test_verification_command_passes_on_merged_module"
+            },
+            {
+              "name": "test_auto_commit_row_appended_to_impl_progress_jsonl"
+            },
+            {
+              "name": "test_git_commit_scoped_to_smoke_target_only"
+            }
+          ],
+          "minimum_test_count": 12,
+          "property_tests": [
+            {
+              "name": "test_version_literal_is_string_0_0_1"
+            }
+          ],
+          "regression_tests": [
+            {
+              "name": "test_no_other_repo_files_modified_by_dispatch"
+            }
+          ],
+          "test_data_requirements": "The committed harness/smoke_target.py stub (docstring only, no __version__) must be present at dispatch time so the AST merge produces a real diff. No external fixtures required.",
+          "unit_tests": [
+            {
+              "name": "test_smoke_target_defines_version_assignment"
+            },
+            {
+              "name": "test_smoke_target_docstring_preserved_byte_for_byte"
+            },
+            {
+              "name": "test_smoke_target_has_no_extra_top_level_statements"
+            },
+            {
+              "name": "test_smoke_target_writes_submission_to_outbox"
+            },
+            {
+              "name": "test_smoke_target_py_compiles"
+            },
+            {
+              "name": "test_smoke_target_diff_is_nonempty_vs_committed_stub"
+            }
+          ]
+        },
+        "title": "SMOKE: add __version__ = '0.0.1' to harness/smoke_target.py (prove the pipeline)",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Trivial single-line addition; the bulk of the budget is verifying the AST/docstring/diff invariants rather than writing code.",
+          "test_tokens": 200
+        },
+        "verification_command": "python -c \"import ast, pathlib, py_compile; src = pathlib.Path('harness/smoke_target.py').read_text(); tree = ast.parse(src); assert ast.get_docstring(tree), 'module docstring must be preserved'; vers = [n for n in tree.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == '__version__' for t in n.targets)]; assert vers, '__version__ assignment missing from harness/smoke_target.py'; py_compile.compile('harness/smoke_target.py', doraise=True); print('SMOKE pipeline OK: __version__ defined')\""
+      },
+      "diff_item_id": "1cdcc1b69230ca11cbc241fb18e826b6902acfa3",
+      "field_divergences": [],
+      "gemini_task": null,
+      "kind": "claude_only",
+      "match_reason": null
+    }
+  ]
+}

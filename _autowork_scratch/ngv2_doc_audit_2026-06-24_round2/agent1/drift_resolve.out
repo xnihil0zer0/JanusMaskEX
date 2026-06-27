@@ -1,0 +1,40 @@
+############ transition_planner.py (NGv2) ############
+60 /home/xnihil0zer0/NobleGreedv2/ngv2/transition_planner.py
+12:def _next_phase(phase: Optional[str]) -> Optional[str]:
+20:def plan_next_action(session_state: dict) -> dict:
+36:    def _count(field_name: str) -> int:
+--- _count / spawn lines (doc cites 64-72, 36, 66,67,70,71) ---
+14:    if phase in PHASE_ORDER:
+15:        idx = PHASE_ORDER.index(phase)
+16:        if idx + 1 < len(PHASE_ORDER):
+17:            return PHASE_ORDER[idx + 1]
+29:    (hunt -> triage -> verify -> poc -> detonate -> novelty -> report) get a
+30:    chance to spawn their stage when the corresponding completion artifact is
+36:    def _count(field_name: str) -> int:
+53:    worker_phases = [('hunt', 'findings', 'triage'), ('triage', 'triaged', 'verify'), ('verify', 'verified', 'poc'), ('poc', 'pocs', 'detonate'), ('detonate', 'reports', 'novelty'), ('novelty', 'novelties', 'report'), ('report', 'report_count', 'awaiting_submission')]
+57:                return {'action': 'spawn_stage', 'target_phase': worker_phase, 'reason': '%s artifacts absent; spawn %s stage' % (worker_phase, worker_phase)}
+59:    return {'action': 'advance', 'target_phase': None, 'reason': 'no spawn condition for phase %r' % (phase,)}
+60:from ngv2.fsm_evidence import PHASE_ORDER
+
+############ gate_executor.py (NGv2) ############
+106 /home/xnihil0zer0/NobleGreedv2/ngv2/gate_executor.py
+25:class TypedTerminal:
+41:def run_gates(from_phase: str, to_phase: str, evidence: dict) -> dict:
+98:def no_template_terminal(cwe: Any) -> str:
+25:class TypedTerminal:
+39:_TRANSITION_GATES: Dict[Tuple[str, str], Tuple[_GateSpec, ...]] = {('source', 'hunt'): (('source_ready', ('source_ready',), lambda ev: {'may_confirm': bool(ev.get('source_ready')), 'terminal': TypedTerminal.NO_SOURCE}),), ('hunt', 'triage'): (('findings', ('findings',), lambda ev: {'may_confirm': bool(ev.get('findings')), 'terminal': TypedTerminal.NO_FINDINGS}),), ('triage', 'verify'): (('triage_result', ('triage_result',), lambda ev: {'may_confirm': bool(ev.get('triage_result')), 'terminal': TypedTerminal.NO_TRIAGE}),), ('verify', 'poc'): (('verify_result', ('verify_result',), lambda ev: {'may_confirm': bool(ev.get('verify_result')), 'terminal': TypedTerminal.NO_VERIFY}),), ('poc', 'detonate'): (('poc_authenticity', ('poc_source', 'target_import_names'), lambda ev: classify_poc_authenticity(ev['poc_source'], ev['target_import_names'])),), ('detonate', 'novelty'): (('detonation_evidence', ('detonation_report',), lambda ev: classify_detonation_evidence(ev['detonation_report'])), ('sink_presence', ('target_source', 'expected_signature'), lambda ev: verify_sink_present(ev['target_source'], ev['expected_signature'])), ('sink_reachability', ('sink_name', 'call_sites'), lambda ev: assess_sink_reachability(ev['sink_name'], ev['call_sites']))), ('novelty', 'report'): (('novelty_result', ('novelty_result',), lambda ev: {'may_confirm': bool(ev.get('novelty_result')), 'terminal': TypedTerminal.NO_NOVELTY}),), ('report', 'awaiting_submission'): (('report_artifact', ('report_artifact',), lambda ev: {'may_confirm': bool(ev.get('report_artifact')), 'terminal': TypedTerminal.NO_REPORT}),), ('awaiting_submission', 'submitted'): (('approval', ('approval',), lambda ev: {'may_confirm': bool(ev.get('approval')), 'terminal': TypedTerminal.NO_APPROVAL}),), ('submitted', 'done'): (('submission_result', ('submission_result',), lambda ev: {'may_confirm': bool(ev.get('submission_result')), 'terminal': TypedTerminal.NO_SUBMISSION}),)}
+63:    gates = _TRANSITION_GATES.get((from_phase, to_phase), ())
+
+############ detonation.py (NGv2) ############
+71 /home/xnihil0zer0/NobleGreedv2/ngv2/detonation.py
+4:def semantic_verdict(exit_code, stdout: str, stderr: str, fs_snapshot_diff: str, *, success_marker: str, expected_fs_signature: str, nonce: str='') -> str:
+10:    whose ``expected_fs_signature`` shows up in ``fs_snapshot_diff``.
+21:    if not expected_fs_signature or not expected_fs_signature.strip():
+26:    if exit_code == 0 and (success_marker in stdout or success_marker in stderr) and (expected_fs_signature in fs_snapshot_diff):
+30:class DetonationChamber:
+39:    def __init__(self, success_marker: str='VULNERABLE') -> None:
+42:    def detonate(self, poc: PoC, target_spec, runner, *, expected_fs_signature=None) -> LiveTestReport:
+49:        (``expected_fs_signature`` is a string).
+51:        When ``expected_fs_signature is None`` (the STRICT default) the gate is
+64:        if expected_fs_signature is None:
+71:            verdict = semantic_verdict(exit_code, stdout, stderr, fs_snapshot_diff, success_marker=self.success_marker, expected_fs_signature=expected_fs_signature)

@@ -1,0 +1,1489 @@
+{
+  "items": [
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "check_true_depth terminates immediately and returns True if task_id is an empty string.",
+          "check_true_depth terminates immediately and returns True if parent_task is missing in the loaded JSON.",
+          "tasks_dir is safely validated and converted to a pathlib.Path object.",
+          "max_depth is safely validated and converted to a float (handling int, float, and string formats), rejecting NaN and boolean values, and handling OverflowError by returning False.",
+          "A visited set is used to track traversed tasks to detect cyclic lineages, returning False on detection.",
+          "All file read and json load errors are gracefully caught and return False."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "harness/depth_validator.py"
+        ],
+        "meta_task_type": "validation",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "max_depth is 0, negative, or boolean (True/False - since bool is a subclass of int, it must be explicitly rejected before float conversion).",
+            "task whose parent_task points to itself (self-cycle of length 1).",
+            "Very large integers for max_depth that would cause OverflowError on float conversion."
+          ],
+          "functional_requirements": [
+            "Ensure empty string task_id or missing parent_task in loaded JSON terminates traversal immediately and returns True.",
+            "Convert tasks_dir to Path; convert max_depth to float (handling int, float, or string, rejecting NaN and boolean values) and return False on type validation/conversion failure or OverflowError.",
+            "Track visited task IDs in a set and return False if a task ID is revisited (cyclic lineage).",
+            "Gracefully return False on FileNotFoundError, JSONDecodeError, or other file read and json load errors."
+          ],
+          "implementation_notes": "Implement strict validation at the top. Handle float conversion for max_depth and check using math.isnan. Handle missing 'parent_task' key in the loaded dictionary by checking key existence or getting the value.",
+          "interfaces": "def check_true_depth(task_id: str, tasks_dir: Path, max_depth: int=3) -> bool",
+          "non_goals": [
+            "Modify other functions or files in harness/depth_validator.py.",
+            "Do not write integration tests for check_true_depth."
+          ],
+          "objective": "Update check_true_depth function to robustly handle type validation, cyclic dependencies, missing parent_task, and file read errors."
+        },
+        "spec_author": null,
+        "task_id": "check_true_depth_fixes",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_depth_validator_integration"
+            }
+          ],
+          "minimum_test_count": 10,
+          "property_tests": [
+            {
+              "name": "test_max_depth_fuzz"
+            }
+          ],
+          "regression_tests": [
+            {
+              "name": "test_invalid_lineage_loop"
+            }
+          ],
+          "test_data_requirements": "Mock task JSON files under a temporary directory with various parent_task values.",
+          "unit_tests": [
+            {
+              "name": "test_empty_task_id_terminates_immediately"
+            },
+            {
+              "name": "test_missing_parent_task_terminates_immediately"
+            },
+            {
+              "name": "test_validate_and_convert_tasks_dir_to_path"
+            },
+            {
+              "name": "test_validate_and_convert_max_depth_to_float"
+            },
+            {
+              "name": "test_max_depth_rejects_nan_and_booleans"
+            },
+            {
+              "name": "test_visited_set_detects_cycles"
+            },
+            {
+              "name": "test_graceful_file_read_and_json_load_errors"
+            }
+          ]
+        },
+        "title": "Fix check_true_depth lineage traversal, validation, and error handling",
+        "token_budget_ratio": {
+          "implementation_tokens": 150,
+          "note": "Verify correct lineage traversal, validation, and error handling.",
+          "test_tokens": 225
+        },
+        "verification_command": "pytest -v tests/test_depth_validator.py"
+      },
+      "diff_item_id": "6794a6b4c83d852f6cf4e55917d4f9cb56ab8914",
+      "field_divergences": [
+        [
+          "scope",
+          [
+            "Update check_true_depth function to robustly handle type validation, cyclic dependencies, missing parent_task, and file read errors.",
+            [
+              "Ensure empty string task_id or missing parent_task in loaded JSON terminates traversal immediately and returns True.",
+              "Convert tasks_dir to Path; convert max_depth to float (handling int, float, or string, rejecting NaN and boolean values) and return False on type validation/conversion failure or OverflowError.",
+              "Track visited task IDs in a set and return False if a task ID is revisited (cyclic lineage).",
+              "Gracefully return False on FileNotFoundError, JSONDecodeError, or other file read and json load errors."
+            ]
+          ],
+          [
+            "Enhance check_true_depth in harness/depth_validator.py with robust type validation, conversion, cyclic lineage checking, and graceful error handling.",
+            [
+              "Return True immediately if task_id is an empty string.",
+              "Convert tasks_dir to pathlib.Path and catch type conversion errors, returning False.",
+              "Convert max_depth to float (supporting int, float, and string representations) and reject NaN values by returning False.",
+              "Use a visited set to detect cyclic task lineages and return False on detection.",
+              "Gracefully handle file read and json load errors by returning False.",
+              "Terminate traversal immediately and return True if parent_task is missing or empty in the loaded JSON."
+            ]
+          ]
+        ],
+        [
+          "edge_cases",
+          [
+            "max_depth is 0, negative, or boolean (True/False - since bool is a subclass of int, it must be explicitly rejected before float conversion).",
+            "task whose parent_task points to itself (self-cycle of length 1).",
+            "Very large integers for max_depth that would cause OverflowError on float conversion."
+          ],
+          [
+            "task_id is empty string.",
+            "tasks_dir is invalid type (e.g. integer or boolean).",
+            "max_depth is NaN or invalid string format.",
+            "Lineage cycles like A -> B -> A.",
+            "parent_task key missing from JSON metadata."
+          ]
+        ],
+        [
+          "non_goals",
+          [
+            "Modify other functions or files in harness/depth_validator.py.",
+            "Do not write integration tests for check_true_depth."
+          ],
+          [
+            "Do not change the function signature or return type annotation.",
+            "Do not modify files other than harness/depth_validator.py.",
+            "Integration tests are not modified in this task."
+          ]
+        ],
+        [
+          "tests",
+          {
+            "integration_tests": [
+              {
+                "name": "test_depth_validator_integration"
+              }
+            ],
+            "minimum_test_count": 10,
+            "property_tests": [
+              {
+                "name": "test_max_depth_fuzz"
+              }
+            ],
+            "regression_tests": [
+              {
+                "name": "test_invalid_lineage_loop"
+              }
+            ],
+            "test_data_requirements": "Mock task JSON files under a temporary directory with various parent_task values.",
+            "unit_tests": [
+              {
+                "name": "test_empty_task_id_terminates_immediately"
+              },
+              {
+                "name": "test_missing_parent_task_terminates_immediately"
+              },
+              {
+                "name": "test_validate_and_convert_tasks_dir_to_path"
+              },
+              {
+                "name": "test_validate_and_convert_max_depth_to_float"
+              },
+              {
+                "name": "test_max_depth_rejects_nan_and_booleans"
+              },
+              {
+                "name": "test_visited_set_detects_cycles"
+              },
+              {
+                "name": "test_graceful_file_read_and_json_load_errors"
+              }
+            ]
+          },
+          {
+            "integration_tests": [],
+            "minimum_test_count": 10,
+            "property_tests": [],
+            "regression_tests": [
+              {
+                "name": "test_depth_validator_empty_task_id_regression"
+              },
+              {
+                "name": "test_depth_validator_nan_max_depth_regression"
+              }
+            ],
+            "test_data_requirements": "Temporary directories with linear, cyclic, and malformed task JSON files.",
+            "unit_tests": [
+              {
+                "name": "test_empty_task_id_returns_true"
+              },
+              {
+                "name": "test_missing_parent_task_returns_true"
+              },
+              {
+                "name": "test_invalid_tasks_dir_type_returns_false"
+              },
+              {
+                "name": "test_invalid_max_depth_returns_false"
+              },
+              {
+                "name": "test_nan_max_depth_returns_false"
+              },
+              {
+                "name": "test_cyclic_lineage_returns_false"
+              },
+              {
+                "name": "test_json_decode_error_returns_false"
+              }
+            ]
+          }
+        ]
+      ],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "check_true_depth returns True immediately if task_id is an empty string without checking the filesystem or performing conversions.",
+          "tasks_dir is converted to pathlib.Path with all type conversion errors handled gracefully by returning False.",
+          "max_depth is converted to a float (safely handling int, float, or string formats) and NaN values are rejected by returning False.",
+          "visited set is used to detect cyclic task lineages, returning False on detection.",
+          "File read and json load errors are handled gracefully by returning False.",
+          "If parent_task is missing or None in the loaded JSON, traversal terminates immediately and returns True."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "harness/depth_validator.py"
+        ],
+        "meta_task_type": "validation",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "task_id is empty string.",
+            "tasks_dir is invalid type (e.g. integer or boolean).",
+            "max_depth is NaN or invalid string format.",
+            "Lineage cycles like A -> B -> A.",
+            "parent_task key missing from JSON metadata."
+          ],
+          "functional_requirements": [
+            "Return True immediately if task_id is an empty string.",
+            "Convert tasks_dir to pathlib.Path and catch type conversion errors, returning False.",
+            "Convert max_depth to float (supporting int, float, and string representations) and reject NaN values by returning False.",
+            "Use a visited set to detect cyclic task lineages and return False on detection.",
+            "Gracefully handle file read and json load errors by returning False.",
+            "Terminate traversal immediately and return True if parent_task is missing or empty in the loaded JSON."
+          ],
+          "implementation_notes": "Check task_id == '' at the beginning and return True. Apply try-except block for Path(tasks_dir) and float(max_depth) conversions. Check math.isnan(max_depth) and reject. Use a visited set to keep track of processed task IDs.",
+          "interfaces": "def check_true_depth(task_id: str, tasks_dir: Path, max_depth: int=3) -> bool",
+          "non_goals": [
+            "Do not change the function signature or return type annotation.",
+            "Do not modify files other than harness/depth_validator.py.",
+            "Integration tests are not modified in this task."
+          ],
+          "objective": "Enhance check_true_depth in harness/depth_validator.py with robust type validation, conversion, cyclic lineage checking, and graceful error handling."
+        },
+        "spec_author": null,
+        "task_id": "check_true_depth_fixes",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 10,
+          "property_tests": [],
+          "regression_tests": [
+            {
+              "name": "test_depth_validator_empty_task_id_regression"
+            },
+            {
+              "name": "test_depth_validator_nan_max_depth_regression"
+            }
+          ],
+          "test_data_requirements": "Temporary directories with linear, cyclic, and malformed task JSON files.",
+          "unit_tests": [
+            {
+              "name": "test_empty_task_id_returns_true"
+            },
+            {
+              "name": "test_missing_parent_task_returns_true"
+            },
+            {
+              "name": "test_invalid_tasks_dir_type_returns_false"
+            },
+            {
+              "name": "test_invalid_max_depth_returns_false"
+            },
+            {
+              "name": "test_nan_max_depth_returns_false"
+            },
+            {
+              "name": "test_cyclic_lineage_returns_false"
+            },
+            {
+              "name": "test_json_decode_error_returns_false"
+            }
+          ]
+        },
+        "title": "Fix lineage depth checks in check_true_depth",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Covers implementation and unit test coverage for depth validator.",
+          "test_tokens": 200
+        },
+        "verification_command": "pytest test_check_depth.py"
+      },
+      "kind": "divergent",
+      "match_reason": "task_id"
+    },
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "safe_under_project returns False safely instead of raising a TypeError when candidate is not a string or os.PathLike."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "low",
+        "files_touched": [
+          "harness/hooks/_paths.py"
+        ],
+        "meta_task_type": "hooks_integration",
+        "priority": "medium",
+        "spec": {
+          "edge_cases": [
+            "Candidate paths containing NUL bytes or unhashable objects.",
+            "Candidate is a None value."
+          ],
+          "functional_requirements": [
+            "Ensure that if candidate is not an instance of str or os.PathLike, it returns False safely instead of raising a TypeError."
+          ],
+          "implementation_notes": "Use isinstance(candidate, (str, os.PathLike)) to guard candidate before calling str(candidate) or is_safe_subpath.",
+          "interfaces": "def safe_under_project(candidate: str) -> bool",
+          "non_goals": [
+            "Modify other files or functions in _paths.py.",
+            "Do not write integration tests for safe_under_project."
+          ],
+          "objective": "Update safe_under_project function in _paths.py to return False if candidate is not a string or Path-like object."
+        },
+        "spec_author": null,
+        "task_id": "safe_under_project_fixes",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_safe_under_project_integration"
+            }
+          ],
+          "minimum_test_count": 5,
+          "property_tests": [
+            {
+              "name": "test_safe_under_project_fuzz_candidates"
+            }
+          ],
+          "regression_tests": [
+            {
+              "name": "test_safe_under_project_none_candidate"
+            }
+          ],
+          "test_data_requirements": "Test with None, list, dict, and invalid paths with NUL bytes.",
+          "unit_tests": [
+            {
+              "name": "test_safe_under_project_valid_string_candidate"
+            },
+            {
+              "name": "test_safe_under_project_valid_pathlike_candidate"
+            },
+            {
+              "name": "test_safe_under_project_invalid_type_candidate_returns_false"
+            }
+          ]
+        },
+        "title": "Ensure safe_under_project handles non-string and non-PathLike objects gracefully",
+        "token_budget_ratio": {
+          "implementation_tokens": 60,
+          "note": "Low complexity type safety wrapper.",
+          "test_tokens": 90
+        },
+        "verification_command": "pytest -v tests/test_safe_subpath.py"
+      },
+      "diff_item_id": "56f9afd7f4df9397ce869733c19015a8f708af17",
+      "field_divergences": [
+        [
+          "scope",
+          [
+            "Update safe_under_project function in _paths.py to return False if candidate is not a string or Path-like object.",
+            [
+              "Ensure that if candidate is not an instance of str or os.PathLike, it returns False safely instead of raising a TypeError."
+            ]
+          ],
+          [
+            "Prevent TypeError in safe_under_project by safely returning False if candidate is not an instance of str or os.PathLike.",
+            [
+              "Check if candidate is an instance of str or os.PathLike.",
+              "Return False safely instead of raising a TypeError if it is not str or os.PathLike."
+            ]
+          ]
+        ],
+        [
+          "priority",
+          "medium",
+          "high"
+        ],
+        [
+          "edge_cases",
+          [
+            "Candidate paths containing NUL bytes or unhashable objects.",
+            "Candidate is a None value."
+          ],
+          [
+            "candidate is integer.",
+            "candidate is boolean.",
+            "candidate is None.",
+            "candidate is list or dict."
+          ]
+        ],
+        [
+          "non_goals",
+          [
+            "Modify other files or functions in _paths.py.",
+            "Do not write integration tests for safe_under_project."
+          ],
+          [
+            "Do not change the function signature.",
+            "Do not modify other path hook functions like safe_under_state.",
+            "Integration tests are not modified in this task."
+          ]
+        ],
+        [
+          "tests",
+          {
+            "integration_tests": [
+              {
+                "name": "test_safe_under_project_integration"
+              }
+            ],
+            "minimum_test_count": 5,
+            "property_tests": [
+              {
+                "name": "test_safe_under_project_fuzz_candidates"
+              }
+            ],
+            "regression_tests": [
+              {
+                "name": "test_safe_under_project_none_candidate"
+              }
+            ],
+            "test_data_requirements": "Test with None, list, dict, and invalid paths with NUL bytes.",
+            "unit_tests": [
+              {
+                "name": "test_safe_under_project_valid_string_candidate"
+              },
+              {
+                "name": "test_safe_under_project_valid_pathlike_candidate"
+              },
+              {
+                "name": "test_safe_under_project_invalid_type_candidate_returns_false"
+              }
+            ]
+          },
+          {
+            "integration_tests": [],
+            "minimum_test_count": 10,
+            "property_tests": [],
+            "regression_tests": [
+              {
+                "name": "test_safe_under_project_none_type_regression"
+              },
+              {
+                "name": "test_safe_under_project_boolean_type_regression"
+              }
+            ],
+            "test_data_requirements": "None",
+            "unit_tests": [
+              {
+                "name": "test_safe_under_project_non_string_pathlike_returns_false"
+              },
+              {
+                "name": "test_safe_under_project_valid_string_pathlike_works"
+              }
+            ]
+          }
+        ]
+      ],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "safe_under_project returns False safely instead of raising a TypeError if candidate is not an instance of str or os.PathLike."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "low",
+        "files_touched": [
+          "harness/hooks/_paths.py"
+        ],
+        "meta_task_type": "hooks_integration",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "candidate is integer.",
+            "candidate is boolean.",
+            "candidate is None.",
+            "candidate is list or dict."
+          ],
+          "functional_requirements": [
+            "Check if candidate is an instance of str or os.PathLike.",
+            "Return False safely instead of raising a TypeError if it is not str or os.PathLike."
+          ],
+          "implementation_notes": "Use isinstance(candidate, (str, os.PathLike)) to check the type. Ensure booleans are also rejected.",
+          "interfaces": "def safe_under_project(candidate: str) -> bool",
+          "non_goals": [
+            "Do not change the function signature.",
+            "Do not modify other path hook functions like safe_under_state.",
+            "Integration tests are not modified in this task."
+          ],
+          "objective": "Prevent TypeError in safe_under_project by safely returning False if candidate is not an instance of str or os.PathLike."
+        },
+        "spec_author": null,
+        "task_id": "safe_under_project_fixes",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 10,
+          "property_tests": [],
+          "regression_tests": [
+            {
+              "name": "test_safe_under_project_none_type_regression"
+            },
+            {
+              "name": "test_safe_under_project_boolean_type_regression"
+            }
+          ],
+          "test_data_requirements": "None",
+          "unit_tests": [
+            {
+              "name": "test_safe_under_project_non_string_pathlike_returns_false"
+            },
+            {
+              "name": "test_safe_under_project_valid_string_pathlike_works"
+            }
+          ]
+        },
+        "title": "Fix TypeError safety in safe_under_project",
+        "token_budget_ratio": {
+          "implementation_tokens": 50,
+          "note": "Simple type check implementation and basic unit tests.",
+          "test_tokens": 100
+        },
+        "verification_command": "pytest test__paths_generated.py"
+      },
+      "kind": "divergent",
+      "match_reason": "task_id"
+    },
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "Recursively unwrap single-element collections for name, output_dir, stash_dir, source_root, and unit_test_selector.",
+          "Unwrap list parameters (modules, test_files, seed_files) and their individual elements.",
+          "Strict type validation: name and unit_test_selector must be strings; modules, test_files, and seed_files (if not None) must be lists of strings; path parameters must be strings or Path-like (not booleans). Raise TypeError on failure.",
+          "Filter out empty elements from modules, test_files, and seed_files lists.",
+          "Construct full_test_command dynamically based on test_files."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "harness/rebuild/target.py"
+        ],
+        "meta_task_type": "refactor",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "Deeply nested single-element collections (e.g., list inside set inside tuple).",
+            "Pathlike variables provided as Boolean values (e.g., True, False).",
+            "List parameter becomes empty after filtering empty elements."
+          ],
+          "functional_requirements": [
+            "Unwrap single-element collections recursively for scalar parameters.",
+            "Unwrap list parameters if they are wrapped in single-element collections, and unwrap their individual elements.",
+            "Strict type validation for name, unit_test_selector, modules, test_files, seed_files, output_dir, stash_dir, and source_root.",
+            "Filter out empty elements from the list parameters.",
+            "Construct full_test_command dynamically based on test files."
+          ],
+          "implementation_notes": "Use _unwrap_scalar and _unwrap_list_param helper functions. Ensure lists are validated after unwrapping.",
+          "interfaces": "def janusmask_module_descriptor(name: str, modules: list[str], test_files: list[str], output_dir: Path, stash_dir: Path, source_root: Path, seed_files: list[str] | None = None, unit_test_selector: str = '') -> TargetDescriptor",
+          "non_goals": [
+            "Modify other functions in target.py.",
+            "Do not write integration tests for descriptor."
+          ],
+          "objective": "Update janusmask_module_descriptor to correctly unwrap wrapped collections, strictly check parameter types, and dynamically build the test command."
+        },
+        "spec_author": null,
+        "task_id": "janusmask_module_descriptor_fixes",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_target_descriptor_integration"
+            }
+          ],
+          "minimum_test_count": 10,
+          "property_tests": [
+            {
+              "name": "test_unwrapping_fuzz"
+            }
+          ],
+          "regression_tests": [
+            {
+              "name": "test_boolean_paths_type_error"
+            }
+          ],
+          "test_data_requirements": "Various wrapped types (nested lists, sets, tuples) as inputs.",
+          "unit_tests": [
+            {
+              "name": "test_unwrap_scalar_recursive"
+            },
+            {
+              "name": "test_unwrap_list_param_and_elements"
+            },
+            {
+              "name": "test_strict_type_validation_descriptor"
+            },
+            {
+              "name": "test_filter_empty_list_elements"
+            },
+            {
+              "name": "test_construct_full_test_command_dynamically"
+            },
+            {
+              "name": "test_nested_unwrapping_scenarios"
+            }
+          ]
+        },
+        "title": "Implement unwrapping, type validation, and dynamic command construction for target descriptor",
+        "token_budget_ratio": {
+          "implementation_tokens": 200,
+          "note": "Check nested type validation edge cases.",
+          "test_tokens": 300
+        },
+        "verification_command": "pytest -v test_target_generated.py"
+      },
+      "diff_item_id": "4160ea7936455380006182113f7ee578bce22d12",
+      "field_divergences": [
+        [
+          "scope",
+          [
+            "Update janusmask_module_descriptor to correctly unwrap wrapped collections, strictly check parameter types, and dynamically build the test command.",
+            [
+              "Unwrap single-element collections recursively for scalar parameters.",
+              "Unwrap list parameters if they are wrapped in single-element collections, and unwrap their individual elements.",
+              "Strict type validation for name, unit_test_selector, modules, test_files, seed_files, output_dir, stash_dir, and source_root.",
+              "Filter out empty elements from the list parameters.",
+              "Construct full_test_command dynamically based on test files."
+            ]
+          ],
+          [
+            "Implement unwrapping of single-element collections, strict parameter validation (raising TypeError on invalid types), filtering out empty elements, and dynamic command construction in janusmask_module_descriptor.",
+            [
+              "Unwrap single-element collections recursively for scalar parameters.",
+              "Unwrap list parameters and their individual elements if wrapped in single-element collections.",
+              "Validate name and unit_test_selector are strings, and raise TypeError otherwise.",
+              "Validate modules, test_files are lists of strings, seed_files is a list of strings if not None, and output_dir, stash_dir, source_root are strings/Path-like objects (but not booleans), raising TypeError on failure.",
+              "Filter out empty string elements from modules, test_files, and seed_files, and construct full_test_command dynamically based on test files."
+            ]
+          ]
+        ],
+        [
+          "edge_cases",
+          [
+            "Deeply nested single-element collections (e.g., list inside set inside tuple).",
+            "Pathlike variables provided as Boolean values (e.g., True, False).",
+            "List parameter becomes empty after filtering empty elements."
+          ],
+          [
+            "Nested collection wrappers like [[['module_name']]].",
+            "Boolean value passed for path parameter.",
+            "Empty strings inside modules/test_files lists.",
+            "test_files list is empty."
+          ]
+        ],
+        [
+          "non_goals",
+          [
+            "Modify other functions in target.py.",
+            "Do not write integration tests for descriptor."
+          ],
+          [
+            "Do not change the defined function signature.",
+            "Do not modify mathlib_descriptor or TargetDescriptor properties.",
+            "Integration tests are not modified in this task."
+          ]
+        ],
+        [
+          "tests",
+          {
+            "integration_tests": [
+              {
+                "name": "test_target_descriptor_integration"
+              }
+            ],
+            "minimum_test_count": 10,
+            "property_tests": [
+              {
+                "name": "test_unwrapping_fuzz"
+              }
+            ],
+            "regression_tests": [
+              {
+                "name": "test_boolean_paths_type_error"
+              }
+            ],
+            "test_data_requirements": "Various wrapped types (nested lists, sets, tuples) as inputs.",
+            "unit_tests": [
+              {
+                "name": "test_unwrap_scalar_recursive"
+              },
+              {
+                "name": "test_unwrap_list_param_and_elements"
+              },
+              {
+                "name": "test_strict_type_validation_descriptor"
+              },
+              {
+                "name": "test_filter_empty_list_elements"
+              },
+              {
+                "name": "test_construct_full_test_command_dynamically"
+              },
+              {
+                "name": "test_nested_unwrapping_scenarios"
+              }
+            ]
+          },
+          {
+            "integration_tests": [],
+            "minimum_test_count": 10,
+            "property_tests": [],
+            "regression_tests": [
+              {
+                "name": "test_descriptor_nested_collection_regression"
+              },
+              {
+                "name": "test_descriptor_boolean_path_regression"
+              }
+            ],
+            "test_data_requirements": "None",
+            "unit_tests": [
+              {
+                "name": "test_unwrapping_scalar_recursively"
+              },
+              {
+                "name": "test_unwrapping_list_elements"
+              },
+              {
+                "name": "test_strict_type_validation_raises_type_error"
+              },
+              {
+                "name": "test_booleans_rejected_for_path_like"
+              },
+              {
+                "name": "test_filter_empty_elements"
+              },
+              {
+                "name": "test_dynamic_test_command_construction"
+              }
+            ]
+          }
+        ]
+      ],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "Unwraps single-element collections (list, tuple, set) recursively for scalar parameters (name, output_dir, stash_dir, source_root, unit_test_selector).",
+          "Unwraps list parameters (modules, test_files, seed_files) if wrapped in single-element collections, and unwraps their individual elements.",
+          "Raises TypeError if: name/unit_test_selector are not strings; modules/test_files/seed_files (if not None) are not lists of strings; output_dir/stash_dir/source_root are not strings or Path-like (and explicitly rejects booleans).",
+          "Filters out empty string elements from modules, test_files, and seed_files lists.",
+          "Constructs full_test_command dynamically based on the final test files list."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "harness/rebuild/target.py"
+        ],
+        "meta_task_type": "validation",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "Nested collection wrappers like [[['module_name']]].",
+            "Boolean value passed for path parameter.",
+            "Empty strings inside modules/test_files lists.",
+            "test_files list is empty."
+          ],
+          "functional_requirements": [
+            "Unwrap single-element collections recursively for scalar parameters.",
+            "Unwrap list parameters and their individual elements if wrapped in single-element collections.",
+            "Validate name and unit_test_selector are strings, and raise TypeError otherwise.",
+            "Validate modules, test_files are lists of strings, seed_files is a list of strings if not None, and output_dir, stash_dir, source_root are strings/Path-like objects (but not booleans), raising TypeError on failure.",
+            "Filter out empty string elements from modules, test_files, and seed_files, and construct full_test_command dynamically based on test files."
+          ],
+          "implementation_notes": "Write recursive unwrapping helper. Ensure strict type checking using isinstance() and rejecting booleans for Path-like objects. Construct full_test_command dynamically and strip trailing whitespaces.",
+          "interfaces": "def janusmask_module_descriptor(name: str, modules: list[str], test_files: list[str], output_dir: Path, stash_dir: Path, source_root: Path, seed_files: list[str] | None=None, unit_test_selector: str='') -> TargetDescriptor",
+          "non_goals": [
+            "Do not change the defined function signature.",
+            "Do not modify mathlib_descriptor or TargetDescriptor properties.",
+            "Integration tests are not modified in this task."
+          ],
+          "objective": "Implement unwrapping of single-element collections, strict parameter validation (raising TypeError on invalid types), filtering out empty elements, and dynamic command construction in janusmask_module_descriptor."
+        },
+        "spec_author": null,
+        "task_id": "janusmask_module_descriptor_fixes",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 10,
+          "property_tests": [],
+          "regression_tests": [
+            {
+              "name": "test_descriptor_nested_collection_regression"
+            },
+            {
+              "name": "test_descriptor_boolean_path_regression"
+            }
+          ],
+          "test_data_requirements": "None",
+          "unit_tests": [
+            {
+              "name": "test_unwrapping_scalar_recursively"
+            },
+            {
+              "name": "test_unwrapping_list_elements"
+            },
+            {
+              "name": "test_strict_type_validation_raises_type_error"
+            },
+            {
+              "name": "test_booleans_rejected_for_path_like"
+            },
+            {
+              "name": "test_filter_empty_elements"
+            },
+            {
+              "name": "test_dynamic_test_command_construction"
+            }
+          ]
+        },
+        "title": "Enhance janusmask_module_descriptor validation and unwrapping",
+        "token_budget_ratio": {
+          "implementation_tokens": 150,
+          "note": "Covers recursive unwrapping, strict type checking, and descriptor instantiations.",
+          "test_tokens": 250
+        },
+        "verification_command": "pytest test_target_generated.py"
+      },
+      "kind": "divergent",
+      "match_reason": "task_id"
+    },
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "Raise TypeError if session_id is provided but is not a string.",
+          "Raise TypeError if agent is provided but is not a string."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "low",
+        "files_touched": [
+          "harness/hooks/_env.py"
+        ],
+        "meta_task_type": "hooks_integration",
+        "priority": "medium",
+        "spec": {
+          "edge_cases": [
+            "Boolean values for session_id or agent.",
+            "Both session_id and agent are None (existing default path) - must remain unchanged."
+          ],
+          "functional_requirements": [
+            "Raise TypeError if session_id is provided but is not a string.",
+            "Raise TypeError if agent is provided but is not a string."
+          ],
+          "implementation_notes": "Use isinstance checks at the beginning of _work_dir.",
+          "interfaces": "def _work_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path",
+          "non_goals": [
+            "Modify other functions in _env.py.",
+            "Do not write integration tests for _work_dir."
+          ],
+          "objective": "Add TypeError validation to session_id and agent parameters in _work_dir if they are provided but are not strings."
+        },
+        "spec_author": null,
+        "task_id": "_work_dir_fixes",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_work_dir_integration"
+            }
+          ],
+          "minimum_test_count": 5,
+          "property_tests": [
+            {
+              "name": "test_work_dir_fuzz_parameter_types"
+            }
+          ],
+          "regression_tests": [
+            {
+              "name": "test_work_dir_boolean_parameters"
+            }
+          ],
+          "test_data_requirements": "Pass non-string parameters to _work_dir and assert TypeError is raised.",
+          "unit_tests": [
+            {
+              "name": "test_work_dir_session_id_type_validation"
+            },
+            {
+              "name": "test_work_dir_agent_type_validation"
+            },
+            {
+              "name": "test_work_dir_valid_string_inputs"
+            }
+          ]
+        },
+        "title": "Add type validation for session_id and agent parameters in _work_dir",
+        "token_budget_ratio": {
+          "implementation_tokens": 60,
+          "note": "Verify TypeError behavior.",
+          "test_tokens": 90
+        },
+        "verification_command": "pytest -v test__env_generated.py"
+      },
+      "diff_item_id": "bdada4372339cbc3c7d65d6324a1abe85e3a98aa",
+      "field_divergences": [
+        [
+          "scope",
+          [
+            "Add TypeError validation to session_id and agent parameters in _work_dir if they are provided but are not strings.",
+            [
+              "Raise TypeError if session_id is provided but is not a string.",
+              "Raise TypeError if agent is provided but is not a string."
+            ]
+          ],
+          [
+            "Add strict type validation to _work_dir arguments session_id and agent, raising TypeError on invalid inputs.",
+            [
+              "Raise TypeError if session_id is provided but is not a string.",
+              "Raise TypeError if agent is provided but is not a string."
+            ]
+          ]
+        ],
+        [
+          "priority",
+          "medium",
+          "high"
+        ],
+        [
+          "edge_cases",
+          [
+            "Boolean values for session_id or agent.",
+            "Both session_id and agent are None (existing default path) - must remain unchanged."
+          ],
+          [
+            "session_id is integer.",
+            "agent is boolean.",
+            "session_id or agent is None (allowed as it represents 'not provided' or default)."
+          ]
+        ],
+        [
+          "non_goals",
+          [
+            "Modify other functions in _env.py.",
+            "Do not write integration tests for _work_dir."
+          ],
+          [
+            "Do not change the function signature or return type annotation.",
+            "Do not alter env var lookup or path resolution logic.",
+            "Integration tests are not modified in this task."
+          ]
+        ],
+        [
+          "tests",
+          {
+            "integration_tests": [
+              {
+                "name": "test_work_dir_integration"
+              }
+            ],
+            "minimum_test_count": 5,
+            "property_tests": [
+              {
+                "name": "test_work_dir_fuzz_parameter_types"
+              }
+            ],
+            "regression_tests": [
+              {
+                "name": "test_work_dir_boolean_parameters"
+              }
+            ],
+            "test_data_requirements": "Pass non-string parameters to _work_dir and assert TypeError is raised.",
+            "unit_tests": [
+              {
+                "name": "test_work_dir_session_id_type_validation"
+              },
+              {
+                "name": "test_work_dir_agent_type_validation"
+              },
+              {
+                "name": "test_work_dir_valid_string_inputs"
+              }
+            ]
+          },
+          {
+            "integration_tests": [],
+            "minimum_test_count": 10,
+            "property_tests": [],
+            "regression_tests": [
+              {
+                "name": "test_work_dir_invalid_session_id_type_regression"
+              },
+              {
+                "name": "test_work_dir_invalid_agent_type_regression"
+              }
+            ],
+            "test_data_requirements": "None",
+            "unit_tests": [
+              {
+                "name": "test_work_dir_raises_type_error_for_invalid_session_id"
+              },
+              {
+                "name": "test_work_dir_raises_type_error_for_invalid_agent"
+              }
+            ]
+          }
+        ]
+      ],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "_work_dir raises TypeError if session_id is provided but is not a string.",
+          "_work_dir raises TypeError if agent is provided but is not a string."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "low",
+        "files_touched": [
+          "harness/hooks/_env.py"
+        ],
+        "meta_task_type": "hooks_integration",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "session_id is integer.",
+            "agent is boolean.",
+            "session_id or agent is None (allowed as it represents 'not provided' or default)."
+          ],
+          "functional_requirements": [
+            "Raise TypeError if session_id is provided but is not a string.",
+            "Raise TypeError if agent is provided but is not a string."
+          ],
+          "implementation_notes": "Check if session_id is not None and not isinstance(session_id, str), and if agent is not None and not isinstance(agent, str).",
+          "interfaces": "def _work_dir(session_id: str | None=None, *, agent: str | None=None) -> pathlib.Path",
+          "non_goals": [
+            "Do not change the function signature or return type annotation.",
+            "Do not alter env var lookup or path resolution logic.",
+            "Integration tests are not modified in this task."
+          ],
+          "objective": "Add strict type validation to _work_dir arguments session_id and agent, raising TypeError on invalid inputs."
+        },
+        "spec_author": null,
+        "task_id": "work_dir_validation_fixes",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 10,
+          "property_tests": [],
+          "regression_tests": [
+            {
+              "name": "test_work_dir_invalid_session_id_type_regression"
+            },
+            {
+              "name": "test_work_dir_invalid_agent_type_regression"
+            }
+          ],
+          "test_data_requirements": "None",
+          "unit_tests": [
+            {
+              "name": "test_work_dir_raises_type_error_for_invalid_session_id"
+            },
+            {
+              "name": "test_work_dir_raises_type_error_for_invalid_agent"
+            }
+          ]
+        },
+        "title": "Implement strict parameter type checking in _work_dir",
+        "token_budget_ratio": {
+          "implementation_tokens": 50,
+          "note": "Covers type check checks for session_id and agent.",
+          "test_tokens": 100
+        },
+        "verification_command": "pytest test__env_generated.py"
+      },
+      "kind": "divergent",
+      "match_reason": "files_jaccard_high"
+    },
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "New __future__ import nodes from output code are placed at index 0 of the target body.",
+          "__future__ imports must follow the module docstring (if any) but precede other code.",
+          "Main guard index is correctly shifted if present."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "harness/git_integration.py"
+        ],
+        "meta_task_type": "refactor",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "Module-level docstring at index 0: __future__ inserted must NOT precede the module docstring.",
+            "Target with multiple existing __future__ imports - avoid duplicate insertion.",
+            "Target code with main guard vs target code without main guard."
+          ],
+          "functional_requirements": [
+            "Detect ast.ImportFrom nodes with module '__future__' from the output code.",
+            "Insert output __future__ imports at the correct position (index 0 of target body, or index 1 if target body starts with a module docstring).",
+            "Shift the main guard index by 1 for each inserted __future__ import when main guard is present.",
+            "Deduplicate existing target __future__ imports to prevent duplication."
+          ],
+          "implementation_notes": "Filter out __future__ imports from out_nodes, insert them at the beginning of tgt_tree.body in order, and shift guard_idx.",
+          "interfaces": "def _ast_merge(output_code: str, target_code: str) -> str",
+          "non_goals": [
+            "Modify other functions in git_integration.py.",
+            "Do not write integration tests for _ast_merge."
+          ],
+          "objective": "Update _ast_merge to correctly place new __future__ imports at index 0 of target body (or right after the module docstring if present) and shift the main guard index if present."
+        },
+        "spec_author": null,
+        "task_id": "_ast_merge_fixes",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_ast_merge_integration"
+            }
+          ],
+          "minimum_test_count": 8,
+          "property_tests": [
+            {
+              "name": "test_ast_merge_fuzz_future_placement"
+            }
+          ],
+          "regression_tests": [
+            {
+              "name": "test_ast_merge_existing_future_imports"
+            }
+          ],
+          "test_data_requirements": "Python source codes with different target/output structures and __future__ imports.",
+          "unit_tests": [
+            {
+              "name": "test_ast_merge_inserts_future_import_at_index_zero"
+            },
+            {
+              "name": "test_ast_merge_shifts_main_guard_index"
+            },
+            {
+              "name": "test_ast_merge_multiple_future_imports"
+            },
+            {
+              "name": "test_ast_merge_future_import_and_docstring_ordering"
+            }
+          ]
+        },
+        "title": "Correct placement of __future__ imports in AST merge",
+        "token_budget_ratio": {
+          "implementation_tokens": 150,
+          "note": "Verify compilability of merged code containing __future__ imports.",
+          "test_tokens": 225
+        },
+        "verification_command": "pytest -v tests/test_ast_merge_future_imports.py"
+      },
+      "diff_item_id": "cdb0a9d4eb2e42d29b8023151a08e496044fde35",
+      "field_divergences": [
+        [
+          "scope",
+          [
+            "Update _ast_merge to correctly place new __future__ imports at index 0 of target body (or right after the module docstring if present) and shift the main guard index if present.",
+            [
+              "Detect ast.ImportFrom nodes with module '__future__' from the output code.",
+              "Insert output __future__ imports at the correct position (index 0 of target body, or index 1 if target body starts with a module docstring).",
+              "Shift the main guard index by 1 for each inserted __future__ import when main guard is present.",
+              "Deduplicate existing target __future__ imports to prevent duplication."
+            ]
+          ],
+          [
+            "Properly handle __future__ imports in the AST merging process by ensuring they are placed at index 0 of the target body and adjusting the main guard block index.",
+            [
+              "Detect ast.ImportFrom nodes with module __future__ in the output code.",
+              "Insert the __future__ imports at index 0 of the target body.",
+              "Shift the main guard index if the main guard block is present in the target body."
+            ]
+          ]
+        ],
+        [
+          "edge_cases",
+          [
+            "Module-level docstring at index 0: __future__ inserted must NOT precede the module docstring.",
+            "Target with multiple existing __future__ imports - avoid duplicate insertion.",
+            "Target code with main guard vs target code without main guard."
+          ],
+          [
+            "Output code has single __future__ import.",
+            "Output code has multiple __future__ imports.",
+            "Target code already contains matching __future__ import.",
+            "Main guard present at the start of the target body."
+          ]
+        ],
+        [
+          "non_goals",
+          [
+            "Modify other functions in git_integration.py.",
+            "Do not write integration tests for _ast_merge."
+          ],
+          [
+            "Do not change the _ast_merge signature.",
+            "Do not modify other AST merging rules (such as function replacements or class merging).",
+            "Integration tests are not modified in this task."
+          ]
+        ],
+        [
+          "tests",
+          {
+            "integration_tests": [
+              {
+                "name": "test_ast_merge_integration"
+              }
+            ],
+            "minimum_test_count": 8,
+            "property_tests": [
+              {
+                "name": "test_ast_merge_fuzz_future_placement"
+              }
+            ],
+            "regression_tests": [
+              {
+                "name": "test_ast_merge_existing_future_imports"
+              }
+            ],
+            "test_data_requirements": "Python source codes with different target/output structures and __future__ imports.",
+            "unit_tests": [
+              {
+                "name": "test_ast_merge_inserts_future_import_at_index_zero"
+              },
+              {
+                "name": "test_ast_merge_shifts_main_guard_index"
+              },
+              {
+                "name": "test_ast_merge_multiple_future_imports"
+              },
+              {
+                "name": "test_ast_merge_future_import_and_docstring_ordering"
+              }
+            ]
+          },
+          {
+            "integration_tests": [],
+            "minimum_test_count": 10,
+            "property_tests": [],
+            "regression_tests": [
+              {
+                "name": "test_ast_merge_existing_future_import_regression"
+              },
+              {
+                "name": "test_ast_merge_main_guard_presence_regression"
+              }
+            ],
+            "test_data_requirements": "None",
+            "unit_tests": [
+              {
+                "name": "test_ast_merge_inserts_future_import_at_index_0"
+              },
+              {
+                "name": "test_ast_merge_shifts_main_guard_index"
+              },
+              {
+                "name": "test_ast_merge_handles_multiple_future_imports_preserving_order"
+              }
+            ]
+          }
+        ]
+      ],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "If a node from the output code is an ast.ImportFrom with module '__future__', insert it at index 0 of the target body.",
+          "Shift the main guard index if the main guard block is present in the target body."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "harness/git_integration.py"
+        ],
+        "meta_task_type": "refactor",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "Output code has single __future__ import.",
+            "Output code has multiple __future__ imports.",
+            "Target code already contains matching __future__ import.",
+            "Main guard present at the start of the target body."
+          ],
+          "functional_requirements": [
+            "Detect ast.ImportFrom nodes with module __future__ in the output code.",
+            "Insert the __future__ imports at index 0 of the target body.",
+            "Shift the main guard index if the main guard block is present in the target body."
+          ],
+          "implementation_notes": "Identify all __future__ imports in out_tree.body. Remove them from out_nodes/out_no_key and filter them out of tgt_tree.body. Insert them sequentially at index 0 of tgt_tree.body. Ensure guard_idx is adjusted or calculated after these insertions.",
+          "interfaces": "def _ast_merge(output_code: str, target_code: str) -> str",
+          "non_goals": [
+            "Do not change the _ast_merge signature.",
+            "Do not modify other AST merging rules (such as function replacements or class merging).",
+            "Integration tests are not modified in this task."
+          ],
+          "objective": "Properly handle __future__ imports in the AST merging process by ensuring they are placed at index 0 of the target body and adjusting the main guard block index."
+        },
+        "spec_author": null,
+        "task_id": "ast_merge_future_imports_fixes",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 10,
+          "property_tests": [],
+          "regression_tests": [
+            {
+              "name": "test_ast_merge_existing_future_import_regression"
+            },
+            {
+              "name": "test_ast_merge_main_guard_presence_regression"
+            }
+          ],
+          "test_data_requirements": "None",
+          "unit_tests": [
+            {
+              "name": "test_ast_merge_inserts_future_import_at_index_0"
+            },
+            {
+              "name": "test_ast_merge_shifts_main_guard_index"
+            },
+            {
+              "name": "test_ast_merge_handles_multiple_future_imports_preserving_order"
+            }
+          ]
+        },
+        "title": "Correct placing of __future__ imports in _ast_merge",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Covers __future__ import merging and main guard index adjustment.",
+          "test_tokens": 200
+        },
+        "verification_command": "pytest test_ast_retry_generated.py"
+      },
+      "kind": "divergent",
+      "match_reason": "files_and_title"
+    },
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": null,
+      "diff_item_id": "411a509520368b77bf981aedde42310ee83a766c",
+      "field_divergences": [],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "Run all unit and integration tests successfully across JanusMaskJR.",
+          "Confirm no regressions in any other modules."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [
+          "check_true_depth_fixes",
+          "janusmask_module_descriptor_fixes",
+          "safe_under_project_fixes",
+          "work_dir_validation_fixes",
+          "ast_merge_future_imports_fixes"
+        ],
+        "estimated_complexity": "low",
+        "files_touched": [],
+        "meta_task_type": "test_acceptance",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [],
+          "functional_requirements": [
+            "Run the full test suite.",
+            "Ensure all tests pass successfully."
+          ],
+          "implementation_notes": "Run the pytest command to verify all validation and AST merge fixes are correct.",
+          "interfaces": "None",
+          "non_goals": [
+            "Do not modify any source code in this task."
+          ],
+          "objective": "Verify that all changes are correct, pass existing and new tests, and cause zero regressions."
+        },
+        "spec_author": null,
+        "task_id": "full_suite_acceptance_test",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_full_suite_run"
+            }
+          ],
+          "minimum_test_count": 10,
+          "property_tests": [],
+          "regression_tests": [],
+          "test_data_requirements": "None",
+          "unit_tests": [
+            {
+              "name": "test_depth_validator_integration"
+            },
+            {
+              "name": "test_target_descriptor_integration"
+            },
+            {
+              "name": "test_hooks_integration"
+            }
+          ]
+        },
+        "title": "Run the full test suite to accept all validation fixes",
+        "token_budget_ratio": {
+          "implementation_tokens": 0,
+          "note": "Pure acceptance task; test budget only.",
+          "test_tokens": 50
+        },
+        "verification_command": "pytest"
+      },
+      "kind": "gemini_only",
+      "match_reason": null
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+==============================================================================
+GAP-2: phase-order literal copies that will DESYNC on env-phase insertion
+==============================================================================
+
+[A] Hardcoded phase-order TUPLE LITERALS (name = ('...','hunt',...)):
+   fsm_evidence.py:4
+       PHASE_ORDER: Tuple[str, ...] = ('source', 'hunt', 'triage', 'verify', 'poc', 'detonate', 'novelty', 'report', 'awaiting_submission', 'submitted', 'done')
+   gate_executor.py:39
+       _TRANSITION_GATES: Dict[Tuple[str, str], Tuple[_GateSpec, ...]] = {('source', 'hunt'): (('source_ready', ('source_ready',), lambda ev: {'may_confirm': bool(ev.g
+   session_api.py:675
+       PHASE_ORDER: Tuple[str, ...] = ('source', 'hunt', 'triage', 'verify', 'poc', 'detonate', 'novelty', 'report', 'awaiting_submission', 'submitted', 'done')
+   session_api.py:716
+       _PHASES = ('hunt', 'triage', 'poc', 'detonate', 'report', 'done')
+   session_gate.py:138
+       _TRANSITIONS = {('hunt', 'triage'): _gate_hunt_to_triage, ('triage', 'poc'): _gate_triage_to_poc, ('poc', 'detonate'): _gate_poc_to_detonate, ('detonate', 'repo
+   session_gate.py:463
+       _HANDLERS: Dict[Tuple[str, str], Callable[[str, str, Any], GateResult]] = {('source', 'hunt'): _gate_source_to_hunt, ('triage', 'verify'): _gate_triage_to_verif
+   stage_command_map.py:10
+       AGENT_PHASES = frozenset({'hunt', 'triage', 'verify', 'poc', 'detonate', 'novelty', 'report'})
+   state_machine.py:23
+       PHASES: Tuple[str, ...] = ('hunt', 'triage', 'poc', 'detonate', 'report', 'done')
+   state_machine.py:25
+       ALLOWED_TRANSITIONS: Dict[str, Tuple[str, ...]] = {'hunt': ('triage', 'done'), 'triage': ('poc', 'done'), 'poc': ('detonate', 'done'), 'detonate': ('report', 'd
+   state_machine.py:69
+       LIFECYCLE_PHASES: Tuple[str, ...] = ('source', 'hunt', 'triage', 'verify', 'poc', 'detonate', 'novelty', 'report', 'awaiting_submission', 'submitted', 'done')
+   work_intent_tracking.py:26
+       INTENT_TYPES: Tuple[str, ...] = ('audit', 'clone', 'poc', 'live_test', 'hunt', 'submit')
+
+   TOTAL independent phase-order literals: 11
+
+[B] Which of these are CONSUMED by the c0 import vs are INDEPENDENT?
+   fsm_evidence.py: defines-own=['PHASE_ORDER']  imports_c0_PHASE_ORDER=False
+   gate_executor.py: defines-own=[]  imports_c0_PHASE_ORDER=True
+   session_api.py: defines-own=['PHASE_ORDER', '_PHASES']  imports_c0_PHASE_ORDER=False
+   session_gate.py: defines-own=[]  imports_c0_PHASE_ORDER=False
+   stage_command_map.py: defines-own=[]  imports_c0_PHASE_ORDER=False
+   state_machine.py: defines-own=['LIFECYCLE_PHASES', 'PHASES']  imports_c0_PHASE_ORDER=False
+   work_intent_tracking.py: defines-own=[]  imports_c0_PHASE_ORDER=False
+
+[C] session_api.py LIVE advance path — which literal does it use?
+   imports PHASE_ORDER from fsm_evidence?  False
+   defines local PHASE_ORDER literal?       True
+   uses 'PHASE_ORDER.index' in live path: True  (_next_phase (line ~406))
+   uses 'PHASE_ORDER[0]' in live path: True  (create/advance entry)
+   uses '_PHASES[0]' in live path: True  (create() seeds phase=_PHASES[0])
+
+[D] Does the INTEGRATION_LEAF_TODO or EITHER doc mention session_api/
+    state_machine phase-order when inserting env phases?
+   INTEGRATION_LEAF_TODO: session_api=no  state_machine=no  LIFECYCLE_PHASES=no  _PHASES_literal=YES
+   gap-analysis.md: session_api=no  state_machine=YES  LIFECYCLE_PHASES=no  _PHASES_literal=no
+   contract.md: session_api=no  state_machine=YES  LIFECYCLE_PHASES=no  _PHASES_literal=no
+
+VERDICT: >=2 INDEPENDENT live phase-order literals (session_api, state_machine)
+         are NOT named by the integration TODO or either doc -> DESYNC RISK.

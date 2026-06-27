@@ -1,0 +1,10 @@
+=== d1: validator on patches w/ stray undeclared file ===
+ok: True rules: []
+D1_validator_ignores_stray_patch_file: True
+=== d2: commit-time apply-scope gate (patches path uses this) ===
+err_declared (should be None): None
+err_stray (should be a scope violation): apply-path scope violation: config/target_bootstrap.yaml is not a member of the declared files_touched ['harness/target_bootstrap.py']
+D2_stray_patch_HARD_FAILS_at_commit: True
+=== d3: restrict helper on a patches-shaped (list) sidecar ===
+dropped: [] bytes_unchanged: True
+D3_helper_cannot_restrict_patches: True

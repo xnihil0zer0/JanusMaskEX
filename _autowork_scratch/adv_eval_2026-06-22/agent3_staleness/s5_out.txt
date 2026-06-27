@@ -1,0 +1,20 @@
+=== (4a) auto_commit accepted ledger rows for the manifest brief ===
+  manifest-drop-undeclared-impl: ts='2026-06-22T17:26:48Z'  epoch=1782149208.0  local=2026-06-22T13:26:48
+  manifest-drop-undeclared-oracle: ts='2026-06-22T17:18:04Z'  epoch=1782148684.0  local=2026-06-22T13:18:04
+
+=== (4b) archived manifest plan file mtime ===
+  plan_hooks_manifest_drop_undeclared_keys.json: mtime=1782149208.9489958  local=2026-06-22T13:26:48.948996
+
+=== (4c) ordering: accept_ts < plan_mtime (=> re-queued by current guard) ===
+  manifest-drop-undeclared-impl: accept 1782149208.0 < plan 1782149208.9489958 ? True   (gap = 0.949s)
+  manifest-drop-undeclared-oracle: accept 1782148684.0 < plan 1782149208.9489958 ? True   (gap = 524.949s)
+
+=== (4d) tree-wide stamp: distinct mtime-seconds of ALL untracked plan_hooks_*.json at root ===
+  untracked root plans: 44
+    mtime second 1782149208 (2026-06-22T13:26:48): 44 files
+  files sharing the manifest-integrate instant 1782149208: 44
+
+=== VERDICT (live) ===
+  both manifest accepts precede plan mtime (re-queued):        True
+  ALL untracked root plans share ONE integrate instant:        True
+  => mechanism is a TREE-WIDE mtime stamp (git stash pop), not a per-plan rewrite

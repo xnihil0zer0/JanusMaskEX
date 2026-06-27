@@ -49,7 +49,7 @@ two static gates trivially but produces no real runtime effect → dies at `deto
 
 ## §2. Current verified state (LANDED, with SHAs)
 
-**Factory / harness (JanusMaskJR, branch master, HEAD `0234872`):**
+**Factory / harness (JanusMaskEX, branch master, HEAD `0234872`):**
 - Keystone planner oracle-drop guard — `fa0e188` + **`0fb322f`** (`plan_normalizer.py` red-pair KEEP
   guards, both PASSes). 490 `tests/planner/` green.
 - Fix-forward red-pair **acceptance** predicate — `271c4ba` + `d0974bd` (NEW

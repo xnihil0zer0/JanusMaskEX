@@ -34,11 +34,11 @@ if 'harness.planner.reconciliation' not in sys.modules:
 if 'harness.paths' not in sys.modules:
     dummy_paths = types.ModuleType('harness.paths')
     dummy_paths._target_is_self = lambda x: True
-    dummy_paths.PROJECT_ROOT = Path('/home/xnihil0zer0/JanusMaskJR')
+    dummy_paths.PROJECT_ROOT = Path('/home/xnihil0zer0/AI-Data/JanusMaskEX')
     sys.modules['harness.paths'] = dummy_paths
 import harness.planner.cli
 from harness.planner.brief_loader import load_brief
-WORKING_DIR = '/home/xnihil0zer0/JanusMaskJR'
+WORKING_DIR = '/home/xnihil0zer0/AI-Data/JanusMaskEX'
 SECTIONS = '# Title\nTest Title\n\n# Scope\nTest Scope\n\n# Inputs\nTest Inputs\n\n# Non-Goals\nThis test covers integration contracts.\n\n# Deliverables\n- Test deliverable\n'
 
 def write_test_brief(tmp_path, integration_contracts=None, epic=False):

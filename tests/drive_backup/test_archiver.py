@@ -63,7 +63,7 @@ def test_default_excludes_is_frozenset_with_cache_dirs():
 def test_artifact_stem_is_repo_sha7_compactutc(tmp_path):
     out = tmp_path / "out"
     res = build_archive(
-        "/home/xnihil0zer0/JanusMaskJR",
+        "/home/xnihil0zer0/AI-Data/JanusMaskEX",
         SHA,
         runner=SpyRunner(),
         now=_now,
@@ -71,18 +71,18 @@ def test_artifact_stem_is_repo_sha7_compactutc(tmp_path):
         base_sha="0" * 40,
     )
     assert isinstance(res, ArchiveResult)
-    stem = f"JanusMaskJR_{SHA7}_20260612T231500Z"
+    stem = f"JanusMaskEX_{SHA7}_20260612T231500Z"
     assert res.archive_path.endswith(f"{stem}.tar.zst")
     assert res.diff_path.endswith(f"{stem}.diff")
     assert res.manifest["stem"] == stem
-    assert res.manifest["repo"] == "JanusMaskJR"
+    assert res.manifest["repo"] == "JanusMaskEX"
     assert res.manifest["sha"] == SHA
 
 
 def test_runner_is_the_only_subprocess_path_and_argv_shape(tmp_path):
     spy = SpyRunner()
     res = build_archive(
-        "/repo/JanusMaskJR",
+        "/repo/JanusMaskEX",
         SHA,
         runner=spy,
         now=_now,
@@ -109,7 +109,7 @@ def test_runner_is_the_only_subprocess_path_and_argv_shape(tmp_path):
 def test_excludes_are_materialized_as_exclude_args(tmp_path):
     spy = SpyRunner()
     res = build_archive(
-        "/repo/JanusMaskJR",
+        "/repo/JanusMaskEX",
         SHA,
         runner=spy,
         now=_now,
@@ -127,7 +127,7 @@ def test_excludes_are_materialized_as_exclude_args(tmp_path):
 
 def test_git_dir_included_by_default(tmp_path):
     res = build_archive(
-        "/repo/JanusMaskJR",
+        "/repo/JanusMaskEX",
         SHA,
         runner=SpyRunner(),
         now=_now,
@@ -143,7 +143,7 @@ def test_git_dir_included_by_default(tmp_path):
 def test_first_ever_backup_uses_empty_base_diff_form(tmp_path):
     spy = SpyRunner()
     res = build_archive(
-        "/repo/JanusMaskJR",
+        "/repo/JanusMaskEX",
         SHA,
         runner=spy,
         now=_now,
@@ -163,7 +163,7 @@ def test_manifest_is_jsonable_and_complete(tmp_path):
     import json
 
     res = build_archive(
-        "/repo/JanusMaskJR",
+        "/repo/JanusMaskEX",
         SHA,
         runner=SpyRunner(),
         now=_now,
@@ -194,7 +194,7 @@ def test_diff_argv_writes_to_diff_path_via_output_flag(tmp_path):
     would silently produce no .diff file."""
     spy = SpyRunner()
     res = build_archive(
-        "/repo/JanusMaskJR", SHA, runner=spy, now=_now,
+        "/repo/JanusMaskEX", SHA, runner=spy, now=_now,
         out_dir=str(tmp_path), base_sha="b" * 40,
     )
     git_call = next(c for c in spy.calls if any("git" in t for t in c))

@@ -48,7 +48,7 @@ from harness.rebuild.harvest import Unit
 from harness.rebuild.target import TargetDescriptor
 from harness.rebuild.task import build_unit_task
 
-PARENT_ROOT = "/home/op/JanusMaskJR"
+PARENT_ROOT = "/home/op/JanusMaskEX"
 
 # A path-injection payload: a bare ``;`` (no surrounding quote in the vulnerable
 # build) terminates the pytest invocation; ``touch`` would run as its own command.

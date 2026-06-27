@@ -1,0 +1,70 @@
+{
+  "responses": [
+    {"diff_item_id": "__critique__", "stance": "amend"}
+  ],
+  "findings": [
+    {
+      "finding_id": "smoke-version-test-count-bloat",
+      "category": "test_heavy_violation",
+      "severity": "error",
+      "task_id": "SMOKE_VERSION",
+      "field_path": "/tasks/0/test_spec/minimum_test_count",
+      "suggested_patch": {
+        "op": "decrease_test_count",
+        "new_minimum_test_count": 3,
+        "rationale": "Cap the test surface for a one-line literal assignment; keep one parse-assertion test, one docstring-preservation test, and one diff/commit smoke test."
+      },
+      "message": "minimum_test_count=12 for a single-line top-level __version__ assignment is extreme test-heaviness. The body of the change is one line of code (literally __version__ = '0.0.1'); demanding 6 unit + 4 integration + 1 property + 1 regression test inflates verification cost far past the change's blast radius. The 'prove the pipeline' smoke is already validated end-to-end by the auto_commit ledger row + py_compile gate; the per-test bookkeeping for 12 distinct assertions adds churn without catching new failure modes. Cut to ~3 tests (assignment present, docstring preserved, dispatch produces a real diff/commit)."
+    },
+    {
+      "finding_id": "smoke-version-token-budget-inverted",
+      "category": "test_heavy_violation",
+      "severity": "warn",
+      "task_id": "SMOKE_VERSION",
+      "field_path": "/tasks/0/token_budget_ratio",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "implementation_tokens": 80,
+        "test_tokens": 80,
+        "rationale": "Keep test budget at most equal to impl budget for a trivial single-line addition; the current 2:1 test:impl ratio is a downstream symptom of the bloated test count."
+      },
+      "message": "token_budget_ratio allocates 200 test tokens vs 100 implementation tokens (2:1) for a one-line literal. Even with the harness's 'test-heavy' bias, allocating twice the budget to tests for a literal assignment is wasteful and incentivises generating filler test stubs. Tighten to ~1:1 or below once the test count is cut."
+    },
+    {
+      "finding_id": "smoke-version-missing-trailing-newline-edge-case",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "SMOKE_VERSION",
+      "field_path": "/tasks/0/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "The submission MUST end with a single trailing newline (LF); CRLF line endings or a missing terminal newline will produce a noisy diff that may trip the AST merger or pre-commit hooks and obscure the canonical one-line addition."
+      },
+      "message": "The spec's implementation_notes carefully specifies the verbatim file content including 'the closing newline', but the edge_cases list never warns about line-ending drift (CRLF/CR vs LF) or BOM injection by an editor. Without an explicit edge case, an agent emitting CRLF-encoded content can produce a passing py_compile yet a corrupted diff against the LF-encoded stub. Add an edge case mandating LF line endings, no BOM, and a single terminal newline."
+    },
+    {
+      "finding_id": "smoke-version-missing-idempotency-edge-case",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "SMOKE_VERSION",
+      "field_path": "/tasks/0/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "If harness/smoke_target.py already defines __version__ (e.g., from a prior dispatch run that was not reset), the task MUST either no-op gracefully or fail with a clear diagnostic — it MUST NOT introduce a second __version__ assignment or shadow the existing one."
+      },
+      "message": "The spec assumes the committed stub has no __version__, but does not specify behaviour when the file already defines one (re-run / partial revert / dirty working tree). Without an explicit edge case, a re-dispatch could append a duplicate __version__ assignment, leaving the module syntactically valid but semantically wrong and producing a confusing diff. Add an idempotency edge case."
+    },
+    {
+      "finding_id": "smoke-version-verification-command-no-value-check",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "SMOKE_VERSION",
+      "field_path": "/tasks/0/verification_command",
+      "suggested_patch": {
+        "op": "tighten_verification",
+        "detail": "Extend the one-liner to also assert the assigned literal equals '0.0.1' (e.g., evaluate the constant and compare), not merely that an assignment to __version__ exists. As written, __version__ = '999.999.999' or __version__ = None would still satisfy the gate."
+      },
+      "message": "The verification_command only checks for the existence of a top-level Assign to a Name 'id' == '__version__'; it never inspects the assigned value. The spec mandates the literal string '0.0.1' (edge_cases bullet 4), so an agent emitting __version__ = '' or __version__ = '0.0.2' would pass the gate but violate the spec. Strengthen the AST check to assert the assignment's value is a Constant equal to '0.0.1'."
+    }
+  ]
+}

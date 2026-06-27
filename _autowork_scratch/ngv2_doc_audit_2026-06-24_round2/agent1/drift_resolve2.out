@@ -1,0 +1,86 @@
+############ conductor_seams.py (NGv2) ############
+442 /home/xnihil0zer0/NobleGreedv2/ngv2/conductor_seams.py
+20:_PHASE_COUNT_KEY = {'hunt': 'findings', 'poc': 'pocs', 'detonate': 'reports'}
+39:def build_default_seams(session_id: str, db: Any, llm_client: Any, ctx: dict) -> dict:
+56:        lbl = _PHASE_COUNT_KEY.get(phase)
+81:                pkg = dict(state.get('parked_package') or {})
+86:                state['parked_package'] = pkg
+112:    def build_evidence(state: Dict[str, Any]) -> Dict[str, Any]:
+116:        pkg = state.get('parked_package') or {}
+374:"Assemble the complete seam dict for ``hunt_conductor.run_conductor_step``.\n\n``build_default_seams`` wires closures over ``(session_id, db, llm_client,\nctx)`` to the real NGv2 modules. Assembly is PURE -- no DB query, subprocess,\nor LLM call happens while building the seams; those only occur when the\nconductor later invokes a seam. The live ``spawn`` seam runs the\n``python -m ngv2.workers.<phase>`` command emitted by ``stage_command_map`` and\nreturns the output directory the harvester reads.\n\nTwo seams carry the cross-process data flow that lets a hunt actually traverse\nthe FSM end-to-end:\n\n* ``persist`` -- besides appending harvested artifacts and bumping the planner's\n  phase-count keys, it THREADS the structured payloads forward into the session\n  row: the hunt phase's findings into ``state['prior_findings']`` (read by the\n  poc worker via its session row), the poc phase's source into\n  ``state['parked_package']['poc']`` (read by the detonate worker), and the\n  detonate phase's raw report into ``state['evidence']['detonation_report_raw']``.\n* ``build_evidence`` -- TRANSLATES those carried-forward payloads + the target\n  repo source into the exact evidence vocabulary the transition gates require\n  (``poc_source``, ``target_import_names``, ``target_source``,\n  ``expected_signature``, ``sink_name``, ``call_sites``, ``detonation_report``).\n  The raw detonate worker report is mapped into the gate's\n  ``ran_target``/``observed_runtime_effect`` shape, with\n  ``observed_runtime_effect`` driven by the detonation's reproduced/semantic\n  verdict (NOT a bare exit code) so a confirmation is real, not a false positive.\n"
+
+############ poc_runner_live.py (NGv2) ############
+537 /home/xnihil0zer0/NobleGreedv2/ngv2/poc_runner_live.py
+doc cites :267 :272-293 :322-343 :373 :434
+23:  * ``--unshare-net``/``--unshare-ipc``/``--unshare-pid`` -- no off-host exfil, no
+62:class LiveRunnerError(RuntimeError):
+65:def bwrap_available() -> bool:
+69:def build_detonation_jail_argv(cmd: Sequence[str], *, repo_root: Optional[str | Path], work_dir: str | Path, extra_ro: Iterable[str | Path]=(), shared_loopback_netns: bool=False) -> list[str]:
+83:      * ``False`` (default, legacy path): ``--unshare-net`` -- a fresh netns the PoC
+87:        (``--unshare-user --uid 0 --gid 0 --cap-add CAP_NET_ADMIN --unshare-net
+120:        net_flags: list[str] = ['--unshare-user', '--uid', '0', '--gid', '0', '--cap-add', 'CAP_NET_ADMIN', '--unshare-net', '--unshare-ipc', '--unshare-pid']
+122:        net_flags = ['--unshare-net', '--unshare-ipc', '--unshare-pid']
+141:def snapshot_tree(root: str | Path) -> dict[str, str]:
+173:def diff_snapshots(before: Mapping[str, str], after: Mapping[str, str]) -> str:
+193:def _resolve_target_spec(target_spec: object) -> dict:
+209:def _poc_filename(poc: PoC) -> str:
+213:def _entry_cmd(poc: PoC, poc_path: str, python_bin: Optional[str]=None) -> list[str]:
+233:def detonate_live(poc: PoC, target_spec: object=None, *, timeout_s: Optional[float]=None, success_marker: str=DEFAULT_SUCCESS_MARKER, expected_fs_signature: Optional[str]=None, pip_installer: Optional[Callable[[str, str], bool]]=None, jail_runner: Optional[Callable[..., dict]]=None, loopback: bool=False) -> dict:
+246:    **Missing-dep install fallback.** When the first run FAILS (non-zero exit, not
+249:    the missing dep is ``pip install``-ed HOST-SIDE (network available, outside the
+252:    only masked by an uninstalled transitive import; it never changes the verdict
+254:    :data:`MAX_DEP_INSTALL_ROUNDS` rounds; pip failure degrades to the original
+256:    ``_jmdeps`` so installed deps never appear in the diff.
+258:    ``pip_installer(name, target_dir) -> bool`` and
+261:    paths) so the install/rerun loop is unit-testable without real network or jail.
+270:    if pip_installer is None:
+272:        pip_installer = lambda _name, _target_dir: _default_pip_installer(_name, _target_dir, _jail_py)
+304:            def active_jail_runner(_cmd, *, repo_root, work_dir, extra_ro, child_env, timeout_s):
+309:        def _snapshot_excluding_deps(root: str) -> dict:
+312:            # Exclude the _jmdeps install dir AND the leaf-2 loopback config artifact so
+316:        def _run_once(env: Mapping[str, str], extra: Sequence[str]) -> dict:
+328:        installed: set = set()
+331:        for _round in range(MAX_DEP_INSTALL_ROUNDS):
+334:            missing = [m for m in _missing_modules_from_stderr(result.get('stderr') or '') if m not in target_top and m not in installed]
+337:            any_installed = False
+339:                installed.add(name)
+341:                    ok = pip_installer(name, deps_dir)
+345:                    any_installed = True
+346:            if not any_installed:
+362:def make_live_runner(*, repo_root: Optional[str | Path]=None, timeout_s: float=DEFAULT_TIMEOUT_S, extra_ro: Iterable[str | Path]=()) -> Callable[[PoC, object], Tuple[Optional[int], str, str, int]]:
+373:    def runner(poc: PoC, target_spec: object) -> Tuple[Optional[int], str, str, int]:
+388:MAX_DEP_INSTALL_ROUNDS: int = 3
+392:def _missing_modules_from_stderr(stderr: str) -> List[str]:
+395:    ``pip install`` operates on the distribution's top-level import package; the
+
+############ workers/_runner.py (NGv2) ############
+317 /home/xnihil0zer0/NobleGreedv2/ngv2/workers/_runner.py
+doc cites :267 _make_detonation_seam repo_root payload
+12:def parse_args(phase: str, argv: Optional[List[str]]=None) -> argparse.Namespace:
+19:    def _error(message):
+22:    def _exit(status=0, message=None):
+28:def build_context(phase: str, args: argparse.Namespace, session_row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+41:def _load_session_row(session_id: str, session_db_override: Optional[Any]=None) -> Optional[Dict[str, Any]]:
+56:def build_seams(phase: str) -> Dict[str, Any]:
+116:            det = _make_detonation_seam()
+135:def run_phase(phase: str, context: Dict[str, Any], seams: Dict[str, Any]) -> List[Dict[str, Any]]:
+145:def _write_artifacts(phase: str, artifacts: List[Dict[str, Any]], out_path: str) -> None:
+190:def main(phase: str, argv: Optional[List[str]]=None, *, session_db: Optional[Any]=None, seams: Optional[Dict[str, Any]]=None) -> int:
+205:def _hunt_may_confirm(**kwargs: Any) -> bool:
+221:def _make_detonation_seam():
+240:    def _coerce_source(poc: Any) -> Optional[str]:
+251:    def detonation(poc=None, target=None, finding=None, parked_package=None, package=None, context=None, **kw):
+264:        repo_root = ctx.get('repo') or (target if isinstance(target, str) else None)
+291:            target_spec = {'repo_root': repo_root, 'env': {'NGV2_SSRF_CALLBACK': listener.url_for(nonce), 'NGV2_SSRF_NONCE': nonce}}
+
+############ poc_writer.py (NGv2) ############
+doc cites :315-327 :342-369 :377 :685
+720 /home/xnihil0zer0/NobleGreedv2/ngv2/poc_writer.py
+201:def _overlay_source_meta(grounding: Grounding, finding: Any) -> Grounding:
+202:    meta = getattr(finding, 'source_meta', None)
+221:        return _overlay_source_meta(result, finding)
+223:        return _overlay_source_meta(Grounding(module=result.get('module', ''), symbols=list(result.get('symbols', []) or []), functions=list(result.get('functions', []) or []), constants=list(result.get('constants', []) or []), source_dir=result.get('source_dir', ''), source_path=result.get('source_path', ''), entrypoint=result.get('entrypoint', '')), finding)
+315:def is_source_driving(grounding: Grounding, cwe: str) -> bool:
+377:_TEMPLATE_LIST: List[CWETemplate] = [CWETemplate('CWE-502', ('insecure_deserialization', 'deserialization', 'unsafe_deserialization', 'pickle', 'deser'), _py_deserialization, _make_js('CWE-502', 'func')), CWETemplate('CWE-95', ('eval_usage', 'code_injection', 'eval', 'python_eval'), _py_eval_usage, _make_js('CWE-95', 'func')), CWETemplate('CWE-94', ('improper_code_generation', 'code_generation', 'codeinjection', 'code_inj', 'sandbox_escape', 'restrictedpython', 'blacklist_bypass', 'rce', 'remote_code_execution'), _py_code_injection, _make_js('CWE-94', 'func')), CWETemplate('CWE-22', ('path_traversal', 'directory_traversal', 'path_trav', 'dir_traversal', 'lfi', 'arbitrary_file_read', 'arbitrary_file_write', 'file_disclosure'), _py_path_traversal, _make_js('CWE-22', 'func')), CWETemplate('CWE-918', ('ssrf', 'server_side_request_forgery'), _py_ssrf, _make_js('CWE-918', 'func')), CWETemplate('CWE-78', ('command_injection', 'os_command_injection', 'cmd_injection', 'command_inj'), _py_command_injection, _make_js('CWE-78', 'func')), CWETemplate('CWE-89', ('sql_injection', 'sqli', 'sql_inj'), _py_sql_injection, _make_js('CWE-89', 'func')), CWETemplate('CWE-798', ('hardcoded_secret', 'hardcoded_credentials', 'hardcoded_credential', 'hardcoded_password'), _py_hardcoded_secret, _make_js('CWE-798', 'const')), CWETemplate('CWE-327', ('weak_crypto', 'weak_cryptography', 'weak_hash', 'broken_crypto'), _py_weak_crypto, _make_js('CWE-327', 'func'))]
+379:for _template in _TEMPLATE_LIST:
+566:            setattr(coerced, 'source_meta', dict(finding.get('source_meta') or {}))

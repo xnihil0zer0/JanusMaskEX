@@ -1,0 +1,157 @@
+# auto_promote.allowlist — DENY-ALL when empty/comment-only.
+# 2026-06-22: accept_staleness_sha_gate + redpair_sibling_blocked_scan LANDED+VERIFIED.
+# targets_dir held aside (_autowork_scratch/held_tasks/targets_2026-06-22).
+#
+# 🚀 ACTIVE: WIRE-UP DETONATION PROGRAM (owner-confirmed) = static-reachability FLOOR + stack-ancestor
+#    detonation BAR + adversarially-validated wire_exempt. 9-brief roadmap in
+#    _autowork_scratch/wire_up_detonation_feasibility/ROADMAP.md. Sequential. Gate stays REPORT-only;
+#    enforce flip owner-gated after a low-FP soak. See memory ngv2-wire-up-detonation-program.
+#
+# ★ DETONATION MACHINERY COMPLETE + ALL VERIFIED observed-working 2026-06-23:
+# ✅ BRIEF #1 static-reachability FLOOR        (b27ede3 oracle / 2e8f2e9 primitive; 7/7 ground truth)
+# ✅ BRIEF #2 stack-ancestor OBSERVER method   (81e9c19 oracle / 3279cd3 primitive; 5/5 incl anti-gaming C + E)
+# ✅ BRIEF #3 jailed detonation RUNNER         (1665218 oracle / d8e4899 primitive; cred-drop + net-isolation real)
+# ✅ BRIEF #4 adversarial EXEMPT-VALIDATION     (57a12a7 oracle / 5ab79d8 primitive) — the program's BIGGEST RISK,
+#    LANDED + VERIFIED observed-working: INDEPENDENT adversary drove the REAL validate_exemption (not the green
+#    oracle) — Case-7 composition proved it CALLS the module-level floor (monkeypatch flips the verdict), no true
+#    orphan can be exempted under any non-staged category, staged_sibling only defers, garbage rejected. Catch-all
+#    hole CLOSED. validate_exemption is a PURE FUNCTION — NOT wired into the live gate (correct; wiring is brief #7).
+#
+# 🚀 BRIEF #5 (CONTRACT EMISSION) DISPATCHED 2026-06-23 — brief-declared integration_contract → planner-threaded →
+#    task.json constraints (NEW surface: brief_loader + plan_normalizer + cli, NOT wire_up.py). 6 tasks = 3 red-pairs.
+#    LOOP: scoped FEASIBLE → authored → adversarial review APPROVE-WITH-FIXES (cli oracle gameable by contracts=None,
+#    end-to-end thread untested) → fix PROTOTYPE-PROVEN (oracle spies main's REAL normalize_plan call; __UNSET__
+#    sentinel catches the omitted-kwarg cheat; GREEN-on-correct / RED-on-all-3-cheats) → final re-review
+#    APPROVE-DISPATCH (prose unambiguous, spy patches plan_normalizer.normalize_plan per main's LOCAL import).
+#    Gate stays REPORT-only; validate_exemption NOT wired (that's brief #7). NEXT after lands+VERIFIED: brief #6.
+#
+# 🩹 CORRECTIVE (brief #5 cli-impl unblock) DISPATCHED 2026-06-23 — 5/6 of #5 LANDED; cli-impl BLOCKED on a
+#    landed-oracle SENTINEL BUG: cli-oracle asserted `integration_contracts is None` but briefloader defaults it
+#    to `{}` (assert {} is None) — false-rejects the (PROVEN-CORRECT) cli-impl threading. Diagnosis confirmed +
+#    candidate threading prototype-verified green. Fix = single test_authoring re-author of the SAME oracle file
+#    (sentinel → `assert not real_brief.integration_contracts`), spy-test-1 + __UNSET__ teeth PRESERVED (verbatim
+#    sig in prose). Adversarial review APPROVE-DISPATCH. tests/** non-sensitive → no decision file. After it lands:
+#    cli-impl auto-re-extracts from plan #5 (deps satisfied) → passes; clear exhausted/selfheal_skip markers ONLY
+#    if it hit attempt-3 exhaustion first.
+#
+# ⚠️ CORRECTIVE BRIEF RESHAPED to a 2-TASK RED-PAIR 2026-06-23 (standalone oracle could NOT land: its
+#    spy-test-1 is CORRECTLY red until cli.py threads → a standalone test_authoring must be green). Now:
+#    oracle re-author (sentinel fix, teeth preserved) + cli.py-threading impl that turns it green. This
+#    red-pair SUBSUMES plan-#5's redundant blocked task wireup-contract-cli-impl, so brief #5
+#    (wire_up_contract_emission) is RETIRED: slug removed, brief+plan moved to
+#    _autowork_scratch/wireup_contract_retired_plan5/ (its 5 landed commits stay on HEAD), cli-impl
+#    blocked task cleared. Contract-emission feature = plan-#5 (briefloader+normalizer, landed) + this
+#    corrective red-pair (cli threading + fixed oracle). Gate stays REPORT-only.
+#
+# ✅ BRIEF #5 (CONTRACT EMISSION) COMPLETE + VERIFIED observed-working 2026-06-23 — oracle a420db6 + cli-impl
+#    807c2ec (impl LLM self-corrected on retry to `... or None`). E2E proven (real load_brief + real normalize_plan):
+#    brief frontmatter → task.constraints.integration_contract, BYTE-MATCHING the gate read (orchestrator.py:2297).
+#    Spent red-pair brief archived (2026-06-23_wireup_contract_cli_redpair). ⚠️ EMISSION PLUMBING only — factory does
+#    not yet AUTHOR contracts in real briefs (0/5226); that's #6/#7.
+#
+# 🚀 NEXT: BRIEF #6 = wire-up-detonation-oracle-authoring-prompt (roadmap's "riskiest unknown"). SCOPED+VERIFIED
+#    2026-06-23: roadmap mis-targeted test_author.py::build_author_prompt (that's the DEAD rebuild-loop path); the
+#    factory's real test-authoring prompt = harness/orchestrator.py::prepare_task_prompt (:1425, clause :1475,
+#    called from orchestrator_worker.py:286). Collapses to a 1-FILE orchestrator.py RED-PAIR (no threading gap —
+#    integration_contract already in task.constraints; non-vacuity gate already exists at :3050-3167). orchestrator.py
+#    is TRUST-CORE → impl task needs a decision file. ✅ REVIEWED 2026-06-23 (adversarial APPROVE-WITH-FIXES —
+#    added test-D validity teeth [presence-only/invalid-contract cheats proven to survive without it] + regression
+#    caveat) + decision file pre-authored for wireup-detonation-prompt-impl. DISPATCHED. Gate stays REPORT-only.
+#
+# ✅ BRIEF #6 COMPLETE + VERIFIED observed-working 2026-06-23 — oracle 740a755 + impl 91ee6f9.
+#    prepare_task_prompt (orchestrator.py:1475-1484) appends a contract-gated LIVE-ROOT detonation clause
+#    ONLY for test_authoring tasks whose integration_contract passes a REAL predicate (entrypoints non-empty
+#    ∧ all∈LIVE_ROOTS ∧ symbols ∧ runtime_oracle). INDEPENDENT verify drove the REAL committed fn: 10/10
+#    (valid+test_authoring → clause; 5 invalid-contract variants + no-contract + 2 non-test_authoring → absent;
+#    B5 mixed proves subset-check, presence-only cheat killed). decode_check ok:false benign. ★oracle hung once
+#    (transient PTY stall) → watchdog_kill → auto-retry clean; surfaced idle-sleep>backoff latency gap.
+#    Slug removed (spent). NEXT: brief #7 = gate-variant wiring (REPORT mode), scoping in progress.
+#
+# 🚀 BRIEF #7 (GATE-VARIANT WIRING, REPORT MODE) DISPATCHED 2026-06-23 — rewire _run_wire_up_gate's
+#    uncovered predicate to the FLOOR→contract-gated-detonation→validate_exemption('pure_helper') disjunction
+#    (Option A: validate_exemption AS the suppress-gate, soaked in report-mode). Scoped (FEASIBLE 1-file impl) +
+#    authored + adversarially reviewed: review CORRECTED a stale "full-suite red-gate" premise (only per-task vcmd
+#    gates), confirmed the multi-file red-pair lands (is_fix_forward_redpair pairs each oracle to the impl via
+#    mutation_target-file ∈ impl.files_touched ∧ oracle-file ∈ impl.vcmd; one impl covers all 3 red oracles).
+#    SHAPE = 4-task: oracle + reauthor-accept + reauthor-enforce (all test_authoring, deps []) + impl
+#    (harness_self_fix, deps on all 3, LANDS LAST, vcmd lists all 3 files). reauthors whole-file re-author the
+#    2 wire-exempt tests (verbatim-preserve mandated). TRUST-CORE decision file pre-staged for the impl.
+#    Gate stays REPORT-only (knobs false, untouched). ★WATCH: if the build hits the idle-sleep stall, owner
+#    directed fixing idle-sleep FIRST. Detonation gets no behavioral unit coverage (accepted Non-Goal; verify
+#    impl CALLS detonate_oracle by inspection). VERIFY at land: git-diff the 2 reauthored files dropped no tests.
+#
+# 🔁 OPTION A RETIRED 2026-06-23 — the 4-task multi-file red-pair FAILED TO PLAN TWICE (missing_integration_test,
+#    then "Merged plan failed validation"); too complex for the dual-blind planner + downstream whole-file re-author
+#    fragility. Brief A → _autowork_scratch/2026-06-23_wireup_gate_variant_OPTION_A_retired/. PIVOT to Option B
+#    (review-recommended, robust): clean 2-task red-pair (#6 shape) — KEEP verbatim wire_exempt suppression of the
+#    existing orphan_symbol_unwired row (no existing test breaks), ADD floor+detonation+validate_exemption as a NEW
+#    per-symbol REPORT verdict event (gathers identical soak FP data; suppress-swap deferred to the enforce-flip
+#    brief where it's owner-gated). No active slug = deny-all until B authored+reviewed. Gate stays REPORT-only.
+#
+# 🚀 BRIEF #7 OPTION B DISPATCHED 2026-06-23 — brief_hooks_wireup_gate_report_annotate.md (2-task red-pair:
+#    wireup-gate-annotate-oracle + wireup-gate-annotate-impl). ADDITIVE report-only wireup_symbol_verdict event
+#    (floor_reachable/contract_detonated/exempt_honored/would_be_orphan) in _run_wire_up_gate; existing
+#    suppress/orphan_symbol_unwired/rollback/return UNCHANGED. Fixes both A plan failures: per-task integration
+#    excuse mandated on BOTH tasks + impl edge-case regression tests anticipated (missing_edge_case_tests). TRUST-CORE
+#    decision file pre-staged. Gate stays REPORT-only. WATCH the plan (catch a validation reject early); if a build
+#    worker hits the idle-sleep stall, owner directed fixing idle-sleep FIRST.
+#
+# ✅ BRIEF #7 OPTION B COMPLETE + VERIFIED observed-working 2026-06-23 — oracle 984cec7 + impl 96559fa.
+#    _run_wire_up_gate (orchestrator.py:2340+) now emits an ADDITIVE report-only `wireup_symbol_verdict` row per new
+#    top-level symbol (floor_reachable/contract_detonated/exempt_honored/would_be_orphan) composed from the 3 landed
+#    wire_up primitives, gated on _wire_up_runtime_gate_enabled. INDEPENDENT adversary drove the REAL committed fn at
+#    HEAD over hermetic trees: event FIRES (contract locals in scope, no NameError), orphan-case all-false+orphan=true,
+#    reachable-case floor=true+orphan=false, ADDITIVITY proven (insert-only 32/0 diff; orphan_symbol_unwired still
+#    fires; return False unchanged; no rollback; gate-OFF = strict no-op zero rows), never raises under forced-primitive
+#    failure. Config knobs still false (report-only). Build hit NO idle-sleep stall (oracle→impl dispatched instantly).
+#    Slug removed (spent; brief+plan hand-archived — auto-archive STILL did not fire, 3rd recurrence #5/#6/#7).
+#    NEXT (owner ordering: #7 built clean → finish #7 then BOTH hygiene fixes): (1) idle-sleep>backoff gap, (2) spent-
+#    brief auto-archive miss — both routed as pipeline briefs.
+#
+# 🚀 HYGIENE FIX #1 (IDLE-SLEEP CAP) DISPATCHED 2026-06-23 — brief_hooks_daemon_idle_sleep_cap.md (2-task red-pair:
+#    daemon-idle-sleep-cap-oracle + daemon-idle-sleep-cap-impl). Caps the daemon idle heartbeat by the soonest pending
+#    blocked-retry deadline (new pure helper _soonest_blocked_retry_deadline reusing _retry_blocked_tasks enumeration;
+#    one-line cap on run_daemon's idle branch only). harness/autowork_daemon.py is TRUST-CORE → decision file staged.
+#    Independent adversarial review APPROVE-WITH-FIXES applied: per-task priority P1→high (invalid_priority_encoding
+#    trap), _DETERMINISTIC_OUTCOMES is function-LOCAL so the helper INLINES the tuple (else NameError), + dest.exists
+#    hardening note.
+#
+# ✅ HYGIENE FIX #1 (IDLE-SLEEP CAP) COMPLETE + VERIFIED observed-working 2026-06-23 — oracle 932c12b + impl 06833ea.
+#    Independent adversary drove the REAL helper + _retry_blocked_tasks at HEAD (18/18): cap shrinks sleep below
+#    heartbeat (200s vs 1800) w/ 5.0s grace floor, ELIGIBILITY PARITY diff=∅, fail-soft + zero mutation. Slug removed
+#    (spent; brief+plan hand-archived). Live activation pends daemon self-reload (autowork_daemon.py own-source).
+#
+# 🚀 HYGIENE FIX #2 (SPENT-BRIEF AUTO-ARCHIVE) DISPATCHED 2026-06-23 — brief_hooks_spent_brief_autoarchive.md
+#    (2-task red-pair: spent-brief-autoarchive-oracle + spent-brief-autoarchive-impl). Adds a contained
+#    `try: reap_spent_briefs(root) except: pass` final step to reap_orphaned_workdirs (state_reconciler.py:732, called
+#    every daemon iteration) — the full-scan reaper was only wired into MANUAL cleanup_state(apply); _reclaim_zombie_briefs
+#    explicitly skips fully-landed pairs (autowork_daemon.py:2302) → fire-once-no-catch-up gap (47 un-reaped pairs).
+#    state_reconciler.py is NOT trust-core → no decision file. Adversarial review APPROVE-WITH-FIXES: OVER-REACH GATE
+#    PASSED (47-pair dry-run: correct archives, partials/epic kept, no misfire; allowlist-independent, MOVE-not-delete,
+#    re-entrant lock safe, return-value unchanged); epic-marker assertion pinned (JSON bool, not string). Verify
+#    observed-working at land (drive reap_orphaned_workdirs); ★state_reconciler.py is NOT own-source → may need a daemon
+#    restart to live-activate (checking watch set).
+#
+# ✅ HYGIENE FIX #2 (SPENT-BRIEF AUTO-ARCHIVE) COMPLETE + VERIFIED observed-working 2026-06-23 — oracle 089c5d0 +
+#    impl 5a922a1. Independent adversary drove the REAL committed reap_orphaned_workdirs (the WIRING) at HEAD (43/43):
+#    archives via the wiring, partial untouched, DE-SLUGGED regression archived (allowlist-independent), epic safe
+#    (JSON-bool, not string), RETURN VALUE UNCHANGED (workdir-reap list only; spent pair archived as discarded side
+#    effect), NO DEADLOCK under the held state_reconcile_lock (reentrant refcount, daemon-faithful replay 0.007s),
+#    existing workdir-sweep intact. Slug removed (spent). ⚠️ state_reconciler.py is NOT in the self-reload watch set
+#    {autowork_daemon, autowork_parallelism, brief_status, planner.staging, selfheal} → relies on the daemon's
+#    self-reload FOR #1 (autowork_daemon.py changed) to respawn + re-import the new state_reconciler from disk,
+#    activating BOTH fixes together. De-slugging #2 triggers idle_wake → idle → reload. Once live, #2's own reap step
+#    sweeps the ~47-pair spent-brief backlog (incl #2's own pair) = the live end-to-end proof. BOTH hygiene fixes DONE.
+#    No active slug = deny-all.
+difffuzz_meter
+difffuzz_leak_close
+difffuzz_decouple_waiver
+difffuzz_meter_live
+difffuzz_patched_symbol
+difffuzz_taxonomy_wave1
+plan_retry_resilience
+difffuzz_taxonomy_wave2b
+difffuzz_skip_nonfuzzable_onesided
+difffuzz_skipsmoke_invariant_reconcile
+difffuzz_meter_metrics
+difffuzz_capture_denominator

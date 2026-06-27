@@ -1,0 +1,2 @@
+[1 17:26:14] proc=[] run=[int2-onesided-metamorphic-v2-oracle.pid ] blocked=[] inq=[int2-onesided-metamorphic-v2-impl.json int2-onesided-metamorphic-v2-oracle.json.processing ] lastev=[worker_start int2-onesided-metamorphic-v2-oracle]
+>>> WORKER RUNNING (re-dispatched)

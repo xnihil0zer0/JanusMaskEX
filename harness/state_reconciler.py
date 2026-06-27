@@ -649,7 +649,7 @@ def agent_workroot(root):
     """Return the sibling agent work-root that PEERS the repo at ``root``.
 
     The live disk leak is the sibling ``<repo>.parent/<repo>_agentwork`` tree
-    (e.g. ``.../JanusMaskJR_agentwork``) that lives OUTSIDE the repo and holds
+    (e.g. ``.../JanusMaskEX_agentwork``) that lives OUTSIDE the repo and holds
     the per-agent ``<agent>/<workdir>`` worktrees the reaper sweeps. The path is
     derived purely from ``root`` so callers and the reaper agree on one location;
     it is never created here (pure path computation).

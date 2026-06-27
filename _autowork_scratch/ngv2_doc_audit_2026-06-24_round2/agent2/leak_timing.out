@@ -1,0 +1,21 @@
+=== Closure commits 2026-06-24, UTC time, vs leak-fix 14:50Z ===
+2026-06-24T23:55  203d007   post-fix     Integrate validated code for p21-c1-fsm-detect-impl
+2026-06-24T23:52  4f299a1   post-fix     Integrate validated code for p21-c1-fsm-detect-oracle
+2026-06-24T23:49  59b8b15   post-fix     Integrate validated code for p21-c2-fsm-provision-impl
+2026-06-24T23:46  a27ca22   post-fix     Integrate validated code for p21-c2-fsm-provision-oracl
+2026-06-24T23:45  e6a7f38   post-fix     Integrate validated code for p21-c3-fsm-jail-build-impl
+2026-06-24T23:41  e4280e1   post-fix     Integrate validated code for p21-c3-fsm-jail-build-orac
+2026-06-24T23:00  dc07188   post-fix     Integrate validated code for p21-c0-fsm-evidence-scaffo
+2026-06-24T22:57  9a712e6   post-fix     Integrate validated code for p21-c0-fsm-scaffold-oracle
+2026-06-24T20:16  2a83d06   post-fix     P1.3 leaf-2: shared-isolated-netns loopback reachabilit
+2026-06-24T19:55  5ab82c2   post-fix     Integrate validated code for p12-classify-poc-authentic
+2026-06-24T19:49  c2f7486   post-fix     Integrate validated code for p12-classify-poc-authentic
+2026-06-24T17:16  80722d6   post-fix     Integrate validated code for wire-loopback-per-cwe-chan
+2026-06-24T16:58  ce89dc4   post-fix     Integrate validated code for wire-loopback-per-cwe-chan
+2026-06-24T16:54  aa718c9   post-fix     Integrate validated code for p12-detonation-verdict-pro
+2026-06-24T16:46  e10ee24   post-fix     Integrate validated code for p12-detonation-verdict-pro
+2026-06-24T16:24  fe8384c   post-fix     Integrate validated code for p11-hunt-triage-findings-i
+2026-06-24T16:14  cad0a6e   post-fix     Integrate validated code for p11-hunt-triage-findings-o
+2026-06-24T15:17  eb113f5   post-fix     Integrate validated code for p11-xproc-middle-phase-imp
+2026-06-24T15:09  057310f   post-fix     Integrate validated code for p11-xproc-middle-phase-ora
+2026-06-24T14:33  48a9526   PRE-FIX (leak-exposed) chore: gitignore relocated targets/ dir

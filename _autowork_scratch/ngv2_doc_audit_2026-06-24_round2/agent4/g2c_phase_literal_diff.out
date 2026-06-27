@@ -1,0 +1,19 @@
+fsm_evidence.PHASE_ORDER               (len 11) = ('source', 'hunt', 'triage', 'verify', 'poc', 'detonate', 'novelty', 'report', 'awaiting_submission', 'submitted', 'done')
+fsm_evidence.ENV_PHASE_ORDER           (len  6) = ('detect', 'provision', 'jail_build', 'health_probe', 'reachability_probe', 'baseline_capture')
+session_api.PHASE_ORDER                (len 11) = ('source', 'hunt', 'triage', 'verify', 'poc', 'detonate', 'novelty', 'report', 'awaiting_submission', 'submitted', 'done')
+session_api._PHASES                    (len  6) = ('hunt', 'triage', 'poc', 'detonate', 'report', 'done')
+state_machine.PHASES                   (len  6) = ('hunt', 'triage', 'poc', 'detonate', 'report', 'done')
+state_machine.LIFECYCLE_PHASES         (len 11) = ('source', 'hunt', 'triage', 'verify', 'poc', 'detonate', 'novelty', 'report', 'awaiting_submission', 'submitted', 'done')
+
+3 'full lifecycle' literals identical?  True  (so editing one without the others DESYNCS)
+2 'short' literals identical?           True = {('hunt', 'triage', 'poc', 'detonate', 'report', 'done')}
+
+env phases present in fsm_evidence.PHASE_ORDER              : NONE
+env phases present in session_api.PHASE_ORDER               : NONE
+env phases present in session_api._PHASES                   : NONE
+env phases present in state_machine.PHASES                  : NONE
+env phases present in state_machine.LIFECYCLE_PHASES        : NONE
+
+VERDICT: live hunt sequence is duplicated as 4 independent literals across 3 modules;
+         a 5th/6th ('short' _PHASES/PHASES) co-exist; NONE derives from fsm_evidence (c0).
+         ENV_PHASE_ORDER appears in NO live order -> inserting env phases requires folding ALL.

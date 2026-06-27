@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "sink_classes": [
+    {
+      "id": "deserialization",
+      "cwe": "CWE-502",
+      "lang": "python",
+      "patterns": [
+        "\\bc?_?pickle\\.loads?\\b",
+        "\\btorch\\.load\\b",
+        "\\byaml\\.load\\b",
+        "\\bjoblib\\.load\\b",
+        "\\bmarshal\\.loads?\\b"
+      ],
+      "specs": [
+        "cwe502_pickle_load.ql",
+        "cwe502_torch_load.ql",
+        "cwe502_yaml_load.ql",
+        "cwe502_joblib_load.ql",
+        "cwe502_numpy_load.ql"
+      ]
+    },
+    {
+      "id": "command_injection",
+      "cwe": "CWE-78",
+      "lang": "python",
+      "patterns": [
+        "\\bos\\.system\\s*\\(",
+        "\\bsubprocess\\.(?:call|run|Popen|check_output)\\s*\\("
+      ],
+      "specs": ["cwe78_subprocess.ql"]
+    },
+    {
+      "id": "code_injection",
+      "cwe": "CWE-94",
+      "lang": "python",
+      "patterns": [
+        "\\beval\\s*\\(",
+        "\\bexec\\s*\\("
+      ],
+      "specs": ["cwe94_eval_exec.ql"]
+    },
+    {
+      "id": "path_traversal",
+      "cwe": "CWE-22",
+      "lang": "python",
+      "patterns": [
+        "\\bopen\\s*\\(",
+        "\\bos\\.path\\.join\\s*\\(",
+        "\\bsend_file\\s*\\("
+      ],
+      "specs": ["cwe22_path_traversal.ql"]
+    },
+    {
+      "id": "ssrf",
+      "cwe": "CWE-918",
+      "lang": "python",
+      "patterns": [
+        "\\brequests\\.(?:get|post|put|patch|delete|head|request)\\s*\\(",
+        "\\bhttpx\\.(?:get|post|put|patch|delete|head|request|stream)\\s*\\(",
+        "\\burllib\\.request\\.urlopen\\s*\\("
+      ],
+      "specs": ["cwe918_ssrf.ql"]
+    }
+  ]
+}

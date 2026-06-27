@@ -1,0 +1,205 @@
+{
+  "responses": [
+    {"diff_item_id": "__critique__", "stance": "amend"}
+  ],
+  "findings": [
+    {
+      "finding_id": "f-001-broken-dep-work-dir",
+      "category": "dependency_cycle",
+      "severity": "error",
+      "task_id": "full_suite_acceptance_test",
+      "field_path": "/tasks/5/dependencies/3",
+      "suggested_patch": {
+        "op": "add_dependency",
+        "remove": "work_dir_validation_fixes",
+        "add": "_work_dir_fixes"
+      },
+      "message": "full_suite_acceptance_test declares a dependency on 'work_dir_validation_fixes', but no such task_id exists in the plan. The actual task is named '_work_dir_fixes'. This dangling reference will fail dependency resolution and is structurally equivalent to a broken DAG edge."
+    },
+    {
+      "finding_id": "f-002-broken-dep-ast-merge",
+      "category": "dependency_cycle",
+      "severity": "error",
+      "task_id": "full_suite_acceptance_test",
+      "field_path": "/tasks/5/dependencies/4",
+      "suggested_patch": {
+        "op": "add_dependency",
+        "remove": "ast_merge_future_imports_fixes",
+        "add": "_ast_merge_fixes"
+      },
+      "message": "full_suite_acceptance_test declares a dependency on 'ast_merge_future_imports_fixes', which does not exist; the actual task is '_ast_merge_fixes'. Dangling dependency reference will block acceptance execution."
+    },
+    {
+      "finding_id": "f-003-inflated-acceptance-test-count",
+      "category": "inflated_benchmark",
+      "severity": "warn",
+      "task_id": "full_suite_acceptance_test",
+      "field_path": "/tasks/5/test_spec/minimum_test_count",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "minimum_test_count": 4,
+        "rationale": "Set count to match listed tests (3 unit + 1 integration)."
+      },
+      "message": "minimum_test_count is 10, but test_spec only enumerates 3 unit tests + 1 integration test (4 total). Property and regression test arrays are empty. This is an inflated benchmark claim — the floor cannot be met by the items the task itself declares."
+    },
+    {
+      "finding_id": "f-004-acceptance-reuses-other-tests",
+      "category": "inflated_benchmark",
+      "severity": "warn",
+      "task_id": "full_suite_acceptance_test",
+      "field_path": "/tasks/5/test_spec/unit_tests",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "rationale": "Acceptance task should not double-count tests already attributed to the source tasks (check_true_depth_fixes, janusmask_module_descriptor_fixes). It should only enumerate a single end-to-end run."
+      },
+      "message": "The acceptance task lists 'test_depth_validator_integration', 'test_target_descriptor_integration' as its own unit tests — these are already enumerated in check_true_depth_fixes and janusmask_module_descriptor_fixes. Double-counting inflates aggregate test totals and misrepresents acceptance work."
+    },
+    {
+      "finding_id": "f-005-non-goals-contradict-integration-tests-depth",
+      "category": "test_heavy_violation",
+      "severity": "error",
+      "task_id": "check_true_depth_fixes",
+      "field_path": "/tasks/0/test_spec/integration_tests",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "remove_field": "integration_tests",
+        "rationale": "Drop integration_tests to honor the explicit non_goal."
+      },
+      "message": "spec.non_goals explicitly states 'Do not write integration tests for check_true_depth' yet test_spec.integration_tests lists 'test_depth_validator_integration'. The plan internally contradicts itself; either the non-goal must be removed or the integration test entry dropped."
+    },
+    {
+      "finding_id": "f-006-non-goals-contradict-integration-tests-safe-under",
+      "category": "test_heavy_violation",
+      "severity": "error",
+      "task_id": "safe_under_project_fixes",
+      "field_path": "/tasks/1/test_spec/integration_tests",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "remove_field": "integration_tests"
+      },
+      "message": "non_goals forbids integration tests for safe_under_project, but test_spec.integration_tests still lists 'test_safe_under_project_integration'. The minimum_test_count of 5 for an isinstance-guard one-liner (60 impl tokens) is also test-heavy — 2-3 focused unit tests would suffice."
+    },
+    {
+      "finding_id": "f-007-non-goals-contradict-integration-tests-descriptor",
+      "category": "test_heavy_violation",
+      "severity": "error",
+      "task_id": "janusmask_module_descriptor_fixes",
+      "field_path": "/tasks/2/test_spec/integration_tests",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "remove_field": "integration_tests"
+      },
+      "message": "non_goals: 'Do not write integration tests for descriptor.' contradicts test_spec.integration_tests containing 'test_target_descriptor_integration'. Same contradiction pattern as f-005/f-006."
+    },
+    {
+      "finding_id": "f-008-non-goals-contradict-work-dir",
+      "category": "test_heavy_violation",
+      "severity": "error",
+      "task_id": "_work_dir_fixes",
+      "field_path": "/tasks/3/test_spec/integration_tests",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "remove_field": "integration_tests"
+      },
+      "message": "non_goals forbids integration tests for _work_dir, yet test_spec.integration_tests lists 'test_work_dir_integration'. Additionally, 5 tests for two isinstance checks (60 impl tokens) is heavy — collapse to 2-3 unit tests."
+    },
+    {
+      "finding_id": "f-009-non-goals-contradict-ast-merge",
+      "category": "test_heavy_violation",
+      "severity": "error",
+      "task_id": "_ast_merge_fixes",
+      "field_path": "/tasks/4/test_spec/integration_tests",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "remove_field": "integration_tests"
+      },
+      "message": "non_goals: 'Do not write integration tests for _ast_merge' contradicts test_spec.integration_tests = ['test_ast_merge_integration']. Plan must be internally consistent."
+    },
+    {
+      "finding_id": "f-010-missing-multihop-cycle",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "check_true_depth_fixes",
+      "field_path": "/tasks/0/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Multi-hop cyclic lineage A -> B -> C -> A (cycle length > 1), distinct from self-cycle."
+      },
+      "message": "edge_cases only enumerates a self-cycle (length 1). The visited-set guard must also be exercised against longer cycles (A->B->C->A) to prove it actually detects revisits across files, not just self-reference."
+    },
+    {
+      "finding_id": "f-011-missing-no-future-edge-case",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "_ast_merge_fixes",
+      "field_path": "/tasks/4/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Output code contains NO __future__ imports (no-op path) — target body and main-guard index must be unchanged."
+      },
+      "message": "edge_cases omits the negative case where the output has no __future__ imports at all. Without it, regressions that wrongly shift guard_idx or mutate target body in the empty case would be missed."
+    },
+    {
+      "finding_id": "f-012-missing-future-only-in-target",
+      "category": "missing_edge_case",
+      "severity": "info",
+      "task_id": "_ast_merge_fixes",
+      "field_path": "/tasks/4/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "__future__ import already present in target but absent in output (dedupe path) should not reorder or duplicate."
+      },
+      "message": "Deduplication is mentioned in functional_requirements but not pinned as an explicit edge case. Add coverage for: target-only existing __future__ import that should be preserved without reinsertion."
+    },
+    {
+      "finding_id": "f-013-stale-interface-safe-under-project",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "safe_under_project_fixes",
+      "field_path": "/tasks/1/spec/interfaces",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "interfaces": "def safe_under_project(candidate: str | os.PathLike) -> bool"
+      },
+      "message": "spec.interfaces still declares 'candidate: str' even though the acceptance criteria explicitly allow os.PathLike candidates. The signature in the spec contradicts the requirement and will mislead the implementer; update the type annotation in the interface."
+    },
+    {
+      "finding_id": "f-014-missing-seed-files-none-edge-case",
+      "category": "missing_edge_case",
+      "severity": "info",
+      "task_id": "janusmask_module_descriptor_fixes",
+      "field_path": "/tasks/2/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "seed_files is None (default) — must skip list unwrapping/validation and not raise."
+      },
+      "message": "The interface advertises 'seed_files: list[str] | None = None' but edge_cases never specifies behavior when seed_files is None. The unwrap-and-validate path could erroneously raise TypeError on the default."
+    },
+    {
+      "finding_id": "f-015-test-heavy-ratio",
+      "category": "test_heavy_violation",
+      "severity": "info",
+      "task_id": "safe_under_project_fixes",
+      "field_path": "/tasks/1/token_budget_ratio",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "implementation_tokens": 60,
+        "test_tokens": 60,
+        "rationale": "1.5x test:impl ratio is excessive for a single-line isinstance guard. Reduce test budget to 1:1 to match the trivial implementation."
+      },
+      "message": "token_budget_ratio sets test_tokens at 1.5x implementation_tokens across every task uniformly, regardless of complexity. For the trivial isinstance guards (safe_under_project_fixes, _work_dir_fixes), this is disproportionate and incentivizes padding tests beyond what the change warrants."
+    },
+    {
+      "finding_id": "f-016-verification-command-path",
+      "category": "other",
+      "severity": "info",
+      "task_id": "janusmask_module_descriptor_fixes",
+      "field_path": "/tasks/2/verification_command",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "verification_command": "pytest -v tests/test_target_generated.py"
+      },
+      "message": "verification_command is 'pytest -v test_target_generated.py' (project-root path) while other tasks point under 'tests/'. Inconsistent test-path convention risks the verification command not finding the test file."
+    }
+  ]
+}

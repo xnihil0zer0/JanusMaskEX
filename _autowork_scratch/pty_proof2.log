@@ -1,0 +1,32 @@
+[proof] work_dir=/tmp/ptyproof_bgoeloxh
+[proof] jailed[:10]=['/usr/bin/bwrap', '--die-with-parent', '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--ro-bind', '/usr']
+[run] READY reached at 1s; sending seed
+[proof] ready=True idle=True dead_early=None in 8s
+[proof] === final screen tail ===
+
+✶
+
+
+
+
+
+
+
+*
+
+
+
+
+
+
+
+✢
+
+
+
+
+
+
+
+[proof] outbox/submission.py exists=False content=None
+[proof] FAIL

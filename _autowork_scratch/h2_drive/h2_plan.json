@@ -1,0 +1,263 @@
+{
+  "tasks": [
+    {
+      "task_id": "redpair-sanitize-impl",
+      "title": "C1: new helper module harness/redpair_vcmd_guard.py with references_sibling_oracle",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/redpair_vcmd_guard.py"
+      ],
+      "acceptance_criteria": [
+        "harness/redpair_vcmd_guard.py is authored whole with EXACTLY the source in brief deliverable 1.",
+        "references_sibling_oracle(vcmd, oracle_files) returns True iff vcmd substring-contains any path in oracle_files.",
+        "The function is pure, performs no I/O, and never raises on any input.",
+        "Non-str/empty vcmd or empty/non-list oracle_files -> False; non-str oracle_files entries are skipped; empty-string entries never match.",
+        "The predicate unit cases in tests/harness/test_redpair_sanitize_guard.py pass after this leaf lands."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -c \"import harness.redpair_vcmd_guard\"",
+      "spec": {
+        "objective": "Create the NEW pure helper module harness/redpair_vcmd_guard.py exposing references_sibling_oracle(vcmd, oracle_files) -> bool, the substring predicate the plan_normalizer wireup will consult to detect a genuine fix-forward red-pair vcmd.",
+        "functional_requirements": [
+          "references_sibling_oracle returns True iff vcmd (a non-empty str) substring-contains any path in oracle_files (a non-empty list).",
+          "Total/pure: non-str or empty vcmd returns False; non-list or empty oracle_files returns False; non-str entries are skipped; empty-string entries never match; the function never raises."
+        ],
+        "interfaces": "def references_sibling_oracle(vcmd: str, oracle_files: List[str]) -> bool. Module-level: from __future__ import annotations; from typing import List. No other imports, no I/O.",
+        "edge_cases": [
+          "vcmd is None or '' -> False.",
+          "oracle_files is None, not a list, or [] -> False.",
+          "oracle_files contains ints/None mixed with strings -> non-str entries skipped, no raise.",
+          "An empty-string entry in oracle_files never matches even though '' in vcmd is truthy."
+        ],
+        "non_goals": [
+          "Not an integration test of the live daemon \u2014 this is a pure helper authored whole (integration-excused scope).",
+          "Does NOT touch plan_normalizer.py (that is the wireup leaf).",
+          "Does NOT perform path resolution, globbing, or any filesystem access \u2014 it is a pure substring predicate."
+        ],
+        "implementation_notes": "Author the file whole (a NEW single file is authored whole, not patched) with EXACTLY the source in brief deliverable 1 (lines 84-114 / 517-547). The guard isinstance/empty checks ordering matters: check vcmd first, then oracle_files, then iterate skipping non-str/empty entries."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_predicate_true_when_vcmd_contains_an_oracle_file"
+          },
+          {
+            "name": "test_predicate_false_when_vcmd_references_no_oracle_file"
+          },
+          {
+            "name": "test_predicate_total_on_degenerate_inputs"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "tests/planner/test_sanitize_vcmd_repo_mapping.py"
+          },
+          {
+            "name": "tests/harness/test_redpair_sanitize_guard.py"
+          }
+        ],
+        "minimum_test_count": 3,
+        "test_data_requirements": "No fixtures beyond the in-process predicate calls authored in the oracle leaf."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 120,
+        "test_tokens": 200,
+        "note": "Small whole-file helper module; tests are the predicate cases authored in the oracle leaf."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "redpair-sanitize-predicate",
+      "title": "RED oracle for the red-pair vcmd-sanitize guard (predicate + end-to-end preservation)",
+      "meta_task_type": "test_authoring",
+      "priority": "high",
+      "dependencies": [
+        "redpair-sanitize-impl"
+      ],
+      "mutation_target": "harness.redpair_vcmd_guard",
+      "files_touched": [
+        "tests/harness/test_redpair_sanitize_guard.py"
+      ],
+      "acceptance_criteria": [
+        "tests/harness/test_redpair_sanitize_guard.py is authored with EXACTLY the source given in brief deliverable 2.",
+        "On current HEAD the test is RED: importing harness.redpair_vcmd_guard raises ModuleNotFoundError mentioning 'harness' (the module does not yet exist).",
+        "The end-to-end case test_redpair_impl_vcmd_preserved_when_oracle_has_real_mutation_target fails on HEAD because the un-guarded sanitizer vacuous-izes the impl vcmd.",
+        "After both impl leaves land, all cases in the file are GREEN.",
+        "All cases are hermetic under tmp_path with no dependency on the real repo tree."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/harness/test_redpair_sanitize_guard.py -q",
+      "spec": {
+        "objective": "Author the RED-by-absence oracle tests/harness/test_redpair_sanitize_guard.py that pins both the pure substring predicate references_sibling_oracle and the end-to-end contract that a genuine fix-forward red-pair impl vcmd is PRESERVED (not vacuous-ized) by normalize_plan when the sibling oracle carries an on-disk mutation_target.",
+        "functional_requirements": [
+          "Predicate true-case: references_sibling_oracle returns True when the vcmd substring-contains an oracle file path.",
+          "Predicate false-case: returns False when the vcmd references no oracle file.",
+          "Predicate totality: returns False (never raises) on degenerate inputs (empty/None vcmd, empty/None/non-list oracle_files, non-str entries skipped).",
+          "End-to-end preservation: an impl editing an existing module whose vcmd runs the sibling oracle's own file, with an oracle carrying a real on-disk mutation_target, has its vcmd PRESERVED through normalize_plan(plan, repo_root=repo).",
+          "Control no-mutation_target: an oracle with no mutation_target does NOT qualify, so the impl vcmd is still vacuous-ized to python -c \"import pkg.thing\".",
+          "Control absent-mutation_target: an oracle whose mutation_target resolves to an absent module does NOT qualify, so the impl vcmd is still vacuous-ized."
+        ],
+        "interfaces": "from harness.redpair_vcmd_guard import references_sibling_oracle; from harness.planner.plan_normalizer import normalize_plan. Hermetic fixtures construct plan dicts and a tmp_path fake repo via _make_repo.",
+        "edge_cases": [
+          "Module harness.redpair_vcmd_guard absent on HEAD -> ImportError mentioning 'harness' makes the whole file RED by collection.",
+          "Oracle test file tests/pkg/test_thing_oracle.py is NOT created on disk (only the existing module pkg/thing.py is) \u2014 mirrors the real fix-forward shape.",
+          "Non-str oracle_files entries [123, None] must be skipped without raising.",
+          "Empty-string oracle entries never match."
+        ],
+        "non_goals": [
+          "Not an integration test of the live daemon or _auto_commit_accepted \u2014 only unit oracles against the normalizer sanitize seam and the helper predicate (integration-excused scope).",
+          "Does NOT edit tests/planner/test_sanitize_vcmd_repo_mapping.py.",
+          "Does NOT author the helper module or the wireup \u2014 those are the two impl leaves."
+        ],
+        "implementation_notes": "Author the file with EXACTLY the source in brief deliverable 2 (lines 123-296 / 556-729). Uses copy, pytest, tmp_path. ORACLE_TEST_FILE = tests/pkg/test_thing_oracle.py, EXISTING_MODULE = pkg/thing.py. mutation_target values: 'pkg.thing' (exists), 'pkg.absent' (does not), None. The oracle's mutation_target harness.redpair_vcmd_guard is a NEW module absent on HEAD so this test_authoring task is accepted RED-by-absence via orchestrator.py:1978 _new_module_red_by_absence, not the existing-module fix-forward path. spec_author: null."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_predicate_true_when_vcmd_contains_an_oracle_file"
+          },
+          {
+            "name": "test_predicate_false_when_vcmd_references_no_oracle_file"
+          },
+          {
+            "name": "test_predicate_total_on_degenerate_inputs"
+          },
+          {
+            "name": "test_redpair_impl_vcmd_preserved_when_oracle_has_real_mutation_target"
+          },
+          {
+            "name": "test_non_redpair_impl_still_vacuous_ized_when_oracle_has_no_mutation_target"
+          },
+          {
+            "name": "test_oracle_with_absent_mutation_target_does_not_qualify"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "tests/planner/test_sanitize_vcmd_repo_mapping.py"
+          },
+          {
+            "name": "tests/harness/test_redpair_sanitize_guard.py"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Hermetic plan dicts built in-process and a tmp_path fake repo (pkg/thing.py present; tests/pkg/test_thing_oracle.py and pkg/absent.py absent). No real repo tree dependency."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 600,
+        "note": "Pure test-authoring leaf: no implementation tokens; all budget is the authored RED oracle."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "redpair-sanitize-wireup",
+      "title": "C2: wire the red-pair guard into _sanitize_impl_verification_commands (additive R-ANCHOR edit)",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [
+        "redpair-sanitize-impl"
+      ],
+      "files_touched": [
+        "harness/planner/plan_normalizer.py"
+      ],
+      "acceptance_criteria": [
+        "harness.redpair_vcmd_guard.references_sibling_oracle is imported into plan_normalizer.py.",
+        "Inside _sanitize_impl_verification_commands, the set of qualifying oracle files is computed once per call: for every test_authoring task with a mutation_target whose _module_path(mutation_target) EXISTS under repo_root (skipped entirely when repo_root is None), that oracle's files_touched entries are added.",
+        "Inside the per-impl loop, if references_sibling_oracle(vcmd, qualifying_files) is True the rewrite is skipped (continue), leaving the impl vcmd untouched, and this short-circuits BEFORE the existing-test rewrite (line 274) as well as the vacuous rewrite (line 277).",
+        "The edit is additive via the R-ANCHOR / __JANUSMASK_PATCHES__ path; plan_normalizer.py is NOT reproduced whole.",
+        "All 6 cases in tests/planner/test_sanitize_vcmd_repo_mapping.py stay GREEN and byte-identical in behaviour (none attach a mutation_target -> none qualify).",
+        "All cases in tests/harness/test_redpair_sanitize_guard.py are GREEN."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/planner/test_plan_normalizer.py -q",
+      "spec": {
+        "objective": "Wire the pure red-pair guard into the planner's last impl-vcmd sanitize pass so a genuine fix-forward red-pair vcmd (referencing a sibling oracle whose mutation_target resolves to a real on-disk module) is never rewritten to a vacuous import or an unrelated existing-test pytest run.",
+        "functional_requirements": [
+          "Import references_sibling_oracle from harness.redpair_vcmd_guard at module top of plan_normalizer.py.",
+          "In _sanitize_impl_verification_commands, before the per-impl loop, compute the qualifying-oracle-file set: for each test_authoring task (via _is_test_authoring) with a mutation_target (via _mutation_target) whose _module_path(mutation_target) exists under repo_root, add its _files_touched entries; when repo_root is None compute no qualifying files (the guard is inert, preserving backward compat).",
+          "In the per-impl loop, immediately before the existing-test rewrite branch (line 274) and the vacuous rewrite branch (line 277), if references_sibling_oracle(vcmd, qualifying_files) is True, continue without modifying the vcmd."
+        ],
+        "interfaces": "Reuse existing helpers _module_path (line 25), _files_touched (line 34), _mutation_target (line 42), _is_test_authoring (line 46). Path existence: (Path(repo_root) / _module_path(mt)).exists(). New import: from harness.redpair_vcmd_guard import references_sibling_oracle.",
+        "edge_cases": [
+          "repo_root is None -> no qualifying files computed; behaviour byte-identical to prior (the 6 anti-seesaw cases include a repo_root=None backward-compat pin).",
+          "Oracle has no mutation_target -> does not qualify; impl vcmd still vacuous-ized.",
+          "Oracle's mutation_target resolves to an absent module (e.g. pkg/absent.py) -> does not qualify; impl vcmd still rewritten.",
+          "An unrelated tests/**/test_<leaf>.py exists on disk for the impl module -> the guard's continue must short-circuit BEFORE the existing-test rewrite so a genuine red-pair vcmd is never rewritten.",
+          "The guard must not perturb genuine vacuous / non-red-pair impls (import-smoke and token-strip paths unchanged)."
+        ],
+        "non_goals": [
+          "Not an integration test of the live daemon or _auto_commit_accepted \u2014 unit oracles against the normalizer sanitize seam are sufficient (integration-excused scope).",
+          "Does NOT change the planner brief schema, meta_task_type taxonomy, or the keystone red-pair KEEP guards earlier in normalize_plan.",
+          "Does NOT alter behaviour for impls whose oracle has no mutation_target or one pointing at an absent module.",
+          "Does NOT edit tests/planner/test_sanitize_vcmd_repo_mapping.py \u2014 all 6 cases stay green unchanged.",
+          "Does NOT reproduce plan_normalizer.py whole \u2014 additive R-ANCHOR / __JANUSMASK_PATCHES__ edit only."
+        ],
+        "implementation_notes": "Sanitize pass is at harness/planner/plan_normalizer.py:179, called from normalize_plan at line 1076 AFTER the keystone red-pair KEEP guards (1067-1075). Compute qualifying_files once after the oracle_files union (219-224), iterating tasks for test_authoring + mutation_target + on-disk _module_path under repo_root. Place the references_sibling_oracle(vcmd, qualifying_files) -> continue check inside the per-impl loop after the references_oracle/is_import_smoke continue (line 240) and before the repo_root existing-test glob (257-275) and the modules vacuous rewrite (276-278). Land additively via the R-ANCHOR / __JANUSMASK_PATCHES__ partial-edit path.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/planner/test_plan_normalizer.py\n```python\n\"\"\"Hermetic oracle for harness.planner.plan_normalizer.normalize_plan.\n\nPins the contract of normalize_plan:\n\n* dedupe duplicate ``test_authoring`` oracles that share a ``mutation_target``,\n  keeping the one referenced by the creating impl's ``verification_command``\n  (else first by ``task_id``) and rewiring every dependency that pointed at the\n  dropped oracle to the survivor (no dangling deps),\n* enforce module-first ordering by flipping inverted impl/oracle edges so the\n  oracle depends on the impl that creates its module and the impl no longer\n  depends on the oracle (graph stays acyclic),\n* be idempotent / a no-op on an already-correct plan, and\n* leave a ``test_authoring`` task whose module has no creating impl untouched.\n\nFully hermetic: plan dicts are built inline; no filesystem, network, or pip\naccess, and only ``normalize_plan`` is imported.\n\"\"\"\nfrom __future__ import annotations\nimport copy\nfrom typing import Any, Dict, List, Set\nfrom harness.planner.plan_normalizer import normalize_plan\n\ndef tasks_of(plan: Any) -> List[Dict[str, Any]]:\n    \"\"\"Return the task list whether the plan is a ``{\"tasks\": [...]}`` dict or a\n    bare list of task dicts.\"\"\"\n    if isinstance(plan, dict):\n        return list(plan['tasks'])\n    return list(plan)\n\ndef by_id(plan: Any) -> Dict[str, Dict[str, Any]]:\n    return {t['task_id']: t for t in tasks_of(plan)}\n\ndef ids(plan: Any) -> Set[str]:\n    return {t['task_id'] for t in tasks_of(plan)}\n\ndef deps(plan: Any, task_id: str) -> Set[str]:\n    return set(by_id(plan)[task_id].get('dependencies', []))\n\ndef oracles_for(plan: Any, target: str) -> List[Dict[str, Any]]:\n    return [t for t in tasks_of(plan) if t.get('meta_task_type') == 'test_authoring' and t.get('mutation_target') == target]\n\ndef assert_no_dangling_deps(plan: Any) -> None:\n    present = ids(plan)\n    for t in tasks_of(plan):\n        for d in t.get('dependencies', []):\n            assert d in present, f'dangling dependency {d!r} on task {t['task_id']!r}'\n\ndef is_acyclic(plan: Any) -> bool:\n    graph = {t['task_id']: list(t.get('dependencies', [])) for t in tasks_of(plan)}\n    WHITE, GRAY, BLACK = (0, 1, 2)\n    color = {node: WHITE for node in graph}\n\n    def visit(node: str) -> bool:\n        color[node] = GRAY\n        for nxt in graph.get(node, []):\n            if nxt not in color:\n                continue\n            if color[nxt] == GRAY:\n                return False\n            if color[nxt] == WHITE and (not visit(nxt)):\n                return False\n        color[node] = BLACK\n        return True\n    return all((visit(node) for node in graph if color[node] == WHITE))\n\ndef make_duplicate_oracle_plan() -> Dict[str, Any]:\n    \"\"\"impl + two oracles sharing a mutation_target; impl's verification_command\n    references oracle 'a'; an unrelated consumer depends on oracle 'b'.\"\"\"\n    return {'tasks': [{'task_id': 'impl-x', 'meta_task_type': 'implementation', 'mutation_target': 'harness.planner.x', 'files_touched': ['harness/planner/x.py'], 'dependencies': [], 'verification_command': 'python -m pytest tests/planner/test_x_a.py -q'}, {'task_id': 'oracle-x-a', 'meta_task_type': 'test_authoring', 'mutation_target': 'harness.planner.x', 'files_touched': ['tests/planner/test_x_a.py'], 'dependencies': ['impl-x'], 'verification_command': 'python -m pytest tests/planner/test_x_a.py -q'}, {'task_id': 'oracle-x-b', 'meta_task_type': 'test_authoring', 'mutation_target': 'harness.planner.x', 'files_touched': ['tests/planner/test_x_b.py'], 'dependencies': ['impl-x'], 'verification_command': 'python -m pytest tests/planner/test_x_b.py -q'}, {'task_id': 'consumer', 'meta_task_type': 'implementation', 'mutation_target': 'harness.planner.y', 'files_touched': ['harness/planner/y.py'], 'dependencies': ['oracle-x-b'], 'verification_command': 'python -m pytest tests/planner/test_y.py -q'}]}\n\ndef make_inverted_edge_plan() -> Dict[str, Any]:\n    \"\"\"impl depends on oracle (inverted); module-first should flip it.\"\"\"\n    return {'tasks': [{'task_id': 'impl-x', 'meta_task_type': 'implementation', 'mutation_target': 'harness.planner.x', 'files_touched': ['harness/planner/x.py'], 'dependencies': ['oracle-x'], 'verification_command': 'python -m pytest tests/planner/test_x.py -q'}, {'task_id': 'oracle-x', 'meta_task_type': 'test_authoring', 'mutation_target': 'harness.planner.x', 'files_touched': ['tests/planner/test_x.py'], 'dependencies': [], 'verification_command': 'python -m pytest tests/planner/test_x.py -q'}]}\n\ndef make_already_correct_plan() -> Dict[str, Any]:\n    \"\"\"Module-first, no duplicates: a no-op for normalize_plan.\"\"\"\n    return {'tasks': [{'task_id': 'impl-x', 'meta_task_type': 'implementation', 'mutation_target': 'harness.planner.x', 'files_touched': ['harness/planner/x.py'], 'dependencies': [], 'verification_command': 'python -m pytest tests/planner/test_x.py -q'}, {'task_id': 'oracle-x', 'meta_task_type': 'test_authoring', 'mutation_target': 'harness.planner.x', 'files_touched': ['tests/planner/test_x.py'], 'dependencies': ['impl-x'], 'verification_command': 'python -m pytest tests/planner/test_x.py -q'}]}\n\ndef make_no_impl_oracle_plan() -> Dict[str, Any]:\n    \"\"\"An oracle for harness.planner.orphan with no task creating that module.\"\"\"\n    return {'tasks': [{'task_id': 'oracle-orphan', 'meta_task_type': 'test_authoring', 'mutation_target': 'harness.planner.orphan', 'files_touched': ['tests/planner/test_orphan.py'], 'dependencies': ['impl-other'], 'verification_command': 'python -m pytest tests/planner/test_orphan.py -q'}, {'task_id': 'impl-other', 'meta_task_type': 'implementation', 'mutation_target': 'harness.planner.other', 'files_touched': ['harness/planner/other.py'], 'dependencies': [], 'verification_command': 'python -m pytest tests/planner/test_other.py -q'}]}\n\ndef make_vc_preference_plan() -> Dict[str, Any]:\n    \"\"\"Two duplicate oracles; first-by-task_id is 'a' but the impl's\n    verification_command references 'b' -> 'b' must be kept.\"\"\"\n    return {'tasks': [{'task_id': 'impl-x', 'meta_task_type': 'implementation', 'mutation_target': 'harness.planner.x', 'files_touched': ['harness/planner/x.py'], 'dependencies': [], 'verification_command': 'python -m pytest tests/planner/test_x_b.py -q'}, {'task_id': 'oracle-x-a', 'meta_task_type': 'test_authoring', 'mutation_target': 'harness.planner.x', 'files_touched': ['tests/planner/test_x_a.py'], 'dependencies': ['impl-x'], 'verification_command': 'python -m pytest tests/planner/test_x_a.py -q'}, {'task_id': 'oracle-x-b', 'meta_task_type': 'test_authoring', 'mutation_target': 'harness.planner.x', 'files_touched': ['tests/planner/test_x_b.py'], 'dependencies': ['impl-x'], 'verification_command': 'python -m pytest tests/planner/test_x_b.py -q'}]}\n\ndef make_symbol_ledger_plan() -> Dict[str, Any]:\n    \"\"\"Mirror of the corrected plan_hooks_symbol_ledger_module shape: an impl\n    plus two duplicate oracles, with the impl inverted onto the soon-dropped\n    oracle.  Post-normalization must be deduped AND module-first.\"\"\"\n    return {'tasks': [{'task_id': 'impl-symbol-ledger', 'meta_task_type': 'implementation', 'mutation_target': 'harness.symbol_ledger', 'files_touched': ['harness/symbol_ledger.py'], 'dependencies': ['oracle-symbol-ledger-b'], 'verification_command': 'python -m pytest tests/test_symbol_ledger_a.py -q'}, {'task_id': 'oracle-symbol-ledger-a', 'meta_task_type': 'test_authoring', 'mutation_target': 'harness.symbol_ledger', 'files_touched': ['tests/test_symbol_ledger_a.py'], 'dependencies': [], 'verification_command': 'python -m pytest tests/test_symbol_ledger_a.py -q'}, {'task_id': 'oracle-symbol-ledger-b', 'meta_task_type': 'test_authoring', 'mutation_target': 'harness.symbol_ledger', 'files_touched': ['tests/test_symbol_ledger_b.py'], 'dependencies': [], 'verification_command': 'python -m pytest tests/test_symbol_ledger_b.py -q'}]}\n\ndef test_dedupe_duplicate_oracle_dropped_and_deps_rewired() -> None:\n    plan = make_duplicate_oracle_plan()\n    result = normalize_plan(copy.deepcopy(plan))\n    survivors = oracles_for(result, 'harness.planner.x')\n    assert len(survivors) == 1, 'exactly one oracle must survive dedupe'\n    survivor = survivors[0]['task_id']\n    assert survivor in {'oracle-x-a', 'oracle-x-b'}\n    dropped = ({'oracle-x-a', 'oracle-x-b'} - {survivor}).pop()\n    assert dropped not in ids(result), 'the duplicate oracle must be removed'\n    assert deps(result, 'consumer') == {survivor}\n    for t in tasks_of(result):\n        assert dropped not in t.get('dependencies', [])\n    assert_no_dangling_deps(result)\n\ndef test_module_first_flip_oracle_depends_on_impl() -> None:\n    plan = make_inverted_edge_plan()\n    result = normalize_plan(copy.deepcopy(plan))\n    assert 'impl-x' in deps(result, 'oracle-x'), 'oracle must depend on its impl'\n    assert 'oracle-x' not in deps(result, 'impl-x'), 'impl must not depend on oracle'\n    assert is_acyclic(result), 'flipped graph must be acyclic'\n    assert_no_dangling_deps(result)\n\ndef test_already_correct_plan_returned_unchanged() -> None:\n    plan = make_already_correct_plan()\n    original = copy.deepcopy(plan)\n    result = normalize_plan(plan)\n    assert plan == original, 'normalize_plan must not mutate its input'\n    assert ids(result) == {'impl-x', 'oracle-x'}\n    assert deps(result, 'oracle-x') == {'impl-x'}\n    assert deps(result, 'impl-x') == set()\n    assert is_acyclic(result)\n    assert_no_dangling_deps(result)\n\ndef test_oracle_with_no_impl_task_left_untouched() -> None:\n    plan = make_no_impl_oracle_plan()\n    original_oracle = copy.deepcopy(by_id(plan)['oracle-orphan'])\n    result = normalize_plan(copy.deepcopy(plan))\n    res_oracle = by_id(result)['oracle-orphan']\n    assert res_oracle == original_oracle\n    assert res_oracle.get('dependencies') == ['impl-other']\n\ndef test_kept_oracle_prefers_impl_verification_command_reference() -> None:\n    plan = make_vc_preference_plan()\n    result = normalize_plan(copy.deepcopy(plan))\n    survivors = oracles_for(result, 'harness.planner.x')\n    assert len(survivors) == 1\n    assert survivors[0]['task_id'] == 'oracle-x-b'\n    assert 'oracle-x-a' not in ids(result)\n    assert_no_dangling_deps(result)\n\ndef test_normalize_idempotent_double_apply_equal() -> None:\n    for factory in (make_duplicate_oracle_plan, make_inverted_edge_plan, make_already_correct_plan, make_no_impl_oracle_plan, make_symbol_ledger_plan):\n        once = normalize_plan(factory())\n        twice = normalize_plan(copy.deepcopy(once))\n        assert twice == once, f'normalize not idempotent for {factory.__name__}'\n\ndef test_symbol_ledger_worked_example_post_normalization_shape() -> None:\n    plan = make_symbol_ledger_plan()\n    result = normalize_plan(copy.deepcopy(plan))\n    survivors = oracles_for(result, 'harness.symbol_ledger')\n    assert len(survivors) == 1\n    kept = survivors[0]['task_id']\n    assert kept == 'oracle-symbol-ledger-a'\n    assert 'oracle-symbol-ledger-b' not in ids(result)\n    assert 'impl-symbol-ledger' in deps(result, kept)\n    assert deps(result, 'impl-symbol-ledger') == set()\n    assert is_acyclic(result)\n    assert_no_dangling_deps(result)\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_redpair_impl_vcmd_preserved_when_oracle_has_real_mutation_target"
+          },
+          {
+            "name": "test_non_redpair_impl_still_vacuous_ized_when_oracle_has_no_mutation_target"
+          },
+          {
+            "name": "test_oracle_with_absent_mutation_target_does_not_qualify"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "tests/planner/test_sanitize_vcmd_repo_mapping.py"
+          },
+          {
+            "name": "tests/harness/test_redpair_sanitize_guard.py"
+          }
+        ],
+        "minimum_test_count": 5,
+        "test_data_requirements": "Hermetic plan dicts and tmp_path fake repos from the oracle leaf; plus the 6 byte-identical anti-seesaw cases in tests/planner/test_sanitize_vcmd_repo_mapping.py."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 200,
+        "test_tokens": 300,
+        "note": "Additive partial edit to one function; tests are the e2e preservation cases plus the anti-seesaw regression pin."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "brief_hooks_redpair_vcmd_sanitize_guard.md",
+  "source_brief_sha256": "aacee2c55876d81e27f66707f59c4068c15e58aff50e326aabc7b9df04b5a326",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+  "required_task_ids": [
+    "redpair-sanitize-predicate",
+    "redpair-sanitize-impl",
+    "redpair-sanitize-wireup"
+  ]
+}

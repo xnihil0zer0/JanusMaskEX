@@ -1,7 +1,7 @@
 """RED oracle: BackupLedger must support per-repo scoping.
 
 A single global ledger (``~/.janusmask/drive_backup/ledger.ndjson``) holds rows
-for BOTH JanusMaskJR and NobleGreedv2. An unscoped ``last_backed_up_sha()``
+for BOTH JanusMaskEX and NobleGreedv2. An unscoped ``last_backed_up_sha()``
 hands a push the most recent sha overall -- which may belong to the OTHER repo,
 producing an invalid ``git diff <other-repo-sha>..<this-sha>``. ``record`` must
 tag rows with ``repo`` and ``last_backed_up_sha(repo)`` must filter to that
@@ -16,11 +16,11 @@ from tools.drive_backup.ledger import BackupLedger
 def test_record_with_repo_then_scoped_query(tmp_path):
     led = BackupLedger(str(tmp_path / "ledger.ndjson"))
     led.record("n1" + "0" * 38, "NobleGreedv2_n1", True, repo="NobleGreedv2")
-    led.record("j1" + "0" * 38, "JanusMaskJR_j1", True, repo="JanusMaskJR")
+    led.record("j1" + "0" * 38, "JanusMaskEX_j1", True, repo="JanusMaskEX")
     led.record("n2" + "0" * 38, "NobleGreedv2_n2", True, repo="NobleGreedv2")
 
     assert led.last_backed_up_sha("NobleGreedv2") == "n2" + "0" * 38
-    assert led.last_backed_up_sha("JanusMaskJR") == "j1" + "0" * 38
+    assert led.last_backed_up_sha("JanusMaskEX") == "j1" + "0" * 38
     # Unknown repo => no base (a first backup of that repo is a full archive).
     assert led.last_backed_up_sha("Unseen") is None
 

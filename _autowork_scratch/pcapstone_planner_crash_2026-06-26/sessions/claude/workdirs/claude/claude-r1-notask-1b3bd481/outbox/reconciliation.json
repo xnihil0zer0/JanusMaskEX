@@ -1,0 +1,17 @@
+{
+  "responses": [{"diff_item_id": "__critique__", "stance": "amend"}],
+  "findings": [
+    {
+      "finding_id": "empty_plan_no_tasks",
+      "category": "other",
+      "severity": "warn",
+      "task_id": null,
+      "field_path": "/tasks",
+      "suggested_patch": {
+        "op": "add_non_goal",
+        "details": "Merged plan contains zero tasks; nothing to critique for inflated benchmarks, test-heavy violations, missing edge cases, spec_author validity, or dependency cycles. Confirm whether this is the intended end-state (e.g., all candidates filtered out) or an upstream merge bug producing an empty task list."
+      },
+      "message": "The merged plan's `tasks` array is empty. With no tasks present, the five required checks (inflated benchmark claims, test-heavy rule violations, missing edge cases, spec_author!=null misuse, dependency cycles) are all vacuously satisfied. This is reported as a warning because an empty merged plan is either (a) a legitimate result of all candidate tasks being rejected upstream, or (b) a symptom of a merge/serialization bug that dropped the task list. The planner should verify which scenario applies before treating the empty plan as final."
+    }
+  ]
+}

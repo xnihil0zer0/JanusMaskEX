@@ -1,0 +1,55 @@
+=== which function owns wire_up.py:813-816? (symbol_reachable :689 vs check_wired :782) ===
+symbol_reachable_from_live_root at 689; next def after it:
+689: def symbol_reachable_from_live_root(repo_root, module_rel: str, symbol: str, *, roots: Sequence[str]=LIVE_ROOTS) -> bool:
+782: def check_wired(repo_root, new_module_rel: str, *, roots: Sequence[str]=LIVE_ROOTS, exclude: Iterable[str]=()) -> WireResult:
+--- so lines 690..781 belong to symbol_reachable_from_live_root (ends before check_wired :782) ===
+--- 813-816 is AFTER 782 (check_wired). show 782..845 def boundaries ---
+782: def check_wired(repo_root, new_module_rel: str, *, roots: Sequence[str]=LIVE_ROOTS, exclude: Iterable[str]=()) -> WireResult:
+813:     external_reconciled = False
+816:         seeded_roots = {r for r in discover_live_roots(repo_root) if r in module_set}
+--- actual reconciliation (external_reconciled) lines in symbol_reachable: ---
+51:def discover_live_roots(repo_root) -> list[str]:
+740:    seeded_roots = {r for r in roots if r in module_set}
+743:    for r in seeded_roots:
+793:    so ``seeded_roots`` would be empty and every module a false-positive orphan.
+795:    reconciled from ground truth via ``discover_live_roots(repo_root)``; and for
+812:    seeded_roots = {r for r in roots if r in module_set}
+813:    external_reconciled = False
+814:    if not seeded_roots:
+815:        external_reconciled = True
+816:        seeded_roots = {r for r in discover_live_roots(repo_root) if r in module_set}
+819:    for r in seeded_roots:
+832:    is_root = new_module_rel in seeded_roots
+843:    if external_reconciled:
+
+--- show 805-820 to see the 813-816 region in context ---
+    if new_module_rel not in module_set:
+        return WireResult(wired=False, importers=[], reason=f'{new_module_rel} is not in the discovered module set; it is not a non-test project module known to discover.', fix_hint=f'Ensure {new_module_rel} exists as a real (non-test, non-seed) module under the source root so discover picks it up.')
+    graph = _resolved_graph(repo_root, modules)
+    importers_map: dict[str, set[str]] = defaultdict(set)
+    for m, deps in graph.items():
+        for d in deps:
+            importers_map[d].add(m)
+    seeded_roots = {r for r in roots if r in module_set}
+    external_reconciled = False
+    if not seeded_roots:
+        external_reconciled = True
+        seeded_roots = {r for r in discover_live_roots(repo_root) if r in module_set}
+    reachable: set[str] = set()
+    queue: deque[str] = deque()
+    for r in seeded_roots:
+        if r not in reachable:
+
+=== orchestrator detonation prompt: doc says :1483, content at? ===
+            eps = contract.get('entrypoints')
+            syms = contract.get('symbols')
+            ro = contract.get('runtime_oracle')
+            if isinstance(eps, list) and eps and all((e in LIVE_ROOTS for e in eps)) and syms and isinstance(ro, str) and ro.strip():
+                prompt += ("\nLIVE-ROOT DETONATION ORACLE (this task carries an integration_contract): " f"instead of a hermetic unit test, author a pytest module that, for EACH contract symbol in {syms}, " f"drives the declared LIVE_ROOT entrypoint (one of {eps}) for ONE bounded iteration with the symbol " "left UNMOCKED, under `with observe_symbol_execution([symbol]) as obs:` (from harness.wire_up), and " "asserts `obs.executed_with_live_root_ancestor(symbol, LIVE_ROOTS) is True`. Use the canonical driver " "scaffold `_drive_run_pipeline` from tests/harness/test_wire_up_runtime_observe.py VERBATIM (patch every " "spawn collaborator at its source module, return the task once then None, bound the loop with a _StopLoop " "sentinel, and LEAVE THE TARGET SYMBOL UNMOCKED so its real body runs via a production call edge). DO NOT " "call the symbol directly. DETONATION NON-VACUITY: declare the symbol's module as mutation_target so the " "harness re-runs this oracle against a stubbed mutant -- the assertion MUST fail when the symbol body is " "replaced by raise NotImplementedError; assert observed execution, never a bare True. For any symbol that " "genuinely cannot detonate from a LIVE_ROOT in one bounded iteration, do NOT fabricate a driver -- declare " "a `pure_helper` wire_exempt claim (validated by harness.wire_up.validate_exemption against the static floor).\n")
+    if spec_summary:
+1484:                prompt += ("\nLIVE-ROOT DETONATION ORACLE (this task carries an integration_contract): " f"instead of a hermetic unit test, author a pytest module that, for EACH contract symbol in {syms}, " f"drives the declared LIVE_ROOT entrypoint (one of {eps}) for ONE bounded iteration with the symbol " "left UNMOCKED, under `with observe_symbol_execution([symbol]) as obs:` (from harness.wire_up), and " "asserts `obs.executed_with_live_root_ancestor(symbol, LIVE_ROOTS) is True`. Use the canonical driver " "scaffold `_drive_run_pipeline` from tests/harness/test_wire_up_runtime_observe.py VERBATIM (patch every " "spawn collaborator at its source module, return the task once then None, bound the loop with a _StopLoop " "sentinel, and LEAVE THE TARGET SYMBOL UNMOCKED so its real body runs via a production call edge). DO NOT " "call the symbol directly. DETONATION NON-VACUITY: declare the symbol's module as mutation_target so the " "harness re-runs this oracle against a stubbed mutant -- the assertion MUST fail when the symbol body is " "replaced by raise NotImplementedError; assert observed execution, never a bare True. For any symbol that " "genuinely cannot detonate from a LIVE_ROOT in one bounded iteration, do NOT fabricate a driver -- declare " "a `pure_helper` wire_exempt claim (validated by harness.wire_up.validate_exemption against the static floor).\n")
+
+=== ::symbol cite: conductor_seams.py::build_evidence (doc-A:472) -> exists? ===
+112:    def build_evidence(state: Dict[str, Any]) -> Dict[str, Any]:
+doc-A:472 context:
+- **build_evidence implemented:** `ngv2/conductor_seams.py::build_evidence` (`:86-117`) is present in master

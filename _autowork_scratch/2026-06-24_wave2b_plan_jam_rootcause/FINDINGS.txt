@@ -1,0 +1,19 @@
+ROOT CAUSE: validate_plan rejection, NOT empty-draft.
+- planner reaches blind_drafts; both agents DRAFT non-empty plans.
+- collect_agent_draft (blind_draft.py:227-230) runs _validate_plan on each draft;
+  on violations it logs "{agent} draft invalid" and returns (None,'invalid').
+- 'invalid' is in _RETRYABLE -> plan_retry_resilience redraft loop (blind_draft.py:340-391) FIRES,
+  up to 3x. Redraft produces the SAME validation failures (brief under-specifies the gates),
+  so both drafts stay None -> cli.py:460 -> sys.exit(2) -> ledger rc=2.
+- The violations (from state/impl_progress.jsonl stderr_tail):
+    missing_integration_test  on tasks[2] difffuzz-w2b-architecture-contracts (attempt 1)
+    missing_edge_case_tests   on tasks[1] difffuzz-w2b-fix-readme-audit       (attempts 2,3)
+  Validator: plan_validator.py:250-263.
+    - missing_integration_test excused iff a spec.non_goals entry contains 'integration' (l.254)
+    - missing_edge_case_tests: needs min(2,len(edge_cases)) of prop_tests+reg_tests (l.261-262)
+- The sibling briefs wave1 + wave2 (which planned cleanly) BOTH carried the explicit directive
+  "Every non_goals line below must contain the literal word integration" and a per-task
+  "non_goals: must contain the literal word integration". wave2b LACKED this -> drafter
+  non-deterministically failed the gate (different task each attempt).
+CLASSIFICATION: (a) brief under-specification of validate_plan gates.
+FIX: rewrote brief in place to port the gate-satisfaction directives. 7173 -> 6311 bytes, 0 fences (unchanged).

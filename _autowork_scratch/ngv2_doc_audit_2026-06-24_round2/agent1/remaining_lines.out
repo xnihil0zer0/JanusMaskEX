@@ -1,0 +1,53 @@
+[DOC-A:49] narrow_fuzz/validation.py:292           | 292:             argv = build_jail_argv(['python3', 'driver.py'], repo_root=repo
+[DOC-A:49] orchestrator.py:2969                    | 2969:                     logger.warning('verification_missing: ledger append fa
+[DOC-A:54] config/autocompiler.yaml:21             | 21:   js: true               # JS differential dispatch (only fires for language
+[DOC-A:59] sandbox.py:892                          | 892:             "PYTHONHASHSEED": self.config.python_hash_seed,
+[DOC-A:76] _e2e_run/w2a_out/onyx_connector_bola_poc.py:43-46  | 43: Deterministic, offline, no network. Prints VULNERABLE and drops `pwned_marke
+[DOC-A:126] poc_writer.py:315-327                   | 315: def is_source_driving(grounding: Grounding, cwe: str) -> bool:
+[DOC-A:126] hunt_lead_client.py:294-298             | 294:             from ngv2.source_localize import localize_source as _localize_s
+[DOC-A:147] workers/_runner.py:267                  | 267:             nonce = 'ssrf_F_hunt'
+[DOC-A:149] auth_bootstrap.py:25-37                 | 25: def is_auth_required(spec: AuthSpec | None) -> bool:
+[DOC-A:150] poc_writer.py:377                       | 377: _TEMPLATE_LIST: List[CWETemplate] = [CWETemplate('CWE-502', ('insecure_dese
+[DOC-A:151] gate_executor.py:24                     | 24: 
+[DOC-A:151] transition_planner.py:64-72            <<OOR>> | 64: <OUT OF RANGE (file has 61 lines)>
+[DOC-A:151] gate_executor.py:39                     | 39: _TRANSITION_GATES: Dict[Tuple[str, str], Tuple[_GateSpec, ...]] = {('source'
+[DOC-A:151] conductor_seams.py:20                   | 20: _PHASE_COUNT_KEY = {'hunt': 'findings', 'poc': 'pocs', 'detonate': 'reports'
+[DOC-A:152] gate_executor.py:25-38                  | 25: class TypedTerminal:
+[DOC-A:153] sandbox.py:892                          | 892:             "PYTHONHASHSEED": self.config.python_hash_seed,
+[DOC-A:153] harness/sandbox.py:892                  | 892:             "PYTHONHASHSEED": self.config.python_hash_seed,
+[DOC-A:154] poc_runner_live.py:322-343              | 322:             fs_snapshot_diff = diff_snapshots(before, after)
+[DOC-A:155] diff_fuzzer.py:808                      | 808: 
+[DOC-A:155] config/autocompiler.yaml:21             | 21:   js: true               # JS differential dispatch (only fires for language
+[DOC-A:157] hunt_lead_client.py:36-38               | 36: _MAX_FILE_BYTES = 20000
+[DOC-A:158] transition_planner.py:36                | 36:     def _count(field_name: str) -> int:
+[DOC-A:160] wire_up.py:689                          | 689: def symbol_reachable_from_live_root(repo_root, module_rel: str, symbol: str
+[DOC-A:160] config.yaml:88-89                       | 88:   wire_up_runtime_gate: false
+[DOC-A:231] sandbox.py:892                          | 892:             "PYTHONHASHSEED": self.config.python_hash_seed,
+[DOC-A:234] narrow_fuzz/validation.py:292           | 292:             argv = build_jail_argv(['python3', 'driver.py'], repo_root=repo
+[DOC-A:235] orchestrator.py:2969                    | 2969:                     logger.warning('verification_missing: ledger append fa
+[DOC-A:326] sandbox.py:892                          | 892:             "PYTHONHASHSEED": self.config.python_hash_seed,
+[DOC-A:447] sandbox.py:892                          | 892:             "PYTHONHASHSEED": self.config.python_hash_seed,
+[DOC-A:465] ngv2/gate_executor.py:39                | 39: _TRANSITION_GATES: Dict[Tuple[str, str], Tuple[_GateSpec, ...]] = {('source'
+[DOC-A:468] gate_executor.py:25-38                  | 25: class TypedTerminal:
+[DOC-A:470] ngv2/transition_planner.py:64-72       <<OOR>> | 64: <OUT OF RANGE (file has 61 lines)>
+[DOC-A:476] conductor_seams.py:20                   | 20: _PHASE_COUNT_KEY = {'hunt': 'findings', 'poc': 'pocs', 'detonate': 'reports'
+[DOC-A:478] transition_planner.py:66               <<OOR>> | 66: <OUT OF RANGE (file has 61 lines)>
+[DOC-A:489] ngv2/detonation.py:3                    | 3: 
+[DOC-A:518] conductor_seams.py:20                   | 20: _PHASE_COUNT_KEY = {'hunt': 'findings', 'poc': 'pocs', 'detonate': 'reports'
+[DOC-A:560] ngv2/detonation.py:21                   | 21:     if not expected_fs_signature or not expected_fs_signature.strip():
+[DOC-B:229] ngv2/gate_executor.py:39                | 39: _TRANSITION_GATES: Dict[Tuple[str, str], Tuple[_GateSpec, ...]] = {('source'
+[DOC-B:233] transition_planner.py:64-72            <<OOR>> | 64: <OUT OF RANGE (file has 61 lines)>
+[DOC-B:358] workers/_runner.py:267                  | 267:             nonce = 'ssrf_F_hunt'
+[DOC-B:395] config/autocompiler.yaml:21             | 21:   js: true               # JS differential dispatch (only fires for language
+[DOC-B:402] diff_fuzzer.py:813                      | 813:     import subprocess
+[DOC-B:481] orchestrator.py:2347                    | 2347:                                 _floor_reachable = bool(symbol_reachable_f
+[DOC-B:482] orchestrator.py:2323                    | 2323:                     uncovered = sorted((_s for _s in new_syms if _s not in
+[DOC-B:625] conductor_seams.py:86                   | 86:                 state['parked_package'] = pkg
+[DOC-B:658] ngv2/gate_executor.py:39                | 39: _TRANSITION_GATES: Dict[Tuple[str, str], Tuple[_GateSpec, ...]] = {('source'
+[DOC-B:663] ngv2/transition_planner.py:64-72       <<OOR>> | 64: <OUT OF RANGE (file has 61 lines)>
+[DOC-B:674] conductor_seams.py:20                   | 20: _PHASE_COUNT_KEY = {'hunt': 'findings', 'poc': 'pocs', 'detonate': 'reports'
+[DOC-B:676] transition_planner.py:66               <<OOR>> | 66: <OUT OF RANGE (file has 61 lines)>
+[DOC-B:679] workers/triage.py:244                   | 244:     body['status'] = 'triaged'
+[DOC-B:679] workers/verify.py:131                   | 131:     status_label = 'verified' if reproduced else 'not_reproduced'
+[DOC-B:695] ngv2/detonation.py:3                    | 3: 
+[DOC-B:743] conductor_seams.py:20                   | 20: _PHASE_COUNT_KEY = {'hunt': 'findings', 'poc': 'pocs', 'detonate': 'reports'

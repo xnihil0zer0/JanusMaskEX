@@ -1,0 +1,20 @@
+---
+name: claude-silently-replaced-by-agy-fallback
+description: "Since ~Jun23 the real claude agent went dark; claude_fallback (agy/gemini) silently produces BOTH synthesis drafts under the \"claude\" ledger label — dual-agent guarantee degraded to gemini-vs-gemini"
+metadata: 
+  node_type: memory
+  type: project
+  originSessionId: cd07d609-96b2-4e14-9ca0-a12a36d8c0ad
+---
+
+🚨 SILENT CLAUDE→AGY FALLBACK (confirmed 2026-06-26, two independent proofs). The factory's "two independent LLMs" guarantee has been DEGRADED to agy-vs-agy (Gemini-twice) since **2026-06-23 ~16:21** with NO loud signal.
+
+**Mechanism:** `run_both_agents` (harness/orchestrator.py:1122; live parallel path sites 1166-1179, antigravity_mode=false) re-runs the claude prompt through `claude_fallback` whenever the `claude` slot returns None. `claude_fallback` = `${PROJECT_ROOT}/.agents/agy/agy` = the SAME binary as `gemini`/`antigravity` (config.yaml). So slot-A=agy(claude_fallback) + slot-B=agy(gemini) = both Gemini.
+
+**Why it's silent / why a prior commit got it WRONG:** the fallback only `_con(...)`s a WARN to stderr (orchestrator.py:143) — NO ledger row. The worker redirects that stderr into a discarded StringIO (orchestrator_worker.py:385) and the success row is emitted under the ORIGINAL slot name (`set_agent_status agent='claude' status='submitted'`, orchestrator_worker.py:524). So `state/impl_progress.jsonl` shows `agent=claude submitted` identically whether real claude OR agy produced the draft. Commit **25660f7** (revert tmux→headless) cited "190 claude submitted rows" as proof claude was healthy — that evidence is worthless because the ledger can't distinguish. **fa9f44d** (flip→tmux) had the RIGHT diagnosis and was reverted on a false premise.
+
+**Ground-truth proof = session FILENAMES** (`state/sessions/<agent>_round1_<task>_submission.json`, named by the actual producing agent): after Jun23 16:21 → **0** real `claude_round1_*` files, **79** `claude_fallback_round1_*` files, while the ledger logged **139** `agent=claude submitted` rows. Last real claude draft: `claude_round1_spent-brief-autoarchive-impl` Jun 23 16:21. To audit: `ls state/sessions/ | grep -E '^claude(_fallback)?_round' | sort` and compare mtimes; `single_agent_promotion` "keeping claude" rows are really keeping agy.
+
+**Root cause (TWO failure modes — `logs/claude_stream.jsonl` is the smoking gun):** the real `claude -p` result records are `is_error:true` at $0/0-tokens — **1390× "Not logged in · Please run /login"** (primary) + **297× "You've hit your weekly limit · resets 7am America/Toronto"** + 6× "401 Failed to authenticate" (only 157/1159 results were is_error:false). (1) `_seed_claude_config_dir` (orchestrator.py:212-224) seeds an EMPTY creds-less `CLAUDE_CONFIG_DIR` (introduced by c33f808 claudecap, Jun20) used ONLY in the **headless** spawn path → claude can't resolve OAuth → None → fallback. (2) Even when logged in, the Max subscription **weekly limit was exhausted**. The **tmux** backend copies real creds via `tmux_seams.seed_config_dir` (tmux_worker.py:374) so claude authed fine Jun14–Jun23. Regression boundary = **b47e8ad** (Jun23 17:21 flip to headless). Manual `claude -p` works because it uses ~/.claude; the WORKER overrides CLAUDE_CONFIG_DIR to the creds-less seeded dir. ⚠️ Because of failure mode (2), the tmux/OAuth stopgap alone may NOT fully restore real claude.
+
+**Fix:** seed real OAuth creds into the headless CLAUDE_CONFIG_DIR — briefs already authored & at repo root, NOT landed: `brief_hooks_headless_configdir_seed_creds_daemon.md`, `brief_hooks_headless_configdir_seed_creds_orch.md`. **Stopgap:** flip `workers.claude_backend: tmux` (config.yaml:183) + commit + restart daemon (tmux copies creds). Also: the fallback should emit a DISTINCT ledger event (currently invisible) so this can never hide again. Daemon was stopped at time of finding (last row `daemon_stop`). Relates to [[factory-backend-headless-cutover-2026-06-23]], [[claudecap-landed-split-and-configdir-contract]], [[never-claim-capability-works-without-empirical-proof]].

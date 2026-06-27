@@ -34,7 +34,7 @@ from overseer import tmux_seams as tsm
 # --- per-cid config dir -----------------------------------------------------
 
 def test_config_dir_is_per_cid_and_outside_repo():
-    repo = Path("/home/u/JanusMaskJR")
+    repo = Path("/home/u/JanusMaskEX")
     cfg = Path(tsm.overseer_config_dir(repo, "conv-1"))
     # outside the repo, namespaced by cid
     assert repo not in cfg.parents

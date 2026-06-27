@@ -1,0 +1,221 @@
+{
+  "tasks": [
+    {
+      "task_id": "difffuzz-w2b-architecture-contracts",
+      "title": "Update architecture contracts taxonomy table and invariant",
+      "meta_task_type": "docs_writing",
+      "priority": "high",
+      "dependencies": [
+        "difffuzz-w2b-flip-policy"
+      ],
+      "files_touched": [
+        "docs/ARCHITECTURE_CONTRACTS.md"
+      ],
+      "acceptance_criteria": [
+        "The bypass_fuzzer \u2713 checkmark is cleared for harness_plumbing and harness_self_fix rows in docs/ARCHITECTURE_CONTRACTS.md section 2 table.",
+        "The exception prose is amended to add harness_self_fix and harness_plumbing to the reviewed narrowings list.",
+        "Verification command 'python -m pytest tests/adversarial/test_taxonomies.py -q' passes all 12 tests successfully."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/adversarial/test_taxonomies.py -q",
+      "spec": {
+        "objective": "Document the sanctioned narrowing of fuzzer bypass types in ARCHITECTURE_CONTRACTS.md.",
+        "functional_requirements": [
+          "Clear the bypass_fuzzer checkmark for harness_plumbing in the taxonomy table.",
+          "Clear the bypass_fuzzer checkmark for harness_self_fix in the taxonomy table.",
+          "Add harness_self_fix and harness_plumbing to the invariant narrowing exception list in the prose."
+        ],
+        "interfaces": "Markdown documentation file docs/ARCHITECTURE_CONTRACTS.md.",
+        "edge_cases": [
+          "Ensure documentation edits don't conflict with any automated validation checking doc-to-code alignment in integration tests."
+        ],
+        "non_goals": [
+          "Do not touch other table rows, sections, or code files to keep doc integration clean.",
+          "Do not modify any test code or introduce external file validation during integration."
+        ],
+        "implementation_notes": "A single __JANUSMASK_PATCHES__ symbol patch or markdown replacement edit.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/adversarial/test_taxonomies.py\n```python\nimport pytest\nfrom harness.planner.taxonomies import BYPASS_FUZZER_TYPES, META_TASK_POLICY, META_TASK_TYPES, SIDE_EFFECT_META_TYPES, SKIP_SMOKE_GATE_TYPES, is_test_prefixed\ndef test_policy_dict_is_populated():\n    ...\ndef test_every_policy_entry_has_required_flags():\n    ...\ndef test_meta_task_types_matches_policy_keys():\n    ...\ndef test_bypass_fuzzer_types_derives_from_policy():\n    ...\ndef test_side_effect_meta_types_derives_from_policy():\n    ...\ndef test_bypass_and_side_effect_are_subsets_of_canonical():\n    ...\ndef test_skip_smoke_gate_types_derives_from_policy():\n    ...\ndef test_skip_smoke_gate_is_subset_of_bypass():\n    ...\ndef test_harness_self_fix_skips_smoke_gates():\n    ...\ndef test_test_authoring_policy_entry():\n    ...\n@pytest.mark.parametrize('value', ['hooks_integration'])\ndef test_known_bypass_values_are_in_bypass_set(value):\n    ...\n@pytest.mark.parametrize('value', ['sandbox_infra', 'data_model', 'harness_plumbing', 'orchestration', 'planner_tooling', 'mcp_plumbing', 'state_machine', 'io_adapter', 'harness_self_fix'])\ndef test_known_side_effect_values_are_in_side_effect_set(value):\n    ...\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_policy_dict_is_populated"
+          },
+          {
+            "name": "test_every_policy_entry_has_required_flags"
+          },
+          {
+            "name": "test_known_side_effect_values_are_in_side_effect_set"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_known_side_effect_values_are_in_side_effect_set"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "Requires code changes from flip-policy task to match."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Verify against the taxonomy tests."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "difffuzz-w2b-flip-policy",
+      "title": "Flip harness_self_fix and harness_plumbing fuzzer bypass policy",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/planner/taxonomies.py"
+      ],
+      "acceptance_criteria": [
+        "META_TASK_POLICY in harness/planner/taxonomies.py is updated so that bypass_fuzzer is False for harness_self_fix and harness_plumbing.",
+        "All other keys, flags, and types in META_TASK_POLICY remain byte-identical.",
+        "Verification command 'python -m pytest tests/harness/test_difffuzz_w2_routing.py -q' passes all 12 tests successfully."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/harness/test_difffuzz_w2_routing.py -q",
+      "spec": {
+        "objective": "Flip the bypass_fuzzer policy to False for harness_self_fix and harness_plumbing task types.",
+        "functional_requirements": [
+          "Set bypass_fuzzer to False for harness_self_fix in META_TASK_POLICY.",
+          "Set bypass_fuzzer to False for harness_plumbing in META_TASK_POLICY.",
+          "Ensure derived frozensets recompute from the dict correctly."
+        ],
+        "interfaces": "Module-level dictionary META_TASK_POLICY in harness/planner/taxonomies.py.",
+        "edge_cases": [
+          "Ensure that policy change doesn't trigger differential fuzzing itself since assignment has no FunctionDef, preventing circular dependency issues during integration."
+        ],
+        "non_goals": [
+          "Do not touch skip_structural_decomp, skip_smoke_gates, or any key in META_TASK_POLICY rows other than the bypass_fuzzer boolean for the two named types, avoiding unwanted integration issues.",
+          "Do not modify the routing oracle or the loosen-membership test which already landed in previous integration commits.",
+          "Do not change should_bypass_fuzzer or any fuzzer-dispatch code to prevent integration regression."
+        ],
+        "implementation_notes": "A single __JANUSMASK_PATCHES__ symbol patch for the META_TASK_POLICY dictionary.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/harness/test_difffuzz_w2_routing.py\n```python\nfrom typing import Optional, Any, Dict\nfrom harness.orchestrator import should_bypass_fuzzer, Task\ndef test_flipped_routing_harness_self_fix():\n    ...\ndef test_flipped_routing_harness_plumbing():\n    ...\ndef test_control_config_schema():\n    ...\ndef test_control_mcp_plumbing():\n    ...\ndef test_control_test_authoring():\n    ...\ndef test_control_sandbox_infra():\n    ...\ndef test_control_mcp_server_change():\n    ...\ndef test_control_data_model():\n    ...\ndef test_control_cli_tooling():\n    ...\ndef test_control_test_unit():\n    ...\ndef test_control_missing_meta_task_type():\n    ...\ndef test_control_unrecognized_meta_task_type():\n    ...\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_flipped_routing_harness_self_fix"
+          },
+          {
+            "name": "test_flipped_routing_harness_plumbing"
+          },
+          {
+            "name": "test_control_config_schema"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_flipped_routing_harness_self_fix"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "Use the landed test routing oracle."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Verify against the routing oracle."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "difffuzz-w2b-fix-readme-audit",
+      "title": "Fix README bypass fuzzer audit mapping",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [
+        "difffuzz-w2b-flip-policy"
+      ],
+      "files_touched": [
+        "tests/harness/test_readme_audit_agent_d.py"
+      ],
+      "acceptance_criteria": [
+        "README_BYPASS_FUZZER dict in tests/harness/test_readme_audit_agent_d.py is updated so that harness_plumbing and harness_self_fix are False.",
+        "Verification command 'python -m pytest tests/harness/test_readme_audit_agent_d.py -q' passes all 9 tests successfully."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/harness/test_readme_audit_agent_d.py -q",
+      "spec": {
+        "objective": "Align the README audit fuzzer bypass map with the updated META_TASK_POLICY.",
+        "functional_requirements": [
+          "Set harness_plumbing to False in README_BYPASS_FUZZER.",
+          "Set harness_self_fix to False in README_BYPASS_FUZZER.",
+          "Keep other keys in README_BYPASS_FUZZER verbatim."
+        ],
+        "interfaces": "Module-global README_BYPASS_FUZZER dictionary mapping in tests/harness/test_readme_audit_agent_d.py.",
+        "edge_cases": [
+          "Verify that drift check fails if only one of policy or audit mapping is flipped, ensuring robust future integration integrity."
+        ],
+        "non_goals": [
+          "Do not edit only one of the entries to prevent broken integration tests.",
+          "Do not modify other files or perform cross-component integration of new modules.",
+          "Do not touch test functions or imports in this test file to keep the integration clean."
+        ],
+        "implementation_notes": "A single __JANUSMASK_PATCHES__ symbol patch for the README_BYPASS_FUZZER assignment.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/harness/test_readme_audit_agent_d.py\n```python\nimport ast\nimport yaml\nfrom harness.planner.taxonomies import META_TASK_POLICY, BYPASS_FUZZER_TYPES, SIDE_EFFECT_META_TYPES, SKIP_SMOKE_GATE_TYPES\nfrom harness.orchestrator import _NEVER_AUTO_APPROVE\ndef test_readme_taxonomy_bypass_fuzzer_matches_policy():\n    ...\ndef test_readme_documents_every_policy_type():\n    ...\ndef test_derived_sets_consistent_with_policy():\n    ...\ndef test_implementation_is_not_a_meta_task_type():\n    ...\ndef test_never_auto_approve_matches_readme():\n    ...\ndef test_allowed_extra_node_kinds_match_readme():\n    ...\ndef test_control_pause_flag_path_config_value():\n    ...\ndef test_readme_section8_config_subtrees():\n    ...\ndef test_readme_glossary_live_roots():\n    ...\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_readme_taxonomy_bypass_fuzzer_matches_policy"
+          },
+          {
+            "name": "test_readme_documents_every_policy_type"
+          },
+          {
+            "name": "test_derived_sets_consistent_with_policy"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_readme_taxonomy_bypass_fuzzer_matches_policy"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Requires code changes from flip-policy task to match."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Verify against the readme audit test suite."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_difffuzz_taxonomy_wave2b.md",
+  "source_brief_sha256": "d9f925f548c5f832b1e73603387cef1417482dce9c542b8d79433b963fa248a4",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+  "required_task_ids": [
+    "difffuzz-w2b-flip-policy",
+    "difffuzz-w2b-fix-readme-audit",
+    "difffuzz-w2b-architecture-contracts"
+  ]
+}

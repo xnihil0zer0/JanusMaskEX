@@ -1,0 +1,4786 @@
+[
+  {
+    "file": "MEMORY_INDEX_ARCHIVE_2026-06-10.md",
+    "slug": "MEMORY_INDEX_ARCHIVE_2026-06-10",
+    "type": "(none)",
+    "bytes": 83669,
+    "mtime": 1781111506.04987,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 50,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 7,
+      "paths": 27,
+      "path_missing": 7,
+      "flags": 2,
+      "flag_mismatch": 1,
+      "syms": 30,
+      "sym_missing": 11
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "9a33c44",
+      "155dc06",
+      "d026512",
+      "0b7935c",
+      "a97070b",
+      "45f5790",
+      "7fe55ec"
+    ],
+    "path_missing": [
+      "config/projects",
+      "tools/brief_status",
+      "harness/wire_up.py.",
+      "state/workroot/repo",
+      "state/control/autowork/auto_promote.allowlist.",
+      "config/root",
+      "tests/test_"
+    ],
+    "flag_mismatch": {
+      "selfheal_auto_promote": {
+        "claimed": true,
+        "config_found": true,
+        "config_value": false,
+        "ambiguous": false,
+        "match": false,
+        "verdict": "mismatch"
+      }
+    },
+    "sym_missing": [
+      "_build_argv",
+      "test_tool",
+      "working_dir",
+      "make_seams",
+      "_suspended_pids",
+      "not_found",
+      "auto_commit_failed",
+      "test_authoring",
+      "_maybe_push",
+      "gate_failed",
+      "harness_plumbing"
+    ]
+  },
+  {
+    "file": "adversarial-test-plans-24h-audit.md",
+    "slug": "adversarial-test-plans-24h-audit",
+    "type": "project",
+    "bytes": 3627,
+    "mtime": 1780051499.8778625,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 1,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 4,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "_env",
+      "claude_fallback"
+    ]
+  },
+  {
+    "file": "agent-isolation-6_3-live-probe-clean.md",
+    "slug": "agent-isolation-6_3-live-probe-clean",
+    "type": "project",
+    "bytes": 2320,
+    "mtime": 1780061439.3643906,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 1,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 0,
+      "sym_missing": 0
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": []
+  },
+  {
+    "file": "agent-isolation-fix-landed.md",
+    "slug": "agent-isolation-fix-landed",
+    "type": "project",
+    "bytes": 4124,
+    "mtime": 1780047655.1300764,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 2,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 6,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 11,
+      "sym_missing": 4
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "_collect_traceback",
+      "impl_outbox_watcher",
+      "autowork_daemon",
+      "_agents_override"
+    ]
+  },
+  {
+    "file": "agy-autonomous-single-agent-tamper.md",
+    "slug": "agy-autonomous-single-agent-tamper",
+    "type": "project",
+    "bytes": 4791,
+    "mtime": 1780040598.307151,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 3,
+      "sha_dead": 0,
+      "sha_unreachable": 2,
+      "sha_ngv2": 0,
+      "paths": 6,
+      "path_missing": 2,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 5,
+      "sym_missing": 3
+    },
+    "sha_dead": [],
+    "sha_unreachable": [
+      "381a497",
+      "7eff8bc"
+    ],
+    "sha_ngv2": [],
+    "path_missing": [
+      "state/tasks/ACCEPT_SINGLE_CANDIDATE_TEST_ACCEPTANCE.json",
+      "tests/adversarial/test_single_candidate_acceptance_adversarial.py"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "test_acceptance",
+      "full_stop",
+      "_is_single_candidate_acceptable"
+    ]
+  },
+  {
+    "file": "agy-cli-flags-probe.md",
+    "slug": "agy-cli-flags-probe",
+    "type": "reference",
+    "bytes": 1713,
+    "mtime": 1780043905.484157,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 1,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 2,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "claude_fallback"
+    ]
+  },
+  {
+    "file": "auto-commit-failed-multifile-rootcause.md",
+    "slug": "auto-commit-failed-multifile-rootcause",
+    "type": "project",
+    "bytes": 4328,
+    "mtime": 1781577092.812865,
+    "in_index": false,
+    "dangling_links": [],
+    "counts": {
+      "shas": 3,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 5,
+      "path_missing": 3,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 9,
+      "sym_missing": 6
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "tests/test_x.py",
+      "harness/x.py",
+      "tests/-only"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "harness_self_fix",
+      "ok_strict",
+      "saw_harness",
+      "ok_widened",
+      "auto_commit_failed",
+      "_widened"
+    ]
+  },
+  {
+    "file": "autocompiler-default-on.md",
+    "slug": "autocompiler-default-on",
+    "type": "project",
+    "bytes": 5635,
+    "mtime": 1781114564.6470659,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 3,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 5,
+      "path_missing": 1,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 7,
+      "sym_missing": 4
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "docs/oracle."
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "write_sitecustomize",
+      "test_runtime_gate_file_is_live",
+      "janusmask_no_deadline",
+      "ac_enabled"
+    ]
+  },
+  {
+    "file": "autocompiler-epic-all-phases-built.md",
+    "slug": "autocompiler-epic-all-phases-built",
+    "type": "project",
+    "bytes": 3262,
+    "mtime": 1781088896.8037782,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 13,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 4,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 2,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "ac_enabled"
+    ]
+  },
+  {
+    "file": "autocompiler-epic-brief.md",
+    "slug": "autocompiler-epic-brief",
+    "type": "project",
+    "bytes": 2096,
+    "mtime": 1781026925.4833837,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 0,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 3,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "valid_cache",
+      "response_schema"
+    ]
+  },
+  {
+    "file": "autocompiler-phase-a-dispatch.md",
+    "slug": "autocompiler-phase-a-dispatch",
+    "type": "project",
+    "bytes": 6595,
+    "mtime": 1781048353.07121,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 17,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 7,
+      "path_missing": 1,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 18,
+      "sym_missing": 10
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "tests/autocompiler/test_"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "ast_crossover",
+      "extract_evolve_ranges",
+      "p_ucb",
+      "ac_flags",
+      "ac_enabled",
+      "missing_wiring_oracle",
+      "missing_integration_test",
+      "file_crossover",
+      "check_write_containment",
+      "compute_fitness"
+    ]
+  },
+  {
+    "file": "autonomous-campaign-hunt-cwe-template-gap.md",
+    "slug": "autonomous-campaign-hunt-cwe-template-gap",
+    "type": "project",
+    "bytes": 4489,
+    "mtime": 1781623574.453837,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 2,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 5,
+      "sym_missing": 5
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "ngv2/campaign_ledger.json"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "save_config_state",
+      "run_hunt",
+      "source_meta",
+      "_build_real_seams",
+      "poc_authenticity"
+    ]
+  },
+  {
+    "file": "autonomous-daemon-run-and-class-method-edit-fragility.md",
+    "slug": "autonomous-daemon-run-and-class-method-edit-fragility",
+    "type": "project",
+    "bytes": 7150,
+    "mtime": 1780622130.211026,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 6,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 6,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 9,
+      "sym_missing": 3
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "config/rebuild"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "harness_self_fix",
+      "approval_ok",
+      "harness_plumbing"
+    ]
+  },
+  {
+    "file": "backup-detach-fixes-systemic-autocommit.md",
+    "slug": "backup-detach-fixes-systemic-autocommit",
+    "type": "project",
+    "bytes": 4297,
+    "mtime": 1781507545.3657641,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 5,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 1,
+      "paths": 6,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 10,
+      "sym_missing": 7
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "b1167ce"
+    ],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "do_wait",
+      "reject_rollback",
+      "unstaged_task_ids",
+      "task_blocked",
+      "auto_commit_failed",
+      "git_commit_lock_timeout",
+      "accepted_map"
+    ]
+  },
+  {
+    "file": "blinddraft-workingdir-landed-and-recipe.md",
+    "slug": "blinddraft-workingdir-landed-and-recipe",
+    "type": "project",
+    "bytes": 3296,
+    "mtime": 1781486647.231289,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 2,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 7,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 9,
+      "sym_missing": 4
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "state/control/autowork/pause"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "working_dir",
+      "missing_wiring_oracle",
+      "_spy",
+      "implementation_notes"
+    ]
+  },
+  {
+    "file": "bounty-hunt-2026-06-13-eligibility-correction.md",
+    "slug": "bounty-hunt-2026-06-13-eligibility-correction",
+    "type": "project",
+    "bytes": 2495,
+    "mtime": 1781344369.8619285,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 1,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 1,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "ngv2/huntr_eligible_cache.json"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "mcp__noblegreed__submit_code"
+    ]
+  },
+  {
+    "file": "brief-staleness-reconciler.md",
+    "slug": "brief-staleness-reconciler",
+    "type": "project",
+    "bytes": 8522,
+    "mtime": 1780958852.5649931,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 12,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 9,
+      "path_missing": 1,
+      "flags": 1,
+      "flag_mismatch": 1,
+      "syms": 16,
+      "sym_missing": 10
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "tools/brief_status"
+    ],
+    "flag_mismatch": {
+      "autowork.archive_spent_briefs": {
+        "claimed": false,
+        "config_found": true,
+        "config_value": true,
+        "ambiguous": false,
+        "match": false,
+        "verdict": "mismatch"
+      }
+    },
+    "sym_missing": [
+      "whole_file_drift",
+      "task_id",
+      "_move",
+      "no_diff",
+      "overseer_procedure_gates",
+      "verification_command",
+      "_distinct_commands",
+      "overseer_driver_stream_parse",
+      "overseer_chat",
+      "_all_green"
+    ]
+  },
+  {
+    "file": "broad-adversarial-suite-vcmd-is-flaky-gate.md",
+    "slug": "broad-adversarial-suite-vcmd-is-flaky-gate",
+    "type": "feedback",
+    "bytes": 2133,
+    "mtime": 1781554030.6990995,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 5,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 5,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "verification_command",
+      "verification_failed"
+    ]
+  },
+  {
+    "file": "bugfix-sweep-2026-06-10.md",
+    "slug": "bugfix-sweep-2026-06-10",
+    "type": "project",
+    "bytes": 4347,
+    "mtime": 1781105712.6450784,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 11,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 8,
+      "path_missing": 0,
+      "flags": 2,
+      "flag_mismatch": 0,
+      "syms": 4,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "test_action_allowlist",
+      "wireup_comment_strip"
+    ]
+  },
+  {
+    "file": "cfix-c7-charden-landed.md",
+    "slug": "cfix-c7-charden-landed",
+    "type": "project",
+    "bytes": 7374,
+    "mtime": 1780097533.769686,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 6,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 6,
+      "path_missing": 2,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 6,
+      "sym_missing": 4
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "state/control/full_stop",
+      "state/track_record_events.jsonl"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "test_autowork_escalation",
+      "harness_self_fix",
+      "test_guard_catches_real_code",
+      "test_real_planning_config_passes"
+    ]
+  },
+  {
+    "file": "claude-agent-uncontained-cd-into-repo.md",
+    "slug": "claude-agent-uncontained-cd-into-repo",
+    "type": "project",
+    "bytes": 3698,
+    "mtime": 1780073462.2001433,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 1,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 2,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 1,
+      "sym_missing": 0
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "config/allowlist/dual-agent-invariant"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": []
+  },
+  {
+    "file": "claude-jail-fix-first-accept-commit.md",
+    "slug": "claude-jail-fix-first-accept-commit",
+    "type": "project",
+    "bytes": 2528,
+    "mtime": 1780106865.6149163,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 2,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 2,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 2,
+      "sym_missing": 0
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": []
+  },
+  {
+    "file": "concurrency-isolation-and-ngv2-solver-ast-epic.md",
+    "slug": "concurrency-isolation-and-ngv2-solver-ast-epic",
+    "type": "project",
+    "bytes": 2333,
+    "mtime": 1781224994.3661256,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 6,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 4,
+      "paths": 2,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 4,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "ae2675a",
+      "4f917fe",
+      "6a8d326",
+      "c91c64b"
+    ],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "parallel_cap"
+    ]
+  },
+  {
+    "file": "contain-phase-landed.md",
+    "slug": "contain-phase-landed",
+    "type": "project",
+    "bytes": 8042,
+    "mtime": 1780087844.0505116,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 5,
+      "sha_dead": 0,
+      "sha_unreachable": 1,
+      "sha_ngv2": 0,
+      "paths": 5,
+      "path_missing": 0,
+      "flags": 2,
+      "flag_mismatch": 0,
+      "syms": 5,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [
+      "f4a9978"
+    ],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "agent_sandbox"
+    ]
+  },
+  {
+    "file": "daemon-supervisor-respawn.md",
+    "slug": "daemon-supervisor-respawn",
+    "type": "project",
+    "bytes": 1196,
+    "mtime": 1781224397.9662542,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 2,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 0,
+      "sym_missing": 0
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": []
+  },
+  {
+    "file": "deterministic-plan-park-and-daemon-corrections.md",
+    "slug": "deterministic-plan-park-and-daemon-corrections",
+    "type": "project",
+    "bytes": 11061,
+    "mtime": 1781614835.2726264,
+    "in_index": false,
+    "dangling_links": [],
+    "counts": {
+      "shas": 7,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 1,
+      "paths": 11,
+      "path_missing": 2,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 21,
+      "sym_missing": 14
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "20506f2"
+    ],
+    "path_missing": [
+      "state/control/autowork/impl_progress.ndjson",
+      "state/sessions/pty_claude_"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "task_blocked",
+      "data_model",
+      "required_task_ids",
+      "stderr_tail",
+      "missing_required_task",
+      "planner_hallucination_discarded",
+      "non_goals",
+      "missing_wiring_oracle",
+      "plan_kickoff",
+      "empty_plan",
+      "working_dir",
+      "idle_wake",
+      "auto_commit",
+      "auto_commit_failed"
+    ]
+  },
+  {
+    "file": "dont-conflate-built-with-works.md",
+    "slug": "dont-conflate-built-with-works",
+    "type": "feedback",
+    "bytes": 1763,
+    "mtime": 1781272623.0775695,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 0,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 0,
+      "sym_missing": 0
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": []
+  },
+  {
+    "file": "drive-epic-complete-and-harness-hardening.md",
+    "slug": "drive-epic-complete-and-harness-hardening",
+    "type": "project",
+    "bytes": 6900,
+    "mtime": 1781456698.3083346,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 10,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 1,
+      "paths": 6,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 5,
+      "sym_missing": 3
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "eb145b6"
+    ],
+    "path_missing": [
+      "state/output/archiver-impl.py"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "verification_command",
+      "install_hooks",
+      "test_authoring"
+    ]
+  },
+  {
+    "file": "epic-contracts-run-2026-06-17.md",
+    "slug": "epic-contracts-run-2026-06-17",
+    "type": "project",
+    "bytes": 14726,
+    "mtime": 1781747866.3880856,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 20,
+      "sha_dead": 0,
+      "sha_unreachable": 2,
+      "sha_ngv2": 0,
+      "paths": 11,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 30,
+      "sym_missing": 12
+    },
+    "sha_dead": [],
+    "sha_unreachable": [
+      "811d8da",
+      "ac3fea2"
+    ],
+    "sha_ngv2": [],
+    "path_missing": [
+      "state/control/autowork/auto_promote.disabled"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "task_blocked",
+      "epic_child_dropped",
+      "repo_root",
+      "test_module_first_flip_oracle_depends_on_impl",
+      "test_authoring",
+      "reject_rollback",
+      "multifile_additive_patch_bundle",
+      "fix_epic_pipeline_seam_wiring",
+      "coverage_gap_warning",
+      "auto_commit",
+      "make_inverted_edge_plan",
+      "test_oracle_is_hermetic_no_live_state_writes"
+    ]
+  },
+  {
+    "file": "ex-phantom-task-no-promote.md",
+    "slug": "ex-phantom-task-no-promote",
+    "type": "project",
+    "bytes": 1397,
+    "mtime": 1780022351.0956783,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 3,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 3,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "state/tasks/blocked/EX.json"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "skip_degenerate_escalation"
+    ]
+  },
+  {
+    "file": "factory-clobber-fix-and-ngv2-resume-2026-06-13.md",
+    "slug": "factory-clobber-fix-and-ngv2-resume-2026-06-13",
+    "type": "project",
+    "bytes": 12100,
+    "mtime": 1781402740.232349,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 18,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 12,
+      "paths": 11,
+      "path_missing": 5,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 19,
+      "sym_missing": 13
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "b74e303",
+      "6b00e91",
+      "0ddc5e9",
+      "9bd7d41",
+      "4d72fd7",
+      "7256c54",
+      "5566f7c",
+      "9261edc",
+      "5122c2e",
+      "1b8006c",
+      "442e390",
+      "b474381"
+    ],
+    "path_missing": [
+      "state/persist/advance",
+      "ngv2/workers/test_",
+      "tests/test_runner_spawn_wired.py",
+      "tests/test_worker_spawn_blocks.py",
+      "tests/ngv2/test_z3_solver_adapter_wired.py"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "orchestrator_worker",
+      "hunt_conductor",
+      "brief_dep_unresolvable",
+      "test_authoring",
+      "fsm_and_task_primitives",
+      "data_model",
+      "duplicate_module_skipped",
+      "conductor_loop",
+      "agent_workers",
+      "run_stage",
+      "missing_integration_test",
+      "test_plan_normalizer_vcmd_sanitize",
+      "__main__"
+    ]
+  },
+  {
+    "file": "factory-new-module-wireup-gates.md",
+    "slug": "factory-new-module-wireup-gates",
+    "type": "project",
+    "bytes": 3077,
+    "mtime": 1781314805.3697617,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 6,
+      "path_missing": 1,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 9,
+      "sym_missing": 6
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "tools/webui_"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "missing_wiring_oracle",
+      "non_goals",
+      "orphan_unwired",
+      "missing_integration_test",
+      "mutation_target",
+      "test_authoring"
+    ]
+  },
+  {
+    "file": "fixes-are-permanent-and-reusable.md",
+    "slug": "fixes-are-permanent-and-reusable",
+    "type": "feedback",
+    "bytes": 1478,
+    "mtime": 1781471868.1785312,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 1,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 2,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "harness/factory"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "mutation_target"
+    ]
+  },
+  {
+    "file": "gap-remediation-progress.md",
+    "slug": "gap-remediation-progress",
+    "type": "project",
+    "bytes": 6800,
+    "mtime": 1780112448.3103144,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 17,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 4,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 6,
+      "sym_missing": 3
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "harness_self_fix",
+      "full_stop",
+      "verification_timeout_seconds"
+    ]
+  },
+  {
+    "file": "handoff-bugfix-session-2026-06-09.md",
+    "slug": "handoff-bugfix-session-2026-06-09",
+    "type": "project",
+    "bytes": 4053,
+    "mtime": 1781052909.8228002,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 8,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 2,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 10,
+      "sym_missing": 5
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "harness_self_fix",
+      "merge_failed",
+      "test_sha256_line_ending_invariant",
+      "sensitive_files_touched",
+      "auto_commit_failed"
+    ]
+  },
+  {
+    "file": "hierarchical-planner-phase1-design.md",
+    "slug": "hierarchical-planner-phase1-design",
+    "type": "project",
+    "bytes": 3135,
+    "mtime": 1780636422.6479034,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 0,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 7,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "epic_complete"
+    ]
+  },
+  {
+    "file": "hierarchical-planner-phase1-exec.md",
+    "slug": "hierarchical-planner-phase1-exec",
+    "type": "project",
+    "bytes": 19222,
+    "mtime": 1780667635.6725352,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 30,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 16,
+      "path_missing": 1,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 30,
+      "sym_missing": 12
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "state/control/orchestrator.flag"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "harness_self_fix",
+      "brief_hooks_",
+      "parent_epic",
+      "child_briefs",
+      "parent_epic_slug",
+      "meta_task_type",
+      "epic_slug",
+      "child_slugs",
+      "verification_command",
+      "plan_hooks",
+      "_epicchild_eligible",
+      "auto_commit_failed"
+    ]
+  },
+  {
+    "file": "implementation-is-not-wired-defect.md",
+    "slug": "implementation-is-not-wired-defect",
+    "type": "feedback",
+    "bytes": 2467,
+    "mtime": 1780974245.2837124,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 1,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 2,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "turn_runner",
+      "gate_runner"
+    ]
+  },
+  {
+    "file": "issue-fix-via-pipeline-then-rerun.md",
+    "slug": "issue-fix-via-pipeline-then-rerun",
+    "type": "feedback",
+    "bytes": 1960,
+    "mtime": 1781036916.7155976,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 1,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 4,
+      "sym_missing": 3
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "plan_normalizer",
+      "harness_self_fix",
+      "plan_validator"
+    ]
+  },
+  {
+    "file": "leaf5-sink-blockers-and-factory-gaps.md",
+    "slug": "leaf5-sink-blockers-and-factory-gaps",
+    "type": "project",
+    "bytes": 3983,
+    "mtime": 1781547269.901027,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 4,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 3,
+      "paths": 5,
+      "path_missing": 3,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 13,
+      "sym_missing": 9
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "cab40a7",
+      "ecfd475",
+      "4b81aa8"
+    ],
+    "path_missing": [
+      "tests/test_sink_instrument.py",
+      "tests/test_detonation",
+      "tests/test_loopback_listener.py"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "srcdrive_leaf5_confirm",
+      "unknown_meta_task_type",
+      "data_model",
+      "trace_sink_firing",
+      "meta_task_type",
+      "_marker_only",
+      "_kwargs",
+      "dummy_target_exec",
+      "test_authoring"
+    ]
+  },
+  {
+    "file": "live-4x-hunt-detonation-env-blocker.md",
+    "slug": "live-4x-hunt-detonation-env-blocker",
+    "type": "project",
+    "bytes": 7027,
+    "mtime": 1781621477.1028538,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 2,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 2,
+      "paths": 0,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 16,
+      "sym_missing": 16
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "58eb9ae",
+      "7d6f8dd"
+    ],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "poc_runner_live",
+      "detonate_live",
+      "srcdrive_detonate_jail_interpreter",
+      "is_source_driving",
+      "_multiarray_umath",
+      "pwned_marker_cmdexec",
+      "python_bin",
+      "_default_pip_installer",
+      "pwned_marker",
+      "extra_ro",
+      "_jmdeps",
+      "serve_index_html",
+      "render_source_driving_py",
+      "poc_authenticity",
+      "_entry_cmd",
+      "prompt_install"
+    ]
+  },
+  {
+    "file": "live-bounty-sourcing-learning-epic-COMPLETE.md",
+    "slug": "live-bounty-sourcing-learning-epic-COMPLETE",
+    "type": "project",
+    "bytes": 4614,
+    "mtime": 1781291449.0006883,
+    "in_index": false,
+    "dangling_links": [],
+    "counts": {
+      "shas": 17,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 16,
+      "paths": 2,
+      "path_missing": 2,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 5,
+      "sym_missing": 4
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "3b0e6a6",
+      "6479b71",
+      "aad2fb8",
+      "85d8fd4",
+      "ae95e7a",
+      "f57c2d4",
+      "0b8e6ec",
+      "0994e48",
+      "69c81be",
+      "83bbe94",
+      "c08da49",
+      "7ccd8c3",
+      "89c3bef",
+      "e11a75f",
+      "21b599d",
+      "85fdd5b"
+    ],
+    "path_missing": [
+      "tests/ngv2/test_targets_scanner_wired.py",
+      "tests/fixtures/huntr/."
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "pool_note",
+      "live_bounty_sourcing_and_learning",
+      "expected_value",
+      "observed_payouts"
+    ]
+  },
+  {
+    "file": "live-bounty-sourcing-learning-epic.md",
+    "slug": "live-bounty-sourcing-learning-epic",
+    "type": "project",
+    "bytes": 4230,
+    "mtime": 1781275855.4765074,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 2,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 0,
+      "sym_missing": 0
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": []
+  },
+  {
+    "file": "never-hand-edit-production-outside-pipeline.md",
+    "slug": "never-hand-edit-production-outside-pipeline",
+    "type": "feedback",
+    "bytes": 2367,
+    "mtime": 1780692549.496675,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 2,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 4,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 1,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "harness_self_fix"
+    ]
+  },
+  {
+    "file": "newmodule-oracle-fix-and-trust-core-approval.md",
+    "slug": "newmodule-oracle-fix-and-trust-core-approval",
+    "type": "project",
+    "bytes": 3372,
+    "mtime": 1781545292.7630622,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 2,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 4,
+      "path_missing": 0,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 10,
+      "sym_missing": 4
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "srcdrive_leaf5_confirm",
+      "auto_commit_failed",
+      "mutation_target",
+      "test_authoring"
+    ]
+  },
+  {
+    "file": "next-mission-live-5poc-e2e-and-hardening.md",
+    "slug": "next-mission-live-5poc-e2e-and-hardening",
+    "type": "project",
+    "bytes": 2905,
+    "mtime": 1781226040.3889422,
+    "in_index": false,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 4,
+      "path_missing": 1,
+      "flags": 1,
+      "flag_mismatch": 1,
+      "syms": 3,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "tests/test_detonation"
+    ],
+    "flag_mismatch": {
+      "archive_spent_briefs": {
+        "claimed": false,
+        "config_found": true,
+        "config_value": true,
+        "ambiguous": false,
+        "match": false,
+        "verdict": "mismatch"
+      }
+    },
+    "sym_missing": [
+      "awaiting_submission",
+      "parallel_cap"
+    ]
+  },
+  {
+    "file": "ngv2-autonomous-bounty-fsm-epic.md",
+    "slug": "ngv2-autonomous-bounty-fsm-epic",
+    "type": "project",
+    "bytes": 5107,
+    "mtime": 1781221829.9868402,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 21,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 21,
+      "paths": 1,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 9,
+      "sym_missing": 9
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "af2b019",
+      "ae2675a",
+      "958e7e9",
+      "0cc83b1",
+      "0db81e1",
+      "044740a",
+      "9a4781b",
+      "0040c5e",
+      "8d23e03",
+      "7fd3769",
+      "3662d4d",
+      "ebb4a18",
+      "7ab704e",
+      "1c525e9",
+      "1865c5e",
+      "39e3875",
+      "156a9c6",
+      "e044095",
+      "86f4fba",
+      "44bfb3c",
+      "c010797"
+    ],
+    "path_missing": [
+      "ngv2/test_"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "worker_crash_orphan",
+      "_gate_transition",
+      "working_dir",
+      "readiness_score",
+      "_call",
+      "now_fn",
+      "_bind",
+      "missing_edge_case_tests",
+      "selfheal_skip"
+    ]
+  },
+  {
+    "file": "ngv2-bounty-fsm-sessionapi-storage-gap.md",
+    "slug": "ngv2-bounty-fsm-sessionapi-storage-gap",
+    "type": "project",
+    "bytes": 3022,
+    "mtime": 1781221853.43903,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 3,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 3,
+      "paths": 2,
+      "path_missing": 2,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 14,
+      "sym_missing": 14
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "044740a",
+      "2b3d9c4",
+      "463bb94"
+    ],
+    "path_missing": [
+      "tests/ngv2/test_session_api_persistence_wired.py",
+      "tests/ngv2/test_session_api_surface_wired.py"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "get_current_phase",
+      "save_session",
+      "awaiting_operator_approval",
+      "session_pipeline",
+      "_save",
+      "get_session",
+      "_load",
+      "submit_artifacts",
+      "create_session",
+      "awaiting_submission",
+      "ngv2_fix_session_api_persistence",
+      "get_parked_package",
+      "get_readiness_reason",
+      "get_state"
+    ]
+  },
+  {
+    "file": "ngv2-cleanroom-rebuild-plan.md",
+    "slug": "ngv2-cleanroom-rebuild-plan",
+    "type": "project",
+    "bytes": 5776,
+    "mtime": 1780716525.0179915,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 0,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 3,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "working_dir"
+    ]
+  },
+  {
+    "file": "ngv2-detonation-jail-loopback-ssrf.md",
+    "slug": "ngv2-detonation-jail-loopback-ssrf",
+    "type": "project",
+    "bytes": 2245,
+    "mtime": 1781562427.5146935,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 2,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 6,
+      "sym_missing": 6
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "loopback_listener",
+      "diff_snapshots",
+      "expected_fs_signature",
+      "fs_snapshot_diff",
+      "sink_instrument",
+      "snapshot_tree"
+    ]
+  },
+  {
+    "file": "ngv2-e2e-huntr-poc-driven.md",
+    "slug": "ngv2-e2e-huntr-poc-driven",
+    "type": "project",
+    "bytes": 2575,
+    "mtime": 1781170226.674675,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 1,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 6,
+      "sym_missing": 4
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "pwned_marker",
+      "semantic_verdict",
+      "pattern_finder",
+      "repo_root"
+    ]
+  },
+  {
+    "file": "ngv2-epic1-run-result.md",
+    "slug": "ngv2-epic1-run-result",
+    "type": "project",
+    "bytes": 9328,
+    "mtime": 1780740591.7446184,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 9,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 3,
+      "paths": 10,
+      "path_missing": 4,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 13,
+      "sym_missing": 9
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "5a10771",
+      "e8cf0ff",
+      "7a36a33"
+    ],
+    "path_missing": [
+      "ngv2/contracts.py.",
+      "state/control/orchestrator.flag",
+      "tests/test_",
+      "tests/test_detonation.py"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "repo_root",
+      "data_model",
+      "state_machine",
+      "ngv2_epic1",
+      "spec_author",
+      "working_dir",
+      "both_agents_timed_out",
+      "smoke_failed",
+      "ngv2_contracts_impl"
+    ]
+  },
+  {
+    "file": "ngv2-epic2-run-result.md",
+    "slug": "ngv2-epic2-run-result",
+    "type": "project",
+    "bytes": 7388,
+    "mtime": 1780746957.8193092,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 10,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 5,
+      "paths": 8,
+      "path_missing": 1,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 12,
+      "sym_missing": 5
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "24f31f7",
+      "453c8c4",
+      "c7c269f",
+      "ecd064f",
+      "4f0d004"
+    ],
+    "path_missing": [
+      "state/control/decisions/fix-external-jail-project-ro.json"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "data_model",
+      "meta_task_type",
+      "io_adapter",
+      "extra_ro",
+      "smoke_failed"
+    ]
+  },
+  {
+    "file": "ngv2-epic3-run-result.md",
+    "slug": "ngv2-epic3-run-result",
+    "type": "project",
+    "bytes": 8049,
+    "mtime": 1780772815.8304467,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 7,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 1,
+      "paths": 4,
+      "path_missing": 1,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 20,
+      "sym_missing": 14
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "d54f091"
+    ],
+    "path_missing": [
+      "tests/test_"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "orchestrator_worker",
+      "harness_self_fix",
+      "ngv2_epic3",
+      "child_briefs",
+      "repo_root",
+      "child_slugs",
+      "verification_command",
+      "expected_payout",
+      "empty_plan",
+      "planner_tooling",
+      "working_dir",
+      "auto_commit",
+      "smoke_failed",
+      "huntr_form"
+    ]
+  },
+  {
+    "file": "ngv2-epic4-authored.md",
+    "slug": "ngv2-epic4-authored",
+    "type": "project",
+    "bytes": 6457,
+    "mtime": 1780779611.4385977,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 6,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 1,
+      "paths": 3,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 21,
+      "sym_missing": 14
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "45f5790"
+    ],
+    "path_missing": [
+      "tests/test_"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "test_main_structurally_intact",
+      "narrow_err",
+      "narrow_fuzz_failed",
+      "data_model",
+      "gate_failed",
+      "smoke_err",
+      "work_intent_tracking",
+      "embedded_tests_failed",
+      "embedded_err",
+      "ngv2_epic4",
+      "planner_tooling",
+      "stateful_fuzz",
+      "worker_registry",
+      "smoke_failed"
+    ]
+  },
+  {
+    "file": "ngv2-epic4-run-result.md",
+    "slug": "ngv2-epic4-run-result",
+    "type": "project",
+    "bytes": 8226,
+    "mtime": 1780878039.3481052,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 16,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 2,
+      "paths": 4,
+      "path_missing": 2,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 25,
+      "sym_missing": 20
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "7fe55ec",
+      "fb8dc10"
+    ],
+    "path_missing": [
+      "config/projects/",
+      "state/control/decisions/embedded-gate-api-funcs.json"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "all_gemini_no_reconciled",
+      "harness_self_fix",
+      "kg_schema",
+      "parallel_cap",
+      "missing_edge_case_tests",
+      "data_model",
+      "crash_analyzer",
+      "proposed_by",
+      "autowork_daemon",
+      "requires_claude",
+      "test_tool",
+      "plan_kickoff",
+      "empty_plan",
+      "embedded_tests_failed",
+      "codebase_graph_extract",
+      "kg_config",
+      "test_file_against_parser",
+      "working_dir",
+      "blind_draft",
+      "empty_epic"
+    ]
+  },
+  {
+    "file": "ngv2-financial-viability-parallel-hunt.md",
+    "slug": "ngv2-financial-viability-parallel-hunt",
+    "type": "project",
+    "bytes": 6831,
+    "mtime": 1781308048.1567369,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 2,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 2,
+      "paths": 1,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 14,
+      "sym_missing": 12
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "f84b2b4",
+      "a52d2d7"
+    ],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "custom_headers",
+      "__new__",
+      "pattern_scanner",
+      "__getstate__",
+      "__setstate__",
+      "get_tool_by_id",
+      "get_tools_by_ids",
+      "awaiting_submission",
+      "windmill_admin",
+      "_get_editable_custom_tool",
+      "deser_detect",
+      "__reduce__"
+    ]
+  },
+  {
+    "file": "ngv2-metadata-harvest.md",
+    "slug": "ngv2-metadata-harvest",
+    "type": "project",
+    "bytes": 3970,
+    "mtime": 1780883082.3986766,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 2,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 1,
+      "paths": 4,
+      "path_missing": 3,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 6,
+      "sym_missing": 6
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "a97070b"
+    ],
+    "path_missing": [
+      "ngv2/huntr_repo_bounties.json",
+      "docs/legacy/NOBLEGREED_LEGACY_CLAUDE.md",
+      "config/schema/store"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "submission_parser",
+      "parse_bounties",
+      "parse_existing_submissions",
+      "bounty_gate",
+      "agent_registry",
+      "taint_spec_library"
+    ]
+  },
+  {
+    "file": "ngv2-phase0-external-build-proven.md",
+    "slug": "ngv2-phase0-external-build-proven",
+    "type": "project",
+    "bytes": 7878,
+    "mtime": 1780721161.347601,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 6,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 2,
+      "paths": 6,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 7,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "cccae37",
+      "aac9970"
+    ],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "orchestrator_worker",
+      "working_dir"
+    ]
+  },
+  {
+    "file": "ngv2-production-viable-oversight.md",
+    "slug": "ngv2-production-viable-oversight",
+    "type": "project",
+    "bytes": 7627,
+    "mtime": 1781298367.1486282,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 13,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 10,
+      "paths": 1,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 5,
+      "sym_missing": 5
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "925b9d2",
+      "e11a75f",
+      "f0bc5e8",
+      "dbc7e9a",
+      "a7bbe45",
+      "9521e08",
+      "b37c9d9",
+      "65ca1d0",
+      "364d85f",
+      "ca4ee26"
+    ],
+    "path_missing": [
+      "ngv2/taint_specs/"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "codeql_runner",
+      "whole_file_drift",
+      "ngv2_ssrf_detect",
+      "compute_corpus_stats",
+      "ngv2_pathtrav_detect"
+    ]
+  },
+  {
+    "file": "ngv2-wireup-epic-complete.md",
+    "slug": "ngv2-wireup-epic-complete",
+    "type": "project",
+    "bytes": 5107,
+    "mtime": 1781020281.820826,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 10,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 6,
+      "paths": 10,
+      "path_missing": 2,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 11,
+      "sym_missing": 9
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "9a33c44",
+      "155dc06",
+      "d026512",
+      "0b7935c",
+      "84f05c6",
+      "3db2a75"
+    ],
+    "path_missing": [
+      "tests/test_analyzer_wired.py",
+      "tests/test_handlers_wired.py"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "semgrep_rule_id",
+      "verification_failed",
+      "__main__",
+      "build_handlers",
+      "auto_commit_failed",
+      "run_pre_analysis",
+      "implementation_notes",
+      "orphan_unwired",
+      "staging_path"
+    ]
+  },
+  {
+    "file": "overseer-chat-epic-brief.md",
+    "slug": "overseer-chat-epic-brief",
+    "type": "project",
+    "bytes": 5701,
+    "mtime": 1780893276.7231352,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 7,
+      "path_missing": 2,
+      "flags": 1,
+      "flag_mismatch": 1,
+      "syms": 2,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "tests/overseer/test_",
+      "tests/overseer/ui_fidelity/"
+    ],
+    "flag_mismatch": {
+      "overseer.enabled": {
+        "claimed": false,
+        "config_found": true,
+        "config_value": true,
+        "ambiguous": false,
+        "match": false,
+        "verdict": "mismatch"
+      }
+    },
+    "sym_missing": [
+      "harness_self_fix",
+      "harness_plumbing"
+    ]
+  },
+  {
+    "file": "overseer-chat-fix-features-session.md",
+    "slug": "overseer-chat-fix-features-session",
+    "type": "project",
+    "bytes": 7741,
+    "mtime": 1780941857.453871,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 8,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 7,
+      "path_missing": 3,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 11,
+      "sym_missing": 10
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "tests/property_tests",
+      "state/control/orchestrator.flag",
+      "state/control/autowork/full_stop"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "chat_send",
+      "_build_argv",
+      "implementation_notes",
+      "edge_cases",
+      "render_mode_context",
+      "content_block_start",
+      "run_turn",
+      "overseer_driver_headless",
+      "content_block_delta",
+      "stream_event"
+    ]
+  },
+  {
+    "file": "overseer-epic-unblock-attempt.md",
+    "slug": "overseer-epic-unblock-attempt",
+    "type": "project",
+    "bytes": 10962,
+    "mtime": 1780930705.685405,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 12,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 6,
+      "path_missing": 1,
+      "flags": 1,
+      "flag_mismatch": 1,
+      "syms": 22,
+      "sym_missing": 7
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "tools/webui"
+    ],
+    "flag_mismatch": {
+      "overseer.enabled": {
+        "claimed": false,
+        "config_found": true,
+        "config_value": true,
+        "ambiguous": false,
+        "match": false,
+        "verdict": "mismatch"
+      }
+    },
+    "sym_missing": [
+      "harness_self_fix",
+      "overseer_chat",
+      "data_model",
+      "harness_plumbing",
+      "test_p10_config_flag",
+      "fuzz_error",
+      "auto_commit_failed"
+    ]
+  },
+  {
+    "file": "overseer-pillars-and-fsm-wired.md",
+    "slug": "overseer-pillars-and-fsm-wired",
+    "type": "project",
+    "bytes": 4531,
+    "mtime": 1780978677.844242,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 17,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 1,
+      "path_missing": 0,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 11,
+      "sym_missing": 7
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "harness_self_fix",
+      "env_builder",
+      "run_chat_turn",
+      "full_stop",
+      "mode_set",
+      "make_seams",
+      "_build_overseer_env"
+    ]
+  },
+  {
+    "file": "overseer-procedure-gates-epic.md",
+    "slug": "overseer-procedure-gates-epic",
+    "type": "project",
+    "bytes": 5451,
+    "mtime": 1780950296.0108483,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 10,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 0,
+      "path_missing": 0,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 2,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "procedure_substrate"
+    ]
+  },
+  {
+    "file": "owner-handedits-4a-4b-applied.md",
+    "slug": "owner-handedits-4a-4b-applied",
+    "type": "project",
+    "bytes": 1797,
+    "mtime": 1781078572.252446,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 1,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 6,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 5,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "harness/webui_control.py"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "_targets_exist",
+      "git_commit_lock_timeout"
+    ]
+  },
+  {
+    "file": "phase-d-backlog-already-satisfied.md",
+    "slug": "phase-d-backlog-already-satisfied",
+    "type": "project",
+    "bytes": 2156,
+    "mtime": 1780060879.2245777,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 1,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 5,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 6,
+      "sym_missing": 3
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "harness_self_fix",
+      "full_stop",
+      "harness_plumbing"
+    ]
+  },
+  {
+    "file": "phase-d-drain-authorized.md",
+    "slug": "phase-d-drain-authorized",
+    "type": "project",
+    "bytes": 1459,
+    "mtime": 1780060710.463634,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 1,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 0,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 1,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "full_stop"
+    ]
+  },
+  {
+    "file": "phase2-autonomy-security-posture.md",
+    "slug": "phase2-autonomy-security-posture",
+    "type": "project",
+    "bytes": 27928,
+    "mtime": 1780692627.8056455,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 14,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 24,
+      "path_missing": 5,
+      "flags": 2,
+      "flag_mismatch": 0,
+      "syms": 30,
+      "sym_missing": 11
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "state/output/oracle-symbol-ledger.",
+      "state/output/symbol-ledger-oracle.py",
+      "harness/-writing",
+      "harness/autowork_daemon._acquire_commit_lock_or_reclaim",
+      "tests/test_"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "invalid_mutation_target",
+      "harness_self_fix",
+      "patches_sidecar_exists",
+      "test_authoring",
+      "claude_fallback",
+      "test_planner_stderr_tail",
+      "relax_external_constructs",
+      "auto_approve_sensitive_ceiling",
+      "auto_approve_ro_gate_failed",
+      "mutation_gate_missing",
+      "find_ready"
+    ]
+  },
+  {
+    "file": "phase2-session4-pipeline-rebuild.md",
+    "slug": "phase2-session4-pipeline-rebuild",
+    "type": "project",
+    "bytes": 14768,
+    "mtime": 1780708024.6029499,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 19,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 17,
+      "path_missing": 2,
+      "flags": 2,
+      "flag_mismatch": 0,
+      "syms": 13,
+      "sym_missing": 6
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "harness/planner/staging._maybe_resolve_interfaces",
+      "state/control/decisions/item1-commit-lock-reclaim.json"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "wire_resolve_interfaces_staging_seam",
+      "harness_plumbing",
+      "test_hierarchical_planning_level2_subflags_default_false",
+      "_activated",
+      "multi_file_missing_sidecar",
+      "phase2_hierarchical"
+    ]
+  },
+  {
+    "file": "pipeline-readiness-hardening-program.md",
+    "slug": "pipeline-readiness-hardening-program",
+    "type": "project",
+    "bytes": 17335,
+    "mtime": 1781679753.2051334,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 6,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 9,
+      "path_missing": 2,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 24,
+      "sym_missing": 11
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "state/campaign/out/",
+      "harness/redpair_vcmd_guard.py"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "cleanup_tail",
+      "sensitive_files_touched",
+      "test_authoring",
+      "_coerce_finding",
+      "cwe22_weak_poc",
+      "plan_stale",
+      "no_template_cwe20",
+      "source_brief_sha256",
+      "missing_integration_test",
+      "_nm_oracle",
+      "orphan_unwired"
+    ]
+  },
+  {
+    "file": "planner-empty-plan-systemic.md",
+    "slug": "planner-empty-plan-systemic",
+    "type": "project",
+    "bytes": 4139,
+    "mtime": 1781573864.0560055,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 1,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 4,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 6,
+      "sym_missing": 3
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "empty_plan",
+      "impl_paths",
+      "planner_hallucination_discarded"
+    ]
+  },
+  {
+    "file": "poc-writer-live-finding-chain-2026-06-14.md",
+    "slug": "poc-writer-live-finding-chain-2026-06-14",
+    "type": "project",
+    "bytes": 25863,
+    "mtime": 1781462924.4628882,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 17,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 17,
+      "paths": 21,
+      "path_missing": 9,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 30,
+      "sym_missing": 27
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "d197ba8",
+      "5193e50",
+      "5ff0172",
+      "c816f24",
+      "a70ba58",
+      "22ef74f",
+      "eb145b6",
+      "7cc7d5a",
+      "f9c551e",
+      "f0f0178",
+      "e42ac45",
+      "48d0731",
+      "ef15c60",
+      "2d1775e",
+      "1de6142",
+      "84aca8d",
+      "9fc26e5"
+    ],
+    "path_missing": [
+      "state/control/orchestrator.flag",
+      "state/output/ngv2-poc-writer-cwe-impl.py",
+      "state/campaign/campaign_run2.log",
+      "state/campaign/campaign_run.log",
+      "ngv2/huntr_eligible_cache.json",
+      "state/campaign/",
+      "ngv2/campaign_ledger.json",
+      "state/control/autowork/pause",
+      "tools/codeql/codeql"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "codeql_scan",
+      "default_resolver",
+      "target_import_names",
+      "hunt_lead_client",
+      "sink_extract",
+      "_read_snippet",
+      "sink_symbol",
+      "pattern_scanner",
+      "test_call_site_is_standalone_parseable_when_sink_is_nested",
+      "jail_runner",
+      "parse_sarif",
+      "sink_name",
+      "run_hunt",
+      "_coerce_finding",
+      "dbgpt_app",
+      "source_location",
+      "selection_ranker",
+      "_resolve_template",
+      "grounding_differential",
+      "_enrich_sink",
+      "findings_to_candidates",
+      "assess_sink_reachability",
+      "_discover_repo_packages",
+      "pwned_marker",
+      "_read_source",
+      "_package_root",
+      "detonation_evidence"
+    ]
+  },
+  {
+    "file": "real-bounty-machinery-handoff.md",
+    "slug": "real-bounty-machinery-handoff",
+    "type": "project",
+    "bytes": 21626,
+    "mtime": 1781274471.2909615,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 33,
+      "sha_dead": 1,
+      "sha_unreachable": 0,
+      "sha_ngv2": 32,
+      "paths": 36,
+      "path_missing": 5,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 30,
+      "sym_missing": 28
+    },
+    "sha_dead": [
+      "c59fb3a"
+    ],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "b0cd983",
+      "b0cd9838",
+      "14f1b0a5",
+      "15d93f2",
+      "a7fd83a",
+      "edf328a",
+      "4230a58",
+      "2a1d7b6",
+      "07c8c48",
+      "d4f4b0f",
+      "eefb515",
+      "b23cefe",
+      "19df9d1",
+      "57013fa",
+      "a0b59d4",
+      "a6e5ffd",
+      "7fb91df",
+      "29f57eb",
+      "3d1cde2",
+      "878bca1",
+      "f759d1b",
+      "cb67556",
+      "590f663",
+      "92a8091",
+      "5240e5a",
+      "840dead",
+      "fdf3f23",
+      "631f479",
+      "fa00e65",
+      "bd70e6a",
+      "74e6381",
+      "976aba8"
+    ],
+    "path_missing": [
+      "tests/test_pipeline.py",
+      "tests/test_handlers_wired.py",
+      "ngv2/huntr_eligible_cache.json",
+      "tests/X.py",
+      "ngv2/huntr_existing_submissions.json"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "target_priority_scorer",
+      "semantic_verdict",
+      "expected_fs_signature",
+      "_is_nonempty_str",
+      "load_known_corpus",
+      "resolve_signals",
+      "detonate_live",
+      "build_submission_package",
+      "compute_confidence",
+      "build_handlers",
+      "poc_repair_loop",
+      "session_gate",
+      "oracle_result",
+      "planner_hallucination_discarded",
+      "verification_command",
+      "awaiting_submission",
+      "runaway_ceiling",
+      "missing_wiring_oracle",
+      "_check_library",
+      "hunt_loop",
+      "ingest_verdict",
+      "verification_failed",
+      "working_dir",
+      "retry_exhausted",
+      "literal_eval",
+      "smoke_failed",
+      "live_poc",
+      "prompt_install"
+    ]
+  },
+  {
+    "file": "rebuild-remediation-may29.md",
+    "slug": "rebuild-remediation-may29",
+    "type": "project",
+    "bytes": 7508,
+    "mtime": 1780035576.073086,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 4,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 7,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 13,
+      "sym_missing": 10
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "harness_self_fix",
+      "auto_promote_fuzz_failures_to_tests",
+      "claude_fallback",
+      "harness_plumbing",
+      "verification_command",
+      "enforce_file_size_policy",
+      "mcp_server_change",
+      "dynamic_signature_probing",
+      "insufficient_time_for_retry",
+      "daemon_inactivity_stuck"
+    ]
+  },
+  {
+    "file": "red-gate-silently-stuck-every-harness-fix.md",
+    "slug": "red-gate-silently-stuck-every-harness-fix",
+    "type": "project",
+    "bytes": 5455,
+    "mtime": 1781652301.3252337,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 5,
+      "sha_dead": 1,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 4,
+      "path_missing": 0,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 10,
+      "sym_missing": 5
+    },
+    "sha_dead": [
+      "ae16acba"
+    ],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "test_init_output_repo_writes_requirements_and_gitignores_venv",
+      "verification_command",
+      "verification_failed",
+      "__version__",
+      "test_post_rebuild_start_module_slice"
+    ]
+  },
+  {
+    "file": "redesign-analysis-round1-verdict.md",
+    "slug": "redesign-analysis-round1-verdict",
+    "type": "project",
+    "bytes": 4714,
+    "mtime": 1780213264.8232832,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 1,
+      "sha_dead": 1,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 1,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 4,
+      "sym_missing": 3
+    },
+    "sha_dead": [
+      "f0cdbb16"
+    ],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "capstone_c7_selffix",
+      "meta_layer_freeze",
+      "self_edit_guard"
+    ]
+  },
+  {
+    "file": "required-task-ids-enforcement.md",
+    "slug": "required-task-ids-enforcement",
+    "type": "project",
+    "bytes": 3285,
+    "mtime": 1781571143.1028454,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 1,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 1,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 6,
+      "sym_missing": 5
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "required_task_ids",
+      "missing_required_task",
+      "working_dir",
+      "seen_task_ids",
+      "missing_wiring_oracle"
+    ]
+  },
+  {
+    "file": "rev12-exec-session.md",
+    "slug": "rev12-exec-session",
+    "type": "project",
+    "bytes": 7045,
+    "mtime": 1780273098.151718,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 7,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 6,
+      "path_missing": 1,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 8,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "harness/state/memory/git"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "test_retry_budget_exhaustion_exits_with_status_2"
+    ]
+  },
+  {
+    "file": "rev13-14-exec-session.md",
+    "slug": "rev13-14-exec-session",
+    "type": "project",
+    "bytes": 9612,
+    "mtime": 1780290532.7891383,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 12,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 9,
+      "path_missing": 2,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 4,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "harness/config.yaml.",
+      "state/control/autowork/full_stop"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "__file__"
+    ]
+  },
+  {
+    "file": "rev15-exec-session.md",
+    "slug": "rev15-exec-session",
+    "type": "project",
+    "bytes": 9860,
+    "mtime": 1780301845.176915,
+    "in_index": false,
+    "dangling_links": [],
+    "counts": {
+      "shas": 19,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 9,
+      "path_missing": 3,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 3,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "services/ast_verifier.py",
+      "state/tasks/current_task_",
+      "tests/smoke_import/_exec_module"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "synthesis_or_ast_failed",
+      "test_foo"
+    ]
+  },
+  {
+    "file": "rev16-exec-session.md",
+    "slug": "rev16-exec-session",
+    "type": "project",
+    "bytes": 10681,
+    "mtime": 1780315468.5534298,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 7,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 6,
+      "path_missing": 2,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 11,
+      "sym_missing": 4
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "harness/orchestrator.db",
+      "state/control/autowork/full_stop"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "safe_loads_config",
+      "test_build_jail_argv_extra_rw",
+      "_suspended_pids",
+      "test_spawn_agent_cwd_relocated_outside_repo"
+    ]
+  },
+  {
+    "file": "rev17-exec-session.md",
+    "slug": "rev17-exec-session",
+    "type": "project",
+    "bytes": 21600,
+    "mtime": 1780337631.9642348,
+    "in_index": false,
+    "dangling_links": [],
+    "counts": {
+      "shas": 13,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 11,
+      "path_missing": 4,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 29,
+      "sym_missing": 12
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "tests/test_import.py",
+      "harness/planner/oracle_attach.py",
+      "state/tasks/queued/",
+      "state/control/autowork/full_stop"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "__all__",
+      "_suspended_pids",
+      "repo_root",
+      "action_submit_brief",
+      "auto_commit_failed",
+      "full_stop",
+      "worktree_root",
+      "skip_interface_fuzz",
+      "verification_failed",
+      "verify_extra_ro",
+      "working_dir",
+      "daemon_inactivity_stuck"
+    ]
+  },
+  {
+    "file": "rev18-exec-session.md",
+    "slug": "rev18-exec-session",
+    "type": "project",
+    "bytes": 12350,
+    "mtime": 1780350333.8932447,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 16,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 8,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 20,
+      "sym_missing": 3
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "multi_file_missing_sidecar",
+      "working_dir",
+      "auto_commit_failed"
+    ]
+  },
+  {
+    "file": "rev19-exec-session.md",
+    "slug": "rev19-exec-session",
+    "type": "project",
+    "bytes": 6807,
+    "mtime": 1780359838.6288967,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 11,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 6,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 10,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "_is_agy"
+    ]
+  },
+  {
+    "file": "rev20-exec-session.md",
+    "slug": "rev20-exec-session",
+    "type": "project",
+    "bytes": 14102,
+    "mtime": 1780384682.623367,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 10,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 13,
+      "path_missing": 4,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 29,
+      "sym_missing": 12
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "tests/...",
+      "state/workroot/error",
+      "tests/test_",
+      "state/workroot/parent"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "ast_verifier",
+      "allow_nondeterminism",
+      "declared_signature",
+      "relax_external_constructs",
+      "__import__",
+      "full_stop",
+      "bare_except",
+      "verification_command",
+      "os_system",
+      "working_dir",
+      "credential_leak",
+      "auto_commit_failed"
+    ]
+  },
+  {
+    "file": "rev21-exec-session.md",
+    "slug": "rev21-exec-session",
+    "type": "project",
+    "bytes": 8859,
+    "mtime": 1780391881.4377239,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 14,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 7,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 0,
+      "sym_missing": 0
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": []
+  },
+  {
+    "file": "rev22-exec-session.md",
+    "slug": "rev22-exec-session",
+    "type": "project",
+    "bytes": 14120,
+    "mtime": 1780427014.7080731,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 18,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 5,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 4,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "bind_credentials"
+    ]
+  },
+  {
+    "file": "rev23-exec-session.md",
+    "slug": "rev23-exec-session",
+    "type": "project",
+    "bytes": 7091,
+    "mtime": 1780439951.1299295,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 15,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 4,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 1,
+      "sym_missing": 0
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": []
+  },
+  {
+    "file": "rev24-exec-session.md",
+    "slug": "rev24-exec-session",
+    "type": "project",
+    "bytes": 6909,
+    "mtime": 1780449415.2936406,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 6,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 7,
+      "path_missing": 2,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 3,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "state/control/autowork/push.enabled",
+      "state/control/autowork/auto_promote.allowlist."
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "harness_self_fix",
+      "partial_edit"
+    ]
+  },
+  {
+    "file": "rev25-exec-session.md",
+    "slug": "rev25-exec-session",
+    "type": "project",
+    "bytes": 12325,
+    "mtime": 1780481836.8400614,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 19,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 19,
+      "path_missing": 6,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 20,
+      "sym_missing": 7
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "config/projects",
+      "tests/adversarial/test_md_",
+      "tests/adversarial/test_",
+      "config/projects/",
+      "state/tasks/MD_XEXAM.json",
+      "state/control/autowork/pause"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "method_d_06",
+      "selfheal_loop_closure",
+      "divergent_step_index",
+      "action_sequence",
+      "runaway_ceiling",
+      "method_d",
+      "method_d_05"
+    ]
+  },
+  {
+    "file": "rev25-r3-refactor-session.md",
+    "slug": "rev25-r3-refactor-session",
+    "type": "project",
+    "bytes": 3691,
+    "mtime": 1780472483.6217914,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 2,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 1,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 9,
+      "sym_missing": 5
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "state/control/autowork/pause"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "verification_command",
+      "full_stop",
+      "task_id",
+      "selfheal_loop_closure",
+      "method_d"
+    ]
+  },
+  {
+    "file": "rev26-exec-session.md",
+    "slug": "rev26-exec-session",
+    "type": "project",
+    "bytes": 4490,
+    "mtime": 1780526239.7737877,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 5,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 8,
+      "path_missing": 3,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 3,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "tests/adversarial/test_",
+      "config/projects",
+      "config/projects/"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "harness_self_fix",
+      "claude_fallback"
+    ]
+  },
+  {
+    "file": "rev27-compiled-session.md",
+    "slug": "rev27-compiled-session",
+    "type": "project",
+    "bytes": 4009,
+    "mtime": 1780531588.1604478,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 3,
+      "sha_dead": 1,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 2,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 4,
+      "sym_missing": 2
+    },
+    "sha_dead": [
+      "a4e6c422aee3a6399"
+    ],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "config/projects/"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "submit_code",
+      "rev26_p5b_config_keys"
+    ]
+  },
+  {
+    "file": "rev27-exec-session.md",
+    "slug": "rev27-exec-session",
+    "type": "project",
+    "bytes": 4329,
+    "mtime": 1780540516.7524664,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 8,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 5,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 3,
+      "sym_missing": 0
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "config/projects/"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": []
+  },
+  {
+    "file": "rev28-compiled-session.md",
+    "slug": "rev28-compiled-session",
+    "type": "project",
+    "bytes": 2983,
+    "mtime": 1780545605.5818079,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 1,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 1,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 5,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "config/projects/"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "test_planner_stderr_tail"
+    ]
+  },
+  {
+    "file": "rev28-exec-session.md",
+    "slug": "rev28-exec-session",
+    "type": "project",
+    "bytes": 14198,
+    "mtime": 1780587466.9943914,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 13,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 15,
+      "path_missing": 5,
+      "flags": 2,
+      "flag_mismatch": 2,
+      "syms": 22,
+      "sym_missing": 3
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "config/...",
+      "config/rel_paths/repo_root",
+      "config/janusmask/selfheal_hmac_secret",
+      "config/rel",
+      "harness/x/../agent_jail.py"
+    ],
+    "flag_mismatch": {
+      "autowork.auto_approve_sensitive_harness": {
+        "claimed": false,
+        "config_found": true,
+        "config_value": true,
+        "ambiguous": false,
+        "match": false,
+        "verdict": "mismatch"
+      },
+      "enable_single_agent_promotion": {
+        "claimed": false,
+        "config_found": true,
+        "config_value": true,
+        "ambiguous": false,
+        "match": false,
+        "verdict": "mismatch"
+      }
+    },
+    "sym_missing": [
+      "task_id",
+      "worktree_root",
+      "staging_path"
+    ]
+  },
+  {
+    "file": "rev29-unattended-safety-session.md",
+    "slug": "rev29-unattended-safety-session",
+    "type": "project",
+    "bytes": 6612,
+    "mtime": 1780598729.3047538,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 12,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 4,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 5,
+      "sym_missing": 0
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": []
+  },
+  {
+    "file": "rev6-pipeline-routing-decision.md",
+    "slug": "rev6-pipeline-routing-decision",
+    "type": "project",
+    "bytes": 4780,
+    "mtime": 1780163547.5717225,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 4,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 4,
+      "path_missing": 2,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 9,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "state/tasks/PHASE_",
+      "harness/config/scripts"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "test_orchestrator_phase4_fallback",
+      "full_stop"
+    ]
+  },
+  {
+    "file": "rev7-m2-r-aprobe-landed.md",
+    "slug": "rev7-m2-r-aprobe-landed",
+    "type": "project",
+    "bytes": 23538,
+    "mtime": 1780256221.2950048,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 21,
+      "sha_dead": 0,
+      "sha_unreachable": 2,
+      "sha_ngv2": 0,
+      "paths": 17,
+      "path_missing": 3,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 23,
+      "sym_missing": 13
+    },
+    "sha_dead": [],
+    "sha_unreachable": [
+      "213b908",
+      "f39ccbd"
+    ],
+    "sha_ngv2": [],
+    "path_missing": [
+      "state/samples/.pytest_cache/",
+      "state/tasks/current_task_PHASE_A_SELFHEAL_JAIL_PROBE.json",
+      "tests/integration/test_phase_r_region_sentinels.py"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "synthesis_or_ast_failed",
+      "test_authoring",
+      "test_phase_m_dropped_stash_is_logged_for_audit",
+      "full_stop",
+      "test_phase_m_reset_fail_fails_closed_clean_tree_no_leak",
+      "subprocess_no_check",
+      "pre_merge_sha",
+      "test_phase_m_pop_conflict_leaves_clean_tree_no_orphan_stash",
+      "skip_interface_fuzz",
+      "normalize_whitespace",
+      "_skip_ifz",
+      "both_agents_timed_out",
+      "mutation_target"
+    ]
+  },
+  {
+    "file": "run-hunt-fsm-rootfix-and-4hunts-2026-06-14.md",
+    "slug": "run-hunt-fsm-rootfix-and-4hunts-2026-06-14",
+    "type": "project",
+    "bytes": 4505,
+    "mtime": 1781445940.8358326,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 7,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 7,
+      "paths": 1,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 9,
+      "sym_missing": 8
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "c9eb4e1",
+      "a3884bc",
+      "8f6f854",
+      "6a4416c",
+      "447cf9f",
+      "8fe7ac1",
+      "44cd7a4"
+    ],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "_hunt_may_confirm",
+      "build_evidence",
+      "no_diff",
+      "command_for_phase",
+      "may_confirm",
+      "_count_real",
+      "detonate_live",
+      "llm_client"
+    ]
+  },
+  {
+    "file": "selfheal-deadlock-blocks-all-dispatch.md",
+    "slug": "selfheal-deadlock-blocks-all-dispatch",
+    "type": "project",
+    "bytes": 4540,
+    "mtime": 1781577415.1576974,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 3,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 2,
+      "path_missing": 1,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 7,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "state/control/autowork/running/selfheal_"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "daemon_inactivity_stuck",
+      "selfheal_"
+    ]
+  },
+  {
+    "file": "selfheal-loop-closure-landed.md",
+    "slug": "selfheal-loop-closure-landed",
+    "type": "project",
+    "bytes": 6544,
+    "mtime": 1780515321.800894,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 13,
+      "sha_dead": 2,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 5,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 15,
+      "sym_missing": 7
+    },
+    "sha_dead": [
+      "a0253fd4",
+      "454b383b"
+    ],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "autowork_daemon",
+      "selfheal_",
+      "md_d_01",
+      "ast_validation_failed",
+      "method_d_05",
+      "use_retry_module",
+      "daemon_inactivity_stuck"
+    ]
+  },
+  {
+    "file": "source-driving-doesnt-fire-on-live-findings.md",
+    "slug": "source-driving-doesnt-fire-on-live-findings",
+    "type": "project",
+    "bytes": 5476,
+    "mtime": 1781605520.8787344,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 3,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 6,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 11,
+      "sym_missing": 11
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "_overlay_source_meta",
+      "detonate_live",
+      "auth_bootstrap",
+      "run_hunt",
+      "source_meta",
+      "python_bin",
+      "_jmdeps",
+      "source_localize",
+      "render_source_driving_py",
+      "is_source_driving",
+      "make_hunt_lead_client"
+    ]
+  },
+  {
+    "file": "source-driving-poc-epic-authored.md",
+    "slug": "source-driving-poc-epic-authored",
+    "type": "project",
+    "bytes": 5311,
+    "mtime": 1781515842.6722047,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 5,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 5,
+      "paths": 0,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 10,
+      "sym_missing": 10
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "84aca8d",
+      "d2a3638",
+      "f64388e",
+      "b1167ce",
+      "9c3d1c1"
+    ],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "_overlay_source_meta",
+      "__all__",
+      "real_target",
+      "source_location",
+      "source_meta",
+      "codeql_lead_source",
+      "write_poc",
+      "render_source_driving_py",
+      "is_source_driving",
+      "poc_writer"
+    ]
+  },
+  {
+    "file": "source-meta-fallback-landed-works.md",
+    "slug": "source-meta-fallback-landed-works",
+    "type": "project",
+    "bytes": 2358,
+    "mtime": 1781613613.8479238,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 3,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 1,
+      "paths": 1,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 5,
+      "sym_missing": 5
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "58eb9ae"
+    ],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "ground_finding",
+      "_normalize_candidate",
+      "codeql_lead_source",
+      "_candidate_from_hit",
+      "localize_source"
+    ]
+  },
+  {
+    "file": "spec-only-pipeline-augment-agents.md",
+    "slug": "spec-only-pipeline-augment-agents",
+    "type": "feedback",
+    "bytes": 2409,
+    "mtime": 1781533887.219971,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 0,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 2,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "test_authoring"
+    ]
+  },
+  {
+    "file": "spine-epic-a-and-additive-edit-fixes.md",
+    "slug": "spine-epic-a-and-additive-edit-fixes",
+    "type": "project",
+    "bytes": 16282,
+    "mtime": 1781156227.1994545,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 31,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 22,
+      "paths": 23,
+      "path_missing": 8,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 30,
+      "sym_missing": 20
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "c2d8e84",
+      "971673d",
+      "b56a95a",
+      "2ab9ddf",
+      "e55ac66",
+      "8d7affb",
+      "cf7149e",
+      "41b922c",
+      "6ac449c",
+      "35848a18",
+      "c09d779",
+      "44b4c86",
+      "1898ca9",
+      "07b096f",
+      "93bb91b",
+      "102f9c3",
+      "8952dbf",
+      "1cf90af",
+      "e4b752b",
+      "289707d",
+      "4a19f88",
+      "d47ef507"
+    ],
+    "path_missing": [
+      "state/control/orchestrator.flag",
+      "tests/ngv2/",
+      "tests/ngv2/test_",
+      "tests/ngv2",
+      "ngv2/tests/oracle_",
+      "tests/property_tests",
+      "ngv2/tests/test_",
+      "tests/test_ast_verifier.py"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "orchestrator_worker",
+      "harness_self_fix",
+      "spine_token_roi",
+      "spine_state_core",
+      "synthesis_or_ast_failed",
+      "whole_file_drift",
+      "route_finding",
+      "oracle_",
+      "mcp_plumbing",
+      "data_model",
+      "spine_api_mcp",
+      "_targets_exist",
+      "spine_distill_landing",
+      "implementation_notes",
+      "full_stop",
+      "requires_claude",
+      "fuzz_error_r1",
+      "io_adapter",
+      "now_fn",
+      "git_integration"
+    ]
+  },
+  {
+    "file": "srcdrive-epic-leaf1-and-muttarget-gate-bug.md",
+    "slug": "srcdrive-epic-leaf1-and-muttarget-gate-bug",
+    "type": "project",
+    "bytes": 7265,
+    "mtime": 1781479466.2393935,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 6,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 3,
+      "paths": 15,
+      "path_missing": 5,
+      "flags": 2,
+      "flag_mismatch": 0,
+      "syms": 19,
+      "sym_missing": 15
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "f69c25c",
+      "d2a3638",
+      "05a04bc"
+    ],
+    "path_missing": [
+      "harness/planner/normalize_plan",
+      "tests/x_wired.py",
+      "tests/test_source_localize.py",
+      "ngv2/source_localize/localize_source.py",
+      "state/output/ngv2-source-localize-impl.py"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "ngv2_hunt_automation",
+      "harness_self_fix",
+      "_wired",
+      "strip_stray_muttarget",
+      "test_authoring",
+      "data_model",
+      "mutation_gate_error",
+      "missing_wiring_oracle",
+      "io_adapter",
+      "srcdrive_codeql_source_meta",
+      "working_dir",
+      "blinddraft_stamp_workingdir",
+      "srcdrive_source_localize",
+      "mutation_target",
+      "decorator_list"
+    ]
+  },
+  {
+    "file": "stale-sidecar-precedence-gotcha.md",
+    "slug": "stale-sidecar-precedence-gotcha",
+    "type": "project",
+    "bytes": 1761,
+    "mtime": 1780533245.651507,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 5,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 3,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "partial_edit",
+      "task_id"
+    ]
+  },
+  {
+    "file": "stale-state-cleanup-design.md",
+    "slug": "stale-state-cleanup-design",
+    "type": "project",
+    "bytes": 9615,
+    "mtime": 1781815034.0941913,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 1,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 7,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 11,
+      "sym_missing": 6
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "state/running/"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "external_staging",
+      "_archive",
+      "_external_staging",
+      "reconcile_revert",
+      "_autowork_archive",
+      "selfheal_"
+    ]
+  },
+  {
+    "file": "stale-state-recovery-complete-2026-06-18.md",
+    "slug": "stale-state-recovery-complete-2026-06-18",
+    "type": "project",
+    "bytes": 3360,
+    "mtime": 1781830292.2910488,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 13,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 4,
+      "path_missing": 0,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 7,
+      "sym_missing": 3
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "harness_self_fix",
+      "daemon_inactivity_stuck",
+      "auto_commit_failed"
+    ]
+  },
+  {
+    "file": "subagent-ran-pipeline-over-reach.md",
+    "slug": "subagent-ran-pipeline-over-reach",
+    "type": "feedback",
+    "bytes": 2978,
+    "mtime": 1780152275.7780433,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 3,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 2,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 5,
+      "sym_missing": 1
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "auto_commit"
+    ]
+  },
+  {
+    "file": "test-authoring-oracle-gap.md",
+    "slug": "test-authoring-oracle-gap",
+    "type": "project",
+    "bytes": 6490,
+    "mtime": 1780711161.1619637,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 5,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 5,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 9,
+      "sym_missing": 4
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "tests/.../test_"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "acceptance_criteria",
+      "mutation_target",
+      "repo_root",
+      "test_authoring"
+    ]
+  },
+  {
+    "file": "test-tiering-bootstrap.md",
+    "slug": "test-tiering-bootstrap",
+    "type": "project",
+    "bytes": 5597,
+    "mtime": 1780609320.35381,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 5,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 2,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 2,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "pytest_collection_modifyitems",
+      "current_task"
+    ]
+  },
+  {
+    "file": "tmux-claude-default-and-agy-hunt-epic.md",
+    "slug": "tmux-claude-default-and-agy-hunt-epic",
+    "type": "project",
+    "bytes": 22222,
+    "mtime": 1781427039.3494298,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 15,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 4,
+      "paths": 16,
+      "path_missing": 4,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 30,
+      "sym_missing": 17
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "630e388",
+      "afd6efe",
+      "e489a7b",
+      "e3c77de"
+    ],
+    "path_missing": [
+      "state/control/decisions/wire-tmux-claude-backend-impl.json",
+      "state/control/orchestrator.flag",
+      "state/control/autowork/pause",
+      "state/control/autowork/full_stop"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "tmux_jailed_claude_backend",
+      "claude_round1",
+      "__new__",
+      "make_agy_complete",
+      "whole_file_drift",
+      "gemini_round1",
+      "claude_fallback",
+      "_build_claude_command",
+      "run_repair_loop",
+      "integration_smoke_gate",
+      "tmux_worker",
+      "non_goals",
+      "agent_backend",
+      "repair_poc",
+      "test_v01b_str_work_dir_from_pty_backend",
+      "ngv2_agy_default_hunt",
+      "resolved_prompt"
+    ]
+  },
+  {
+    "file": "triple-lock-was-claude-invented.md",
+    "slug": "triple-lock-was-claude-invented",
+    "type": "feedback",
+    "bytes": 2136,
+    "mtime": 1780974216.4167228,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 0,
+      "path_missing": 0,
+      "flags": 1,
+      "flag_mismatch": 1,
+      "syms": 2,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {
+      "selfheal_auto_promote": {
+        "claimed": true,
+        "config_found": true,
+        "config_value": false,
+        "ambiguous": false,
+        "match": false,
+        "verdict": "mismatch"
+      }
+    },
+    "sym_missing": [
+      "auto_promote",
+      "full_stop"
+    ]
+  },
+  {
+    "file": "turn-recurring-failures-into-pipeline-fixes.md",
+    "slug": "turn-recurring-failures-into-pipeline-fixes",
+    "type": "feedback",
+    "bytes": 2469,
+    "mtime": 1781276411.783325,
+    "in_index": false,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 1,
+      "path_missing": 0,
+      "flags": 1,
+      "flag_mismatch": 0,
+      "syms": 5,
+      "sym_missing": 4
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "verification_command",
+      "harness_self_fix",
+      "working_dir",
+      "test_authoring"
+    ]
+  },
+  {
+    "file": "untracked-test-poisons-patches-commit.md",
+    "slug": "untracked-test-poisons-patches-commit",
+    "type": "project",
+    "bytes": 2029,
+    "mtime": 1780036848.0956776,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 2,
+      "sha_dead": 1,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 2,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 4,
+      "sym_missing": 4
+    },
+    "sha_dead": [
+      "3189ae3"
+    ],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "tests/test_"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "orchestrator_worker",
+      "harness_self_fix",
+      "verification_failed",
+      "auto_commit_failed"
+    ]
+  },
+  {
+    "file": "verify-harden-5poc-e2e-session.md",
+    "slug": "verify-harden-5poc-e2e-session",
+    "type": "project",
+    "bytes": 5281,
+    "mtime": 1781228188.0545933,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 4,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 4,
+      "paths": 3,
+      "path_missing": 2,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 6,
+      "sym_missing": 6
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [
+      "71e2082",
+      "eed1752",
+      "66af6d2",
+      "6574e68"
+    ],
+    "path_missing": [
+      "tests/ngv2/test_session_api_classify_phase_wired.py",
+      "tests/ngv2/"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "weak_gate",
+      "drive_full_lifecycle",
+      "expected_fs_signature",
+      "run_one",
+      "_structural_kind",
+      "detonate_live"
+    ]
+  },
+  {
+    "file": "webui-autobrief-streamjson-and-manual-pipeline-driving.md",
+    "slug": "webui-autobrief-streamjson-and-manual-pipeline-driving",
+    "type": "project",
+    "bytes": 6556,
+    "mtime": 1780631074.029294,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 8,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 5,
+      "path_missing": 0,
+      "flags": 1,
+      "flag_mismatch": 1,
+      "syms": 16,
+      "sym_missing": 9
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {
+      "selfheal_auto_promote": {
+        "claimed": true,
+        "config_found": true,
+        "config_value": false,
+        "ambiguous": false,
+        "match": false,
+        "verdict": "mismatch"
+      }
+    },
+    "sym_missing": [
+      "harness_self_fix",
+      "selfheal_02_harvest_diagnosis_brief",
+      "selfheal_loop_closure",
+      "method_d_01",
+      "commit_sha",
+      "md_d_01_extract_class_interface",
+      "method_d",
+      "brief_status",
+      "auto_commit_failed"
+    ]
+  },
+  {
+    "file": "webui-brief-editor-clobber-and-planner-brief-shaping.md",
+    "slug": "webui-brief-editor-clobber-and-planner-brief-shaping",
+    "type": "project",
+    "bytes": 3440,
+    "mtime": 1780614484.8148937,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 0,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 1,
+      "path_missing": 0,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 2,
+      "sym_missing": 2
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "claude_fallback",
+      "plan_validator"
+    ]
+  },
+  {
+    "file": "webui-foundation-corrected-plan.md",
+    "slug": "webui-foundation-corrected-plan",
+    "type": "project",
+    "bytes": 12576,
+    "mtime": 1781423595.2032685,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 10,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 15,
+      "path_missing": 4,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 14,
+      "sym_missing": 7
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "state/tasks/config-schema-impl.json",
+      "state/control/orchestrator.flag",
+      "state/control/autowork/pause",
+      "state/secrets/api_keys.json"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "_is_agy",
+      "model_backends",
+      "env_name",
+      "verification_command",
+      "_dispatch_post",
+      "gemini_api",
+      "auto_commit_failed"
+    ]
+  },
+  {
+    "file": "wire-up-phase-built.md",
+    "slug": "wire-up-phase-built",
+    "type": "project",
+    "bytes": 6184,
+    "mtime": 1780988516.5060508,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 12,
+      "sha_dead": 0,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 7,
+      "path_missing": 1,
+      "flags": 0,
+      "flag_mismatch": 0,
+      "syms": 12,
+      "sym_missing": 5
+    },
+    "sha_dead": [],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "config/root"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "wire_module_rel",
+      "run_chat_turn",
+      "make_default_gate_runner",
+      "missing_wiring_oracle",
+      "harness_plumbing"
+    ]
+  },
+  {
+    "file": "wire-up-sweep-epic.md",
+    "slug": "wire-up-sweep-epic",
+    "type": "project",
+    "bytes": 11501,
+    "mtime": 1781008204.900295,
+    "in_index": true,
+    "dangling_links": [],
+    "counts": {
+      "shas": 22,
+      "sha_dead": 2,
+      "sha_unreachable": 0,
+      "sha_ngv2": 0,
+      "paths": 16,
+      "path_missing": 7,
+      "flags": 2,
+      "flag_mismatch": 0,
+      "syms": 4,
+      "sym_missing": 1
+    },
+    "sha_dead": [
+      "c3a182a3",
+      "62ecde8c"
+    ],
+    "sha_unreachable": [],
+    "sha_ngv2": [],
+    "path_missing": [
+      "harness/overseer.py",
+      "tools/brief_status.py",
+      "tools/webui_server",
+      "tools/brief_status",
+      "ngv2/symbol_ledger",
+      "config/paperwork",
+      "tools/webui_control"
+    ],
+    "flag_mismatch": {},
+    "sym_missing": [
+      "wire_tracer_accuracy"
+    ]
+  }
+]

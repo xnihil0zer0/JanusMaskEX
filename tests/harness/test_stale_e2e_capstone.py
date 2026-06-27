@@ -424,7 +424,7 @@ def test_reconcile_stale_ledger_heads_exercise(tmp_path, monkeypatch):
     assert 'head_revert' in row2.get('reconcile_reason')
 
 def test_absence_of_deleted_static_script():
-    cleanup_path = Path('/home/xnihil0zer0/JanusMaskJR/scripts/cleanup_stale_artifacts.py')
+    cleanup_path = Path('/home/xnihil0zer0/AI-Data/JanusMaskEX/scripts/cleanup_stale_artifacts.py')
     if cleanup_path.exists():
         content = cleanup_path.read_text(encoding='utf-8')
         assert 'KEEP_BRIEFS' not in content

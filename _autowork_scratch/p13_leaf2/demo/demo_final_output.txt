@@ -1,0 +1,39 @@
+P1.3 leaf-2 FINAL DEMONSTRATION -- run against COMMITTED PRODUCTION code
+NGv2 master HEAD: 2a83d0646df4a3f89c9319579629d250820fcb46
+Imported from:    /home/xnihil0zer0/NobleGreedv2/ngv2/poc_runner_live.py
+Date:             2026-06-24T20:16:54Z
+Host:             bwrap bubblewrap 0.6.1; host pid-ns pid:[4026531836]
+
+=================== PER-ASSERTION DEMO OUTPUT (committed prod) ===================
+[PASS] (a) POSITIVE: nonce callback reaches in-netns listener: hits=['/ssrf_F_demo_pos'] stdout='LOOPBACK_OK\nOUTBOUND_BLOCKED 192.0.2.1 OSError\nOUTBOUND_BLOCKED 1.1.1.1 OSError\n'
+[PASS] (b) OUTBOUND BLOCKED: raw-IP 192.0.2.1 & 1.1.1.1 refused: stdout='LOOPBACK_OK\nOUTBOUND_BLOCKED 192.0.2.1 OSError\nOUTBOUND_BLOCKED 1.1.1.1 OSError\n'
+[PASS] (a) BASELINE: nonce absent when PoC does not call back: baseline_hits=[]
+[PASS] (c) FS-ORACLE no-regression: path-write CWE confirms, no cfg pollution: verdict=confirmed diff='A pwned_marker' success=True
+[PASS] (d) NO-CALLBACK negative: wrong nonce does NOT confirm via ssrf_channel: ssrf_channel={'success': False} success=False
+[PASS] (e) FAIL-CLOSED: setup failure raises LiveRunnerError, no host-netns fallback: raised=True msg="shared-loopback-netns detonation produced no result sentinel (jail/listener setup failed; refusing to degrade to host-netns). bootstrap stderr: '/usr/bin/python"
+[PASS] (e) NO --share-net in final argv or source: argv_has_share_net=False src_has_share_net=False argv_head=['/usr/bin/bwrap', '--die-with-parent', '--unshare-user', '--uid', '0', '--gid', '0', '--cap-add', 'CAP_NET_ADMIN', '--unshare-net', '--unshare-ipc', '--unshare-pid', '--new-session']
+[PASS] (e2) FAIL-CLOSED: lo cannot come up (no CAP_NET_ADMIN) -> raises, no fallback: raised=True msg='shared-loopback-netns detonation produced no result sentinel (jail/listener setup failed; refusing to degrade to host-netns). bootstrap stderr: "loopback-netns '
+[PASS] (f) PID-NS ISOLATION: jailed PoC in private pid-ns (small PID count): visible_pids=3 (host_total=515)
+[PASS] (f) PID-NS ISOLATION: cannot find host sentinel by cmdline: out='__PIDNS__\nVISIBLE_PIDS 3\nMY_PIDNS pid:[4026533106]\nSENTINEL_FOUND False\nCAN_SIGNAL_HOST_PID NO_PROC\n'
+[PASS] (f) PID-NS ISOLATION: cannot signal arbitrary host PID: host_sentinel_pid=958145 out_lines=['CAN_SIGNAL_HOST_PID NO_PROC']
+
+================ SUMMARY ================
+  PASS  (a) POSITIVE: nonce callback reaches in-netns listener
+  PASS  (b) OUTBOUND BLOCKED: raw-IP 192.0.2.1 & 1.1.1.1 refused
+  PASS  (a) BASELINE: nonce absent when PoC does not call back
+  PASS  (c) FS-ORACLE no-regression: path-write CWE confirms, no cfg pollution
+  PASS  (d) NO-CALLBACK negative: wrong nonce does NOT confirm via ssrf_channel
+  PASS  (e) FAIL-CLOSED: setup failure raises LiveRunnerError, no host-netns fallback
+  PASS  (e) NO --share-net in final argv or source
+  PASS  (e2) FAIL-CLOSED: lo cannot come up (no CAP_NET_ADMIN) -> raises, no fallback
+  PASS  (f) PID-NS ISOLATION: jailed PoC in private pid-ns (small PID count)
+  PASS  (f) PID-NS ISOLATION: cannot find host sentinel by cmdline
+  PASS  (f) PID-NS ISOLATION: cannot signal arbitrary host PID
+========================================
+VERDICT: WORKS (all assertions pass)
+
+=================== NGv2 DETONATION/LOOPBACK TEST SUITES (committed prod) ========
+=== NGv2 detonation/loopback test suites against COMMITTED prod (HEAD=2a83d06) ===
+........................................................................ [ 94%]
+....                                                                     [100%]
+76 passed in 14.55s

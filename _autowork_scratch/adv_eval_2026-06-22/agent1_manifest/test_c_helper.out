@@ -1,0 +1,10 @@
+=== c1 drop ===
+dropped1: ['config/target_bootstrap.yaml', 'harness/other.py']
+remaining keys: ['harness/target_bootstrap.py']
+PASS_C1: True
+=== c2 idempotent/clean ===
+dropped2: [] bytes_unchanged: True
+PASS_C2: True
+=== c3 robustness ===
+missing: [] malformed: [] nondict: [] nondict_unchanged: True
+PASS_C3: True

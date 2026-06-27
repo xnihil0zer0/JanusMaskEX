@@ -1,0 +1,87 @@
+---
+working_dir: "/home/xnihil0zer0/JanusMaskJR"
+required_task_ids:
+  - report03-p0-jail-home-recarve
+  - report03-p0-orch-thread-home
+interfaces: "Two single-file SYMBOL-patch edits implementing INTEGRATION_REPORT_03 §6 P0 fix (a). (1) harness/agent_jail.py::build_jail_argv — re-carve the slot HOME credential subdirs (~/.gemini, ~/.claude) rw AFTER the repo ro-bind, but ONLY when `home` resolves to a path strictly UNDER repo_root (the agy-pool slot case). The `home` parameter already exists (agent_jail.py:71). (2) harness/orchestrator.py::spawn_agent — pass `home=env.get('HOME')` into the build_jail_argv(...) call so the jail uses the pooled slot HOME instead of os.environ['HOME']. BOTH files are in the irreducible _NEVER_AUTO_APPROVE set → each gated task has a pre-authored operator decision file. CORE GUARANTEE: when workers.agy_pool.enabled is false (it ships OFF), env['HOME'] == os.environ['HOME'] (operator home, which is NOT under repo_root), so both edits produce a jail argv BYTE-IDENTICAL to HEAD."
+---
+
+# Title
+P0 fix (a): thread pooled HOME into the jail + re-carve slot home after repo ro-bind
+
+# Scope
+TWO single-file edits, each a `__JANUSMASK_PATCHES__` SYMBOL patch (do NOT emit
+`__JANUSMASK_MANIFEST__`). Each touches one sensitive `harness/**` file → `harness_self_fix`. READ
+both files first.
+
+TASK 1 — `harness/agent_jail.py::build_jail_argv` (SYMBOL patch, name `build_jail_argv`):
+Today the credential HOME subdirs (`~/.gemini`, `~/.claude`) are rw-bound EARLY (the `_home_subs`
+loop, ~lines 183-199) and the repo source ro-bind comes LATER (`argv += ["--ro-bind", repo_root,
+repo_root]`, ~line 332). The in-code comment at ~line 168 states the home subdirs are bound first
+"so the later repo ro-bind overlays any overlap (the repo lives under HOME)". That overlay is
+CORRECT for the operator home (repo is under home), but WRONG for an agy-pool slot home, which
+lives UNDER `repo_root` (`<repo>/.agents/agy-pool/wN`) — there the repo ro-bind SHADOWS the slot
+home read-only, causing EROFS when the slot's `~/.gemini`/`~/.claude` is written.
+FIX: AFTER the repo ro-bind line, add a guarded re-carve mirroring the existing `_gemini_proj`
+re-carve pattern ("later bind wins", ~lines 287-289): compute whether the resolved `home` is
+STRICTLY under the resolved `repo_root` (e.g. `home_resolved.startswith(repo_root + os.sep)`); ONLY
+then, re-emit the rw `--bind` for each credential subdir under that slot home that exists and is
+NOT read-only (i.e. `.gemini` and `.claude`, NOT `.nvm` which stays ro) so the later bind wins over
+the repo ro-bind. When `home` is the operator home (NOT under repo_root — the pool-disabled / live
+default case), the guard is FALSE and NO extra argv is emitted → the argv is BYTE-IDENTICAL to
+HEAD. Keep `bind_credentials` semantics: only re-carve credential subdirs when `bind_credentials`
+is True (the synthesis path). Preserve the signature and every other byte of the function.
+
+TASK 2 — `harness/orchestrator.py::spawn_agent` (SYMBOL patch, name `spawn_agent`):
+At the `agent_jail.build_jail_argv(...)` call (~line 380) add the keyword argument
+`home=env.get('HOME')`. The local `env` already carries the pooled slot HOME (set by
+`_apply_agy_pool_env` at ~line 275 when the pool is enabled; identical to `os.environ['HOME']` when
+the pool is disabled). Add ONLY that one kwarg to that one call. Preserve the signature and every
+other byte of `spawn_agent`.
+
+# Inputs
+READ `harness/agent_jail.py` and `harness/orchestrator.py`. VERIFIED at HEAD 2cadab5:
+- `agent_jail.py:71` `home: str | Path | None = None`; `:107` `home = str(Path(home or os.environ.get("HOME", "/tmp")).resolve())`. The `_home_subs` rw-bind loop is at ~:183-199; the repo ro-bind `argv += ["--ro-bind", repo_root, repo_root]` is at ~:332; the existing "later bind wins" re-carve precedent is `_gemini_proj` at ~:287-289.
+- `orchestrator.py:380` calls `agent_jail.build_jail_argv(cmd, repo_root=_jail_repo_root, work_dir=env['JANUSMASK_WORK_DIR'], state_dir=env['JANUSMASK_STATE_DIR'], dbus_proxy_socket=_dbus_sock, extra_ro=_external_jail_extra_ro(_jail_repo_root))` — NO `home=` kwarg today. `_apply_agy_pool_env` (orchestrator.py:212) sets `env['HOME']` to the slot home ONLY when `workers.agy_pool.enabled` (returns env unchanged otherwise).
+VERIFIED BYTE-IDENTITY (scripted, `_autowork_scratch/report03_p0_fixa_diag.py`): with the operator home, `build_jail_argv(..., home=os.environ['HOME'])` produces an argv byte-identical to `build_jail_argv(...)` (no home=). With a slot home under repo_root, the current repo ro-bind index (52) comes AFTER the slot `.gemini` rw-bind index (35) — proving the shadow; the fix moves the slot-home rw-bind after the repo ro-bind.
+
+# Non-Goals
+Integration is out of scope (the word `integration` MUST appear here to excuse the
+integration-test requirement). Do NOT enable `workers.agy_pool.enabled` (it stays false). Do NOT
+change any function signature. Do NOT change behavior when `home` is the operator home / the pool
+is disabled — the pool-disabled jail argv MUST stay byte-identical to HEAD. Do NOT touch the
+`bind_credentials=False` (execute) path's credential-dropping. Do NOT edit any file other than the
+one named per task. Do NOT author tests beyond the two oracles.
+
+# Deliverables
+`harness/agent_jail.py` with `build_jail_argv` re-carving slot-home credential subdirs after the
+repo ro-bind ONLY when `home` is under `repo_root`; `harness/orchestrator.py` with `spawn_agent`
+passing `home=env.get('HOME')` into the `build_jail_argv` call. GREEN under the scoped
+verification_commands, with the pool-disabled jail argv proven byte-identical to HEAD.
+
+# Required plan shape
+Emit TWO implementation tasks (each with its paired RED test_authoring oracle).
+- Task A impl: task_id MUST be exactly `report03-p0-jail-home-recarve`; meta_task_type:
+  harness_self_fix; files_touched: ["harness/agent_jail.py"]; `__JANUSMASK_PATCHES__` SYMBOL patch
+  `name: "build_jail_argv"`. OMIT mutation_target on the impl. Oracle (test_authoring sibling,
+  mutation_target `harness.agent_jail`) authors `tests/harness/test_jail_home_recarve.py`
+  asserting: (1) with `home=os.environ['HOME']` (operator home, NOT under repo_root), the returned
+  argv is BYTE-IDENTICAL to the no-`home=` call (build both, assert equal) — the byte-identity
+  guarantee; (2) with a `home` STRICTLY under `repo_root` (a slot home), the LAST `--bind` index of
+  that slot's resolved `.gemini` path is GREATER than the `--ro-bind` index of `repo_root` (slot
+  rw-bind wins over the repo ro-bind); (3) the `home` parameter is still accepted (signature
+  unchanged). verification_command: `python -m pytest tests/harness/test_jail_home_recarve.py -q`.
+- Task B impl: task_id MUST be exactly `report03-p0-orch-thread-home`; meta_task_type:
+  harness_self_fix; files_touched: ["harness/orchestrator.py"]; `__JANUSMASK_PATCHES__` SYMBOL patch
+  `name: "spawn_agent"`. OMIT mutation_target on the impl. Oracle (test_authoring sibling,
+  mutation_target `harness.orchestrator`) authors `tests/harness/test_orch_thread_home.py`
+  asserting that `spawn_agent`'s source passes `home=` into the `build_jail_argv(` call — e.g.
+  parse `inspect.getsource(harness.orchestrator.spawn_agent)` (or read the function's source slice)
+  and assert it contains a `build_jail_argv(` call whose keyword arguments include `home=` bound to
+  `env.get('HOME')` (or `env['HOME']`). verification_command:
+  `python -m pytest tests/harness/test_orch_thread_home.py -q`.
+- Both impl tasks are sensitive irreducible-set files (`_NEVER_AUTO_APPROVE`): each requires a
+  pre-authored `state/control/decisions/<task_id>.json` (provided by the operator before dispatch).
+- non_goals MUST contain the literal word `integration`; regression_tests >= 2 per impl task.
+- No cross-task dependency edge is required (the `home` parameter already exists, so Task B is valid
+  independent of Task A); build order is immaterial.

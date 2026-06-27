@@ -1,0 +1,22 @@
+================ CRITICAL EXECUTION MODE — READ FIRST ================
+You are running in NON-INTERACTIVE PRINT MODE. There is NO event loop.
+You MUST NOT: sleep, schedule reminders/timers, yield control, or "wait for
+updates" from asynchronous subagents. Any of those will terminate this session
+with "timed out waiting for response" and produce ZERO output — that already
+happened on the previous attempt, so do not repeat it.
+
+You MAY spawn subagents ONLY IF they run SYNCHRONOUSLY and BLOCK this turn until
+they all return their results inline. If your subagent tool is asynchronous
+(returns immediately and requires you to wait for a later event), DO NOT USE IT.
+
+FALLBACK (use this if you cannot block synchronously on parallel subagents):
+Perform the FOUR area analyses YOURSELF, sequentially, within this single turn —
+explore the code for Area A and write its report file, then Area B, then C, then
+D. Write each report file to disk AS SOON AS that area is done (do not hold them
+to the end). Produce all four report files before your final response.
+
+Either way: the success condition is FOUR markdown report files written to
+/home/xnihil0zer0/JanusMaskJR/hierarchical_planner_design/. Keep working in this
+one synchronous turn until all four exist on disk.
+=====================================================================
+

@@ -1,0 +1,21 @@
+{
+  "commit_cap": 120,
+  "new_callables_found": 40,
+  "deleted_before_head": 0,
+  "scorable_at_head": 40,
+  "floor_wired_at_head": 32,
+  "floor_orphan_at_head": 8,
+  "orphan_rate_at_head_pct": 20.0,
+  "known_permanent_orphans_hit": [
+    "harness/agy_pool.py::assert_pool_invariant",
+    "harness/agy_pool.py::effective_pool_size"
+  ],
+  "other_at_head_orphans": [
+    "harness/orchestrator.py::_promote_fallback_candidate",
+    "harness/test_author.py::get_assigned_names",
+    "harness/test_author.py::is_descendant_of_any",
+    "harness/test_author.py::is_literal_absence_assert_expr",
+    "harness/test_author.py::is_self_source_expr",
+    "harness/test_author.py::repair_selfref_assertions"
+  ]
+}

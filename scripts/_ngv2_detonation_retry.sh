@@ -3,7 +3,7 @@
 # The synthesized code is proven correct; only a transient agent-API throttle blocks it.
 # Retries a clean single-task dispatch every INTERVAL until auto_commit or MAX attempts.
 set -u
-cd /home/xnihil0zer0/JanusMaskJR
+cd /home/xnihil0zer0/AI-Data/JanusMaskEX
 TID=ngv2-detonation-chamber
 NGV2=/home/xnihil0zer0/NobleGreedv2
 PLAN=plan_hooks_ngv2-detonation-chamber.json

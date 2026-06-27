@@ -14,7 +14,7 @@ Covers the load-bearing controls of AGENT_ISOLATION_fix_plan.md:
   repo-root / allowlist writes.
 
 These run with ``JANUSMASK_AGENT_WORKROOT`` redirected to a tmp dir so the test
-never touches the real ``../JanusMaskJR_agentwork`` sibling. The empirical
+never touches the real ``../JanusMaskEX_agentwork`` sibling. The empirical
 real-``agy`` negative probe (§6.1 launching a live agent) is run out-of-band as
 a controlled script, not baked into this deterministic gate.
 """

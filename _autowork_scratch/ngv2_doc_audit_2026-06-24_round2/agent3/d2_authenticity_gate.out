@@ -1,0 +1,27 @@
+=== M4-a: bare attribute ref (no call) should NOT flip a mock ===
+--- bare attr ref: acmecorp_app.__name__ (no Call) ---
+  mode=self_contained_mock  imports_target=False  network=False  vuln_local=False  MAY_CONFIRM=False
+  CLAIM 'bare attr fixed' -> CONFIRMED (mock, may_confirm=False)
+
+--- real target Call: acmecorp_app.run()  ---
+  mode=real_target  imports_target=True  network=False  vuln_local=False  MAY_CONFIRM=True
+  positive control (real call) -> may_confirm=True (expect True)
+
+=== M4-a': network_live confirms a NON-LOCALHOST HTTP PoC w/ NO target import ===
+--- requests.post to attacker.example.com, no target import ---
+  mode=network_live  imports_target=False  network=True  vuln_local=False  MAY_CONFIRM=True
+  CLAIM 'network_live still confirms w/o target' -> CONFIRMED (may_confirm=True, no target exercised)
+
+=== Extra adversarial probes of the ast.Call requirement ===
+--- target call inside `if False:` dead branch ---
+  mode=real_target  imports_target=True  network=False  vuln_local=False  MAY_CONFIRM=True
+--- import target, call only str(), reference acmecorp_app.X as attr-of-attr ---
+  mode=self_contained_mock  imports_target=False  network=False  vuln_local=False  MAY_CONFIRM=False
+--- requests to 127.0.0.1 (localhost) -> should be mock, not network_live ---
+  mode=self_contained_mock  imports_target=False  network=True  vuln_local=False  MAY_CONFIRM=False
+--- network call + local 'vuln' def -> defines_vuln_locally blocks network_live ---
+  mode=self_contained_mock  imports_target=False  network=True  vuln_local=True  MAY_CONFIRM=False
+
+=== SUMMARY ===
+M4-a bare-attr fixed:         CONFIRMED
+M4-a' network_live bypass:    CONFIRMED-OPEN

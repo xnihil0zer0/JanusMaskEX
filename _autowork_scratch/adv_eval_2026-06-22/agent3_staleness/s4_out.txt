@@ -1,0 +1,17 @@
+=== FEATURE'S REAL TARGET: corrected brief, plan RE-STAMPED (plan_stale False at re-promote) ===
+  Per original brief lines 171-178: at re-promote time the SHA has ALREADY re-matched.
+
+  CURRENT (mtime) guard:
+  [REAL/mtime] plan_stale=False  state=queued     accepted=[] remaining=['oracle_1'] unstaged=['oracle_1']
+         -> task re-opened (legit feature behavior)? True
+
+  PROPOSED FIX (plan_stale/SHA-gated) guard:
+  [FIX/sha-gate] plan_stale=False  state=complete   accepted=['oracle_1'] remaining=[] unstaged=[]
+         -> task re-opened (legit feature behavior)? False
+
+=== VERDICT ===
+  CURRENT guard re-opens the corrected-brief task (feature works): True
+  SHA-GATED FIX re-opens it (feature preserved):                   False
+  *** THE PROPOSED FIX BREAKS THE FEATURE in its real target scenario. ***
+  Reason: at re-promote time plan_stale is already False (sha re-matched),
+  so the SHA-gate suppresses the legitimate re-open the mtime guard delivers.

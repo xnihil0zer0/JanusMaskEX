@@ -1,0 +1,4 @@
+# DENY-ALL slate — prior hardening campaign cleared 2026-06-19 (pivot to NGv2 closure program).
+# Prior allowlist backed up to _autowork_scratch/allowlist_backup_priorcampaign_2026-06-19.txt
+# claudecap re-engaged after all 3 prereq fixes landed (45f6380, 906e840, 8034af8).
+claudecap_parallel_isolation

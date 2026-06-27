@@ -1,0 +1,42 @@
+===== synthesis block (active_agents) =====
+synthesis:
+  accept_single_agent_leaf_plans: true
+  active_agents:
+  - claude
+  - gemini
+  antigravity_mode: false
+  clarification_timeout_sec: 60
+  enable_single_agent_promotion: true
+  max_ast_retries: 3
+  max_clarification_requests: 2
+  single_agent_promotion_ceiling: 3
+  timeout_seconds: 1800
+  verification_timeout_seconds: 1200
+test_author:
+  review_pass: true
+overseer:
+  enabled: true
+  default_mode: observe
+  default_backend: claude
+  models:
+    claude:
+    - opus
+    - sonnet
+    - haiku
+  store_path: state/overseer/sessions.json
+
+===== confirm M4(b): does detonate_live (line357) pass nonce=? =====
+            prior_pp = deps_env.get('PYTHONPATH', '')
+            deps_env['PYTHONPATH'] = deps_dir + (os.pathsep + prior_pp if prior_pp else '')
+            result = _run_once(deps_env, deps_extra_ro)
+        if loopback:
+            result['loopback_hits'] = list(loopback_hits)
+        if expected_fs_signature is not None:
+            from ngv2.detonation import semantic_verdict
+            result['verdict'] = semantic_verdict(result['exit_code'], result['stdout'], result['stderr'], result['fs_snapshot_diff'], success_marker=success_marker, expected_fs_signature=expected_fs_signature)
+        return result
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+===== X1 capstone: any real run_hunt 'confirmed' ledger row? =====
+--- NGv2 ledger / artifacts for run_hunt confirmed ---

@@ -1,0 +1,84 @@
+{
+  "responses": [
+    {
+      "diff_item_id": "__critique__",
+      "stance": "amend"
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "bwf-mtt-unbound-validate-submission",
+      "category": "missing_edge_case",
+      "severity": "error",
+      "task_id": "BYPASS_WHOLE_FILE",
+      "field_path": "/tasks/0/spec/implementation_notes",
+      "message": "CORRECTNESS BUG the plan steers the implementer directly into. In _validate_submission (harness/orchestrator.py:898-904) the local `mtt` is assigned ONLY inside the `if not allow_nondet:` block: `allow_nondet = task.get('constraints', {}).get('deterministic') is False; if not allow_nondet: mtt = ...`. The spec's implementation_notes say to broaden the partial_edit branch to `if task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES:` and to 'reuse the mtt value already resolved at orchestrator.py:900 ... rather than recomputing'. But for ANY task where `constraints.deterministic is False` (a legitimate, common case), `allow_nondet` is True, the `if not allow_nondet:` body never runs, `mtt` is never bound, and the broadened condition raises UnboundLocalError at validation time. The edge_cases list never covers the deterministic=False permutation. Fix: hoist `mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')` UNCONDITIONALLY above the allow_nondet block so both the allow_nondet logic and the new bypass clause can reference it safely. The same hazard does NOT exist in prepare_task_prompt (no prior mtt local there), so the implementer must compute mtt fresh in that function.",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Task with constraints.deterministic is False (allow_nondet already True): mtt must still be resolved. Hoist mtt resolution unconditionally before the `if not allow_nondet:` block in _validate_submission so the broadened `partial_edit or mtt in BYPASS_FUZZER_TYPES` condition cannot raise UnboundLocalError.",
+        "detail": "Replace the implementation_notes guidance 'reuse the mtt value already resolved at orchestrator.py:900' with 'hoist mtt resolution to an unconditional statement above the allow_nondet branch'."
+      }
+    },
+    {
+      "finding_id": "bwf-bypass-multifile-fallthrough-contradiction",
+      "category": "missing_edge_case",
+      "severity": "error",
+      "task_id": "BYPASS_WHOLE_FILE",
+      "field_path": "/tasks/0/spec/edge_cases",
+      "message": "Unrecoverable contradictory-guidance loop for the bypass-eligible MULTI-FILE case. After broadening the partial_edit branch at orchestrator.py:926, a bypass multi-file task whose submission has no parseable __JANUSMASK_PATCHES__ block falls through (the documented fall-through at lines 951-952) into the EXISTING len(files_touched)>1 branch at lines 954-958, which returns a `manifest_missing` error whose message instructs the agent to 'Wrap every file in a __JANUSMASK_MANIFEST__ ... dict'. But prepare_task_prompt now told that same task to emit __JANUSMASK_PATCHES__ and explicitly NOT a manifest. The agent is whipsawed between contradictory instructions on every AST-retry, so the bypass multi-file task can never converge. The spec's edge_cases bullet ('Bypass task whose submission contains no parseable __JANUSMASK_PATCHES__ block: behavior falls through exactly as the current partial_edit branch does') silently assumes single-file fall-through and omits the multi-file collision. Fix: for bypass/partial_edit tasks the no-patches fall-through must NOT reach the manifest_missing branch; emit a __JANUSMASK_PATCHES__-specific error instead (or guard the len>1 branch with `and not (task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES)`).",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Bypass-eligible MULTI-FILE task with no parseable __JANUSMASK_PATCHES__ block must NOT fall through to the len>1 manifest_missing error (orchestrator.py:954); that message tells the agent to emit __JANUSMASK_MANIFEST__, contradicting the patches prompt and creating an infinite retry loop. Guard the manifest_missing branch so it is skipped when partial_edit or mtt in BYPASS_FUZZER_TYPES, and surface a patches-oriented error instead."
+      }
+    },
+    {
+      "finding_id": "bwf-test-spec-omits-deterministic-false-and-multifile-fallthrough",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "BYPASS_WHOLE_FILE",
+      "field_path": "/tasks/0/test_spec/unit_tests",
+      "message": "The 15-test matrix is well-sized but blind to the two error-class findings above. There is no test for (1) a bypass task with constraints.deterministic=False (the mtt-unbound path) and no test for (2) a bypass-eligible MULTI-FILE submission lacking a parseable patches block (the manifest_missing contradiction). test_validate_submission_bypass_no_patches_falls_through implicitly assumes single-file. Add: test_validate_submission_bypass_deterministic_false_resolves_mtt (asserts no UnboundLocalError, takes patch path) and test_validate_submission_bypass_multifile_no_patches_does_not_emit_manifest_missing.",
+      "suggested_patch": {
+        "op": "increase_test_count",
+        "minimum_test_count": 17,
+        "add_tests": [
+          "test_validate_submission_bypass_deterministic_false_resolves_mtt",
+          "test_validate_submission_bypass_multifile_no_patches_does_not_demand_manifest"
+        ]
+      }
+    },
+    {
+      "finding_id": "bwf-stale-line-references",
+      "category": "other",
+      "severity": "info",
+      "task_id": "BYPASS_WHOLE_FILE",
+      "field_path": "/tasks/0/spec/functional_requirements",
+      "message": "Imprecise/stale source coordinates that can misdirect the implementer. FR1 cites prepare_task_prompt at 'harness/orchestrator.py:~782' but that function starts at line 745 (782 is the existing `if task.get('partial_edit'):` branch). FR2 cites _validate_submission at '~926' but that function starts at line 847 (926 is its partial_edit branch). The acceptance_criteria reference to 'orchestrator.py:900 and :1783' is accurate for the mtt idiom (900) and the fuzzer-bypass gate (1784). Recommend correcting the function-start references to 745 and 847 to avoid the implementer editing the wrong region. Note also: the BYPASS_FUZZER_TYPES import is genuinely at module scope line 1955 (after both functions in source order); this is safe at call time but stylistically fragile given the documented prior NameError class in scripts/impl_apply_blocker9_fix.py.",
+      "suggested_patch": {
+        "op": "other",
+        "detail": "Correct FR1 reference to prepare_task_prompt start (orchestrator.py:745) and FR2 reference to _validate_submission start (orchestrator.py:847)."
+      }
+    },
+    {
+      "finding_id": "bwf-unquantified-speed-claim",
+      "category": "inflated_benchmark",
+      "severity": "info",
+      "task_id": "BYPASS_WHOLE_FILE",
+      "field_path": "/tasks/0/spec/objective",
+      "message": "No fabricated numeric benchmark is present in the task (good). However the originating brief and the objective lean on the unquantified qualitative claim that surgical patches are 'much faster and more reliable for large/stateful infra files'. There is no acceptance_criterion, verification_command, or test that measures latency or reliability, so the speed/reliability premise is asserted, not demonstrated. This is not a blocking benchmark inflation, but the justification for the change should be framed as 'avoids whole-file verbatim round-trip corruption' (a correctness/robustness argument the manifest docstring already documents) rather than an unmeasured performance claim.",
+      "suggested_patch": {
+        "op": "other",
+        "detail": "Reframe the objective's 'much faster' rationale around correctness/robustness (avoids whole-file manifest round-trip corruption) or add a measurable criterion; do not assert performance without a benchmark."
+      }
+    },
+    {
+      "finding_id": "bwf-clean-categories-attestation",
+      "category": "other",
+      "severity": "info",
+      "task_id": "BYPASS_WHOLE_FILE",
+      "field_path": "/tasks/0",
+      "message": "Categories checked and found CLEAN: (d) bad_spec_author - spec_author is null, which is correct for this orchestration task; no violation. (e) dependency_cycle - the plan has a single task with dependencies:[]; no cycle possible. (b) test_heavy - token_budget_ratio is implementation 100 / test 200 (tests 2x impl) and minimum_test_count 15 matches the 9 unit + 2 integration + 1 property + 3 regression named tests; compliant with the test-heavy rule. The two `error`-severity findings above (mtt unbound; multi-file fall-through contradiction) are the substantive blockers requiring amendment.",
+      "suggested_patch": null
+    }
+  ]
+}

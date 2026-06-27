@@ -1,0 +1,206 @@
+{
+  "tasks": [
+    {
+      "task_id": "daemon-idle-sleep-cap-impl",
+      "title": "IMPL (harness_self_fix): add pure _soonest_blocked_retry_deadline helper and cap the idle sleep_target by it in run_daemon",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "operator_decision_required": true,
+      "auto_approve_requested": true,
+      "dependencies": [
+        "daemon-idle-sleep-cap-oracle"
+      ],
+      "files_touched": [
+        "harness/autowork_daemon.py"
+      ],
+      "acceptance_criteria": [
+        "Adds a NEW pure top-level helper `_soonest_blocked_retry_deadline(state_dir) -> float | None` in harness/autowork_daemon.py, anchored on the existing top-level `_retry_blocked_tasks`.",
+        "The helper reuses the exact _retry_blocked_tasks enumeration: same tasks/blocked/*.json sorted glob, skip names ending .retry.json, skip any tid with a blocked/<tid>.exhausted marker, parse the blocked/<tid>.retry.json sidecar for {attempts:int, ts:float, last_outcome:str} defensively, derive effective_max = 1 if last_outcome in the INLINED tuple ('synthesis_or_ast_failed','embedded_tests_failed','narrow_fuzz_failed') else 3 (NOT referencing the bare _DETERMINISTIC_OUTCOMES name, which is local to _retry_blocked_tasks), and the same 300/3600/86400 tier schedule.",
+        "Returns min(last_ts + threshold(attempts)) over retry-ELIGIBLE blocked tasks (attempts < effective_max, not exhausted), or None when there is no eligible blocked task.",
+        "The helper is read-only and fail-soft: a missing blocked/ dir, a glob OSError, or a malformed sidecar yields None / is skipped and never raises; it mutates no state (no re-stage, no .exhausted/marker/telemetry writes).",
+        "In run_daemon, after `sleep_target = heartbeat if is_idle else poll`, when is_idle, computes dl = _soonest_blocked_retry_deadline(state_dir) and, if dl is not None, sets sleep_target = min(sleep_target, max(5.0, dl - time.time())).",
+        "The non-idle poll branch, the early-wake mtime-watch loop, _retry_blocked_tasks re-stage/exhaust/backoff/escalation semantics, the .exhausted-marker logic, and DEFAULT_HEARTBEAT_SEC / _heartbeat_interval are all unchanged; no config knob added.",
+        "Implemented via a single __JANUSMASK_PATCHES__ payload with TWO kind:'symbol' patches (both top-level: the new helper anchored on _retry_blocked_tasks, and run_daemon); no exec/eval/compile/__import__ (AST-banned).",
+        "Requires the operator decision file state/control/decisions/daemon-idle-sleep-cap-impl.json (harness/autowork_daemon.py is in _NEVER_AUTO_APPROVE, orchestrator.py:2577).",
+        "Green: python -m pytest tests/harness/test_daemon_idle_sleep_cap.py -q passes (the oracle's own authored file)."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/harness/test_daemon_idle_sleep_cap.py -q",
+      "spec": {
+        "objective": "Additively cap the idle heartbeat sleep by the soonest pending blocked-retry deadline so a freshly-blocked, retry-eligible task auto-retries on its OWN backoff (~300s) instead of waiting up to the full ~1800s heartbeat for the next idle scan. Add a pure read-only helper that reuses the _retry_blocked_tasks enumeration + backoff tiers, and apply the cap only at the idle-sleep site in run_daemon. The non-idle poll path and the retry/exhaust semantics are unchanged.",
+        "functional_requirements": [
+          "Add a NEW pure top-level helper `_soonest_blocked_retry_deadline(state_dir) -> float | None` (anchored on the existing top-level `_retry_blocked_tasks`) that reuses the exact enumeration (sorted tasks/blocked/*.json glob, skip *.retry.json, skip blocked/<tid>.exhausted, defensive {attempts,ts,last_outcome} sidecar parse), derives effective_max from an INLINED ('synthesis_or_ast_failed','embedded_tests_failed','narrow_fuzz_failed') tuple (effective_max=1 for those, else 3), uses the same threshold tiers (300.0 for attempts<=1, 3600.0 for attempts==2, else 86400.0), and returns min(last_ts + threshold(attempts)) over retry-ELIGIBLE blocked tasks (attempts < effective_max), or None when none are eligible.",
+          "The helper is read-only and fail-soft: a missing blocked/ dir, a glob OSError, or a malformed/non-JSON sidecar yields None / is skipped and never raises; it performs no re-staging, no .exhausted/marker writes, no telemetry, and no other state mutation.",
+          "In run_daemon, at the idle-sleep site (immediately after `sleep_target = heartbeat if is_idle else poll`), when is_idle, compute dl = _soonest_blocked_retry_deadline(state_dir); if dl is not None, set sleep_target = min(sleep_target, max(5.0, dl - time.time())) so the cap applies only when is_idle and only when a deadline exists and is strictly sooner than the heartbeat, with the 5.0s grace floor keeping the capped sleep > 0 (no busy-spin).",
+          "Leave the non-idle poll sleep branch, the early-wake allowlist/brief mtime-watch loop, the _retry_blocked_tasks re-stage/exhaust/backoff/escalation semantics, the .exhausted-marker logic, the _DETERMINISTIC_OUTCOMES local, and DEFAULT_HEARTBEAT_SEC / _heartbeat_interval all behaviorally unchanged; add no config knob."
+        ],
+        "interfaces": "harness/autowork_daemon.py. New top-level `def _soonest_blocked_retry_deadline(state_dir):` returning float|None (mirrors _retry_blocked_tasks:911-999 enumeration; INLINES the deterministic-outcome tuple because _DETERMINISTIC_OUTCOMES is local to _retry_blocked_tasks at :954). run_daemon idle-sleep site is at :2932 (`sleep_target = heartbeat if is_idle else poll`); state_dir, heartbeat, and is_idle (:2920-2922) are in scope, time is imported. Delivered via one __JANUSMASK_PATCHES__ payload with two kind:'symbol' patches (both top-level -> direct symbol patches, no R-anchor / no nesting): (1) the new helper anchored on _retry_blocked_tasks, (2) run_daemon. harness.autowork_daemon is in the self-reload watch set (:2879) so the logic change is picked up on the next idle cycle via clean-exit + supervisor respawn.",
+        "edge_cases": [
+          "Retry-eligible blocked task with a partially-elapsed backoff window (attempts=1, recent ts) -> deadline ts+300.0 caps the idle sleep strictly below the 1800s heartbeat.",
+          "Empty / missing tasks/blocked/ (or all tasks exhausted) -> helper returns None so the cap is a no-op and the full heartbeat is preserved.",
+          "Multiple eligible blocked tasks -> the soonest (min) deadline is returned.",
+          "Exhausted task (via .exhausted marker or attempts>=effective_max, including deterministic-outcome budget-1) is excluded from the min.",
+          "Malformed (non-JSON) sidecar / glob OSError / missing dir -> fail-soft (None or skip), never raises and never mutates state.",
+          "Non-idle iteration (is_idle False) -> sleep_target stays poll, the cap is never applied."
+        ],
+        "non_goals": [
+          "No integration test: this is a unit-level daemon idle-sleep-cap helper / harness symbol patch; the oracle drives the REAL _soonest_blocked_retry_deadline over a hermetic synthetic state dir and never drives the daemon loop, an agent, or a real worker -- there is no new runtime/integration surface, so the empty integration_tests list is intentional and excused. Do NOT add real integration_tests.",
+          "Do NOT change the _retry_blocked_tasks re-stage / exhaust / backoff semantics, the .exhausted-marker logic, the autobrief escalation, the _DETERMINISTIC_OUTCOMES set, or the non-idle poll sleep branch.",
+          "Do NOT add or change any config knob (no new config/config.yaml entry; DEFAULT_HEARTBEAT_SEC and _heartbeat_interval stay as-is).",
+          "Do NOT let the helper mutate state (no re-staging, no marker/telemetry writes); the helper need not model the dest.exists() re-stage skip (_retry_blocked_tasks:989-990) -- any early-wake on a lingering blocked task is bounded by the grace floor to the poll cadence (no busy-spin).",
+          "Do NOT edit any other file or symbol, create a new module, author tests beyond the paired oracle, use exec/eval/compile/__import__, or use the broad adversarial suite as the verification command."
+        ],
+        "implementation_notes": "Two kind:'symbol' patches in one __JANUSMASK_PATCHES__ payload. (1) NEW top-level `_soonest_blocked_retry_deadline(state_dir)` anchored on the existing top-level `_retry_blocked_tasks`: pathlib.Path(state_dir)/'tasks'/'blocked'; if not blocked.is_dir(): return None; try sorted(blocked.glob('*.json')) except OSError: return None; for each p skip p.name.endswith('.retry.json'); tid = p.name[:-5]; skip if (blocked/f'{tid}.exhausted').exists(); read blocked/f'{tid}.retry.json' defensively (json.loads, isinstance guards mirroring :945-953, except (OSError, ValueError) -> defaults 0,0.0,''); effective_max = 1 if last_outcome in ('synthesis_or_ast_failed','embedded_tests_failed','narrow_fuzz_failed') else 3 (INLINE -- do NOT reference the bare _DETERMINISTIC_OUTCOMES name or it NameErrors); skip if attempts >= effective_max; threshold = 300.0 if attempts <= 1 else (3600.0 if attempts == 2 else 86400.0); dl = last_ts + threshold; soonest = dl if soonest is None else min(soonest, dl); return soonest. Pure/read-only -- never rename, never write markers/telemetry. (2) PATCH run_daemon: after `sleep_target = heartbeat if is_idle else poll` add `if is_idle:\\n    _dl = _soonest_blocked_retry_deadline(state_dir)\\n    if _dl is not None:\\n        sleep_target = min(sleep_target, max(5.0, _dl - time.time()))`. Keep the rest of run_daemon (step calc, while-slept loop, mtime watch) byte-identical in behavior. Requires operator decision file state/control/decisions/daemon-idle-sleep-cap-impl.json (autowork_daemon.py in _NEVER_AUTO_APPROVE, orchestrator.py:2577). Verified by the oracle's authored tests/harness/test_daemon_idle_sleep_cap.py (fix-forward redpair); do NOT run the broad adversarial suite."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_helper_returns_deadline_last_ts_plus_300_for_attempts1"
+          },
+          {
+            "name": "test_helper_returns_min_over_multiple_eligible"
+          },
+          {
+            "name": "test_helper_returns_none_when_no_eligible_blocked"
+          },
+          {
+            "name": "test_helper_excludes_exhausted_and_budget_max_tasks"
+          },
+          {
+            "name": "test_helper_tier2_uses_3600_for_attempts2"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_helper_read_only_and_failsoft_never_raises_no_state_mutation"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_soonest_deadline_caps_below_heartbeat"
+          },
+          {
+            "name": "test_no_eligible_blocked_returns_none"
+          }
+        ],
+        "minimum_test_count": 8,
+        "test_data_requirements": "Hermetic tempfile state_dir with tasks/blocked/ and synthetic <tid>.json + <tid>.retry.json sidecars at controlled timestamps (recent eligible, far-future, exhausted via marker and via attempts>=effective_max, malformed non-JSON), reusing the test_retry_smoke_failed_budget.py idiom. Verified by the paired oracle file tests/harness/test_daemon_idle_sleep_cap.py; no network, no subprocess, no daemon loop."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 300,
+        "test_tokens": 600,
+        "note": "Small surgical additive patch (one new helper + a 3-line cap in run_daemon); verified by the paired oracle so test effort dominates (test_tokens >= 1.5 * implementation_tokens)."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "daemon-idle-sleep-cap-oracle",
+      "title": "RED oracle: _soonest_blocked_retry_deadline pins the idle-sleep-cap helper over a hermetic synthetic blocked/ state dir",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "harness.autowork_daemon",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tests/harness/test_daemon_idle_sleep_cap.py"
+      ],
+      "acceptance_criteria": [
+        "New file tests/harness/test_daemon_idle_sleep_cap.py imports the REAL helper `from harness.autowork_daemon import _soonest_blocked_retry_deadline` (normal import; never exec/eval/compile/__import__).",
+        "Reuses the hermetic idiom of tests/harness/test_retry_smoke_failed_budget.py: a tempfile.TemporaryDirectory() state_dir with tasks/blocked/ created and a _write_blocked(tid, attempts, last_outcome, ts) helper that writes <tid>.json + the <tid>.retry.json sidecar {attempts, ts, last_outcome}.",
+        "Asserts the SOONER-THAN-HEARTBEAT teeth: attempts=1, non-deterministic outcome ('timeout'), ts=now-100 -> helper returns deadline == ts+300.0 and the derived cap min(1800.0, max(5.0, deadline-now)) is strictly < 1800.0.",
+        "Asserts NEAREST WINS (min over two eligible deadlines), NONE-WHEN-EMPTY (empty/missing blocked dir -> None), EXHAUSTED-EXCLUDED (both the .exhausted-marker case and the attempts>=effective_max case, including a deterministic outcome where effective_max==1), TIER BOUNDARY (attempts=2 generic -> ts+3600.0).",
+        "Asserts the helper is READ-ONLY and fail-soft: a malformed (non-JSON) <tid>.retry.json is skipped (treated as defaults, never raises) and the blocked <tid>.json files still exist after any call (no re-stage, no .exhausted/marker/telemetry writes).",
+        "Test is hermetic and offline (no daemon loop, no subprocess, no broad adversarial suite); RED on HEAD because the helper does not exist yet.",
+        "verification_command runs the authored file: python -m pytest tests/harness/test_daemon_idle_sleep_cap.py -q"
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/harness/test_daemon_idle_sleep_cap.py -q",
+      "spec": {
+        "objective": "Author the paired RED oracle that drives the REAL harness.autowork_daemon._soonest_blocked_retry_deadline helper directly over a hermetic synthetic state dir with fake blocked sidecars at controlled timestamps, pinning the soonest pending blocked-retry deadline (and the idle-sleep cap it feeds) so the IMPL is verified by this file. RED on HEAD because the helper does not exist yet.",
+        "functional_requirements": [
+          "Importing `_soonest_blocked_retry_deadline` from harness.autowork_daemon, a single retry-eligible blocked task (attempts=1, non-deterministic outcome 'timeout', ts=now-100) yields a deadline == ts+300.0, and the in-test recomputed cap min(1800.0, max(5.0, deadline-now)) is strictly less than the 1800s heartbeat.",
+          "Two retry-eligible blocked tasks with different deadlines yield the SOONER (min) deadline.",
+          "An empty tasks/blocked/ (or a missing blocked dir) yields None so the cap is a no-op and sleep_target stays the full heartbeat.",
+          "A blocked task that is exhausted is excluded: both the <tid>.exhausted marker case AND the attempts>=effective_max case (attempts=3 generic outcome, and attempts=1 with a deterministic outcome such as 'synthesis_or_ast_failed' where effective_max==1); if it is the only blocked task the helper returns None.",
+          "A task with attempts=2 and a generic outcome yields a deadline == ts+3600.0, proving the tier-2 (3600s) backoff schedule is reused rather than the 300s tier-1.",
+          "The helper is read-only and fail-soft: a malformed (non-JSON) <tid>.retry.json sidecar is skipped (treated as defaults, never raises) and the blocked <tid>.json files remain present after any call (the helper re-stages nothing and writes no .exhausted/marker/telemetry)."
+        ],
+        "interfaces": "tests/harness/test_daemon_idle_sleep_cap.py: `from harness.autowork_daemon import _soonest_blocked_retry_deadline`. A `_write_blocked(tid, attempts, last_outcome, ts)` helper (mirroring test_retry_smoke_failed_budget.py) writes tasks/blocked/<tid>.json plus the tasks/blocked/<tid>.retry.json sidecar {attempts, ts, last_outcome}. The helper under test takes a state_dir path and returns `float | None` (the wall-clock deadline last_ts + threshold(attempts), min over retry-eligible blocked tasks). The cap formula the helper feeds is min(heartbeat, max(grace, deadline - now)); the oracle asserts on the returned DEADLINE and recomputes the cap in-test to prove teeth.",
+        "edge_cases": [
+          "Single eligible task with an elapsed-vs-pending backoff window so the derived cap is well below the 1800s heartbeat (teeth).",
+          "Two eligible tasks -> min deadline wins.",
+          "Empty / missing tasks/blocked/ -> None.",
+          ".exhausted-marker task and attempts>=effective_max task (incl. deterministic-outcome budget-1) -> excluded / None.",
+          "Malformed (non-JSON) sidecar -> skipped as defaults, never raises; blocked .json files intact after the call (read-only)."
+        ],
+        "non_goals": [
+          "No integration test: this is a unit-level oracle that drives the REAL _soonest_blocked_retry_deadline over a hermetic synthetic state dir with fake blocked sidecars; it never spawns the daemon loop, an agent, a real worker, or any subprocess -- there is no new integration surface, so the empty integration_tests list is intentional and excused.",
+          "Does not test or exercise run_daemon's idle-sleep loop, the non-idle poll branch, or the early-wake mtime-watch loop (those stay unchanged in the IMPL).",
+          "Does not import or run the broad adversarial suite, and authors no test beyond this single paired oracle.",
+          "Does not assert on _retry_blocked_tasks re-stage/exhaust/escalation behavior (only that the new helper reuses the same enumeration + tier schedule read-only)."
+        ],
+        "implementation_notes": "New file beside tests/harness/test_retry_smoke_failed_budget.py. Use unittest + tempfile.TemporaryDirectory(); create tasks/blocked/ in setUp. _write_blocked writes <tid>.json and <tid>.retry.json. Use ts = now - 100 (now = time.time()) for the teeth case so deadline = ts+300 is ~200s out; assert deadline == ts+300.0 and min(1800.0, max(5.0, deadline-now)) < 1800.0. For deterministic-budget-1 exclusion use last_outcome='synthesis_or_ast_failed' with attempts=1. For the malformed case write non-JSON bytes to <tid>.retry.json and assert no exception plus the .json file still exists. Keep everything offline; never exec/eval/compile/__import__ (AST-banned). RED on HEAD: the import / helper does not exist yet."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_sooner_than_heartbeat_caps_below_1800"
+          },
+          {
+            "name": "test_nearest_deadline_wins"
+          },
+          {
+            "name": "test_none_when_blocked_empty_or_missing"
+          },
+          {
+            "name": "test_exhausted_marker_excluded"
+          },
+          {
+            "name": "test_attempts_at_effective_max_excluded_incl_deterministic_budget1"
+          },
+          {
+            "name": "test_tier2_backoff_3600_boundary"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_helper_is_read_only_and_failsoft_on_malformed_sidecar"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_blocked_json_files_unchanged_after_call"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Hermetic tempfile.TemporaryDirectory() state_dir with tasks/blocked/; synthetic <tid>.json + <tid>.retry.json sidecars carrying {attempts, ts, last_outcome} at controlled timestamps (recent, far-future, and stale), one malformed non-JSON sidecar, and one <tid>.exhausted marker. No network, no subprocess."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 900,
+        "note": "test_authoring task: all effort is the authored RED oracle; no production tokens."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_daemon_idle_sleep_cap.md",
+  "source_brief_sha256": "1533e369824de08eb1861cb493e5d05b8fd8fa244299311dcb487f922924afc4",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+  "required_task_ids": [
+    "daemon-idle-sleep-cap-oracle",
+    "daemon-idle-sleep-cap-impl"
+  ]
+}

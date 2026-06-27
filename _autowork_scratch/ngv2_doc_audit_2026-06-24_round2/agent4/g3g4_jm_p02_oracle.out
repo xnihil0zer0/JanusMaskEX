@@ -1,0 +1,9 @@
+--- commit 0795605 (if exists) ---
+  (sha 0795605 not in JM log)
+
+--- any JM oracle/test for ngv2 jailed install / poc_runner_live / p02-ngv2 ---
+2049f78 Integrate validated code for p02-dep-install-jailed-lockfile-impl
+6f08eeb Pre-committed RED oracle for P0.2 g8_dep_install_jailed_lockfile (JanusMask side)
+
+--- pending briefs / staged oracles referencing poc_runner_live or p02-ngv2 ---
+/home/xnihil0zer0/JanusMaskJR/brief_hooks_p21_c1_fsm_detect.md

@@ -1,0 +1,17 @@
+=== CLAIM A EMPIRICAL RESULT (HEAD) ===
+--- persist sets the 4 intermediate counters? ---
+  persist(phase='triage') -> state['triaged'] = 1  SET=True
+  persist(phase='verify') -> state['verified'] = 1  SET=True
+  persist(phase='novelty') -> state['novelties'] = 1  SET=True
+  persist(phase='report') -> state['report_count'] = 1  SET=True
+--- build_evidence emits the 4 intermediate-gate keys? ---
+  ev['triage_result'] present=True  value=True
+  ev['verify_result'] present=True  value=True
+  ev['novelty_result'] present=True  value=True
+  ev['report_artifact'] present=True  value=True
+--- FULL evidence keys ---
+   ['novelty_result', 'report_artifact', 'source_ready', 'target_import_names', 'triage_result', 'verify_result']
+=== ONE-LINE VERDICT ===
+persist_counters=ALL-4-SET  build_evidence_gate_keys=ALL-4-EMITTED
+=== triage->verify prerequisite ===
+  triage_result in ev = True, value=True

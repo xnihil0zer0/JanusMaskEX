@@ -1,0 +1,515 @@
+diff --git a/ngv2/_loopback_netns.py b/ngv2/_loopback_netns.py
+new file mode 100644
+index 0000000..b2a867d
+--- /dev/null
++++ b/ngv2/_loopback_netns.py
+@@ -0,0 +1,252 @@
++"""ngv2/_loopback_netns.py -- in-jail bootstrap that co-locates the loopback
++listener and the PoC inside ONE isolated network namespace (P1.3 leaf-2).
++
++OWNER-HAND-AUTHORED, irreducible-tier infrastructure (same tier as
++``poc_runner_live.py``). This module is the *inside-the-jail* half of the
++shared-loopback-netns detonation path: it runs as ``python3 -m ngv2._loopback_netns``
++as the FIRST process of a bubblewrap jail that OWNS a fresh user+network namespace
++(``--unshare-user --unshare-net --cap-add CAP_NET_ADMIN``). Inside that netns it:
++
++  1. brings the ``lo`` interface UP via a pure-Python ``ioctl(SIOCSIFFLAGS,
++     IFF_UP|IFF_RUNNING)`` -- NO dependency on the ``ip`` binary (DESIGN.md Probe J1);
++  2. starts the host-authored :class:`ngv2.loopback_listener.LoopbackListener`
++     bound to ``127.0.0.1`` *inside this netns*, on the port handed in by the parent;
++  3. runs the attacker-controlled PoC as a SEPARATE child process (its own address
++     space) in the same netns, so the PoC's ``http://127.0.0.1:<port>/<nonce>``
++     callback reaches the listener over one shared loopback stack;
++  4. reports the listener hits + the PoC run fields back to the parent over stdout
++     as a single ``__NGV2_LOOPBACK_RESULT__ <json>`` sentinel line.
++
++Why the listener lives in-jail rather than the parent: the parent runs in the HOST
++netns; a ``--unshare-net`` PoC gets a DIFFERENT loopback stack, so a host-side
++listener is unreachable (the leaf-2 defect). Putting BOTH peers in the one jailed
++netns is the only model that lets a REAL jailed PoC confirm via the nonce callback
++while keeping outbound blocked (the netns has only ``lo``: no ``eth*``, no route).
++
++Security invariants (load-bearing):
++  * **Outbound stays blocked.** The netns contains only ``lo``; there is no route
++    off-host. (DESIGN.md Probe F.)
++  * **No process-memory crossover.** The PoC is a child subprocess; under the host's
++    restricted-ptrace policy a child cannot read its parent's memory, so a PoC RCE
++    cannot reach the listener's address space.
++  * **Fail-closed.** If ``lo`` cannot be brought up, this bootstrap exits non-zero
++    with a diagnostic; the parent (``poc_runner_live.run_jailed_poc_with_loopback``)
++    treats a missing result sentinel as a hard failure and raises ``LiveRunnerError``
++    rather than degrading to a host-netns/outbound-open path.
++
++This module is impure by design (ioctl, sockets, subprocess) and is NOT imported by
++the stdlib-only ``ngv2`` core paths; it is only ever exec'd as the jail entrypoint.
++"""
++from __future__ import annotations
++import fcntl
++import json
++import os
++import re
++import socket
++import struct
++import subprocess
++import sys
++import time
++from typing import Mapping
++from typing import Optional
++from typing import Sequence
++
++try:
++    from ngv2.loopback_listener import LoopbackListener
++except Exception:  # pragma: no cover - standalone import fallback when ngv2 pkg root differs
++    from loopback_listener import LoopbackListener  # type: ignore
++
++# ioctl constants (linux/sockios.h, net/if.h). Stable on Linux.
++_SIOCGIFFLAGS = 0x8913
++_SIOCSIFFLAGS = 0x8914
++_IFF_UP = 0x1
++_IFF_RUNNING = 0x40
++_IFNAME = b"lo"
++
++# The sentinel line the parent greps stdout for. A run that does not emit it is a
++# hard failure (fail-closed): the parent raises rather than guessing a verdict.
++RESULT_SENTINEL = "__NGV2_LOOPBACK_RESULT__"
++
++# Matches a concrete loopback callback base the parent may have staged with its own
++# (host-netns) listener port, so we can re-point it at the in-netns listener.
++_LOOPBACK_URL_RE = re.compile(r"http://127\.0\.0\.1:\d+/")
++
++
++class LoopbackNetnsError(RuntimeError):
++    """Raised inside the jail when the shared-loopback netns cannot be set up."""
++
++
++def bring_lo_up(ifname: bytes = _IFNAME) -> None:
++    """Bring the ``lo`` interface UP via a pure-Python ``ioctl`` (no ``ip`` binary).
++
++    Reads the current interface flags (``SIOCGIFFLAGS``), ORs in
++    ``IFF_UP|IFF_RUNNING`` and writes them back (``SIOCSIFFLAGS``). Requires
++    ``CAP_NET_ADMIN`` in the owning netns (the jail grants it via ``--cap-add``).
++    Raises :class:`LoopbackNetnsError` on any failure -- the caller fails closed.
++    """
++    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
++    try:
++        ifr = struct.pack("16sh", ifname, 0)
++        res = fcntl.ioctl(sock.fileno(), _SIOCGIFFLAGS, ifr)
++        flags = struct.unpack("16sh", res)[1]
++        flags |= _IFF_UP | _IFF_RUNNING
++        ifr = struct.pack("16sh", ifname, flags)
++        fcntl.ioctl(sock.fileno(), _SIOCSIFFLAGS, ifr)
++    except OSError as exc:
++        raise LoopbackNetnsError(
++            f"failed to bring '{ifname.decode()}' up via ioctl "
++            f"(CAP_NET_ADMIN missing in netns?): {exc}"
++        ) from exc
++    finally:
++        sock.close()
++
++
++def _run_poc_child(
++    cmd: Sequence[str], work_dir: str, child_env: Mapping[str, str], timeout_s: float
++) -> dict:
++    """Run the PoC as a separate child process in the shared netns; capture fields.
++
++    Returns ``{exit_code, stdout, stderr, timed_out}`` -- the same run-field shape
++    the legacy ``_default_jail_runner`` returns -- so the parent's FS-snapshot and
++    verdict logic is unchanged. Never raises for PoC-side failures.
++    """
++    try:
++        proc = subprocess.run(
++            list(cmd),
++            cwd=work_dir,
++            env=dict(child_env),
++            capture_output=True,
++            text=True,
++            timeout=timeout_s,
++        )
++        return {
++            "exit_code": proc.returncode,
++            "stdout": proc.stdout or "",
++            "stderr": proc.stderr or "",
++            "timed_out": False,
++        }
++    except subprocess.TimeoutExpired as exc:
++        out = (
++            exc.stdout.decode("utf-8", "replace")
++            if isinstance(exc.stdout, bytes)
++            else (exc.stdout or "")
++        )
++        err = (
++            exc.stderr.decode("utf-8", "replace")
++            if isinstance(exc.stderr, bytes)
++            else (exc.stderr or "")
++        )
++        # 124 mirrors poc_runner_live.TIMEOUT_EXIT_CODE without importing it.
++        return {"exit_code": 124, "stdout": out, "stderr": err, "timed_out": True}
++
++
++def main(argv: Optional[Sequence[str]] = None) -> int:
++    """In-jail entrypoint. Config is read from a single JSON file path in argv[1].
++
++    Expected config JSON keys::
++
++        {
++          "cmd":         [<interpreter>, <poc_path>, ...],   # the in-jail PoC argv
++          "work_dir":    "<abs path>",                       # writable scratch (bound)
++          "child_env":   {<env for the PoC subprocess>},     # PATH/HOME/PYTHONPATH/...
++          "timeout_s":   <float>,                            # PoC wall-clock bound
++          "listener_port": <int>,                            # 0 => ephemeral
++          "fs_signature": "<sentinel name>",                 # listener sentinel (or "")
++          "callback_env_keys": ["NGV2_SSRF_CALLBACK", ...]   # env keys to rewrite to the
++                                                             #   bound listener port
++        }
++
++    On success prints exactly one ``__NGV2_LOOPBACK_RESULT__ <json>`` line and
++    returns 0. On a setup failure (cannot bring ``lo`` up / bind the listener)
++    returns non-zero WITHOUT the sentinel, so the parent fails closed.
++    """
++    args = list(sys.argv[1:] if argv is None else argv)
++    if not args:
++        sys.stderr.write("loopback-netns bootstrap: missing config path\n")
++        return 2
++    try:
++        with open(args[0], "r", encoding="utf-8") as fh:
++            cfg = json.load(fh)
++    except Exception as exc:  # noqa: BLE001 - any config read error fails closed
++        sys.stderr.write(f"loopback-netns bootstrap: bad config: {exc}\n")
++        return 2
++
++    try:
++        bring_lo_up()
++    except LoopbackNetnsError as exc:
++        sys.stderr.write(f"loopback-netns bootstrap: {exc}\n")
++        return 3
++
++    work_dir = str(cfg.get("work_dir") or os.getcwd())
++    listener = LoopbackListener(
++        host="127.0.0.1",
++        port=int(cfg.get("listener_port") or 0),
++        fs_signature=str(cfg.get("fs_signature") or ""),
++        work_dir=work_dir,
++    )
++    listener.start()
++    if listener.port == 0:
++        # bind failed (LoopbackListener swallows the bind error) -> fail closed.
++        listener.stop()
++        sys.stderr.write("loopback-netns bootstrap: listener failed to bind in netns\n")
++        return 4
++    try:
++        bound_port = str(listener.port)
++        child_env = {str(k): str(v) for k, v in (cfg.get("child_env") or {}).items()}
++        # Rewrite any callback env values the parent staged (placeholder OR a concrete
++        # host-netns port) to the actually-bound in-netns port, so the PoC hits THIS
++        # listener whether it reads the env var or a literal URL in its body.
++        for key in cfg.get("callback_env_keys") or ():
++            val = child_env.get(key)
++            if isinstance(val, str):
++                if "<<PORT>>" in val:
++                    val = val.replace("<<PORT>>", bound_port)
++                val = _LOOPBACK_URL_RE.sub("http://127.0.0.1:" + bound_port + "/", val)
++                child_env[key] = val
++        # The listener's real port is only known HERE (it binds in THIS netns, after
++        # fork) and differs from any port the parent staged (the parent lives in a
++        # DIFFERENT netns). Rewrite the PoC's loopback callback to the actually-bound
++        # in-netns port before running, so the callback reaches THIS listener:
++        #   * a literal ``<<PORT>>`` placeholder, AND
++        #   * any concrete ``http://127.0.0.1:<digits>/`` the parent may have staged
++        #     (the parent substitutes its own host-listener port for legacy/mock
++        #     compatibility; we re-point it at the in-netns listener).
++        poc_path = cfg.get("poc_path")
++        if poc_path and os.path.isfile(poc_path):
++            try:
++                with open(poc_path, "r", encoding="utf-8") as fh:
++                    body = fh.read()
++                new_body = body.replace("<<PORT>>", bound_port)
++                new_body = _LOOPBACK_URL_RE.sub(
++                    "http://127.0.0.1:" + bound_port + "/", new_body
++                )
++                if new_body != body:
++                    with open(poc_path, "w", encoding="utf-8") as fh:
++                        fh.write(new_body)
++            except OSError:
++                pass
++        run = _run_poc_child(
++            cfg.get("cmd") or [],
++            work_dir,
++            child_env,
++            float(cfg.get("timeout_s") or 30.0),
++        )
++        # Give the listener thread a beat to record an in-flight callback.
++        time.sleep(0.2)
++        payload = {
++            "exit_code": run["exit_code"],
++            "stdout": run["stdout"],
++            "stderr": run["stderr"],
++            "timed_out": run["timed_out"],
++            "hits": list(listener.hits),
++            "listener_port": listener.port,
++        }
++        sys.stdout.write(RESULT_SENTINEL + " " + json.dumps(payload) + "\n")
++        sys.stdout.flush()
++        return 0
++    finally:
++        listener.stop()
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/ngv2/poc_runner_live.py b/ngv2/poc_runner_live.py
+index fbf3700..75af219 100644
+--- a/ngv2/poc_runner_live.py
++++ b/ngv2/poc_runner_live.py
+@@ -51,7 +51,7 @@ from typing import Optional
+ from typing import Sequence
+ from typing import Tuple
+ from ngv2.contracts import PoC
+-__all__ = ('LiveRunnerError', 'bwrap_available', 'build_detonation_jail_argv', 'snapshot_tree', 'diff_snapshots', 'make_live_runner', 'detonate_live')
++__all__ = ('LiveRunnerError', 'bwrap_available', 'build_detonation_jail_argv', 'snapshot_tree', 'diff_snapshots', 'make_live_runner', 'detonate_live', 'run_jailed_poc_with_loopback')
+ _SYSTEM_RO: Tuple[str, ...] = ('/usr', '/bin', '/sbin', '/lib', '/lib32', '/lib64', '/etc', '/opt')
+ DEFAULT_TIMEOUT_S: float = 30.0
+ TIMEOUT_EXIT_CODE: int = 124
+@@ -66,7 +66,7 @@ def bwrap_available() -> bool:
+     """True iff ``bwrap`` is on PATH (required; fail-closed otherwise)."""
+     return shutil.which('bwrap') is not None
+ 
+-def build_detonation_jail_argv(cmd: Sequence[str], *, repo_root: Optional[str | Path], work_dir: str | Path, extra_ro: Iterable[str | Path]=()) -> list[str]:
++def build_detonation_jail_argv(cmd: Sequence[str], *, repo_root: Optional[str | Path], work_dir: str | Path, extra_ro: Iterable[str | Path]=(), shared_loopback_netns: bool=False) -> list[str]:
+     """Wrap ``cmd`` in a minimal, maximally-isolated detonation ``bwrap`` argv.
+ 
+     The target ``repo_root`` (if given) is bind-mounted READ-ONLY; ``work_dir`` is
+@@ -74,12 +74,41 @@ def build_detonation_jail_argv(cmd: Sequence[str], *, repo_root: Optional[str |
+     re-exposed inside the jail as a ``--tmpfs`` so writes never escape). The network,
+     IPC and PID namespaces are unshared. Raises :class:`LiveRunnerError` if ``bwrap``
+     is unavailable -- never silently runs un-jailed.
++
++    **Network isolation knob (``shared_loopback_netns``).** Both modes give the PoC a
++    FRESH, fully-isolated network namespace with ONLY ``lo`` (no ``eth*``, no route
++    off-host -- outbound stays blocked either way). The difference is *who* owns the
++    netns and whether ``CAP_NET_ADMIN`` is retained inside it:
++
++      * ``False`` (default, legacy path): ``--unshare-net`` -- a fresh netns the PoC
++        cannot reconfigure. Used for callback-free CWEs (RCE / path-trav / code-inj).
++      * ``True`` (P1.3 leaf-2 shared-loopback path): the jail itself OWNS a fresh
++        user+network namespace and retains ``CAP_NET_ADMIN`` *within that userns only*
++        (``--unshare-user --uid 0 --gid 0 --cap-add CAP_NET_ADMIN --unshare-net``) so
++        the FIRST process of the jail -- the :mod:`ngv2._loopback_netns` bootstrap --
++        can bring ``lo`` UP and bind the loopback listener *inside* this same netns,
++        which the jailed PoC then reaches over one shared loopback stack. This is the
++        ONLY net-policy change; it adds NO new bind mount and does NOT widen the host's
++        privileges (the cap is scoped to the jail's own userns/netns and confers no
++        authority over host network resources). Outbound is STILL blocked (only ``lo``;
++        no ``eth*``/route). Taken only when a loopback listener is in play
++        (SSRF / CWE-918); never silently for the callback-free path.
+     """
+     bwrap = shutil.which('bwrap')
+     if bwrap is None:
+         raise LiveRunnerError("bubblewrap ('bwrap') is not on PATH; refusing to detonate a PoC without a jail (fail-closed).")
+     work_dir = str(Path(work_dir).resolve())
+-    argv: list[str] = [bwrap, '--die-with-parent', '--unshare-net', '--unshare-ipc', '--unshare-pid', '--new-session', '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp']
++    if shared_loopback_netns:
++        # The jail OWNS a fresh user+net namespace; CAP_NET_ADMIN is scoped to THAT
++        # userns only (lets the in-jail bootstrap bring `lo` up). Still only `lo`, so
++        # outbound stays blocked. `--unshare-pid` is omitted on this path because
++        # creating a nested pid namespace from inside the bwrap-owned userns is not
++        # permitted on locked-down hosts; ipc/net isolation + a fresh session still
++        # hold, and the PoC remains a child subprocess (no parent-memory access).
++        net_flags: list[str] = ['--unshare-user', '--uid', '0', '--gid', '0', '--cap-add', 'CAP_NET_ADMIN', '--unshare-net', '--unshare-ipc']
++    else:
++        net_flags = ['--unshare-net', '--unshare-ipc', '--unshare-pid']
++    argv: list[str] = [bwrap, '--die-with-parent', *net_flags, '--new-session', '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp']
+     for d in _SYSTEM_RO:
+         if os.path.exists(d):
+             argv += ['--ro-bind', d, d]
+@@ -189,7 +218,7 @@ def _entry_cmd(poc: PoC, poc_path: str, python_bin: Optional[str]=None) -> list[
+         return [p.replace('{poc}', poc_path) for p in parts]
+     return [*interp, poc_path]
+ 
+-def detonate_live(poc: PoC, target_spec: object=None, *, timeout_s: Optional[float]=None, success_marker: str=DEFAULT_SUCCESS_MARKER, expected_fs_signature: Optional[str]=None, pip_installer: Optional[Callable[[str, str], bool]]=None, jail_runner: Optional[Callable[..., dict]]=None) -> dict:
++def detonate_live(poc: PoC, target_spec: object=None, *, timeout_s: Optional[float]=None, success_marker: str=DEFAULT_SUCCESS_MARKER, expected_fs_signature: Optional[str]=None, pip_installer: Optional[Callable[[str, str], bool]]=None, jail_runner: Optional[Callable[..., dict]]=None, loopback: bool=False) -> dict:
+     """Detonate ``poc`` for real in a bwrap jail and return the full result.
+ 
+     Returns a dict with the 4 runner fields plus ``fs_snapshot_diff`` and (when an
+@@ -219,7 +248,8 @@ def detonate_live(poc: PoC, target_spec: object=None, *, timeout_s: Optional[flo
+     are injectable seams (defaulting to the real host-pip / subprocess-in-bwrap
+     paths) so the install/rerun loop is unit-testable without real network or jail.
+     """
+-    if jail_runner is None:
++    _injected_jail_runner = jail_runner
++    if jail_runner is None and (not loopback):
+         jail_runner = _default_jail_runner
+     spec = _resolve_target_spec(target_spec)
+     repo_root = spec.get('repo_root')
+@@ -251,19 +281,36 @@ def detonate_live(poc: PoC, target_spec: object=None, *, timeout_s: Optional[flo
+         with open(poc_path, 'w', encoding='utf-8') as fh:
+             fh.write(poc.code or '')
+         cmd = spec.get('cmd') or _entry_cmd(poc, poc_path, python_bin=python_bin)
++        loopback_hits: list = []
++        active_jail_runner = jail_runner
++        if loopback and _injected_jail_runner is None:
++            # Shared-loopback-netns path: the listener lives INSIDE the jail's netns.
++            # Bind the leaf-2 runner with this run's poc_path / fs_signature so it can
++            # rewrite the `<<PORT>>` placeholder to the bound port and record callbacks.
++            _lb_sig = expected_fs_signature or ''
++
++            def active_jail_runner(_cmd, *, repo_root, work_dir, extra_ro, child_env, timeout_s):
++                return run_jailed_poc_with_loopback(_cmd, repo_root=repo_root, work_dir=work_dir, extra_ro=extra_ro, child_env=child_env, timeout_s=timeout_s, fs_signature=_lb_sig, callback_env_keys=('NGV2_SSRF_CALLBACK',), poc_path=poc_path)
++        elif loopback and _injected_jail_runner is not None:
++            active_jail_runner = _injected_jail_runner
+ 
+         def _snapshot_excluding_deps(root: str) -> dict:
+             snap = snapshot_tree(root)
+             prefix = JMDEPS_DIRNAME + '/'
+-            return {k: v for k, v in snap.items() if k != prefix and (not k.startswith(prefix))}
++            # Exclude the _jmdeps install dir AND the leaf-2 loopback config artifact so
++            # neither pollutes the FS-snapshot oracle (they are infra, not PoC effects).
++            return {k: v for k, v in snap.items() if k != prefix and (not k.startswith(prefix)) and (k != LOOPBACK_CFG_FILENAME)}
+ 
+         def _run_once(env: Mapping[str, str], extra: Sequence[str]) -> dict:
+             before = _snapshot_excluding_deps(work_dir)
+             start = time.monotonic()
+-            run = jail_runner(cmd, repo_root=repo_root, work_dir=work_dir, extra_ro=list(extra), child_env=env, timeout_s=timeout_s)
++            run = active_jail_runner(cmd, repo_root=repo_root, work_dir=work_dir, extra_ro=list(extra), child_env=env, timeout_s=timeout_s)
+             duration_ms = int(round((time.monotonic() - start) * 1000))
+             after = _snapshot_excluding_deps(work_dir)
+             fs_snapshot_diff = diff_snapshots(before, after)
++            hits = run.get('hits')
++            if hits:
++                loopback_hits[:] = list(hits)
+             return {'exit_code': run.get('exit_code'), 'stdout': run.get('stdout') or '', 'stderr': run.get('stderr') or '', 'duration_ms': duration_ms, 'fs_snapshot_diff': fs_snapshot_diff, 'timed_out': bool(run.get('timed_out'))}
+         result = _run_once(child_env, extra_ro)
+         installed: set = set()
+@@ -291,6 +338,8 @@ def detonate_live(poc: PoC, target_spec: object=None, *, timeout_s: Optional[flo
+             prior_pp = deps_env.get('PYTHONPATH', '')
+             deps_env['PYTHONPATH'] = deps_dir + (os.pathsep + prior_pp if prior_pp else '')
+             result = _run_once(deps_env, deps_extra_ro)
++        if loopback:
++            result['loopback_hits'] = list(loopback_hits)
+         if expected_fs_signature is not None:
+             from ngv2.detonation import semantic_verdict
+             result['verdict'] = semantic_verdict(result['exit_code'], result['stdout'], result['stderr'], result['fs_snapshot_diff'], success_marker=success_marker, expected_fs_signature=expected_fs_signature)
+@@ -397,4 +446,79 @@ def _default_jail_runner(cmd: Sequence[str], *, repo_root: Optional[str | Path],
+     except subprocess.TimeoutExpired as exc:
+         out = exc.stdout.decode('utf-8', 'replace') if isinstance(exc.stdout, bytes) else exc.stdout or ''
+         err = exc.stderr.decode('utf-8', 'replace') if isinstance(exc.stderr, bytes) else exc.stderr or ''
+-        return {'exit_code': TIMEOUT_EXIT_CODE, 'stdout': out, 'stderr': err, 'timed_out': True}
+\ No newline at end of file
++        return {'exit_code': TIMEOUT_EXIT_CODE, 'stdout': out, 'stderr': err, 'timed_out': True}
++
++_LOOPBACK_BOOTSTRAP_MODULE: str = 'ngv2._loopback_netns'
++LOOPBACK_CFG_FILENAME: str = '_loopback_cfg.json'
++
++def _ngv2_pkg_root() -> str:
++    """Filesystem dir that must be on ``PYTHONPATH`` to ``import ngv2`` (this pkg's
++    PARENT dir). Read-only-bound into the jail so the in-jail bootstrap can import
++    :mod:`ngv2._loopback_netns` + :mod:`ngv2.loopback_listener` (both stdlib-only)."""
++    return str(Path(__file__).resolve().parent.parent)
++
++def run_jailed_poc_with_loopback(cmd: Sequence[str], *, repo_root: Optional[str | Path], work_dir: str, extra_ro: Sequence[str], child_env: Mapping[str, str], timeout_s: float, fs_signature: str='', callback_env_keys: Sequence[str]=('NGV2_SSRF_CALLBACK',), poc_path: Optional[str]=None) -> dict:
++    """Detonate ``cmd`` in a jail that SHARES one isolated loopback netns with the
++    ``LoopbackListener`` -- the P1.3 leaf-2 SSRF/loopback path.
++
++    Drop-in compatible with :func:`_default_jail_runner` (returns
++    ``{exit_code, stdout, stderr, timed_out}``) and ADDITIONALLY returns ``hits``: the
++    request paths the in-netns listener recorded. The jail OWNS a fresh user+net
++    namespace (``--unshare-user ... --cap-add CAP_NET_ADMIN --unshare-net``); its first
++    process is the :mod:`ngv2._loopback_netns` bootstrap, which brings ``lo`` up, binds
++    the listener inside the netns, rewrites the PoC's ``<<PORT>>`` placeholder to the
++    bound port, and runs the PoC as a child in the SAME netns. The callback then
++    reaches the listener over a shared loopback while outbound stays blocked.
++
++    **Fail-closed:** the bootstrap MUST emit a single
++    ``__NGV2_LOOPBACK_RESULT__ <json>`` line. If it does not (namespace/listener setup
++    failed) and the run did not time out, this raises :class:`LiveRunnerError` -- it
++    NEVER degrades to a host-netns / outbound-open path.
++    """
++    work_dir = str(Path(work_dir).resolve())
++    pkg_root = _ngv2_pkg_root()
++    # Bootstrap import path: ngv2 pkg root, read-only-bound. Separate from the PoC's
++    # own child_env (the bootstrap sets the PoC's env from the config, unchanged).
++    boot_extra_ro = list(extra_ro)
++    if pkg_root not in boot_extra_ro and os.path.isdir(pkg_root):
++        boot_extra_ro.append(pkg_root)
++    cfg = {'cmd': list(cmd), 'work_dir': work_dir, 'child_env': {str(k): str(v) for k, v in dict(child_env).items()}, 'timeout_s': float(timeout_s), 'listener_port': 0, 'fs_signature': str(fs_signature or ''), 'callback_env_keys': list(callback_env_keys or ()), 'poc_path': poc_path}
++    cfg_path = os.path.join(work_dir, LOOPBACK_CFG_FILENAME)
++    import json as _json
++    with open(cfg_path, 'w', encoding='utf-8') as fh:
++        fh.write(_json.dumps(cfg))
++    boot_cmd = ['python3', '-m', _LOOPBACK_BOOTSTRAP_MODULE, cfg_path]
++    argv = build_detonation_jail_argv(boot_cmd, repo_root=repo_root, work_dir=work_dir, extra_ro=boot_extra_ro, shared_loopback_netns=True)
++    boot_env = {'PATH': child_env.get('PATH', '/usr/bin:/bin:/usr/local/bin'), 'HOME': '/tmp', 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1', 'PYTHONPATH': pkg_root}
++    try:
++        proc = subprocess.run(argv, cwd=work_dir, env=boot_env, capture_output=True, text=True, timeout=timeout_s + 5.0)
++        stdout = proc.stdout or ''
++        stderr = proc.stderr or ''
++    except subprocess.TimeoutExpired as exc:
++        out = exc.stdout.decode('utf-8', 'replace') if isinstance(exc.stdout, bytes) else exc.stdout or ''
++        err = exc.stderr.decode('utf-8', 'replace') if isinstance(exc.stderr, bytes) else exc.stderr or ''
++        return {'exit_code': TIMEOUT_EXIT_CODE, 'stdout': out, 'stderr': err, 'timed_out': True, 'hits': []}
++    payload = _parse_loopback_result(stdout)
++    if payload is None:
++        # No result sentinel and no timeout => the in-jail setup failed (lo down,
++        # listener unbound, namespace refused). FAIL CLOSED: never fall back to a
++        # host-netns / outbound-open run.
++        raise LiveRunnerError('shared-loopback-netns detonation produced no result sentinel ' f'(jail/listener setup failed; refusing to degrade to host-netns). bootstrap stderr: {stderr[-500:]!r}')
++    return {'exit_code': payload.get('exit_code'), 'stdout': payload.get('stdout') or '', 'stderr': payload.get('stderr') or '', 'timed_out': bool(payload.get('timed_out')), 'hits': list(payload.get('hits') or [])}
++
++def _parse_loopback_result(stdout: str) -> Optional[dict]:
++    """Extract the ``__NGV2_LOOPBACK_RESULT__ <json>`` payload from bootstrap stdout.
++
++    Returns the parsed dict, or ``None`` if the sentinel is absent/malformed (which
++    the caller treats as a fail-closed condition).
++    """
++    import json as _json
++    from ngv2._loopback_netns import RESULT_SENTINEL
++    marker = RESULT_SENTINEL + ' '
++    for line in (stdout or '').splitlines():
++        if line.startswith(marker):
++            try:
++                return _json.loads(line[len(marker):])
++            except Exception:
++                return None
++    return None
+\ No newline at end of file
+diff --git a/ngv2/workers/_runner.py b/ngv2/workers/_runner.py
+index 830e295..1dbacb8 100644
+--- a/ngv2/workers/_runner.py
++++ b/ngv2/workers/_runner.py
+@@ -276,16 +276,34 @@ def _make_detonation_seam():
+         listener = LoopbackListener(host='127.0.0.1', port=0)
+         listener.start()
+         try:
++            # Substitute the nonce and the host listener's port into the PoC. In the
++            # REAL (P1.3 leaf-2) path the host listener is in the wrong netns, so the
++            # in-jail bootstrap (``poc_runner_live.run_jailed_poc_with_loopback``)
++            # re-points this concrete ``127.0.0.1:<port>`` at the in-netns listener it
++            # binds. In the unit-test path (a mock ``jail_runner`` injected via
++            # ``kw['jail_runner']`` or via a monkeypatched ``detonate_live``) the mock
++            # urlopens in-process to THIS host listener, so the substituted port is what
++            # it reads -- preserving the leaf-1 injection-seam contract.
+             port_str = str(listener.port)
+             if src:
+                 src = src.replace('<<PORT>>', port_str).replace('<<NONCE>>', nonce)
+             poc_obj = PoC(finding_id=finding_id, language='python', code=src, entrypoint='')
+             target_spec = {'repo_root': repo_root, 'env': {'NGV2_SSRF_CALLBACK': listener.url_for(nonce), 'NGV2_SSRF_NONCE': nonce}}
+-            jail_runner = kw.get('jail_runner')
+-            dlr = detonate_live(poc_obj, target_spec, success_marker=marker, expected_fs_signature=fs_sig, jail_runner=jail_runner)
++            injected_runner = kw.get('jail_runner')
++            if injected_runner is not None:
++                # Documented injection seam: drive the legacy host-listener path.
++                dlr = detonate_live(poc_obj, target_spec, success_marker=marker, expected_fs_signature=fs_sig, jail_runner=injected_runner)
++            else:
++                # PRODUCTION: shared-loopback-netns path -- the REAL jailed PoC reaches
++                # an in-netns listener; callbacks come back in ``loopback_hits``.
++                dlr = detonate_live(poc_obj, target_spec, success_marker=marker, expected_fs_signature=fs_sig, loopback=True)
++            # A confirmed callback may surface via EITHER the in-netns listener
++            # (``loopback_hits`` -- the real jailed path) OR this host listener (the
++            # in-process mock path). Either counts.
++            lb_hits = dlr.get('loopback_hits') or []
++            hit = listener.received(nonce) or any(nonce in str(h) for h in lb_hits)
+             confirmed = dlr.get('verdict') == 'confirmed'
+             result = {'success': confirmed, 'reproduced': confirmed, 'observed_runtime_effect': confirmed, 'ran_target': True, 'verdict': dlr.get('verdict'), 'exit_code': dlr.get('exit_code'), 'stdout': dlr.get('stdout', ''), 'stderr': dlr.get('stderr', ''), 'duration': dlr.get('duration_ms'), 'fs_snapshot_diff': dlr.get('fs_snapshot_diff')}
+-            hit = listener.received(nonce)
+             result['ssrf_channel'] = {'success': hit}
+             if hit:
+                 result['success'] = True

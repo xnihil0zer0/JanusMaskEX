@@ -1,0 +1,88 @@
+{
+  "tasks": [
+    {
+      "task_id": "p02-ngv2-oracle-reauthor-firstcall",
+      "title": "P0.2-NGv2 \u2014 Re-author the jailed-install oracle so its mock subprocess tracks first-call state in a mutable closure cell, not a class-body NameError",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "ngv2.poc_runner_live",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tests/ngv2/test_poc_runner_jailed_install.py"
+      ],
+      "acceptance_criteria": [
+        "Replace class MockCompletedProcess with a state-based return using a mutable closure cell in three tests.",
+        "Ensure no NameError occurs during pytest execution of the oracle.",
+        "Ensure all pre-existing assertions are preserved verbatim in intent.",
+        "Remaining tests are reproduced unchanged."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/ngv2/test_poc_runner_jailed_install.py -q",
+      "spec": {
+        "objective": "Fix NameError in tests/ngv2/test_poc_runner_jailed_install.py by tracking first-call state inside a mutable closure cell captured by the mock function body.",
+        "functional_requirements": [
+          "Replace the class-body first_call check in test_poc_runner_jailed_install_positive_lockfile with a closure cell.",
+          "Replace the class-body first_call check in test_poc_runner_jailed_install_lockfile_only_argv with a closure cell.",
+          "Replace the class-body first_call check in test_jailed_installation_with_detonation_re_run_pythonpath with a closure cell.",
+          "Construct the return value as a plain object or SimpleNamespace."
+        ],
+        "interfaces": "No changes to module interfaces.",
+        "edge_cases": [
+          "The first call must return the expected ModuleNotFoundError to trigger the installer.",
+          "Subsequent calls must return success and correct output."
+        ],
+        "non_goals": [
+          "No changes to production code ngv2/poc_runner_live.py.",
+          "No new test scenarios or skips."
+        ],
+        "implementation_notes": "Use a dictionary state = {'first': True} inside the test, mutate and read it inside mock_run, and return types.SimpleNamespace."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_poc_runner_jailed_install_positive_lockfile"
+          },
+          {
+            "name": "test_poc_runner_jailed_install_lockfile_only_argv"
+          },
+          {
+            "name": "test_jailed_installation_with_detonation_re_run_pythonpath"
+          },
+          {
+            "name": "test_poc_runner_jailed_install_negative_control"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_regression_no_dependency_install_needed_unchanged_verdict"
+          },
+          {
+            "name": "test_regression_smoke_verdict_retained"
+          }
+        ],
+        "minimum_test_count": 6,
+        "test_data_requirements": "Test repos with requirements lockfiles created on the fly in tmp_path."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Purely test file edits, so test budget is larger."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_p02_oracle_reauthor_firstcall.md",
+  "source_brief_sha256": "9187aa50d8c1ba59a40a12c8de455f1e65dc830a6efe4b35200ec18d47c868e6",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2",
+  "required_task_ids": [
+    "p02-ngv2-oracle-reauthor-firstcall"
+  ]
+}

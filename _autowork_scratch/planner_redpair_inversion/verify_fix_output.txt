@@ -1,0 +1,29 @@
+######## PROPOSED-FIX VALIDATION (patched _enforce_module_first) ########
+
+=== FIX/A: new module ABSENT, vc names oracle test ===
+  module_present=False vc='python -m pytest tests/ngv2/test_fsm_evidence.py -q'
+  OUTPUT: oracle.deps=[] impl.deps=['fsm-oracle']  -> PRESERVED
+  expect_preserved=True  -> PASS
+
+=== FIX/B: existing module PRESENT, vc names oracle test ===
+  module_present=True vc='python -m pytest tests/ngv2/test_fsm_evidence.py -q'
+  OUTPUT: oracle.deps=[] impl.deps=['fsm-oracle']  -> PRESERVED
+  expect_preserved=True  -> PASS
+
+=== FIX/C: NEGATIVE non-red-pair, module ABSENT (must still invert) ===
+  module_present=False vc='python -m pytest tests/ngv2/test_unrelated_smoke.py -q'
+  OUTPUT: oracle.deps=['fsm-impl'] impl.deps=[]  -> INVERTED
+  expect_preserved=False  -> PASS
+
+=== FIX/None: repo_root=None ===
+  red-pair     -> oracle.deps=[] impl.deps=['fsm-oracle']  (expect preserved)
+  non-red-pair -> oracle.deps=['fsm-impl'] impl.deps=[]  (expect inverted)
+  -> PASS
+
+==================== SUMMARY ====================
+FIX/A new-module red-pair now PRESERVED : PASS
+FIX/B existing-module red-pair PRESERVED: PASS
+FIX/C non-red-pair STILL INVERTS (narrow): PASS
+FIX/None repo_root=None consistent      : PASS
+
+FIX VERDICT: CORRECT AND NARROW

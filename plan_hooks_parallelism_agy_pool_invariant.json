@@ -1,0 +1,147 @@
+{
+  "tasks": [
+    {
+      "task_id": "agy_pool_size_invariant_guard",
+      "title": "Implement agy-pool size invariant guard in harness/agy_pool.py",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "harness/agy_pool.py"
+      ],
+      "acceptance_criteria": [
+        "harness/agy_pool.py implements PoolInvariantError",
+        "harness/agy_pool.py implements effective_pool_size",
+        "harness/agy_pool.py implements assert_pool_invariant",
+        "Existing functions and constants in harness/agy_pool.py are unmodified",
+        "The pre-committed tests in tests/harness/test_agy_pool_size_invariant.py pass successfully"
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/harness/test_agy_pool_size_invariant.py -q",
+      "spec": {
+        "objective": "Add runtime verification and clamp safety utilities to prevent workers from falling back to shared HOME when pool size is below parallel_cap.",
+        "functional_requirements": [
+          "Implement the three runtime enforcement symbols: PoolInvariantError exception, effective_pool_size clamp, and assert_pool_invariant checker in harness/agy_pool.py.",
+          "Ensure existing agy_pool symbols and behaviors, such as allocate_slot, remain functional and unaltered."
+        ],
+        "interfaces": "Exception PoolInvariantError(ValueError), effective_pool_size(*, enabled: bool, size: int, parallel_cap: int) -> int, and assert_pool_invariant(*, enabled: bool, size: int, parallel_cap: int) -> None in harness/agy_pool.py.",
+        "edge_cases": [
+          "Size below parallel cap raises PoolInvariantError when enabled",
+          "Size below parallel cap is clamped to parallel cap by effective_pool_size when enabled",
+          "Size below parallel cap is unmodified when disabled",
+          "allocate_slot handles degenerate size <= 0 correctly by returning None"
+        ],
+        "non_goals": [
+          "No integration: the daemon/orchestrator wiring is out of scope and is not implemented."
+        ],
+        "implementation_notes": "Write the entire file using the __JANUSMASK_MANIFEST__ convention by reproducing the entire module verbatim and appending the three new symbols at the bottom of the file.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/harness/test_agy_pool_size_invariant.py\n```python\n\"\"\"Oracle: runtime enforcement of the agy-pool ``size >= parallel_cap`` invariant.\n\nToday the invariant is COMMENT-ONLY (config.yaml warns it is \"NOT\nruntime-enforced\"). When the pool is enabled but ``size < parallel_cap`` the\ndocumented footgun fires: a concurrent worker beyond ``size`` gets no slot\n(``allocate_slot`` returns ``None``) and silently falls back to the SHARED\n``~/.gemini`` HOME -- exactly the cred/registry corruption the pool exists to\nprevent.\n\nThis oracle pins a permanent, reusable guard in ``harness.agy_pool`` that makes\nthe footgun impossible:\n\n  * ``effective_pool_size(enabled, size, parallel_cap)`` -- the size the runtime\n    MUST use. When the pool is enabled it can never be below ``parallel_cap``\n    (auto-clamps UP), so every concurrent worker is guaranteed a private slot.\n    When disabled it returns the requested size unchanged (no pooling occurs).\n\n  * ``assert_pool_invariant(enabled, size, parallel_cap)`` -- the strict,\n    fail-closed form: raises ``PoolInvariantError`` (a clear, named error) when\n    the pool is enabled and ``size < parallel_cap``; a no-op otherwise.\n\nPure function of the ``(enabled, size, parallel_cap)`` tuple -- no I/O.\n\"\"\"\nfrom __future__ import annotations\n\nimport pytest\n\nfrom harness import agy_pool\n\n\n# --- a named, catchable error exists ---------------------------------------\n\ndef test_pool_invariant_error_is_a_named_exception():\n    assert issubclass(agy_pool.PoolInvariantError, Exception)\n\n\n# --- effective_pool_size: auto-clamp keeps coverage -------------------------\n\ndef test_effective_size_clamps_up_to_cap_when_enabled_and_too_small():\n    # The footgun input: enabled pool, size below the cap. The effective size\n    # MUST cover the cap so no concurrent worker is left unpooled.\n    assert agy_pool.effective_pool_size(enabled=True, size=2, parallel_cap=5) == 5\n\n\ndef test_effective_size_unchanged_when_size_already_covers_cap():\n    assert agy_pool.effective_pool_size(enabled=True, size=8, parallel_cap=5) == 8\n\n\ndef test_effective_size_passthrough_when_disabled():\n    # Disabled => no pooling; the guard never inflates a disabled pool.\n    assert agy_pool.effective_pool_size(enabled=False, size=2, parallel_cap=5) == 2\n\n\n# --- assert_pool_invariant: fail-closed ------------------------------------\n\ndef test_assert_invariant_raises_when_enabled_and_size_below_cap():\n    with pytest.raises(agy_pool.PoolInvariantError):\n        agy_pool.assert_pool_invariant(enabled=True, size=3, parallel_cap=5)\n\n\ndef test_assert_invariant_error_message_is_clear():\n    with pytest.raises(agy_pool.PoolInvariantError) as ei:\n        agy_pool.assert_pool_invariant(enabled=True, size=3, parallel_cap=5)\n    msg = str(ei.value)\n    assert \"3\" in msg and \"5\" in msg  # surfaces the offending size and cap\n\n\ndef test_assert_invariant_noop_when_size_covers_cap():\n    # Returns normally (no raise) when the invariant holds.\n    agy_pool.assert_pool_invariant(enabled=True, size=8, parallel_cap=5)\n\n\ndef test_assert_invariant_noop_when_disabled():\n    # Disabled pool can never trip the invariant (workers share HOME by design).\n    agy_pool.assert_pool_invariant(enabled=False, size=1, parallel_cap=5)\n\n\n# --- allocate_slot stays hardened against a degenerate size -----------------\n\ndef test_allocate_slot_returns_none_for_nonpositive_size():\n    # A degenerate size must never hand out slot 0 (which would then race the\n    # shared HOME). Lowest-free over range(0) is None.\n    assert agy_pool.allocate_slot(set(), size=0) is None\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_pool_invariant_error_is_a_named_exception"
+          },
+          {
+            "name": "test_effective_size_clamps_up_to_cap_when_enabled_and_too_small"
+          },
+          {
+            "name": "test_effective_size_unchanged_when_size_already_covers_cap"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "tests/harness/test_agy_pool_size_invariant.py::test_effective_size_passthrough_when_disabled"
+          },
+          {
+            "name": "tests/harness/test_agy_pool_size_invariant.py::test_assert_invariant_raises_when_enabled_and_size_below_cap"
+          }
+        ],
+        "minimum_test_count": 5,
+        "test_data_requirements": "No special external test data required; runs as a pure stdlib verification."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Standard budget ratio."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "agy_pool_enable_and_config_oracle",
+      "title": "Enable agy pool in config and update its config oracle",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [
+        "agy_pool_size_invariant_guard"
+      ],
+      "files_touched": [
+        "harness/config.yaml"
+      ],
+      "acceptance_criteria": [
+        "harness/config.yaml has workers.agy_pool.enabled set to true verbatim",
+        "The verification command passes successfully"
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/test_config_agy_pool.py -q",
+      "spec": {
+        "objective": "Enable the project-local agy worker HOME pool and align the config oracle tests.",
+        "functional_requirements": [
+          "Flip workers.agy_pool.enabled from false to true in harness/config.yaml."
+        ],
+        "interfaces": "Configuration workers.agy_pool.enabled in harness/config.yaml.",
+        "edge_cases": [
+          "Ensure config.yaml has absolutely no formatting drift other than the enabled flag."
+        ],
+        "non_goals": [
+          "No integration: daemon/orchestrator runtime wiring is out of scope."
+        ],
+        "implementation_notes": "Flip the enabled flag to true in harness/config.yaml.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_config_agy_pool.py\n```python\n\"\"\"Oracle for the workers.agy_pool config block (Pillar B of agent_exec_substrate).\n\nharness/agy_pool.py is the isolated-HOME pool module; this block is the gate the\ndaemon/orchestrator read to decide whether to pool a worker's $HOME. It is\nENABLED (Parallelism feature): every concurrent agy worker gets a private,\nisolated HOME so parallel Antigravity registries cannot corrupt each other. Its\nsize must cover the daemon's parallel_cap so no concurrent worker is left sharing\nthe registry.\n\"\"\"\nfrom harness.orchestrator import load_config\n\n\ndef test_agy_pool_block_present_and_enabled():\n    cfg = load_config()\n    assert \"workers\" in cfg, \"config.yaml has no workers: block\"\n    pool = cfg[\"workers\"][\"agy_pool\"]\n    # ENABLED: each concurrent agy worker gets a private isolated $HOME.\n    assert pool[\"enabled\"] is True\n\n\ndef test_agy_pool_size_covers_parallel_cap():\n    cfg = load_config()\n    size = cfg[\"workers\"][\"agy_pool\"][\"size\"]\n    cap = cfg[\"autowork\"][\"parallel_cap\"]\n    assert isinstance(size, int) and size >= cap, (\n        \"agy_pool.size (%r) must be >= autowork.parallel_cap (%r) so every \"\n        \"concurrent worker gets a private slot\" % (size, cap)\n    )\n\n\ndef test_agy_pool_block_is_additive():\n    cfg = load_config()\n    # Sanity: the new block did not disturb existing top-level blocks.\n    assert \"autowork\" in cfg and \"overseer\" in cfg and \"agents\" in cfg\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_agy_pool_block_present_and_enabled"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "tests/test_config_agy_pool.py::test_agy_pool_block_is_additive"
+          },
+          {
+            "name": "tests/test_config_agy_pool.py::test_agy_pool_size_covers_parallel_cap"
+          }
+        ],
+        "minimum_test_count": 5,
+        "test_data_requirements": "Reads harness/config.yaml via load_config."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Standard budget ratio."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_parallelism_agy_pool_invariant.md",
+  "source_brief_sha256": "f054055c22176faf10e03e7e86682ff272b851ab27aebbe5718d44c77116b202",
+  "required_task_ids": [
+    "agy_pool_size_invariant_guard",
+    "agy_pool_enable_and_config_oracle"
+  ]
+}

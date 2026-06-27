@@ -1,0 +1,203 @@
+[17:12:52 i=1] processed=[] blocked=[] plan=[]
+[17:13:22 i=2] processed=[] blocked=[] plan=[]
+[17:13:52 i=3] processed=[] blocked=[] plan=[]
+[17:14:22 i=4] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903639.5758295, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "extract", "detail": "int2_onesided_metamorphic_v2"}
+{"ts": 1781903643.1301844, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch_sequential", "detail": "running sequential/claude worker"}
+{"ts": 1781903643.130978, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch", "detail": "pid=2114666"}
+{"ts": 1781903643.161449, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_start"}
+[17:14:52 i=5] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903639.5758295, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "extract", "detail": "int2_onesided_metamorphic_v2"}
+{"ts": 1781903643.1301844, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch_sequential", "detail": "running sequential/claude worker"}
+{"ts": 1781903643.130978, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch", "detail": "pid=2114666"}
+{"ts": 1781903643.161449, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_start"}
+[17:15:22 i=6] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903639.5758295, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "extract", "detail": "int2_onesided_metamorphic_v2"}
+{"ts": 1781903643.1301844, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch_sequential", "detail": "running sequential/claude worker"}
+{"ts": 1781903643.130978, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch", "detail": "pid=2114666"}
+{"ts": 1781903643.161449, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_start"}
+[17:15:52 i=7] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903639.5758295, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "extract", "detail": "int2_onesided_metamorphic_v2"}
+{"ts": 1781903643.1301844, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch_sequential", "detail": "running sequential/claude worker"}
+{"ts": 1781903643.130978, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch", "detail": "pid=2114666"}
+{"ts": 1781903643.161449, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_start"}
+[17:16:22 i=8] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903639.5758295, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "extract", "detail": "int2_onesided_metamorphic_v2"}
+{"ts": 1781903643.1301844, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch_sequential", "detail": "running sequential/claude worker"}
+{"ts": 1781903643.130978, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch", "detail": "pid=2114666"}
+{"ts": 1781903643.161449, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_start"}
+[17:16:52 i=9] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903639.5758295, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "extract", "detail": "int2_onesided_metamorphic_v2"}
+{"ts": 1781903643.1301844, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch_sequential", "detail": "running sequential/claude worker"}
+{"ts": 1781903643.130978, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch", "detail": "pid=2114666"}
+{"ts": 1781903643.161449, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_start"}
+[17:17:22 i=10] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903639.5758295, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "extract", "detail": "int2_onesided_metamorphic_v2"}
+{"ts": 1781903643.1301844, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch_sequential", "detail": "running sequential/claude worker"}
+{"ts": 1781903643.130978, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch", "detail": "pid=2114666"}
+{"ts": 1781903643.161449, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_start"}
+[17:17:52 i=11] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903639.5758295, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "extract", "detail": "int2_onesided_metamorphic_v2"}
+{"ts": 1781903643.1301844, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch_sequential", "detail": "running sequential/claude worker"}
+{"ts": 1781903643.130978, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch", "detail": "pid=2114666"}
+{"ts": 1781903643.161449, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_start"}
+[17:18:22 i=12] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903639.5758295, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "extract", "detail": "int2_onesided_metamorphic_v2"}
+{"ts": 1781903643.1301844, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch_sequential", "detail": "running sequential/claude worker"}
+{"ts": 1781903643.130978, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch", "detail": "pid=2114666"}
+{"ts": 1781903643.161449, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_start"}
+[17:18:53 i=13] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903639.5758295, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "extract", "detail": "int2_onesided_metamorphic_v2"}
+{"ts": 1781903643.1301844, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch_sequential", "detail": "running sequential/claude worker"}
+{"ts": 1781903643.130978, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch", "detail": "pid=2114666"}
+{"ts": 1781903643.161449, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_start"}
+[17:19:23 i=14] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903959.2522416, "event": "phase_transition", "phase": "ast_validation", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "ast_validation"}}
+{"ts": "2026-06-19T21:19:19Z", "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "task_blocked", "detail": "non-accept terminal (auto_commit_failed) routed to blocked/ (attempt 1)", "outcome": "auto_commit_failed", "attempts": 1}
+{"ts": 1781903959.953656, "event": "task_terminal", "task_id": "int2-onesided-metamorphic-v2-oracle"}
+{"ts": 1781903959.9677083, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+[17:19:53 i=15] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903959.9677083, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781903967.355461, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781903967.359814, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781903967.3693428, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:20:23 i=16] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903959.9677083, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781903967.355461, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781903967.359814, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781903967.3693428, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:20:53 i=17] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903959.9677083, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781903967.355461, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781903967.359814, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781903967.3693428, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:21:23 i=18] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903959.9677083, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781903967.355461, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781903967.359814, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781903967.3693428, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:21:53 i=19] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903959.9677083, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781903967.355461, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781903967.359814, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781903967.3693428, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:22:23 i=20] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903959.9677083, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781903967.355461, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781903967.359814, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781903967.3693428, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:22:53 i=21] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903959.9677083, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781903967.355461, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781903967.359814, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781903967.3693428, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:23:23 i=22] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903959.9677083, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781903967.355461, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781903967.359814, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781903967.3693428, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:23:53 i=23] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903959.9677083, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781903967.355461, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781903967.359814, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781903967.3693428, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:24:23 i=24] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903959.9677083, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781903967.355461, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781903967.359814, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781903967.3693428, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:24:53 i=25] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903959.9677083, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781903967.355461, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781903967.359814, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781903967.3693428, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:25:23 i=26] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903959.9677083, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781903967.355461, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781903967.359814, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781903967.3693428, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:25:53 i=27] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781903959.9677083, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781903967.355461, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781903967.359814, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781903967.3693428, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:26:23 i=28] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781904366.585719, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "extract", "detail": "retry_blocked attempts=1"}
+{"ts": 1781904371.2078793, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch_sequential", "detail": "running sequential/claude worker"}
+{"ts": 1781904371.2086751, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch", "detail": "pid=2118493"}
+{"ts": 1781904371.2405803, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_start"}
+[17:26:53 i=29] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781904366.585719, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "extract", "detail": "retry_blocked attempts=1"}
+{"ts": 1781904371.2078793, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch_sequential", "detail": "running sequential/claude worker"}
+{"ts": 1781904371.2086751, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch", "detail": "pid=2118493"}
+{"ts": 1781904371.2405803, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_start"}
+[17:27:23 i=30] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781904366.585719, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "extract", "detail": "retry_blocked attempts=1"}
+{"ts": 1781904371.2078793, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch_sequential", "detail": "running sequential/claude worker"}
+{"ts": 1781904371.2086751, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch", "detail": "pid=2118493"}
+{"ts": 1781904371.2405803, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_start"}
+[17:27:53 i=31] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781904366.585719, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "extract", "detail": "retry_blocked attempts=1"}
+{"ts": 1781904371.2078793, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch_sequential", "detail": "running sequential/claude worker"}
+{"ts": 1781904371.2086751, "pid": 2081755, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "launch", "detail": "pid=2118493"}
+{"ts": 1781904371.2405803, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_start"}
+[17:28:23 i=32] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781904493.0569432, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781904500.4742892, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781904500.478091, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781904500.4870977, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:28:53 i=33] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781904493.0569432, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781904500.4742892, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781904500.478091, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781904500.4870977, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:29:23 i=34] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781904493.0569432, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781904500.4742892, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781904500.478091, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781904500.4870977, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:29:53 i=35] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781904493.0569432, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781904500.4742892, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781904500.478091, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781904500.4870977, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:30:23 i=36] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781904493.0569432, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781904500.4742892, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781904500.478091, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781904500.4870977, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:30:53 i=37] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781904493.0569432, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781904500.4742892, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781904500.478091, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781904500.4870977, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:31:23 i=38] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781904493.0569432, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781904500.4742892, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781904500.478091, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781904500.4870977, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:31:53 i=39] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781904493.0569432, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781904500.4742892, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781904500.478091, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781904500.4870977, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:32:23 i=40] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781904493.0569432, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781904500.4742892, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781904500.478091, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781904500.4870977, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:32:53 i=41] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781904493.0569432, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781904500.4742892, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781904500.478091, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781904500.4870977, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:33:23 i=42] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781904493.0569432, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781904500.4742892, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781904500.478091, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781904500.4870977, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}
+[17:33:53 i=43] processed=[] blocked=[] plan=[]
+  progress: {"ts": 1781904493.0569432, "event": "phase_transition", "phase": "rejected", "task_id": "int2-onesided-metamorphic-v2-oracle", "phase_transition": {"to": "rejected"}}
+{"ts": 1781904500.4742892, "event": "decode_check", "task_id": "int2-onesided-metamorphic-v2-oracle", "ok": false, "repaired": false, "dropped_edits": 0}
+{"ts": 1781904500.478091, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "worker_exit", "exit_code": 1, "stderr_tail": "ome/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging']' returned non-zero exit status 128.\\ngit worktree remove failed after 3 attempts for /home/xnihil0zer0/JanusMaskJR_int2-onesided-metamorphic-v2-oracle_staging; falling back to rmtree\\n"}
+{"ts": 1781904500.4870977, "phase": "autowork", "task_id": "int2-onesided-metamorphic-v2-oracle", "event": "reject_rollback", "files": ["tests/harness/test_int2_onesided_metamorphic.py"]}

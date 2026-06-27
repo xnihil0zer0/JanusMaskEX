@@ -1,0 +1,55 @@
+[proof] work_dir=/tmp/ptyproof_0iplnlf3
+[proof] jailed[:10]=['/usr/bin/bwrap', '--die-with-parent', '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--ro-bind', '/usr']
+[run] READY reached at 1s; sending seed
+[run] t=10s inflight=True consec=0 file=True
+[run] t=20s inflight=True consec=0 file=True
+[run] t=30s inflight=True consec=0 file=True
+[run] t=40s inflight=True consec=0 file=True
+[run] t=50s inflight=True consec=0 file=True
+[run] t=60s inflight=True consec=0 file=True
+[run] t=70s inflight=True consec=0 file=True
+[run] t=80s inflight=True consec=0 file=True
+[run] t=90s inflight=True consec=0 file=True
+[run] t=100s inflight=True consec=0 file=True
+[run] t=110s inflight=True consec=0 file=True
+[run] t=121s inflight=True consec=0 file=True
+[run] t=131s inflight=True consec=0 file=True
+[run] t=141s inflight=True consec=0 file=True
+[run] t=151s inflight=True consec=0 file=True
+[run] t=161s inflight=True consec=0 file=True
+[run] t=171s inflight=True consec=0 file=True
+[run] t=181s inflight=True consec=0 file=True
+[run] t=191s inflight=True consec=0 file=True
+[run] t=201s inflight=True consec=0 file=True
+[run] t=211s inflight=True consec=0 file=True
+[run] t=221s inflight=True consec=0 file=True
+[run] t=231s inflight=True consec=0 file=True
+[proof] ready=True idle=False dead_early=None in 242s
+[proof] === final screen tail ===
+✽n5
+
+
+
+
+
+
+
+g6
+
+
+
+
+
+
+
+●Done. I created outbox/submission.pywithexactlythespecifiedcontents.✻ Worked for 8s❯  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents    14117 tokens
+globalVersion:2.1.156·latestVersion:2.1.177✗Auto-updatefailed·Try/doctor ornpmi-g@anthropic-ai/claude-code
+●high·/effort
+2 MCP servers failed · /mcp
+cat outbox/submission.py
+
+
+
+
+[proof] outbox/submission.py exists=True content="print('PTY_JAIL_OK')\n"
+[proof] PASS

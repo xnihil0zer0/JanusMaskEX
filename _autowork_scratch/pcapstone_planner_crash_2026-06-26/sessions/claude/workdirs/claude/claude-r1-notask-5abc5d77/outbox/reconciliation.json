@@ -1,0 +1,90 @@
+{
+  "responses": [
+    {
+      "diff_item_id": "__critique__",
+      "stance": "amend"
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "crit-dup-single-candidate-7a1c93",
+      "category": "other",
+      "severity": "error",
+      "task_id": "test_acceptance_dispatch_fix",
+      "field_path": "plan.tasks",
+      "suggested_patch": {
+        "op": "add_dependency",
+        "detail": "Merge/dedup against ACCEPT_SINGLE_CANDIDATE_TEST_ACCEPTANCE; keep the Claude-proposed task (more complete spec) and drop or fold this one. If both are kept, gate this one behind the other to serialize edits to harness/orchestrator.py.",
+        "dependency": "ACCEPT_SINGLE_CANDIDATE_TEST_ACCEPTANCE"
+      },
+      "message": "DUPLICATE / CONFLICTING TASKS. 'ACCEPT_SINGLE_CANDIDATE_TEST_ACCEPTANCE' (proposed_by=claude) and 'test_acceptance_dispatch_fix' (proposed_by=gemini) implement the SAME feature: accept a lone valid agent candidate for test_acceptance tasks when the other agent yields NONE. Both edit harness/orchestrator.py with overlapping acceptance criteria and identical non_goals ('do not weaken dual-agent reconciliation'). Running both will cause merge conflicts and double-implementation of _is_single_candidate / run_both_agents changes. These should have been reconciled into one task during the diff/reconcile stage but both carry reconciled=false. Recommend keeping the Claude task (it has fully enumerated edge_cases, an adversarial test, and an explicit predicate helper) and discarding/folding the Gemini duplicate."
+    },
+    {
+      "finding_id": "crit-empty-edgecases-dispatch-3f8b21",
+      "category": "missing_edge_case",
+      "severity": "error",
+      "task_id": "test_acceptance_dispatch_fix",
+      "field_path": "/tasks/2/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "detail": "Populate edge_cases with the three critical cases its duplicate task already enumerates: (1) symmetric submitter claude=submitted/gemini=NONE accepted identically; (2) both agents AND claude_fallback yield NONE -> still rejected, no spurious accept; (3) a code-synthesis task with non-empty files_touched and a single submitter -> existing retry behaviour preserved (single-candidate acceptance must NOT fire). Then reflect >=2 of them in regression_tests/property_tests."
+      },
+      "message": "MISSING EDGE CASES. 'test_acceptance_dispatch_fix' has spec.edge_cases == [] (empty) even though it mutates the dual-agent reconcile control flow. The validator's edge-case gate (len(prop_tests)+len(reg_tests) >= min(2, len(edge_cases))) is satisfied ONLY because edge_cases is empty (needed=min(2,0)=0) — i.e. the task dodges the regression-coverage requirement by declaring zero edge cases. The sibling task ACCEPT_SINGLE_CANDIDATE_TEST_ACCEPTANCE correctly enumerates symmetric-submitter, both-None, and files_touched-control cases; this task swaps candidate code/status between agents and MUST cover the both-None (no spurious accept) and the non-empty-files_touched negative case or it risks accepting orphaned/invalid submissions."
+    },
+    {
+      "finding_id": "crit-undernamed-tests-dispatch-b29e07",
+      "category": "test_heavy_violation",
+      "severity": "warn",
+      "task_id": "test_acceptance_dispatch_fix",
+      "field_path": "/tasks/2/test_spec",
+      "suggested_patch": {
+        "op": "increase_test_count",
+        "detail": "Either enumerate the missing 7 tests (add integration/regression/property entries covering the both-None reject, symmetric submitter, non-test_acceptance negative path, and auto-commit empty-files_touched staging-worktree behaviour) or lower minimum_test_count to match reality. Recommend enumerating, not lowering."
+      },
+      "message": "TEST-HEAVY / TEST-PLAN INCONSISTENCY. test_spec.minimum_test_count == 10 but only 3 tests are actually enumerated (unit=3, integration=0, property=0, regression=0). The declared minimum is not backed by named tests, so the test plan cannot be audited and the test-heavy intent is not realized. Additionally token_budget_ratio is 200 impl / 300 test == exactly 1.5x — it sits on the validator boundary (test_tokens < 1.5*impl triggers a violation; 300 == 1.5*200 narrowly passes) leaving zero margin given the under-enumerated test set."
+    },
+    {
+      "finding_id": "crit-dangling-dep-watchdog-5c4410",
+      "category": "other",
+      "severity": "warn",
+      "task_id": "test_acceptance_dispatch_fix",
+      "field_path": "/tasks/2/dependencies/0",
+      "suggested_patch": {
+        "op": "add_dependency",
+        "detail": "Replace the dangling 'watchdog_timeout_increase' reference. No task with that id exists in this plan. If a watchdog dependency is truly needed it should point at the in-plan task 'WATCHDOG_BUDGET_COVERS_FALLBACK_RECONCILE'; otherwise (the WATCHDOG_TIMEOUT_INCREASE work is already merged per git history) drop the dependency entirely.",
+        "dependency": "WATCHDOG_BUDGET_COVERS_FALLBACK_RECONCILE"
+      },
+      "message": "DANGLING DEPENDENCY. 'test_acceptance_dispatch_fix' declares dependencies=['watchdog_timeout_increase'], but no task with id 'watchdog_timeout_increase' exists in the merged plan (the in-plan watchdog task is 'WATCHDOG_BUDGET_COVERS_FALLBACK_RECONCILE'; 'WATCHDOG_TIMEOUT_INCREASE' is an already-merged commit). This is not a dependency cycle, but an unresolved/typo'd edge that will either be silently dropped or block scheduling. The dispatch fix has no real ordering dependency on the watchdog budget change, so the reference is likely spurious."
+    },
+    {
+      "finding_id": "crit-contradictory-integration-watchdog-9d1e55",
+      "category": "other",
+      "severity": "warn",
+      "task_id": "WATCHDOG_BUDGET_COVERS_FALLBACK_RECONCILE",
+      "field_path": "/tasks/1/test_spec/integration_tests/0",
+      "suggested_patch": {
+        "op": "add_non_goal",
+        "detail": "The integration test 'test_sequential_launch_uses_extended_budget_no_premature_kill' contradicts non_goals ('do not write integration tests that launch a real orchestrator_worker subprocess') and implementation_notes ('Integration coverage is limited to the pure budget-helper unit/regression tests'). Either remove the integration test (the non_goals already excuse it from the missing_integration_test gate) or rename/redefine it to assert only the pure _sequential_watchdog_budget helper with NO subprocess launch."
+      },
+      "message": "INTERNAL CONTRADICTION. The test_spec lists an integration test named 'test_sequential_launch_uses_extended_budget_no_premature_kill', which by name exercises the sequential launch path. But the task's own non_goals and implementation_notes explicitly forbid integration tests that launch a real orchestrator_worker subprocess and restrict coverage to the pure budget helper. The integration test is also not required (non_goals contains the word 'integration', which excuses the validator's missing_integration_test gate). As written it either violates its own non_goals or is dead/misleading."
+    },
+    {
+      "finding_id": "crit-undernamed-tests-accept-1ab6f2",
+      "category": "test_heavy_violation",
+      "severity": "info",
+      "task_id": "ACCEPT_SINGLE_CANDIDATE_TEST_ACCEPTANCE",
+      "field_path": "/tasks/0/test_spec",
+      "suggested_patch": {
+        "op": "increase_test_count",
+        "detail": "Add 2 more named tests (e.g. a property test over the gating matrix, plus an explicit 'fallback yields the surviving candidate' test) so the enumerated set (currently 8) reaches the declared minimum_test_count of 10, or reduce minimum_test_count to 8."
+      },
+      "message": "MINOR TEST-PLAN INCONSISTENCY. minimum_test_count == 10 but only 8 tests are enumerated (unit=4, integration=1, property=0, regression=3). Validator passes (10 >= 1.5*3 frs), but the declared minimum exceeds the named set by 2. Low severity since the gating matrix is otherwise well covered."
+    },
+    {
+      "finding_id": "crit-checks-clean-benchmark-cycle-0e7d88",
+      "category": "other",
+      "severity": "info",
+      "message": "DILIGENCE NOTE on the two remaining mandated checks: (a) inflated_benchmark — NONE found. No task asserts a performance/throughput speedup or quantitative benchmark; Task WATCHDOG_BUDGET's '...budget exceeds the prior fixed floor' is a correctness assertion, not an inflated benchmark. (e) dependency_cycle — NONE found. Dependency graph edges are: ACCEPT_SINGLE_CANDIDATE_TEST_ACCEPTANCE -> []; WATCHDOG_BUDGET_COVERS_FALLBACK_RECONCILE -> []; test_acceptance_dispatch_fix -> [watchdog_timeout_increase (dangling, see separate finding)]. No back-edges, so no cycle. (d) bad_spec_author — NONE: all three tasks have spec_author=null with non-null proposed_by, which is the correct pre-attribution-stamp state (validator only flags spec_author non-null while proposed_by is null)."
+    }
+  ]
+}

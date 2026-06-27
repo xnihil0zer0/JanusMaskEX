@@ -1,0 +1,1 @@
+{"task_id": "installer-impl", "outcome": "rejected", "reason": "decomposed", "subtasks": ["installer-impl-empty_input", "installer-impl-general", "installer-impl-compose"]}

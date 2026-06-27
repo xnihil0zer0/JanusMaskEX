@@ -1,0 +1,41 @@
+==============================================================================
+GAP-1: env-FSM PRODUCER LAYER — does anything STAGE the env-phase inputs?
+==============================================================================
+
+[A] Code producing an env-phase *_input dict (assignment, not param):
+   *** ZERO producers found *** — no code stages any env-phase input dict
+
+[B] env-phase handler MODULES in NGv2 master (fsm_detect/provision/jail_build/...):
+   fsm_detect.py: ABSENT (not in master)
+   fsm_provision.py: ABSENT (not in master)
+   fsm_jail_build.py: ABSENT (not in master)
+   fsm_health_probe.py: ABSENT (not in master)
+   fsm_reachability_probe.py: ABSENT (not in master)
+   fsm_baseline_capture.py: ABSENT (not in master)
+
+[C] conductor_seams.build_evidence — does it emit ANY env-phase evidence key?
+   env-phase evidence keys emitted by build_evidence: NONE
+   _PHASE_COUNT_KEY = {'hunt': 'findings', 'poc': 'pocs', 'detonate': 'reports'}
+   -> env phases counted by persist: NONE
+
+[D] Do EITHER doc enumerate a PRODUCER / conductor-seam staging deliverable
+    for the env states (the impure scan/build/probe that fills the input dicts)?
+   NobleGreedv2-end2end-gap-analysis.md: producer-deliverable lines = 8
+       > > were provably *not* produced by the autonomous FSM.
+       > | **G2** | **Trust gap: confirmation evidence is produced by the PoC about itself.** The semantic oracle confirms on `exit==0 ∧ marker ∈ out
+       > | **G5** | **Autonomous FSM skips its own middle phases** (`triage/verify/novelty/report` never spawned; `source` unreachable). The 8 "confi
+       > | **G10** | **Semantic oracle requires a filesystem write** — whole vuln classes (SSRF, read-only path-trav, SQLi-that-raises) can never pro
+   NGv2-closure-deliverables-and-acceptance-contract.md: producer-deliverable lines = 6
+       > | **X5** | **Confirmation is reproducible** by a disinterested re-runner from `target_sha` + sealed evidence bundle + recorded jail recipe; 
+       > | **X8** | **A JavaScript/TypeScript corpus target is huntable end-to-end** (≥1 of the 13 JS DBs produces a `confirmed` or a typed-`refuted`
+       > **Dependencies:** P2.1 (the FSM produces the `target_spec`).
+       > **EPIC testable condition (X8):** a JS corpus target is driven end-to-end and produces a real JS verdict
+
+[E] Brief-level confirmation the producer is DEFERRED, not planned:
+   c1 brief says 'INJECTED seam': YES
+   c1 brief says 'NEVER walks the filesystem': YES
+   c1 brief says 'supplied as DATA': YES
+   c1 brief says 'conductor seam that runs the impure scan': no
+   c1 brief says 'DEFERRED': YES
+
+VERDICT: env-FSM producer layer is ABSENT and UNPLANNED

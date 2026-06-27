@@ -1,0 +1,476 @@
+{
+  "tasks": [
+    {
+      "task_id": "c7-fsm-live-integration-oracle",
+      "title": "Author tests/ngv2/test_c7_fsm_live_integration.py call-path oracle test suite",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "ngv2.conductor_seams",
+      "priority": "high",
+      "dependencies": [
+        "c7-initial-phase-flip-impl"
+      ],
+      "files_touched": [
+        "tests/ngv2/test_c7_fsm_live_integration.py"
+      ],
+      "acceptance_criteria": [
+        "The new test file tests/ngv2/test_c7_fsm_live_integration.py is authored.",
+        "Verify dynamically imported run_hunt traverses all 6 env phases in order ahead of hunt.",
+        "Assert persisted artifacts' content hashes recompute and pass advance_gate correctly.",
+        "Assert mutating an artifact detail without recomputing hash fails advance_gate.",
+        "Assert trace order runs env phases before any hunt steps.",
+        "Assert interpreter path, build files, and Git commit are dynamically resolved (no hardcoded literal/answering).",
+        "Regression test 1: Safe patched fixture blocked at reachability.",
+        "Regression test 2: Missing build file fixture blocked at detect."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "high",
+      "verification_command": "python -m pytest tests/ngv2/test_c7_fsm_live_integration.py -q",
+      "spec": {
+        "objective": "Author the call-path FSM live integration tests verifying hash compliance, tracing sequence, and fail-closed correctness.",
+        "functional_requirements": [
+          "Dynamically import run_hunt, fsm_evidence, and gate_executor.",
+          "Construct a hermetic temp Git repo carrying pyproject.toml, vuln_service.py, package files, and a dummy commit.",
+          "Populate prior findings with CWE-78 reachability properties.",
+          "Verify e2e execution path, trace sequence, content-hash validations, and refuse-on-tampering checks.",
+          "Verify safe target regression test blocks at reachability with sink_not_reachable terminal.",
+          "Verify no-build-file regression test blocks at detect with no_build_system terminal."
+        ],
+        "interfaces": "run_hunt entrypoint and session database interfaces.",
+        "edge_cases": [
+          "Commit resolution under loose/packed ref patterns.",
+          "Validation of mock finding dict structures."
+        ],
+        "non_goals": [
+          "Do not integrate with real host pip networks or real target external checkouts (no external-corpus integration)."
+        ],
+        "implementation_notes": "Author testing using pytest fixtures. Use temporary database and directory pathways. Prevent answer-key leaks by asserting dynamically resolved nonces in artifacts."
+      },
+      "test_spec": {
+        "unit_tests": [],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_e2e_traversal_success_with_hash_validation"
+          },
+          {
+            "name": "test_tampering_refusal_is_enforced"
+          },
+          {
+            "name": "test_safe_target_refused_at_reachability"
+          },
+          {
+            "name": "test_missing_build_file_refused_at_detect"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Temporary directory fixture and stub SQLite database."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 300,
+        "note": "Pure test authoring task for live call-path integration oracle."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "c7-phase-order-unify-impl",
+      "title": "Slot env phases, fold source, and derive PHASE_ORDER copies from fsm_evidence",
+      "meta_task_type": "validation",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/fsm_evidence.py",
+        "ngv2/transition_planner.py",
+        "ngv2/gate_executor.py",
+        "ngv2/session_api.py",
+        "ngv2/state_machine.py"
+      ],
+      "acceptance_criteria": [
+        "fsm_evidence.PHASE_ORDER is updated with 6 ENV phases ahead of hunt, removing source (detect becomes index 0).",
+        "session_api.PHASE_ORDER derives directly from fsm_evidence.PHASE_ORDER by import.",
+        "session_api._PHASES derives from fsm_evidence.PHASE_ORDER using slice representing legacy agent phases ('hunt', 'triage', 'poc', 'detonate', 'report', 'done') without re-typed literal.",
+        "state_machine.LIFECYCLE_PHASES derives from fsm_evidence.PHASE_ORDER by import/slice.",
+        "All tests in tests/ngv2/test_p21_c0_fsm_scaffold.py and tests/ngv2/test_c7_fsm_live_integration.py pass."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/test_state_machine.py -q",
+      "spec": {
+        "objective": "Unify FSM phase orders across the modules to prevent duplication desyncs, slotting env phases ahead of hunt, and folding the source phase.",
+        "functional_requirements": [
+          "Update ngv2/fsm_evidence.py to set PHASE_ORDER starting with detect, provision, jail_build, health_probe, reachability_probe, baseline_capture, then hunt, etc.",
+          "Update ngv2/session_api.py to import PHASE_ORDER from fsm_evidence and derive _PHASES via indices/slice.",
+          "Update ngv2/state_machine.py to derive LIFECYCLE_PHASES from fsm_evidence.PHASE_ORDER.",
+          "Ensure transition_planner.py and gate_executor.py consume fsm_evidence.PHASE_ORDER instead of duplicated literals."
+        ],
+        "interfaces": "Shared constants PHASE_ORDER, LIFECYCLE_PHASES, and _PHASES in ngv2 modules.",
+        "edge_cases": [
+          "Consecutive index checks correctly key off the updated fsm_evidence.PHASE_ORDER.",
+          "Legacy semantics of session_api._PHASES are fully preserved for session creation."
+        ],
+        "non_goals": [
+          "Do not integration test with real external Target repositories or external host-network pip installers (no external-corpus integration)."
+        ],
+        "implementation_notes": "__JANUSMASK_PATCHES__:\n  - file: ngv2/fsm_evidence.py\n    patches:\n      - kind: symbol\n        target: PHASE_ORDER\n        intent: |\n          Reassign PHASE_ORDER to slot the 6 env phases ahead of hunt and remove 'source'.\n  - file: ngv2/session_api.py\n    patches:\n      - kind: symbol\n        target: PHASE_ORDER\n        intent: |\n          Import PHASE_ORDER from ngv2.fsm_evidence and assign it directly.\n      - kind: symbol\n        target: _PHASES\n        intent: |\n          Slice PHASE_ORDER to extract the legacy agent phases.\n  - file: ngv2/state_machine.py\n    patches:\n      - kind: symbol\n        target: LIFECYCLE_PHASES\n        intent: |\n          Derive LIFECYCLE_PHASES from ngv2.fsm_evidence.PHASE_ORDER.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_state_machine.py\n```python\nimport pytest\nfrom ngv2.contracts import Finding\nfrom ngv2.state_machine import PHASES, ALLOWED_TRANSITIONS, HuntState, HuntStateMachine\ndef test_phases_constant():\n    ...\ndef test_initial_phase_is_hunt():\n    ...\ndef test_legal_transition_advances():\n    ...\ndef test_illegal_transition_raises_and_preserves_phase():\n    ...\ndef test_early_done_allowed_from_every_non_terminal_phase():\n    ...\ndef test_roundtrip_preserves_phase_and_findings():\n    ...\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_phase_order_structure"
+          },
+          {
+            "name": "test_legacy_phases_slice_derivation"
+          },
+          {
+            "name": "test_state_machine_lifecycle_phases_derivation"
+          },
+          {
+            "name": "test_import_consistency_across_modules"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_consecutive_index_checks"
+          },
+          {
+            "name": "test_scaffold_compatibility"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "No external data is required; stubs and in-memory mock FSM inputs are used."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation edits of 5 files, test verifies FSM scaffold compatibility."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "c7-conductor-planner-impl",
+      "title": "Wire run_env_phase action branch in hunt_conductor and transition_planner",
+      "meta_task_type": "validation",
+      "priority": "high",
+      "dependencies": [
+        "c7-seams-env-dispatch-impl"
+      ],
+      "files_touched": [
+        "ngv2/hunt_conductor.py",
+        "ngv2/transition_planner.py"
+      ],
+      "acceptance_criteria": [
+        "hunt_conductor.run_conductor_step dispatches on action 'run_env_phase', invoking seams['env_phase'](state).",
+        "Conductor advances on success or returns blocked step on terminal.",
+        "transition_planner.plan_next_action plans 'run_env_phase' if phase in ENV_PHASE_ORDER.",
+        "All tests in tests/ngv2/test_c7_fsm_live_integration.py pass."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -c \"import ngv2.hunt_conductor, ngv2.transition_planner\"",
+      "spec": {
+        "objective": "Wire run_env_phase action mapping in transition planner and run conductor step logic.",
+        "functional_requirements": [
+          "Update transition_planner.plan_next_action to check if phase in ENV_PHASE_ORDER, planning 'run_env_phase'.",
+          "Update hunt_conductor.run_conductor_step to handle 'run_env_phase' action by calling seams['env_phase'](state).",
+          "Handle success by calling seams['advance'](session_id) and returning step run_env_phase, and failure by returning blocked step."
+        ],
+        "interfaces": "action == 'run_env_phase' handling in conductor and planner.",
+        "edge_cases": [
+          "Deterministic planning behavior when transitioning between consecutive env phases.",
+          "Halting execution immediately if an env phase handler returns advance=False."
+        ],
+        "non_goals": [
+          "Do not perform external network integration checks (no external-corpus integration)."
+        ],
+        "implementation_notes": "__JANUSMASK_PATCHES__:\n  - file: ngv2/hunt_conductor.py\n    patches:\n      - kind: symbol\n        target: run_conductor_step\n        intent: |\n          Add handling for run_env_phase action mapping to seams['env_phase'](state).\n  - file: ngv2/transition_planner.py\n    patches:\n      - kind: symbol\n        target: plan_next_action\n        intent: |\n          Return run_env_phase action for env phases ahead of hunt.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_planner_returns_run_env_phase"
+          },
+          {
+            "name": "test_conductor_executes_run_env_phase"
+          },
+          {
+            "name": "test_conductor_halts_on_env_failure"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_planner_purity_determinism"
+          },
+          {
+            "name": "test_fail_closed_blocked_conductor_halt"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Mocked seams map and session states."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Connects transition planner and conductor steps for env phases."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "c7-seams-env-dispatch-impl",
+      "title": "Wire FSM env-phase dispatch seam and evidence translation in conductor_seams",
+      "meta_task_type": "validation",
+      "priority": "high",
+      "dependencies": [
+        "c7-gate-bridge-impl"
+      ],
+      "files_touched": [
+        "ngv2/conductor_seams.py"
+      ],
+      "acceptance_criteria": [
+        "build_default_seams returns dict carrying the 'env_phase(state)' seam function.",
+        "env_phase seam calls corresponding cP producer and handler for the current env phase, and persists the returned artifact.",
+        "persist handles storing FSM env artifacts under state['env_artifacts'][phase].",
+        "build_evidence translates state['env_artifacts'][from_phase] into ev['env_artifact'].",
+        "The Git head commit is resolved once and used as both pinned_commit and head_commit in detect to prevent mismatch.",
+        "All tests in tests/ngv2/test_c7_fsm_live_integration.py pass."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "high",
+      "verification_command": "python -m pytest tests/ngv2/test_c7_fsm_live_integration.py -q",
+      "spec": {
+        "objective": "Implement the in-process env_phase seam dispatch and wire database persistence and evidence mappings.",
+        "functional_requirements": [
+          "Add env_phase(state) closure inside build_default_seams that routes state['phase'] through cP producers and fsm_* handlers using real seams.",
+          "Thread database persistence for env phases to save artifacts inside state['env_artifacts'][phase].",
+          "Extend build_evidence to map state['env_artifacts'][from_phase] into ev['env_artifact'] when processing env transitions.",
+          "Resolve Git head commit sha once (e.g. from .git/HEAD or command fallback) and pass as both pinned_commit and head_commit in detect."
+        ],
+        "interfaces": "env_phase(state) seam, persist db writer, build_evidence mapping.",
+        "edge_cases": [
+          "Git repository is detached or head ref is loose/packed.",
+          "Subsequent handler calls consume prior persisted artifacts correctly (e.g. health_probe consumes jail_artifact and provision_artifact)."
+        ],
+        "non_goals": [
+          "No external-corpus integration or network downloads during provision."
+        ],
+        "implementation_notes": "__JANUSMASK_PATCHES__:\n  - file: ngv2/conductor_seams.py\n    patches:\n      - kind: symbol\n        target: build_default_seams\n        intent: |\n          Implement env_phase(state) closure calling producers/handlers, extend persist to store env artifacts, modify build_evidence to expose ev['env_artifact'].\n      - kind: symbol\n        target: _PHASE_COUNT_KEY\n        intent: |\n          Add imports of fsm_* and *_producer modules R-anchored on _PHASE_COUNT_KEY.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_env_phase_seam_registered"
+          },
+          {
+            "name": "test_detect_producer_dispatch"
+          },
+          {
+            "name": "test_provision_producer_dispatch"
+          },
+          {
+            "name": "test_jail_build_producer_dispatch"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_git_head_sha_resolution"
+          },
+          {
+            "name": "test_env_artifacts_evidence_exposure"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Temporary session database and test Git repo path context."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implements in-process env dispatch in conductor_seams."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "c7-gate-bridge-impl",
+      "title": "Implement gate bridge for 6 ENV phases in gate_executor",
+      "meta_task_type": "validation",
+      "priority": "high",
+      "dependencies": [
+        "c7-phase-order-unify-impl"
+      ],
+      "files_touched": [
+        "ngv2/gate_executor.py"
+      ],
+      "acceptance_criteria": [
+        "gate_executor.TypedTerminal has 6 new env terminals.",
+        "6 new env transitions are registered in _TRANSITION_GATES.",
+        "Each transition gate caller invokes fsm_evidence.advance_gate(ev['env_artifact']) and maps advance to may_confirm.",
+        "All tests in tests/ngv2/test_c7_fsm_live_integration.py pass."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -c \"import ngv2.gate_executor\"",
+      "spec": {
+        "objective": "Wire the 6 env-readiness phase transitions in gate_executor with advance_gate check over the env_artifact key.",
+        "functional_requirements": [
+          "Add the missing 6 env terminals to TypedTerminal: NO_BUILD_SYSTEM, PROVISION_UNRUNNABLE, JAIL_UNAVAILABLE, SINK_NOT_REACHABLE, MALFORMED_INPUT, and BASELINE_VACUOUS.",
+          "Wire consecutive env transitions in _TRANSITION_GATES (detect->provision, provision->jail_build, jail_build->health_probe, health_probe->reachability_probe, reachability_probe->baseline_capture, and baseline_capture->hunt).",
+          "Import advance_gate into gate_executor and map advance to may_confirm inside the lambda callers."
+        ],
+        "interfaces": "TypedTerminal attributes and _TRANSITION_GATES mapping entries.",
+        "edge_cases": [
+          "Missing env_artifact fails closed with gate:missing_evidence.",
+          "Tampered env_artifact (incorrect content_hash) fails validation in advance_gate."
+        ],
+        "non_goals": [
+          "Do not integration test with real external Targets (no external-corpus integration)."
+        ],
+        "implementation_notes": "__JANUSMASK_PATCHES__:\n  - file: ngv2/gate_executor.py\n    patches:\n      - kind: symbol\n        target: TypedTerminal\n        intent: |\n          Add the 6 env terminals as attributes.\n      - kind: symbol\n        target: _TRANSITION_GATES\n        intent: |\n          Insert the 6 transitions calling advance_gate on ev['env_artifact'].\n      - kind: symbol\n        target: advance_gate\n        intent: |\n          Import advance_gate at the module level.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_typed_terminals_exist"
+          },
+          {
+            "name": "test_env_transition_gates_registered"
+          },
+          {
+            "name": "test_advance_gate_imported"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_tampered_artifact_rejected"
+          },
+          {
+            "name": "test_missing_artifact_rejected"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Inline dictionaries representing clean and tampered env artifacts."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Wires FSM transition gates inside gate_executor."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "c7-initial-phase-flip-impl",
+      "title": "Flip INITIAL_PHASE to detect and seed env_artifacts dict in run_hunt",
+      "meta_task_type": "validation",
+      "priority": "high",
+      "dependencies": [
+        "c7-conductor-planner-impl"
+      ],
+      "files_touched": [
+        "ngv2/run_hunt.py"
+      ],
+      "acceptance_criteria": [
+        "run_hunt._INITIAL_PHASE is re-assigned to 'detect'.",
+        "run_hunt._ensure_seeded initializes state with 'env_artifacts': {} in the DB row.",
+        "Docstrings updated to state that the session starts at detect.",
+        "All tests in tests/ngv2/test_c7_fsm_live_integration.py pass."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -c \"import ngv2.run_hunt\"",
+      "spec": {
+        "objective": "Shift the initial phase of the bug-hunt session to detect, initializing env_artifacts in database.",
+        "functional_requirements": [
+          "Change _INITIAL_PHASE = 'detect'.",
+          "Update _ensure_seeded to include 'env_artifacts': {} in the initial FSM state seed.",
+          "Update module and function docstrings accordingly."
+        ],
+        "interfaces": "run_hunt module constants and database seeding structure.",
+        "edge_cases": [
+          "Ensure that existing sessions with an active phase are untouched during seeding."
+        ],
+        "non_goals": [
+          "No external-corpus integration."
+        ],
+        "implementation_notes": "__JANUSMASK_PATCHES__:\n  - file: ngv2/run_hunt.py\n    patches:\n      - kind: symbol\n        target: _INITIAL_PHASE\n        intent: |\n          Reassign _INITIAL_PHASE to 'detect'.\n      - kind: symbol\n        target: _ensure_seeded\n        intent: |\n          Initialize 'env_artifacts' as empty dict.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_initial_phase_value"
+          },
+          {
+            "name": "test_ensure_seeded_writes_env_artifacts"
+          },
+          {
+            "name": "test_ensure_seeded_idempotency"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_seeded_schema_matching"
+          },
+          {
+            "name": "test_resume_reentry_safe"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "In-memory stub SessionDB database."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Re-assigns start phase to detect and seeds env_artifacts."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_c7_fsm_live_integration.md",
+  "source_brief_sha256": "0e54746925e65354c3fc2da45c47bc1ee7d3679d9183d759c930fd52c28c33cf",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2",
+  "required_task_ids": [
+    "c7-phase-order-unify-impl",
+    "c7-gate-bridge-impl",
+    "c7-seams-env-dispatch-impl",
+    "c7-conductor-planner-impl",
+    "c7-initial-phase-flip-impl",
+    "c7-fsm-live-integration-oracle"
+  ]
+}

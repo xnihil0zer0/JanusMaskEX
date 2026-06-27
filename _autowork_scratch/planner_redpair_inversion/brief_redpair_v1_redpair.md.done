@@ -1,0 +1,90 @@
+---
+working_dir: "/home/xnihil0zer0/JanusMaskJR"
+required_task_ids:
+  - redpair-newmodule-order-oracle
+  - redpair-newmodule-order-impl
+interfaces: "harness/planner/plan_normalizer.py::_enforce_module_first — EDIT existing. Replace ONLY _enforce_module_first so the fix-forward red-pair carve-out fires whenever the impl's verification_command substring-names one of the oracle's authored test files, REGARDLESS of whether the oracle's mutation_target module already exists on disk. Drop the is_file() / `repo_root is not None` precondition; keep the substring-naming check. Signature unchanged; still flips genuine non-red-pairs."
+---
+
+# Title
+Preserve red-pair dependency order for NEW-module oracles in _enforce_module_first
+
+# Scope
+EDIT the EXISTING file `harness/planner/plan_normalizer.py` (READ it first).
+SINGLE FILE — emit a `__JANUSMASK_PATCHES__` SYMBOL patch replacing ONLY
+`_enforce_module_first`. Sensitive path, so the impl task is `harness_self_fix`.
+The fix: in the carve-out (currently ~lines 173-179), DROP the `is_file()` on-disk
+existence check AND the now-unused `repo_root is not None` guard, so the carve-out
+fires whenever the impl's `verification_command` substring-names one of THIS
+oracle's `files_touched` test files. Everything else (the `oracle`/`impl` pairing,
+the flip block, the acyclic-fixup `while` loop) stays byte-identical.
+
+# Inputs
+READ `harness/planner/plan_normalizer.py::_enforce_module_first`. VERIFIED current
+bug: for a NEW-module red-pair (a `test_authoring` oracle whose `mutation_target`
+names a module the impl CREATES), the carve-out's `(Path(repo_root)/_module_path(target)).is_file()`
+is False, so the carve-out is skipped and the flip sets `oracle.deps=[impl]`,
+`impl.deps=[]` — the deadlock direction (impl fires first, runs the not-yet-authored
+test, fails). The impl's vc NAMING the oracle's authored test IS the definitive
+fix-forward signal; module-on-disk is irrelevant. Sibling sanitizer
+`_sanitize_impl_verification_commands` (~:268-290) already keys its own red-pair
+guard on the same vc-names-test signal WITHOUT an is_file() check. Runtime
+acceptance for new-module RED oracles is `orchestrator._new_module_red_by_absence`
+(direction-agnostic), so preserving `impl.deps=[oracle]` is safe. The RED oracle
+below is the source of truth.
+
+# Non-Goals
+Integration is out of scope (the word `integration` MUST appear here to excuse the
+integration-test requirement). Do NOT touch any other symbol, function, or file. Do
+NOT widen the carve-out to fire when the impl vc does NOT name an oracle test file
+(a genuine non-red-pair must STILL be flipped to module-first). Do NOT alter
+`is_fix_forward_redpair` or any orchestrator/acceptance code.
+
+# Deliverables
+`harness/planner/plan_normalizer.py` with `_enforce_module_first` preserving the
+correct red-pair direction for NEW-module oracles, GREEN under the scoped
+verification_command, with no regression to existing-module or non-red-pair behavior.
+
+# Required plan shape
+EXACTLY TWO tasks. Oracle depends on impl is FORBIDDEN; the impl depends on the oracle.
+
+Oracle task:
+- task_id MUST be exactly `redpair-newmodule-order-oracle`.
+- meta_task_type: test_authoring
+- mutation_target: `harness.planner.plan_normalizer`
+- files_touched: ["tests/harness/test_redpair_newmodule_order.py"]
+- dependencies: []
+- verification_command: `python -m pytest tests/harness/test_redpair_newmodule_order.py -q`
+- The oracle AUTHORS `tests/harness/test_redpair_newmodule_order.py` (submit as
+  ordinary Python — NOT importlib; `normalize_plan` is existing harness code,
+  import it directly: `from harness.planner.plan_normalizer import normalize_plan`).
+  The test MUST be data-driven (no hardcoded answer-key; no clock/uuid/random/network)
+  and MUST contain at least these three assertions:
+  1. NEW-MODULE RED-PAIR (the bug): build a 2-task plan in memory — a
+     `test_authoring` oracle (mutation_target `pkg.newmod`, files_touched
+     `["tests/pkg/test_newmod.py"]`, dependencies `[]`, vcmd
+     `python -m pytest tests/pkg/test_newmod.py -q`) and an impl
+     (meta_task_type `harness_self_fix`, files_touched `["pkg/newmod.py"]`,
+     dependencies `["<oracle_id>"]`, vcmd = the SAME pytest command that names the
+     oracle's test). Call `normalize_plan(plan, repo_root=str(tmp_path))` where
+     `tmp_path` is an empty dir so `pkg/newmod.py` is ABSENT. Assert the surviving
+     oracle's `dependencies == []` AND the impl's `dependencies == [oracle_id]`.
+     (RED today: currently inverted to oracle.deps=[impl], impl.deps=[]; GREEN after fix.)
+  2. NON-VACUITY / NARROWNESS REGRESSION: the SAME plan but the impl's vcmd names an
+     UNRELATED test (NOT the oracle's file), module still ABSENT → assert the result
+     is STILL inverted (oracle.deps==[impl_id], impl.deps==[]). This proves the fix
+     does not blanket-disable the flip.
+  3. EXISTING-MODULE CONTROL: write `pkg/newmod.py` under tmp_path (module PRESENT),
+     red-pair vcmd names the oracle's test → assert direction PRESERVED
+     (oracle.deps==[], impl.deps==[oracle_id]) — unchanged by the fix.
+- non_goals MUST contain the literal word `integration`. spec_author: null.
+
+Impl task:
+- task_id MUST be exactly `redpair-newmodule-order-impl`.
+- meta_task_type: harness_self_fix
+- files_touched: ["harness/planner/plan_normalizer.py"]
+- dependencies: ["redpair-newmodule-order-oracle"]
+- Emit a `__JANUSMASK_PATCHES__` SYMBOL patch replacing ONLY `_enforce_module_first`
+  (do NOT emit `__JANUSMASK_MANIFEST__`). OMIT mutation_target.
+- verification_command: `python -m pytest tests/harness/test_redpair_newmodule_order.py -q`
+- non_goals MUST contain the literal word `integration`; regression_tests >= 2.

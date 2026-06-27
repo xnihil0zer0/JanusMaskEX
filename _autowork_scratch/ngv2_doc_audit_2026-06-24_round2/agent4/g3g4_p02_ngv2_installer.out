@@ -1,0 +1,61 @@
+=== g3_g4 P0.2-NGv2: _default_pip_installer in poc_runner_live.py ===
+272:        pip_installer = lambda _name, _target_dir: _default_pip_installer(_name, _target_dir, _jail_py)
+434:def _default_pip_installer(name: str, target_dir: str, python_bin: str='/usr/bin/python3') -> bool:
+
+--- the installer body (host-side? network-on? lockfile? --unshare-net? stderr-named pkg?) ---
+        pip_installer = lambda _name, _target_dir: _default_pip_installer(_name, _target_dir, _jail_py)
+    if timeout_s is None:
+        timeout_s = float(spec.get('timeout_s', DEFAULT_TIMEOUT_S))
+    path_entries = ['/usr/bin', '/bin', '/usr/local/bin']
+    if python_bin:
+        pb = Path(python_bin).resolve()
+        bin_dir = str(pb.parent)
+        prefix = str(pb.parent.parent)
+        if os.path.isdir(prefix):
+            extra_ro.append(prefix)
+        path_entries.insert(0, bin_dir)
+    child_env = {'PATH': ':'.join(path_entries), 'HOME': '/tmp', 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
+    if isinstance(spec.get('env'), Mapping):
+        child_env.update({str(k): str(v) for k, v in spec['env'].items()})
+    work_dir = tempfile.mkdtemp(prefix='ngv2-detonate-')
+    deps_dir = os.path.join(work_dir, JMDEPS_DIRNAME)
+    os.makedirs(deps_dir, exist_ok=True)
+    target_top = _target_top_packages(repo_root, ())
+    try:
+        poc_name = _poc_filename(poc)
+        poc_path = os.path.join(work_dir, poc_name)
+        with open(poc_path, 'w', encoding='utf-8') as fh:
+            fh.write(poc.code or '')
+        cmd = spec.get('cmd') or _entry_cmd(poc, poc_path, python_bin=python_bin)
+        loopback_hits: list = []
+        active_jail_runner = jail_runner
+        if loopback and _injected_jail_runner is None:
+            # Shared-loopback-netns path: the listener lives INSIDE the jail's netns.
+            # Bind the leaf-2 runner with this run's poc_path / fs_signature so it can
+            # rewrite the `<<PORT>>` placeholder to the bound port and record callbacks.
+            _lb_sig = expected_fs_signature or ''
+
+            def active_jail_runner(_cmd, *, repo_root, work_dir, extra_ro, child_env, timeout_s):
+                return run_jailed_poc_with_loopback(_cmd, repo_root=repo_root, work_dir=work_dir, extra_ro=extra_ro, child_env=child_env, timeout_s=timeout_s, fs_signature=_lb_sig, callback_env_keys=('NGV2_SSRF_CALLBACK',), poc_path=poc_path)
+        elif loopback and _injected_jail_runner is not None:
+            active_jail_runner = _injected_jail_runner
+
+        def _snapshot_excluding_deps(root: str) -> dict:
+            snap = snapshot_tree(root)
+            prefix = JMDEPS_DIRNAME + '/'
+            # Exclude the _jmdeps install dir AND the leaf-2 loopback config artifact so
+            # neither pollutes the FS-snapshot oracle (they are infra, not PoC effects).
+            return {k: v for k, v in snap.items() if k != prefix and (not k.startswith(prefix)) and (k != LOOPBACK_CFG_FILENAME)}
+
+        def _run_once(env: Mapping[str, str], extra: Sequence[str]) -> dict:
+            before = _snapshot_excluding_deps(work_dir)
+            start = time.monotonic()
+            run = active_jail_runner(cmd, repo_root=repo_root, work_dir=work_dir, extra_ro=list(extra), child_env=env, timeout_s=timeout_s)
+            duration_ms = int(round((time.monotonic() - start) * 1000))
+            after = _snapshot_excluding_deps(work_dir)
+            fs_snapshot_diff = diff_snapshots(before, after)
+            hits = run.get('hits')
+            if hits:
+                loopback_hits[:] = list(hits)
+            return {'exit_code': run.get('exit_code'), 'stdout': run.get('stdout') or '', 'stderr': run.get('stderr') or '', 'duration_ms': duration_ms, 'fs_snapshot_diff': fs_snapshot_diff, 'timed_out': bool(run.get('timed_out'))}
+        result = _run_once(child_env, extra_ro)

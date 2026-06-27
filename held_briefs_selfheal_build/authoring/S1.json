@@ -1,0 +1,97 @@
+{
+  "task_id": "selfheal_01_capture_ast_reason",
+  "title": "Capture the AST rejection reason at the synthesis_or_ast_failed terminal",
+  "meta_task_type": "harness_self_fix",
+  "priority": "high",
+  "dependencies": [],
+  "files_touched": [
+    "harness/orchestrator_worker.py"
+  ],
+  "acceptance_criteria": [
+    "In main(), inside the `if not synthesis_success:` terminal block, a lifecycle row is emitted via orch._emit_lifecycle(state_dir, event='ast_validation_failed', task_id=task_id, detail=<summary>) BEFORE the existing orch._mark_blocked(state_dir, task_id, 'synthesis_or_ast_failed') call.",
+    "The summary is built from agent_a_violations / agent_b_violations error-severity entries, each prefixed by the originating agent name (e.g. 'agent_a: <rule> L<line> <message>'), so autowork_daemon._get_errors_for_task surfaces the reason to the diagnosing agent.",
+    "Because _get_errors_for_task only surfaces a ledger row when the line text contains 'fail' or 'error', the emitted event name 'ast_validation_failed' (which contains 'fail') guarantees the detail is surfaced.",
+    "When both violation lists are empty (or contain no error-severity entries), the code degrades gracefully and does not raise; main() still reaches _mark_blocked exactly as today.",
+    "The edit is strictly additive: every other code path in main() is byte-identical and harness/orchestrator_worker.py remains importable at module load.",
+    "python -m pytest tests/adversarial/test_selfheal_ast_reason_capture.py -q passes."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "low",
+  "verification_command": "python -m pytest tests/adversarial/test_selfheal_ast_reason_capture.py -q",
+  "spec": {
+    "objective": "Persist the per-agent AST violation reason as a lifecycle ledger row at the dual-agent reject terminal so the downstream diagnosing agent has a concrete failure cause to act on, closing the first gap in the self-heal loop.",
+    "functional_requirements": [
+      "Build a per-agent AST violation summary string from agent_a_violations and agent_b_violations: include only error-severity Violation entries (v.severity == 'error'), and prefix each entry with the originating agent name (e.g. 'agent_a: <v.rule> L<v.line> <v.message>').",
+      "Emit orch._emit_lifecycle(state_dir, event='ast_validation_failed', task_id=task_id, detail=<summary>) immediately BEFORE the existing orch._mark_blocked(state_dir, task_id, 'synthesis_or_ast_failed') call in the `if not synthesis_success:` block (worker reject terminal, around orchestrator_worker.py:312-319).",
+      "Degrade gracefully when no error-severity violations exist (empty lists, or only warnings): emit a benign/empty-but-valid detail without raising, and keep main() otherwise byte-identical so module importability and all non-reject paths are unchanged."
+    ],
+    "interfaces": "Uses the existing orch._emit_lifecycle(state_dir, event, task_id, detail) (orchestrator.py:51, **fields signature) and Violation objects exposing .rule/.line/.message/.severity (already in scope at the terminal as agent_a_violations / agent_b_violations). No new public symbols; the new code lives inline in main() at the synthesis_or_ast_failed terminal.",
+    "edge_cases": [
+      "Both violation lists empty -> emit with empty/placeholder detail, still call _mark_blocked.",
+      "Violations contain only warning/info severity -> no error entries; summary is empty but emission still succeeds.",
+      "A Violation missing optional attributes -> defensive getattr access so summary building never raises.",
+      "_emit_lifecycle itself failing must not prevent _mark_blocked from running (do not change blocking behavior)."
+    ],
+    "non_goals": [
+      "Do NOT weaken or alter the AST AND-gate or any AST rule.",
+      "Do NOT change which tasks get blocked or the _mark_blocked reason string ('synthesis_or_ast_failed').",
+      "Do NOT modify any other branch of main().",
+      "Do NOT set a working_dir front-matter key (self-build)."
+    ],
+    "implementation_notes": "Edits harness/orchestrator_worker.py main(), at the `if not synthesis_success:` reject terminal (currently orchestrator_worker.py:312-319). Place the summary-building + orch._emit_lifecycle(... event='ast_validation_failed' ...) call directly BEFORE the existing orch._mark_blocked(state_dir, task_id, 'synthesis_or_ast_failed') line. Guard the new code in try/except so any exception is swallowed (best-effort telemetry) and the original control flow is preserved. This is an INLINE additive edit to an EXISTING function (no new top-level symbol) -> pipeline-viable as a partial_edit.\n\n[ORACLE CONTRACT - tests/adversarial/test_selfheal_ast_reason_capture.py] The window between `if not synthesis_success:` and `_mark_blocked(state_dir, task_id, 'synthesis_or_ast_failed')` MUST reference the violations (substring 'agent_a_violations' or 'agent_b_violations' or 'violation') AND emit a ledger row (substring '_emit_lifecycle' together with 'detail', OR 'write_jsonl'). The companion round-trip test (test_get_errors_surfaces_ast_violation_detail) is already GREEN and pins the ledger row shape {event:'ast_validation_failed', detail:'...'} that _get_errors_for_task surfaces."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_summary_includes_agent_prefixed_error_violations"
+      },
+      {
+        "name": "test_lifecycle_emitted_before_mark_blocked"
+      },
+      {
+        "name": "test_empty_violations_degrades_without_raising"
+      },
+      {
+        "name": "test_warning_only_violations_produce_no_error_entries"
+      }
+    ],
+    "integration_tests": [
+      {
+        "name": "test_get_errors_for_task_surfaces_ast_reason"
+      },
+      {
+        "name": "test_reject_terminal_still_marks_blocked"
+      }
+    ],
+    "property_tests": [
+      {
+        "name": "test_main_non_reject_paths_byte_identical"
+      }
+    ],
+    "regression_tests": [
+      {
+        "name": "test_orchestrator_worker_module_importable"
+      },
+      {
+        "name": "test_selfheal_ast_reason_capture_red_oracle_passes"
+      }
+    ],
+    "minimum_test_count": 6,
+    "test_data_requirements": "Fabricated agent_a_violations / agent_b_violations lists with mixed severities, an empty-violations case, and a fake state_dir to capture emitted lifecycle rows."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 100,
+    "test_tokens": 200,
+    "note": "Small additive inline change; test weight dominates to lock the RED oracle and byte-identical guarantee."
+  },
+  "attribution_metadata": {
+    "proposed_by": "claude",
+    "reconciled": false,
+    "diff_resolution": null
+  },
+  "_debug_stamping_reason": "Task was only proposed by Claude.",
+  "partial_edit": true,
+  "constraints": {
+    "no_new_module_level_imports": true
+  }
+}

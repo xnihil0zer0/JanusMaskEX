@@ -1,0 +1,24 @@
+========================================================================
+s4 (A): P2.1 env-FSM decomposition DEVIATION — scaffold orphaned, run_hunt
+        still skips to 'hunt' (the EPIC wire-up bar is NOT met)
+========================================================================
+  ENV_PHASE_ORDER consumers (non-test, non-self): []
+  advance_gate (env-FSM gate) consumers (non-self): []
+  run_hunt _INITIAL_PHASE: ["_INITIAL_PHASE = 'hunt'", "state: Dict[str, Any] = {'session_id': session_id, 'phase': _INITIAL_PHASE, 'repo': repo, 'target': target_path, 'db_path': db_path, 'findings': 0, 'pocs': 0, 'reports': 0, 'artifacts': []}"]
+  run_hunt mentions detect/provision/env-FSM: False
+
+  P2.1 child commits landed (git):
+    e4280e1 Integrate validated code for p21-c3-fsm-jail-build-oracle
+    dc07188 Integrate validated code for p21-c0-fsm-evidence-scaffold
+    9a712e6 Integrate validated code for p21-c0-fsm-scaffold-oracle
+  => only c0 scaffold + c3 oracle present; c1/c2/c4/c5/c6 NOT landed;
+     env-FSM gate code exists but is wired to NOTHING; run_hunt skips to hunt.
+  => doc's P2.1 'EPIC ☐' is dir-correct, but it omits (i) the deviation that
+     children are pure handlers w/ wiring deferred and (ii) a REQUIRED
+     integration leaf to actually reach the EPIC wire-up acceptance bar.
+
+========================================================================
+s4 (B): P3.1 dead-code preconditions — STILL VALID
+========================================================================
+  auth_bootstrap: non-test/non-self importers = (NONE — dead code, claim holds)
+  sink_instrument: non-test/non-self importers = (NONE — dead code, claim holds)

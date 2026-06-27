@@ -1,0 +1,12 @@
+=== MODEL RESOLUTION EVIDENCE (request-time) ===
+settings.json model.name = gemini-3.1-pro-preview
+antigravity-cli/settings.json model = Gemini 3.5 Flash (High)
+
+--- 'Propagating selected model override to backend' label tally (15 newest logs) ---
+     53 label="Gemini 3.5 Flash (High)"
+      4 label="Gemini 3.5 Flash (Medium)"
+
+--- login/availability errors present? (caveat) ---
+E0622 13:52:05. 411557 log.go:398] Failed to poll ListExperiments: error getting token source: You are not log
+W0622 13:52:05. 411557 log_context.go:117] Cache(loadCodeAssistResponse): Singleflight refresh failed: error g
+E0622 13:52:05. 411557 log.go:398] error getting token source: You are not logged into Antigravity.

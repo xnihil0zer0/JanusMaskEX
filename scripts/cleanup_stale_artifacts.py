@@ -1,4 +1,4 @@
-"""Filter stale brief/plan/task artifacts out of the JanusMaskJR repo root.
+"""Filter stale brief/plan/task artifacts out of the JanusMaskEX repo root.
 
 Three buckets:
   KEEP    -- active overseer-chat build + code-referenced fixtures (stay in root)

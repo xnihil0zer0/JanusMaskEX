@@ -1,0 +1,25 @@
+========================================================================
+PROOF 1 -- reproduce attempt-2 apply failure from worker emission
+========================================================================
+emission has 2 patch entries; names=['_consume_no_diff_marker', 'main']
+entry[0] name='_consume_no_diff_marker'
+entry[0] code contains "pathlib.Path.glob = " (Attribute target): True
+[PASS] proof1_reproduces_apply_failure: raised ValueError: 'unsupported extra assignment target kind: Attribute' (ledger expected: 'unsupported extra assignment target kind: Attribute')
+
+========================================================================
+PROOF 2 -- committed oracle is environmentally RED regardless of impl
+========================================================================
+tree files whose NAME contains "manifest" (sample): ['tests/test_validate_submission_rejects_extra_manifest_key.py', '_archive/2026-06-05-root-cleanup/MANIFEST.txt', 'held_briefs_selfheal_build/authoring/MANIFEST.md', '_autowork_scratch/preflight_backup_2026-06-18/fix_requires_verbatim_manifest_keys_on_nonpy.json', '_autowork_scratch/held_tasks/manifest-drop-undeclared-impl.json', '_autowork_scratch/held_tasks/manifest-drop-undeclared-oracle.json']
+[PASS] proof2_oracle_regression_test_unfixable: 6+ pre-existing manifest-named files exist; test_regression_no_unapproved_or_manifest_files_created can NEVER pass via an orchestrator_worker.py edit
+
+========================================================================
+PROOF 3 -- feasible patch shape (predicate R-anchor + main gate rewire)
+========================================================================
+[PASS] proof3_both_entries_apply: both symbol patches applied cleanly
+[PASS] proof3_patched_parses: patched source ast.parse OK
+[PASS] proof3_oracle_behaviour_holds: predicate cases [True, False, True, False, False, True] (expected [True, False, True, False, False, True])
+[PASS] proof3_gate_is_wired: patched main references _task_bypasses_fuzz at the gate (new gate present=True, old gate gone=True)
+
+========================================================================
+OVERALL: ALL PASS (6/6)
+========================================================================

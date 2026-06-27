@@ -1,0 +1,18 @@
+=== signature of semantic_verdict (does it now take a nonce?) ===
+(exit_code, stdout: str, stderr: str, fs_snapshot_diff: str, *, success_marker: str, expected_fs_signature: str, nonce: str = '') -> str
+
+=== doc's exact vacuous case: empty sig ===
+  semantic_verdict(...,expected_fs_signature='')  -> 'refuted'
+  DOC CLAIM (sig='' -> 'confirmed'): STALE/FALSE (now refuted)
+
+=== whitespace-only sig ===
+  expected_fs_signature='   '  -> 'refuted'
+
+=== nonempty sig, marker present, sig in diff, NO nonce -> still confirms (legit) ===
+  -> 'confirmed'
+
+=== nonce provided but absent from outputs -> refuted (new nonce gate) ===
+  nonce='N0NCE_XYZ' absent everywhere -> 'refuted'  (expect 'refuted')
+
+=== nonce provided AND present everywhere -> confirmed ===
+  -> 'confirmed'  (expect 'confirmed')

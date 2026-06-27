@@ -1,0 +1,197 @@
+{
+  "responses": [
+    {
+      "diff_item_id": "__critique__",
+      "stance": "amend"
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "th-check-true-depth-2x-ratio",
+      "category": "test_heavy_violation",
+      "severity": "error",
+      "task_id": "check_true_depth_fixes",
+      "field_path": "/tasks/0/token_budget_ratio",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "implementation_tokens": 150,
+        "test_tokens": 120,
+        "minimum_test_count": 6
+      },
+      "message": "token_budget_ratio shows test_tokens (200) is 2x implementation_tokens (100). This violates the test-heavy rule — tests should not dominate budget for a focused validator fix. Also, minimum_test_count of 10 with 4 functional requirements is excessive; tighten to ~6 high-signal tests."
+    },
+    {
+      "finding_id": "th-ast-merge-2x-ratio",
+      "category": "test_heavy_violation",
+      "severity": "error",
+      "task_id": "_ast_merge_fixes",
+      "field_path": "/tasks/1/token_budget_ratio",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "implementation_tokens": 150,
+        "test_tokens": 100
+      },
+      "message": "Test tokens (200) double the implementation tokens (100) for a narrowly scoped AST reordering fix. The token budget is test-heavy; reduce test_tokens or raise implementation_tokens to roughly parity."
+    },
+    {
+      "finding_id": "th-work-dir-fuzz-overkill",
+      "category": "test_heavy_violation",
+      "severity": "warn",
+      "task_id": "_work_dir_fixes",
+      "field_path": "/tasks/2/test_spec",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "minimum_test_count": 3,
+        "test_tokens": 60,
+        "implementation_tokens": 60
+      },
+      "message": "A two-line isinstance guard (estimated_complexity 'low') does not warrant property_tests + integration_tests + regression_tests + 5 unit tests plus a 2x test:impl token ratio. The test plan is disproportionate to the implementation."
+    },
+    {
+      "finding_id": "th-descriptor-2x-ratio",
+      "category": "test_heavy_violation",
+      "severity": "error",
+      "task_id": "janusmask_module_descriptor_fixes",
+      "field_path": "/tasks/3/token_budget_ratio",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "implementation_tokens": 200,
+        "test_tokens": 150
+      },
+      "message": "Implementation_tokens of 100 are insufficient for the breadth of functional_requirements (recursive unwrapping, list unwrap, strict type validation across 8+ parameters, dynamic command construction). Meanwhile test_tokens are 200 — inverted budget. Raise impl tokens and lower test tokens."
+    },
+    {
+      "finding_id": "th-safe-under-project-2x-ratio",
+      "category": "test_heavy_violation",
+      "severity": "warn",
+      "task_id": "safe_under_project_fixes",
+      "field_path": "/tasks/4/token_budget_ratio",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "implementation_tokens": 60,
+        "test_tokens": 60,
+        "minimum_test_count": 3
+      },
+      "message": "An isinstance guard returning False is a one-line change. Allocating 2x test:impl tokens plus property/integration/regression buckets for it is test-heavy."
+    },
+    {
+      "finding_id": "ec-check-true-depth-zero-negative",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "check_true_depth_fixes",
+      "field_path": "/tasks/0/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "max_depth = 0, negative, or boolean (True/False — note bool is subclass of int and should be rejected before float() conversion)"
+      },
+      "message": "Edge cases mention NaN and inf but do not address max_depth=0, negative values, or booleans (bool is a subclass of int in Python, so isinstance(True, int) is True — this is the exact case implementation_notes hints at but spec does not lock in)."
+    },
+    {
+      "finding_id": "ec-check-true-depth-cycle-self-parent",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "check_true_depth_fixes",
+      "field_path": "/tasks/0/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "task whose parent_task points to itself (self-cycle of length 1)"
+      },
+      "message": "Edge cases list 'self-referencing loops' generically but does not lock in the length-1 case (parent_task == task_id), which is the trivial cycle most likely to slip through visited-set logic if the check is ordered wrong."
+    },
+    {
+      "finding_id": "ec-ast-merge-docstring-encoding",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "_ast_merge_fixes",
+      "field_path": "/tasks/1/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Module-level docstring at index 0: __future__ inserted at index 0 must NOT precede the module docstring or it becomes invalid Python"
+      },
+      "message": "PEP 8 / Python language rule: __future__ imports must follow the module docstring (if any) but precede other code. Inserting at index 0 unconditionally will break files where index 0 is the docstring. Spec must clarify ordering relative to docstrings."
+    },
+    {
+      "finding_id": "ec-ast-merge-coding-declaration",
+      "category": "missing_edge_case",
+      "severity": "info",
+      "task_id": "_ast_merge_fixes",
+      "field_path": "/tasks/1/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Target with multiple existing __future__ imports — avoid duplicate insertion"
+      },
+      "message": "Spec mentions 'target already contains __future__ import' but does not specify deduplication behavior (skip duplicate vs. re-insert). Acceptance criteria should make this explicit."
+    },
+    {
+      "finding_id": "ec-work-dir-both-none",
+      "category": "missing_edge_case",
+      "severity": "info",
+      "task_id": "_work_dir_fixes",
+      "field_path": "/tasks/2/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Both session_id and agent are None (existing default path) — must remain unchanged"
+      },
+      "message": "Adding TypeError gates risks regressing the default both-None path. Acceptance criteria do not explicitly preserve the existing behavior when both arguments are None."
+    },
+    {
+      "finding_id": "ec-descriptor-empty-list-after-filter",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "janusmask_module_descriptor_fixes",
+      "field_path": "/tasks/3/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "List becomes empty after filtering empty elements — define whether this is an error or acceptable (e.g., modules=[''] -> [])"
+      },
+      "message": "Functional requirement says to filter empty elements from list parameters, but spec does not define the outcome when the result is empty. For modules or test_files, an empty result has different semantic implications and the test_command construction logic depends on it."
+    },
+    {
+      "finding_id": "ec-descriptor-test-command-empty-files",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "janusmask_module_descriptor_fixes",
+      "field_path": "/tasks/3/spec/functional_requirements",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "full_test_command when test_files is empty after filtering — fall back behavior must be defined"
+      },
+      "message": "'Construct full_test_command dynamically based on test_files' does not specify what command is produced when test_files is empty (run all? error? noop). Implementation note is silent on this."
+    },
+    {
+      "finding_id": "ec-safe-under-project-nul-bytes",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "safe_under_project_fixes",
+      "field_path": "/tasks/4/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Valid str containing embedded NUL bytes triggers ValueError inside is_safe_subpath — must also be caught and return False"
+      },
+      "message": "Edge cases list NUL bytes but the implementation_notes only describe an isinstance guard. A str with NUL bytes still passes isinstance(str) but raises ValueError downstream; the spec must require catching that as well."
+    },
+    {
+      "finding_id": "ec-descriptor-bool-pathlike-subclass",
+      "category": "missing_edge_case",
+      "severity": "info",
+      "task_id": "janusmask_module_descriptor_fixes",
+      "field_path": "/tasks/3/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "isinstance(True, int) is True; ensure bool is explicitly rejected before generic numeric/path coercion"
+      },
+      "message": "Acceptance criteria say 'path parameters must be strings or Path-like (not booleans)' but Python's bool-is-int trap is not called out in implementation_notes, so this is easy to miss in the implementation."
+    },
+    {
+      "finding_id": "th-aggregate-pattern",
+      "category": "test_heavy_violation",
+      "severity": "warn",
+      "field_path": "/tasks",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "guidance": "Across all 5 tasks, test_tokens are uniformly 2x implementation_tokens. Re-balance so implementation_tokens >= test_tokens for simple/low-complexity tasks, and at most ~1.25x for medium tasks."
+      },
+      "message": "Aggregate pattern: every task in the merged plan has test_tokens == 2 * implementation_tokens. This uniform inflation suggests the planner stamped a default 2:1 ratio rather than sizing tests to scope, and is the dominant test-heavy violation in this plan."
+    }
+  ]
+}

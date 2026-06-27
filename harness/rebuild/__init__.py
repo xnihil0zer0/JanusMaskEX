@@ -12,7 +12,7 @@ dual-agent pipeline to reconstruct each body BLIND, gated by three checks:
 The engine reuses the harness's differential-fuzzing core directly; the one
 genuinely new idea is the oracle gate (feed the stripped original body into
 diff_fuzzer as the equivalence side-B). Pointing the engine at JanusMask
-itself produces the replicant JanusMaskJR.
+itself produces the replicant JanusMaskEX.
 """
 
 __rebuild_engine_version__ = '0.1.0'

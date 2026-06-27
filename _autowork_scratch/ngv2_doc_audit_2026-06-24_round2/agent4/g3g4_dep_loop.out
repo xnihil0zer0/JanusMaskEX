@@ -1,0 +1,26 @@
+=== g3_g4: the stderr-driven reactive dep-install loop (attacker-named pkg risk) ===
+15:    runner(poc, target_spec) -> (exit_code, stdout, stderr, duration_ms)
+233:def detonate_live(poc: PoC, target_spec: object=None, *, timeout_s: Optional[float]=None, success_marker: str=DEFAULT_SUCCESS_MARKER, expected_fs_signature: Optional[str]=None, pip_installer: Optional[Callable[[str, str], bool]]=None, jail_runner: Optional[Callable[..., dict]]=None, loopback: bool=False) -> dict:
+240:        {exit_code, stdout, stderr, duration_ms, fs_snapshot_diff, verdict?}
+247:    confirmed) with a ``ModuleNotFoundError`` for a genuine third-party dep of the
+254:    :data:`MAX_DEP_INSTALL_ROUNDS` rounds; pip failure degrades to the original
+258:    ``pip_installer(name, target_dir) -> bool`` and
+270:    if pip_installer is None:
+272:        pip_installer = lambda _name, _target_dir: _default_pip_installer(_name, _target_dir, _jail_py)
+326:            return {'exit_code': run.get('exit_code'), 'stdout': run.get('stdout') or '', 'stderr': run.get('stderr') or '', 'duration_ms': duration_ms, 'fs_snapshot_diff': fs_snapshot_diff, 'timed_out': bool(run.get('timed_out'))}
+331:        for _round in range(MAX_DEP_INSTALL_ROUNDS):
+334:            missing = [m for m in _missing_modules_from_stderr(result.get('stderr') or '') if m not in target_top and m not in installed]
+341:                    ok = pip_installer(name, deps_dir)
+357:            result['verdict'] = semantic_verdict(result['exit_code'], result['stdout'], result['stderr'], result['fs_snapshot_diff'], success_marker=success_marker, expected_fs_signature=expected_fs_signature)
+366:    yields ``(exit_code, stdout, stderr, duration_ms)`` -- the exact 4-tuple
+382:        return (res['exit_code'], res['stdout'], res['stderr'], res['duration_ms'])
+388:MAX_DEP_INSTALL_ROUNDS: int = 3
+390:_MISSING_MODULE_RE = re.compile('ModuleNotFoundError: No module named [\'\\"]([^\'\\"]+)[\'\\"]')
+392:def _missing_modules_from_stderr(stderr: str) -> List[str]:
+393:    """Top-level names of every ``ModuleNotFoundError: No module named 'X'`` in
+394:    ``stderr`` (deduped, order-preserving). ``X.y.z`` is reduced to ``X`` because
+399:    for match in _MISSING_MODULE_RE.finditer(stderr or ''):
+408:    A ``ModuleNotFoundError`` for the target's own package means the PoC's
+434:def _default_pip_installer(name: str, target_dir: str, python_bin: str='/usr/bin/python3') -> bool:
+450:    Returns ``{exit_code, stdout, stderr, timed_out}``. Raises
+457:        return {'exit_code': proc.returncode, 'stdout': proc.stdout or '', 'stderr': proc.stderr or '', 'timed_out': False}

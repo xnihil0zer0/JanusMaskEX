@@ -1,0 +1,33 @@
+I will read the main plan file `/home/xnihil0zer0/JanusMaskJR/INTERVENTION_ANALYSIS_00_FINAL_REPORT.md` to understand the tiers, flags, and planned tasks.
+I will view `/home/xnihil0zer0/JanusMaskJR/INTERVENTION_ANALYSIS_04_seam_map.md` to get specific code paths, lines, and existing structures to reference.
+I will view `/home/xnihil0zer0/JanusMaskJR/INTERVENTION_ANALYSIS_02_git_selfheal.md` to see the details of git history and self-heal diagnostics.
+I will view `/home/xnihil0zer0/JanusMaskJR/INTERVENTION_ANALYSIS_03_archive_forensics.md` to analyze the archive forensics.
+I will write the critical path review file `/home/xnihil0zer0/JanusMaskJR/_autowork_scratch/plan_v2_review/agy1_criticalpath.md` using the `write_to_file` tool.
+I will write the dependency topology review file `/home/xnihil0zer0/JanusMaskJR/_autowork_scratch/plan_v2_review/agy2_topology.md` using the `write_to_file` tool.
+I will write the durability and anti-rewedge review file `/home/xnihil0zer0/JanusMaskJR/_autowork_scratch/plan_v2_review/agy3_durability.md` using the `write_to_file` tool.
+I will write the cut and compound review file `/home/xnihil0zer0/JanusMaskJR/_autowork_scratch/plan_v2_review/agy4_cut.md` using the `write_to_file` tool.
+I have completed the review of the intervention plan and generated the four requested review files from the perspective of each sub-agent. All files are written directly under `/home/xnihil0zer0/JanusMaskJR/_autowork_scratch/plan_v2_review/` without modifying any production code or executing `git` commands.
+
+### Summary of Reviews & Corrections
+
+A summary of the consensus and unique inputs across the four sub-agent lenses is as follows:
+
+1. **[agy1_criticalpath.md](file:///home/xnihil0zer0/JanusMaskJR/_autowork_scratch/plan_v2_review/agy1_criticalpath.md) (Critical Path & Throughput):**
+   * Focuses on minimum ordered set to get daemon dispatching again.
+   * Promotes **`Auto Clear Stale Git Locks`** and **`Purge Stale Sidecars Immediately`** to the front of the plan to immediately unblock scheduling.
+   * Defers the entirety of Tier 4 governance/guardrails as non-essential overhead.
+
+2. **[agy2_topology.md](file:///home/xnihil0zer0/JanusMaskJR/_autowork_scratch/plan_v2_review/agy2_topology.md) (Dependency Topology):**
+   * Identifies circular dependency issues and the bootstrapping trap of landing Tier 1 planner normalizers via a broken AST-merge path.
+   * Places **`Bootstrap Verbatim Block Apply`** and **`Restore Blue Green Handoff`** as prerequisites to executing self-modifying code changes.
+   * Ensures C1 (`working_dir` threading) lands before pointing UEP at NobleGreedv2.
+
+3. **[agy3_durability.md](file:///home/xnihil0zer0/JanusMaskJR/_autowork_scratch/plan_v2_review/agy3_durability.md) (Durability & Anti-Rewedge):**
+   * Targets operational stability to prevent future wedges (lock timeouts, dual-pause, retry budget resets, and standing passes).
+   * Introduces an auto-lock clear watchdog for stale git locks and unifies conflicting pause primitives into a single file-based gate.
+   * Converts the one-off dep/deadlock breakers into standing planner passes.
+
+4. **[agy4_cut.md](file:///home/xnihil0zer0/JanusMaskJR/_autowork_scratch/plan_v2_review/agy4_cut.md) (Cut & Compound):**
+   * Acts as the editor to define a minimal compounding core.
+   * Concludes that UEP is extremely high-leverage and worth the cost because it completely resolves the fragile AST-merge blockers, but trims the scope by reusing the existing blue-green staging primitives.
+   * Defers all Tier 4 guardrails and minor flag-flips to focus strictly on loop autonomy.

@@ -1,0 +1,150 @@
+{
+  "items": [
+    {
+      "candidate_near_miss": null,
+      "candidates": [
+        [
+          "BYPASS_WHOLE_FILE_HELPER",
+          "files_jaccard_high",
+          [
+            1.0,
+            0.25510204081632654
+          ]
+        ],
+        [
+          "BYPASS_WHOLE_FILE_PROMPT",
+          "files_jaccard_high",
+          [
+            1.0,
+            0.5628140703517588
+          ]
+        ],
+        [
+          "BYPASS_WHOLE_FILE_VALIDATE",
+          "files_jaccard_high",
+          [
+            1.0,
+            0.33507853403141363
+          ]
+        ]
+      ],
+      "claude_task": null,
+      "diff_item_id": "1de66c108e3e421951c5f04cec3d594b64788909",
+      "field_divergences": [],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "In prepare_task_prompt, when task.get('partial_edit') is truthy OR the resolved meta_task_type is in BYPASS_FUZZER_TYPES, the appended prompt block is the __JANUSMASK_PATCHES__ surgical-patch block (not the __JANUSMASK_MANIFEST__ multi-file block).",
+          "In _validate_submission, when task.get('partial_edit') is truthy OR the resolved meta_task_type is in BYPASS_FUZZER_TYPES, validation runs the git_integration._parse_patches patch-list path (validating each patch entry's 'code' block) rather than the whole-file manifest / single-file fallback path.",
+          "meta_task_type is resolved consistently using task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type'), matching the existing resolution pattern at orchestrator.py:900 and :1783.",
+          "Non-bypass, non-partial_edit tasks are unchanged: multi-file (len(files_touched) > 1) tasks still emit/validate __JANUSMASK_MANIFEST__, and single-file tasks still use the single-file prompt and AST validation.",
+          "Only harness/orchestrator.py is modified; no other files change and no general scheduling/execution logic is altered."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "low",
+        "files_touched": [
+          "harness/orchestrator.py"
+        ],
+        "meta_task_type": "orchestration",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "task has partial_edit truthy but meta_task_type not in BYPASS_FUZZER_TYPES: still takes the patches path (OR condition).",
+            "task has meta_task_type in BYPASS_FUZZER_TYPES but partial_edit unset/false: now takes the patches path via the bypass clause.",
+            "meta_task_type missing on the task but present under constraints.meta_task_type: resolved value must still be honored.",
+            "meta_task_type is None or unrecognized (not in BYPASS_FUZZER_TYPES) and partial_edit falsy: unchanged manifest/single-file behavior.",
+            "Bypass-eligible single-file task (len(files_touched) <= 1): previously got the plain single-file prompt; now gets the __JANUSMASK_PATCHES__ block.",
+            "Bypass task whose submission contains no parseable __JANUSMASK_PATCHES__ block: behavior falls through exactly as the current partial_edit branch does (agent is told to fix its submission via the single-file fallback validation path).",
+            "Bypass-eligible multi-file task must NOT emit/require __JANUSMASK_MANIFEST__ (the patches condition must precede the len>1 manifest branch in both functions)."
+          ],
+          "functional_requirements": [
+            "FR1: In prepare_task_prompt (harness/orchestrator.py:~782), resolve the effective meta_task_type via task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type'), and append the __JANUSMASK_PATCHES__ partial-edit prompt block when task.get('partial_edit') is truthy OR that resolved meta_task_type is in BYPASS_FUZZER_TYPES; this condition must take precedence over the multi-file manifest branch so a bypass-eligible multi-file task still receives the patches block.",
+            "FR2: In _validate_submission (harness/orchestrator.py:~926), resolve the same effective meta_task_type and run the git_integration._parse_patches patch-list validation branch (per-entry validate_code on each patch 'code' block) when task.get('partial_edit') is truthy OR the resolved meta_task_type is in BYPASS_FUZZER_TYPES; the existing _parse_manifest branch still wins if a manifest is actually present, but the patch branch must be reachable for bypass tasks that emit no manifest.",
+            "FR3: Preserve all existing behavior for tasks that are neither partial_edit nor bypass-eligible: multi-file tasks (len(files_touched) > 1) keep the __JANUSMASK_MANIFEST__ prompt block and manifest/manifest_missing validation, and single-file tasks keep the unchanged single-file prompt and AST-validation fallback."
+          ],
+          "implementation_notes": "In prepare_task_prompt the current control flow is: `if task.get('partial_edit'): <patches block> elif isinstance(files_touched, list) and len(files_touched) > 1: <manifest block>`. Compute `mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')` near the top of the function and broaden the first condition to `if task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES:`, leaving the elif manifest branch for the remaining multi-file case. In _validate_submission the _parse_manifest(code) branch already comes first and returns when a manifest is present (leave it intact). Broaden the subsequent `if task.get('partial_edit'):` (orchestrator.py:926) to `if task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES:`, reusing the `mtt` value already resolved at orchestrator.py:900 for allow_nondet (hoist/reuse that local rather than recomputing). Keep the existing fall-through comment semantics for the no-parseable-patches case. Match the existing resolution idiom exactly so constraints-nested meta_task_type is honored. Add a short dated rationale comment (BYPASS_WHOLE_FILE) at each edit site consistent with the file's existing G-series comment style.",
+          "interfaces": "No signature changes. prepare_task_prompt(task: dict) -> str and _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[bool, list] keep their current signatures. BYPASS_FUZZER_TYPES is already imported at harness/orchestrator.py:1955 (from harness.planner.taxonomies). The patch parser git_integration._parse_patches is already used in the existing partial_edit branch at orchestrator.py:935.",
+          "non_goals": [
+            "Do not change general task scheduling or execution logic.",
+            "Do not modify any file other than harness/orchestrator.py.",
+            "Do not change the fuzzer-bypass smoke/embedded/narrow-fuzz gating at orchestrator.py:1783+.",
+            "Do not alter the BYPASS_FUZZER_TYPES set definition (it lives in harness.planner.taxonomies)."
+          ],
+          "objective": "Make any task whose resolved meta_task_type is in BYPASS_FUZZER_TYPES (the differential fuzzer is bypassed) automatically behave like a partial_edit task in both the prompt-dispatch (prepare_task_prompt) and submission-validation (_validate_submission) flows, so fuzzer-bypassed infra edits use surgical __JANUSMASK_PATCHES__ named-symbol/region patches instead of full-file __JANUSMASK_MANIFEST__ verbatim writes."
+        },
+        "spec_author": null,
+        "task_id": "BYPASS_WHOLE_FILE",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_bypass_task_prompt_to_validation_roundtrip_uses_patches"
+            },
+            {
+              "name": "test_non_bypass_task_prompt_to_validation_roundtrip_uses_manifest"
+            }
+          ],
+          "minimum_test_count": 15,
+          "property_tests": [
+            {
+              "name": "test_any_meta_task_type_in_bypass_set_triggers_patches_in_both_functions"
+            }
+          ],
+          "regression_tests": [
+            {
+              "name": "test_existing_manifest_branch_unchanged_for_plain_multifile"
+            },
+            {
+              "name": "test_existing_single_file_ast_validation_unchanged"
+            },
+            {
+              "name": "test_fuzzer_bypass_smoke_gating_unaffected"
+            }
+          ],
+          "test_data_requirements": "Synthetic task dicts: (a) bypass-eligible meta_task_type drawn from BYPASS_FUZZER_TYPES with single and multi-file files_touched; (b) partial_edit=True task; (c) meta_task_type nested under constraints; (d) plain multi-file non-bypass task; (e) plain single-file non-bypass task. Sample submission strings: a valid __JANUSMASK_PATCHES__ list literal, a valid __JANUSMASK_MANIFEST__ dict literal, and a plain single-file source. No external services; pure in-process calls to prepare_task_prompt and _validate_submission.",
+          "unit_tests": [
+            {
+              "name": "test_prepare_task_prompt_bypass_type_emits_patches_block"
+            },
+            {
+              "name": "test_prepare_task_prompt_partial_edit_still_emits_patches_block"
+            },
+            {
+              "name": "test_prepare_task_prompt_bypass_single_file_emits_patches_not_manifest"
+            },
+            {
+              "name": "test_prepare_task_prompt_non_bypass_multifile_still_emits_manifest"
+            },
+            {
+              "name": "test_prepare_task_prompt_meta_task_type_from_constraints_resolved"
+            },
+            {
+              "name": "test_validate_submission_bypass_type_uses_patch_list_validation"
+            },
+            {
+              "name": "test_validate_submission_partial_edit_uses_patch_list_validation"
+            },
+            {
+              "name": "test_validate_submission_non_bypass_multifile_requires_manifest_missing"
+            },
+            {
+              "name": "test_validate_submission_bypass_no_patches_falls_through"
+            }
+          ]
+        },
+        "title": "Fall back to partial_edit (__JANUSMASK_PATCHES__) for fuzzer-bypassed tasks in prepare_task_prompt and _validate_submission",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Implementation is two small conditional broadenings in one file; the bulk of effort and tokens is the test matrix covering both functions across bypass/partial_edit/manifest/single-file permutations, hence test_tokens at 2x implementation.",
+          "test_tokens": 200
+        },
+        "verification_command": "python -m pytest tests/ -k \"bypass or partial_edit or prepare_task_prompt or validate_submission\" -q"
+      },
+      "kind": "ambiguous_match",
+      "match_reason": null
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "task_id": "stale-discriminator-library-impl",
+  "title": "Add the liveness/reachability discriminator library to harness/state_reconciler.py via additive __JANUSMASK_PATCHES__ (exact parsed task_id equality, never substring)",
+  "meta_task_type": "harness_self_fix",
+  "priority": "high",
+  "dependencies": [
+    "stale-discriminator-library-oracle"
+  ],
+  "files_touched": [
+    "harness/state_reconciler.py"
+  ],
+  "acceptance_criteria": [
+    "harness/state_reconciler.py gains the discriminator library appended via the R-ANCHOR additive __JANUSMASK_PATCHES__ pattern (never reproduce the file whole; existing state_reconcile_lock / LOCK_FILENAME / __all__ untouched): pid_is_live(...), task_id_has_live_pidfile(running_dir, task_id), a session_slug parser for '<agent>-r<n>-<task_id>-<uuid8>', plus ledger cross-ref and worktree-reachability predicates.",
+    "task_id_has_live_pidfile uses EXACT parsed task_id equality across BOTH the regular running/<task_id>.pid stem and the self-heal running/selfheal_<agent>_<task_id>_<pid>.pid stem, NEVER substring: 't1' is not satisfied by a live t12 pidfile and vice versa.",
+    "The session_slug parser splits '<agent>-r<n>-<task_id>-<uuid8>' so the EXACT task_id (including internal hyphens) is recovered by stripping the leading '<agent>-r<n>-' prefix and trailing '-<uuid8>' suffix; malformed slugs return None/falsy rather than a wrong task_id.",
+    "pid_is_live is FAIL-CLOSED: a live PID is reported live (signal-0 / os.kill probe), a dead PID is not, and an empty/non-integer/missing pidfile body resolves to not-live without raising.",
+    "Workdir/worktree liveness is LIVE-FIRST and decided by exact parsed task_id equality after parsing BOTH the session_slug and the pidfile stem; the ledger cross-ref and worktree-reachability predicates are pure (no move/delete).",
+    "The helpers perform NO moves/deletes and do NOT implement cleanup_state, disk rmtree, or prepare_workspace, and do NOT flip the autowork.state_reconcile flag (pure predicates only).",
+    "Makes tests/harness/test_discriminator_library.py GREEN; verification_command substring-contains that oracle test file path; non_goals contains the literal word integration; test_spec.regression_tests contains >= 2 entries."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/harness/test_discriminator_library.py -q",
+  "spec": {
+    "objective": "Implement the liveness/reachability discriminator library in harness/state_reconciler.py \u2014 pid_is_live, task_id_has_live_pidfile (EXACT parsed task_id equality across regular running/<task_id>.pid and self-heal running/selfheal_<agent>_<task_id>_<pid>.pid stems, NEVER substring), the session_slug parser for '<agent>-r<n>-<task_id>-<uuid8>', and the ledger cross-ref / worktree-reachability predicates \u2014 landed additively via the R-ANCHOR __JANUSMASK_PATCHES__ pattern so the existing module (state_reconcile_lock, LOCK_FILENAME, __all__) is never reproduced whole. Enforce the inherited invariants: exact task_id equality (never substring), LIVE-FIRST, FAIL-CLOSED.",
+    "functional_requirements": [
+      "Append the discriminator library to harness/state_reconciler.py via the R-ANCHOR additive __JANUSMASK_PATCHES__ pattern, without reproducing the existing module (state_reconcile_lock, LOCK_FILENAME, __all__) whole.",
+      "Implement pid_is_live(...) -> bool that reads a pidfile body, parses the integer PID, probes liveness with os.kill(pid, 0) (treating ESRCH as dead and EPERM as alive), and FAILS CLOSED to not-live on an empty/non-integer/missing body rather than raising.",
+      "Implement a session_slug parser that, given '<agent>-r<n>-<task_id>-<uuid8>', recovers the EXACT task_id by stripping the leading '<agent>-r<n>-' prefix and the trailing '-<uuid8>' (8 hex chars) suffix, preserving internal hyphens in task_id, and returns None/falsy for a malformed slug.",
+      "Implement task_id_has_live_pidfile(running_dir, task_id) -> bool that scans running/ for both regular '<task_id>.pid' stems and self-heal 'selfheal_<agent>_<task_id>_<pid>.pid' stems, parses each stem for its embedded task_id, and returns True only when a parsed task_id is EXACTLY equal to the requested task_id AND its pidfile is live \u2014 NEVER a substring match (t1 vs t12 distinct both directions).",
+      "Implement the worktree-reachability predicate that decides a workdir's liveness LIVE-FIRST by parsing the session_slug task_id and matching it (exact equality) against a live pidfile via task_id_has_live_pidfile, so a live t12 workdir never keeps dead t1 alive.",
+      "Implement the ledger cross-ref predicate that cross-references a parsed task_id against the ledger using exact equality (never substring), agreeing with the pidfile/worktree predicates only on exact task_id match.",
+      "Keep every helper a PURE predicate: no moves/deletes, no cleanup_state/rmtree/prepare_workspace, no flipping of the autowork.state_reconcile flag; classification/observation only."
+    ],
+    "interfaces": "In harness/state_reconciler.py (appended additively): pid_is_live(...) -> bool; task_id_has_live_pidfile(running_dir, task_id) -> bool using EXACT parsed task_id equality across regular running/<task_id>.pid and self-heal running/selfheal_<agent>_<task_id>_<pid>.pid stems (NEVER substring); a session_slug parser for '<agent>-r<n>-<task_id>-<uuid8>' returning the exact task_id or None; plus ledger cross-ref and worktree-reachability predicates. Reuses the module's existing stdlib imports (os, pathlib); leaves state_reconcile_lock, LOCK_FILENAME, __all__ untouched.",
+    "edge_cases": [
+      "Substring trap both directions: live running/t12.pid must not satisfy 't1'; live running/t1.pid must not satisfy 't12'.",
+      "Self-heal stem: selfheal_<agent>_t1_<pid>.pid parses to exact task_id 't1'; selfheal_<agent>_t12_<pid>.pid does not satisfy 't1'.",
+      "session_slug with a hyphenated task_id is parsed exactly; malformed slug returns None/falsy.",
+      "Empty / non-integer / missing pidfile body -> pid_is_live FAIL-CLOSED to not-live (no raise).",
+      "os.kill(pid, 0): ESRCH -> dead, EPERM -> alive (process exists, not ours).",
+      "Ambiguous/unparseable stem -> treated as not-matching/not-live (fail-closed), never a wrong-task_id match.",
+      "LIVE-FIRST: workdir liveness short-circuits on a live exact-task_id pidfile before any reachability fallback."
+    ],
+    "non_goals": [
+      "integration \u2014 no live-daemon run; behavior is driven only through the hermetic oracle over synthesized running/*.pid files and session_slug dirs in its own tmp_path, no live state/, no network.",
+      "Does NOT perform any move/delete \u2014 the discriminators are pure predicates.",
+      "Does NOT implement cleanup_state, disk rmtree, or prepare_workspace.",
+      "Does NOT use substring matching for task_id \u2014 exact parsed equality only.",
+      "Does NOT reproduce harness/state_reconciler.py whole \u2014 append via __JANUSMASK_PATCHES__ only; does NOT flip the autowork.state_reconcile flag."
+    ],
+    "implementation_notes": "Emit a __JANUSMASK_PATCHES__ ADD/SYMBOL patch appending pid_is_live, task_id_has_live_pidfile, the session_slug parser, the ledger cross-ref and worktree-reachability predicates to harness/state_reconciler.py; do not reproduce the existing module whole (keep state_reconcile_lock, LOCK_FILENAME, __all__ intact). For pid_is_live, read the pidfile text, int() the body inside try/except (ValueError/empty -> return False), then os.kill(pid, 0) with errno handling (ESRCH -> False, EPERM -> True). For the session_slug parser, validate the '<agent>-r<n>-<task_id>-<uuid8>' shape (uuid8 = 8 hex chars, r<n> = 'r' + digits) and recover task_id as the middle span, preserving internal hyphens; return None on mismatch. For task_id_has_live_pidfile, iterate running/*.pid, classify each stem as regular ('<task_id>.pid') or self-heal ('selfheal_<agent>_<task_id>_<pid>.pid'), parse the embedded task_id EXACTLY (split on the known fixed affixes, not substring search), and require parsed-task_id == requested task_id AND pid_is_live. The worktree-reachability predicate parses the session_slug then defers to task_id_has_live_pidfile (LIVE-FIRST). Keep all helpers side-effect free. Verification runs the oracle test file, which the verification_command substring-contains, satisfying the fix-forward red-pair acceptance edge with the oracle sibling."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_discriminators_added_via_janusmask_patches_additive"
+      },
+      {
+        "name": "test_pid_is_live_signal0_and_fail_closed_on_garbage"
+      },
+      {
+        "name": "test_session_slug_parser_exact_task_id_with_internal_hyphens"
+      },
+      {
+        "name": "test_task_id_has_live_pidfile_regular_stem_exact_equality"
+      },
+      {
+        "name": "test_task_id_has_live_pidfile_selfheal_stem_exact_equality"
+      },
+      {
+        "name": "test_worktree_reachability_live_first_t12_not_keeping_t1"
+      },
+      {
+        "name": "test_ledger_cross_ref_exact_equality_never_substring"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [
+      {
+        "name": "test_predicates_are_pure_no_move_or_delete_side_effects"
+      }
+    ],
+    "regression_tests": [
+      {
+        "name": "test_substring_trap_t1_vs_t12_rejected_both_directions"
+      },
+      {
+        "name": "test_existing_state_reconcile_lock_symbol_untouched"
+      }
+    ],
+    "minimum_test_count": 11,
+    "test_data_requirements": "Hermetic tmp_path running/ directories mirroring the oracle: LIVE running/t1.pid and running/t12.pid (str(os.getpid())), LIVE running/selfheal_<agent>_t1_<pid>.pid and running/selfheal_<agent>_t12_<pid>.pid, a dead pidfile (large never-allocated pid), an empty/non-integer pidfile, and session_slug workdirs '<agent>-r<n>-<task_id>-<uuid8>' including a hyphenated task_id and a malformed slug. The impl is exercised through tests/harness/test_discriminator_library.py. No live state/, no network, no live-daemon run."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 130,
+    "test_tokens": 200,
+    "note": "Additive __JANUSMASK_PATCHES__ symbols (pid_is_live, task_id_has_live_pidfile, session_slug parser, ledger cross-ref, worktree-reachability); the bulk of verification is the inherited oracle plus regression coverage of the additive edit."
+  },
+  "attribution_metadata": {
+    "proposed_by": "reconciled",
+    "reconciled": true,
+    "diff_resolution": "reconciled"
+  },
+  "_debug_stamping_reason": "Task was divergent and resolved via reconciliation.",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR"
+}

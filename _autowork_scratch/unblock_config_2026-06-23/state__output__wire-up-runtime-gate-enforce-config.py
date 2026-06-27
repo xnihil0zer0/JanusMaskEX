@@ -1,0 +1,200 @@
+__JANUSMASK_MANIFEST__ = {
+    'harness/config.yaml': r'''agent_sandbox:
+  bwrap: true
+agents:
+  antigravity:
+    args:
+    - -p
+    - --dangerously-skip-permissions
+    command: ${PROJECT_ROOT}/.agents/agy/agy
+  claude:
+    args:
+    - -p
+    - --model
+    - opus
+    - --output-format
+    - stream-json
+    - --verbose
+    - --include-partial-messages
+    - --settings
+    - ${CONFIG_DIR}/claude_worker.json
+    - --mcp-config
+    - ${CONFIG_DIR}/claude_mcp.json
+    - --strict-mcp-config
+    - --setting-sources
+    - ''
+    - --tools
+    - Read,Glob,Grep,Write
+    - --disallowedTools
+    - Bash,Edit,Task,NotebookEdit,WebFetch,WebSearch,Skill,ToolSearch
+    command: ${PROJECT_ROOT}/.agents/claude-code/node_modules/.bin/claude
+  claude_fallback:
+    args:
+    - -p
+    - --dangerously-skip-permissions
+    command: ${PROJECT_ROOT}/.agents/agy/agy
+  codex:
+    args:
+    - exec
+    - --dangerously-bypass-approvals-and-sandbox
+    - --skip-git-repo-check
+    - --color
+    - never
+    - -p
+    - ''
+    command: /home/xnihil0zer0/.nvm/versions/node/v22.17.0/bin/codex
+  gemini:
+    args:
+    - -p
+    - --dangerously-skip-permissions
+    command: ${PROJECT_ROOT}/.agents/agy/agy
+autowork:
+  archive_spent_briefs: true
+  auto_approve_ro_gate: true
+  auto_approve_sensitive_harness: true
+  brief_max_age_seconds: 604800
+  brief_max_size_bytes: 50000
+  conservative_missing_files: true
+  # VERDICT_v3 rollout flags ACTIVATED 2026-06-19 (owner directive: flip all
+  # built+verified flags; each is OFF=byte-identical-to-HEAD, fail-safe reader).
+  #   dict_corpus_synthesis (Int 2 P1, d8be0b6): make dict/Dict-annotated params
+  #     fuzzable via the real-repo corpus -> expands differential-fuzz coverage.
+  #   onesided_oracle (Int 2 P2 shadow, a12c851): shadow telemetry (superseded by
+  #     the blocking tier below, kept for log parity).
+  #   onesided_oracle_blocking (Int 2 P2 blocking, 97a18a8): EXECUTE a one-sided
+  #     function out-of-process + fail-closed -> closes the equivalent=True
+  #     silent-pass for 'defined on one side only'. NOTE: fails closed on the
+  #     'unverified' path (input strategy unbuildable) -> may turn some prior-green
+  #     one-sided tasks RED; this is the reliability/throughput tradeoff.
+  dict_corpus_synthesis: true
+  enabled: true
+  onesided_oracle: true
+  onesided_oracle_blocking: true
+  heartbeat_sec: 1800
+  parallel_cap: 5
+  claude_parallel_cap: 4
+  planner_min_wall_sec: 10.0
+  planner_timeout_sec: 1800
+  poll_interval_sec: 5
+  selfheal_auto_promote: false
+  state_reconcile: true
+  wire_up_gate: true
+  wire_up_runtime_gate: false
+  wire_up_runtime_gate_enforce: false
+batch_execution:
+  batch_size_per_worker: 2000
+  enabled: true
+  rlimit_nproc: null
+  seccomp: true
+  wall_timeout_per_input_sec: 5.0
+  worker_pool_size: 1
+control:
+  approval_timeout_sec: 1800
+  autobrief_default_agent: claude
+  autobrief_max_rough_draft_bytes: 16384
+  autobrief_timeout_sec: 180
+  decisions_dir: state/control/decisions
+  pause_flag_path: state/control/orchestrator.flag
+  require_approval: []
+cross_examination:
+  anonymize: true
+  max_rounds: 1
+  normalize_variables: true
+  strip_comments: true
+decomposition:
+  fresh_instances: true
+  max_depth: 2
+  max_subtasks: 5
+fuzzing:
+  engine: hypothesis
+  float_tolerance: 1.0e-09
+  function_level_inputs: 2000
+  program_level_inputs: 1000
+  seed: 42
+  timeout_per_input_ms: 5000
+hierarchical_planning:
+  enabled: true
+  failure_propagation: true
+  max_planner_depth: 4
+  symbol_ledger: true
+hooks:
+  enforce_verbs: []
+  mode: shadow
+  shadow_dir: state/hooks/shadow/
+  shadow_min_clean_runs: 3
+sandbox:
+  cpu_time_limit_seconds: 10
+  filesystem_root: /tmp/janusmask_sandbox
+  memory_limit_mb: 256
+  network: false
+synthesis:
+  accept_single_agent_leaf_plans: true
+  active_agents:
+  - claude
+  - gemini
+  antigravity_mode: false
+  clarification_timeout_sec: 60
+  enable_single_agent_promotion: true
+  max_ast_retries: 3
+  max_clarification_requests: 2
+  single_agent_promotion_ceiling: 3
+  timeout_seconds: 1800
+  verification_timeout_seconds: 1200
+test_author:
+  review_pass: true
+overseer:
+  enabled: true
+  default_mode: observe
+  default_backend: claude
+  models:
+    claude:
+    - opus
+    - sonnet
+    - haiku
+  store_path: state/overseer/sessions.json
+  unlock_policy: {}
+workers:
+  # Claude worker execution backend.
+  #   'headless' runs `claude -p` as a streamed subprocess (API-billed).
+  #   'tmux' delegates the claude spawn to harness/tmux_worker.py
+  #     (spawn_claude_tmux): a bwrap-JAILED *interactive* claude driven over a
+  #     direct PTY (pty.fork) -- billed to the Max/OAuth subscription, never the
+  #     headless `-p` API. (The 'tmux' name is historical; the transport is a
+  #     PTY, since a jailed interactive claude renders fine under a PTY but dies
+  #     in a literal tmux pane.) Termination is gated on the orchestrator
+  #     deliverable (outbox/submission.py) going stable.
+  # DEFAULT 'tmux' (2026-06-14, owner directive: tmux-jailed-claude default
+  # everywhere). Live-validated e2e (jailed interactive claude over PTY wrote a
+  # real deliverable in ~11s). Revert to 'headless' if a regression appears.
+  claude_backend: tmux
+  # VERDICT_v3 efficiency flags ACTIVATED 2026-06-19 (owner directive; both
+  # OFF=byte-identical-to-HEAD). pin_task_cwd (Int 3, 421ba38): deterministic
+  # per-task cwd/CLAUDE_CONFIG_DIR from task_id (sha1-digest8) via the work_dir
+  # seam. resume_pinned_session (Int 3, b6967b5): adds claude --continue when a
+  # pinned transcript exists (3-predicate guard; requires pin_task_cwd ON) so an
+  # AST-retry re-dispatch resumes the same session instead of cold-starting.
+  pin_task_cwd: true
+  resume_pinned_session: true
+  # Project-local pool of isolated agy worker HOMEs (harness/agy_pool.py).
+  # Ships OFF: when disabled, daemon-spawned agy workers share the operator's
+  # ~/.gemini exactly as before. Enable to give each concurrent worker a private
+  # HOME so parallel agy registries cannot corrupt each other. size MUST be >=
+  # autowork.parallel_cap (currently 5) so no concurrent worker is left unpooled.
+  agy_pool:
+    enabled: true
+    size: 8
+
+# Autocompiler (Phase C, epic brief_hooks_autocompiler.md) -- master gate plus
+# capability sub-keys, default-ON (owner-enabled 2026-06-10). ac_enabled
+# (autocompiler/flags.py) is fail-closed; it activates a hook only when BOTH the
+# master gate and the sub-key are true. NOTE: ac_enabled reads the RUNTIME gate at
+# config/autocompiler.yaml, not this file -- this subtree mirrors it for the
+# documented config surface and the test_config_tree oracle; keep the two in sync.
+autocompiler:
+  enabled: true
+  population: true       # evolutionary near-miss memory (orchestrator_worker hook)
+  determinism: true      # sitecustomize determinism layer (sandbox_child_env hook)
+  decode: true           # post-decode schema validation telemetry (worker accept hook)
+  js: true               # JS differential dispatch (diff_fuzzer fuzz_from_task hook)
+''',
+}

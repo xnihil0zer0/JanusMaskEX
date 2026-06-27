@@ -1,0 +1,29 @@
+=== g2b: phase-literal duplication sites ===
+--- session_api.py: PHASE_ORDER / _PHASES ---
+66:        state = {'session_id': session_id, 'phase': _PHASES[0], 'target': dict(target_info or {})}
+70:        return {'ok': True, 'session_id': session_id, 'phase': _PHASES[0]}
+406:            idx = PHASE_ORDER.index(phase)
+409:        if idx + 1 < len(PHASE_ORDER):
+410:            return PHASE_ORDER[idx + 1]
+427:            phase = PHASE_ORDER[0]
+528:        phase = self._extract_phase(data) or PHASE_ORDER[0]
+532:        for _ in range(len(PHASE_ORDER) + 4):
+674:__all__ = ['SessionApi', 'PHASE_ORDER', 'MANUAL_REVIEW']
+675:PHASE_ORDER: Tuple[str, ...] = ('source', 'hunt', 'triage', 'verify', 'poc', 'detonate', 'novelty', 'report', 'awaiting_submission', 'submitted', 'done')
+677:HALT_PHASES = frozenset({'awaiting_submission', 'done', MANUAL_REVIEW})
+716:_PHASES = ('hunt', 'triage', 'poc', 'detonate', 'report', 'done')
+
+--- state_machine.py: LIFECYCLE_PHASES / PHASES / ALLOWED_TRANSITIONS ---
+23:PHASES: Tuple[str, ...] = ('hunt', 'triage', 'poc', 'detonate', 'report', 'done')
+25:ALLOWED_TRANSITIONS: Dict[str, Tuple[str, ...]] = {'hunt': ('triage', 'done'), 'triage': ('poc', 'done'), 'poc': ('detonate', 'done'), 'detonate': ('report', 'done'), 'report': ('done',), 'done': ()}
+48:        return phase_to in ALLOWED_TRANSITIONS.get(self.state.phase, ())
+69:LIFECYCLE_PHASES: Tuple[str, ...] = ('source', 'hunt', 'triage', 'verify', 'poc', 'detonate', 'novelty', 'report', 'awaiting_submission', 'submitted', 'done')
+80:LIFECYCLE_TRANSITIONS: Dict[str, Tuple[str, ...]] = _ordered_one_step(LIFECYCLE_PHASES)
+102:'ngv2.state_machine -- Hunt lifecycle phase model and serializable state.\n\nPins the canonical ``hunt -> triage -> poc -> detonate -> report -> done`` phase\nmodel (with early-abort to ``done`` available from every non-terminal phase) and\na small, JSON-serializable :class:`HuntState` that carries accumulated Findings.\n\nThis module is *additively* extended with an optional full-lifecycle view\n(:data:`LIFECYCLE_PHASES` / :data:`LIFECYCLE_TRANSITIONS`) describing the\nautonomous lifecycle wired by :mod:`ngv2.session_gate`.  The canonical\n:data:`PHASES` / :data:`ALLOWED_TRANSITIONS` contract is preserved unchanged for\nbackward compatibility -- existing callers and oracles keep working.\n\nPure and deterministic: no clock, randomness, network, or subprocess.\n'
+
+--- fsm_evidence.PHASE_ORDER ---
+4:PHASE_ORDER: Tuple[str, ...] = ('source', 'hunt', 'triage', 'verify', 'poc', 'detonate', 'novelty', 'report', 'awaiting_submission', 'submitted', 'done')
+5:ENV_PHASE_ORDER: Tuple[str, ...] = ('detect', 'provision', 'jail_build', 'health_probe', 'reachability_probe', 'baseline_capture')
+
+--- does session_api import from fsm_evidence (i.e. derive) or define its own? ---
+  (NEITHER session_api NOR state_machine derives from fsm_evidence -> independent literals)

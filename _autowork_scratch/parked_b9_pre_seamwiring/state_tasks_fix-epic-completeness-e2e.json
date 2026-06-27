@@ -1,0 +1,135 @@
+{
+  "task_id": "fix-epic-completeness-e2e",
+  "title": "B9 \u2014 epic completeness end-to-end (non-vacuous integration test) for _run_epic_pipeline",
+  "meta_task_type": "test_authoring",
+  "mutation_target": "harness.planner.cli",
+  "priority": "high",
+  "dependencies": [],
+  "files_touched": [
+    "tests/harness/test_epic_completeness_e2e.py"
+  ],
+  "acceptance_criteria": [
+    "Exactly one new file tests/harness/test_epic_completeness_e2e.py is authored and submitted whole-file via __JANUSMASK_MANIFEST__.",
+    "The file contains one test function per case (a)-(f); each is hermetic with its own tmp_path repo_root/state_dir where state_dir = repo_root / 'state' (so state_dir.parent == repo_root), and never touches live state/.",
+    "Each test drives the REAL harness.planner.cli._run_epic_pipeline(brief_obj, config, state_dir, output_plan) and mocks ONLY the agent draft seam run_blind_drafts (patched at harness.planner.blind_draft.run_blind_drafts, the name resolved by the function's INSIDE-function import).",
+    "Mocked drafts expose .claude_draft and .gemini_draft, each an epic dict {'plan_kind': 'epic', 'child_briefs': [<child dicts>]}; each child dict carries at least slug plus title, scope, required_task_ids, deliverables, working_dir.",
+    "extract_diff, run_reconciliation, _finalize_epic_children, serialize_child_brief_to_markdown, persist_plan, the plan validator, the coverage check, and the dedup/unresolved logging all run for real (none are mocked).",
+    "Case (a): valid multi-child epic covering all required_child_slugs and all deliverables asserts exit == 0, plan JSON persisted at output_plan, brief_hooks_<slug>.md written into repo_root, and serialized child briefs carry their inherited required_task_ids.",
+    "Case (b): drafts omitting a slug named in required_child_slugs assert NON-ZERO exit, a planner_validation_rejected signal present, NO plan persisted at output_plan, and NO brief_hooks_*.md written in repo_root.",
+    "Case (c): an uncovered deliverable (all required slugs present) asserts exit == 0, a coverage_check event emitted, and an epic_coverage_gap row exists \u2014 without asserting any specific uncovered list.",
+    "Case (d): drafts merging to two children with the same slug assert an epic_child_dropped row is emitted and the persisted plan contains the de-duplicated child set (slug present once).",
+    "Case (e): a merged child missing a required brief field asserts an ADVISORY row (not a hard refusal), exit == 0, and the well-formed epic still persists its plan and writes its child briefs.",
+    "Case (f): a reconciliation result carrying unresolved_items asserts an epic_child_unresolved row is emitted.",
+    "Event/log rows are captured via whatever channel B1-B8 land them on (JSONL ledger under state_dir, caplog, or the returned structured object), discovered by reading the landed source at integration time, and asserted by event/kind name only \u2014 not by full-message equality.",
+    "The suite is RED on HEAD (B1-B8 behaviors absent) and GREEN once B1-B8 land; mutating the stub of _run_epic_pipeline or any downstream real call it makes breaks at least one assertion (mutation-non-vacuous).",
+    "Any embedded docstrings or multi-line brief raw_text use triple-double-quotes and never backslash-escape quotes inside the manifest payload."
+  ],
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/harness/test_epic_completeness_e2e.py -q",
+  "spec": {
+    "objective": "Author a single non-vacuous integration test file, tests/harness/test_epic_completeness_e2e.py, that drives the real harness.planner.cli._run_epic_pipeline end to end against a per-test tmp repo_root/state_dir, mocking ONLY the agent draft seam run_blind_drafts, and asserts the full epic-completeness contract (cases a-f) that B1-B8 land. The test is correctly RED on HEAD until its deps land and must FAIL if any single B1-B8 component regresses.",
+    "functional_requirements": [
+      "Case (a) required_task_ids inheritance / happy path: build a valid multi-child epic brief_obj whose required_child_slugs and deliverables are all covered; mock run_blind_drafts to return matching .claude_draft/.gemini_draft epic dicts; call the real _run_epic_pipeline and assert exit == 0, plan JSON persisted at output_plan, brief_hooks_<slug>.md written into repo_root, and each serialized child brief carries its inherited required_task_ids (parsed from the written child markdown or read from the persisted child records).",
+      "Case (b) dropped required child -> hard reject: mock drafts whose merged children OMIT one slug named in required_child_slugs; assert NON-ZERO exit, a planner_validation_rejected row/signal surfaced on the captured channel, NO plan persisted at output_plan (file absent), and an empty glob of repo_root for brief_hooks_*.md.",
+      "Case (c) uncovered deliverable -> advisory gap: epic brief declares a deliverable no merged child covers while all required child slugs ARE present; assert exit == 0 (NOT a hard reject), a coverage_check event emitted, and an epic_coverage_gap row exists \u2014 without asserting any specific uncovered deliverable list.",
+      "Case (d) deduped duplicate -> drop row: mock drafts that merge to two children sharing one slug; assert an epic_child_dropped row is emitted for the dedup and the persisted plan contains the de-duplicated child set (slug present exactly once).",
+      "Case (e) reconciled child missing a required brief field -> advisory not refusal: mock drafts so one otherwise-valid merged child is missing a required brief field; assert an ADVISORY log row is emitted (not a hard refusal), exit == 0, and the well-formed epic still persists its plan and writes its child briefs.",
+      "Case (f) reconciliation unresolved_items drop -> unresolved row: arrange the reconciliation result to carry unresolved_items (a child dropped as unresolved) and assert an epic_child_unresolved row is emitted.",
+      "Hermeticity and seam discipline: each test function builds its own tmp_path repo_root with state_dir = repo_root / 'state' (state_dir.parent == repo_root), patches ONLY harness.planner.blind_draft.run_blind_drafts, runs every downstream component for real, never touches live state/, and discovers the real event/log channel by reading the landed B1-B8 source at integration time."
+    ],
+    "interfaces": "System under test: harness.planner.cli._run_epic_pipeline(brief_obj, config, state_dir, output_plan) -> int (cli.py:180). Mockable seam: harness.planner.blind_draft.run_blind_drafts(brief_obj, config, state_dir), imported INSIDE _run_epic_pipeline (cli.py:188,192); patch at harness.planner.blind_draft.run_blind_drafts. Returned drafts object exposes .claude_draft and .gemini_draft, each an epic dict {'plan_kind': 'epic', 'child_briefs': [<child dicts>]} where each child dict has slug, title, scope, required_task_ids (or required-task-ids), deliverables, working_dir. persist_plan(plan, out_path, brief_obj=None) (cli.py:86) writes plan JSON to output_plan. repo_root = state_dir.parent (cli.py:213). Exit-code contract: 2 when both drafts empty, 1 when reconciliation merges to no children, 0 on success (writes brief_hooks_<slug>.md per merged child into repo_root and persists the epic plan). Event/log channel (JSONL ledger under state_dir, caplog, or returned structured object) is discovered at integration time; assert on row presence by event/kind name only.",
+    "edge_cases": [
+      "state_dir must be repo_root / 'state' so state_dir.parent == repo_root matches the production assumption at cli.py:213.",
+      "Patch run_blind_drafts at harness.planner.blind_draft.run_blind_drafts (the module attribute), since it is imported INSIDE _run_epic_pipeline and resolved at call time.",
+      "Drafts must be non-empty to avoid the exit==2 (both empty) and exit==1 (no merged children) short-circuits except where a case deliberately exercises rejection.",
+      "Case (b) must assert ABSENCE: no persisted plan file and an empty brief_hooks_*.md glob, not merely a non-zero exit.",
+      "Do NOT assert exact heuristic uncovered deliverable lists, exact log-message strings, or any specific child ordering.",
+      "If the captured channel is a JSONL ledger, assert by parsed event/kind name; if caplog, assert by record marker; if a returned object, assert by attribute \u2014 discover which at integration time rather than hard-coding a brittle format.",
+      "Embedded docstrings or multi-line brief raw_text must use triple-double-quotes (never triple-single) and never backslash-escape quotes inside the manifest payload."
+    ],
+    "non_goals": [
+      "No impl task in this plan \u2014 this standalone test_authoring file IS the deliverable; do not add an implementation task.",
+      "Do NOT mock extract_diff, run_reconciliation, _finalize_epic_children, serialize_child_brief_to_markdown, persist_plan, the plan validator, the coverage check, or the dedup/unresolved logging \u2014 they must run for real or the mutation gate is vacuous.",
+      "Do NOT drive the real staging worktree, the orchestrator, or any live agent process; the test runs entirely in a tmp repo_root/state_dir and never touches live state/.",
+      "Do NOT assert exact heuristic uncovered lists, exact log-message strings, or specific child ordering \u2014 assert on exit codes, file presence/absence, inherited required_task_ids, and the PRESENCE of named event/log rows only.",
+      "RED on HEAD is expected and correct: the asserted post-fix behaviors are absent before B1-B8 land."
+    ],
+    "implementation_notes": "Submit the whole file tests/harness/test_epic_completeness_e2e.py via __JANUSMASK_MANIFEST__. Provide a small per-test helper that builds a tmp tree (repo_root = tmp_path; state_dir = repo_root / 'state'; state_dir.mkdir(parents=True)), an epic brief_obj whose raw_text/loaded brief declares required_child_slugs plus a multi-deliverable scope, a minimal config, and an output_plan path under repo_root. Build a fake drafts object (e.g. SimpleNamespace) exposing .claude_draft and .gemini_draft as epic dicts of shape {'plan_kind': 'epic', 'child_briefs': [...]}, each child a dict with slug/title/scope/required_task_ids/deliverables/working_dir, and patch harness.planner.blind_draft.run_blind_drafts to return it (monkeypatch or unittest.mock.patch). Call the real _run_epic_pipeline and assert per case. For row capture, discover the real channel by reading the landed B1-B8 source (likely a JSONL ledger under state_dir) at integration time and assert presence by event/kind name (planner_validation_rejected, coverage_check, epic_coverage_gap, epic_child_dropped, advisory missing-field row, epic_child_unresolved). Spread assertions across cases (a)-(f) so each landed behavior is independently covered, making the mutation gate non-vacuous: a stub mutating _run_epic_pipeline or any downstream real call must break at least one assertion. Use triple-double-quotes for any embedded docstrings/raw_text and never backslash-escape quotes inside the manifest payload."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_a_required_task_ids_inherited_on_happy_path"
+      },
+      {
+        "name": "test_b_dropped_required_child_hard_reject"
+      },
+      {
+        "name": "test_c_uncovered_deliverable_advisory_gap"
+      },
+      {
+        "name": "test_d_deduped_duplicate_drop_row"
+      },
+      {
+        "name": "test_e_missing_required_field_advisory_not_refusal"
+      },
+      {
+        "name": "test_f_unresolved_items_drop_unresolved_row"
+      },
+      {
+        "name": "test_helpers_build_hermetic_repo_root_and_state_dir"
+      }
+    ],
+    "integration_tests": [
+      {
+        "name": "case_a_real_pipeline_persists_plan_and_writes_brief_hooks_with_inherited_required_task_ids"
+      },
+      {
+        "name": "case_b_real_pipeline_rejects_dropped_required_child_no_plan_no_hooks"
+      },
+      {
+        "name": "case_c_real_pipeline_emits_coverage_check_and_epic_coverage_gap_exit_zero"
+      },
+      {
+        "name": "case_d_real_pipeline_emits_epic_child_dropped_and_dedups_persisted_plan"
+      },
+      {
+        "name": "case_e_real_pipeline_advisory_on_missing_field_still_persists"
+      },
+      {
+        "name": "case_f_real_pipeline_emits_epic_child_unresolved_for_unresolved_items"
+      }
+    ],
+    "property_tests": [],
+    "regression_tests": [
+      {
+        "name": "regress_run_blind_drafts_is_only_mocked_seam_downstream_runs_real"
+      },
+      {
+        "name": "regress_state_dir_parent_equals_repo_root_no_live_state_access"
+      },
+      {
+        "name": "regress_red_on_head_green_after_b1_b8_land"
+      },
+      {
+        "name": "regress_mutating_any_downstream_call_breaks_at_least_one_case"
+      }
+    ],
+    "minimum_test_count": 12,
+    "test_data_requirements": "Per-test tmp_path tree: repo_root = tmp_path, state_dir = repo_root / 'state', output_plan path under repo_root. Synthetic epic brief_obj per case declaring required_child_slugs and a multi-deliverable scope via raw_text. Synthetic drafts objects (.claude_draft/.gemini_draft) of shape {'plan_kind': 'epic', 'child_briefs': [<child dicts>]}, each child carrying slug, title, scope, required_task_ids, deliverables, working_dir \u2014 varied per case to exercise happy path (a), a dropped required slug (b), an uncovered deliverable (c), a duplicate slug (d), a missing required field (e), and an unresolved_items drop (f). No live state/, no real agent processes, no network."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 0,
+    "test_tokens": 1200,
+    "note": "Standalone test_authoring task: no implementation code is produced, so all budget goes to the integration test file. test_tokens > 0 as required when implementation_tokens is 0."
+  },
+  "attribution_metadata": {
+    "proposed_by": "reconciled",
+    "reconciled": true,
+    "diff_resolution": "reconciled"
+  },
+  "spec_author": null,
+  "_debug_stamping_reason": "Task was divergent and resolved via reconciliation.",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+  "repair_feedback": "        assert rc == 0\n>       assert _event_present(_journal_rows(state_dir), 'epic_child_dropped')\nE       AssertionError: assert False\nE        +  where False = _event_present([], 'epic_child_dropped')\nE        +    where [] = _journal_rows(PosixPath('/tmp/pytest-of-xnihil0zer0/pytest-0/test_d_deduped_duplicate_drop_0/repo/state'))\n\ntests/harness/test_epic_completeness_e2e.py:258: AssertionError\n_ test_case_d_real_pipeline_emits_epic_child_dropped_and_dedups_persisted_plan _\n\ntmp_path = PosixPath('/tmp/pytest-of-xnihil0zer0/pytest-0/test_case_d_real_pipeline_emit0')\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ccba2d9da90>\n\n    def test_case_d_real_pipeline_emits_epic_child_dropped_and_dedups_persisted_plan(tmp_path, monkeypatch):\n        repo_root, state_dir, output_plan, rc = _run_duplicate(tmp_path, monkeypatch)\n        assert rc == 0\n        assert output_plan.exists()\n        record = _record(output_plan)\n        slugs = record.get('child_slugs') or []\n        assert slugs.count('dup-child') == 1\n        assert 'keep-this' in slugs\n>       assert _event_present(_journal_rows(state_dir), 'epic_child_dropped')\nE       AssertionError: assert False\nE        +  where False = _event_present([], 'epic_child_dropped')\nE        +    where [] = _journal_rows(PosixPath('/tmp/pytest-of-xnihil0zer0/pytest-0/test_case_d_real_pipeline_emit0/repo/state'))\n\ntests/harness/test_epic_completeness_e2e.py:268: AssertionError\n=========================== short test summary info ============================\nFAILED tests/harness/test_epic_completeness_e2e.py::test_c_uncovered_deliverable_advisory_gap\nFAILED tests/harness/test_epic_completeness_e2e.py::test_case_c_real_pipeline_emits_coverage_check_and_epic_coverage_gap_exit_zero\nFAILED tests/harness/test_epic_completeness_e2e.py::test_d_deduped_duplicate_drop_row\nFAILED tests/harness/test_epic_completeness_e2e.py::test_case_d_real_pipeline_emits_epic_child_dropped_and_dedups_persisted_plan\n4 failed, 13 passed in 0.27s\n"
+}

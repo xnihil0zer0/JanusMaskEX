@@ -1,0 +1,86 @@
+=== Textual-echo screen: does IMPL echo ORACLE's distinctive expected literals? ===
+
+--- ngv2/detonation.py  <-  tests/ngv2/test_p12_detonation_verdict_provenance.py
+    distinctive oracle literals: 14; echoed verbatim in impl: 2
+      ECHO: 'expected_fs_signature'
+      ECHO: 'success_marker'
+
+--- ngv2/poc_authenticity_gate.py  <-  tests/ngv2/test_p12_classify_poc_authenticity_provenance.py
+    distinctive oracle literals: 38; echoed verbatim in impl: 4
+      ECHO: 'defines_vuln_locally'
+      ECHO: 'imports_target'
+      ECHO: 'issues_network_request'
+      ECHO: 'target'
+
+--- ngv2/detonation.py  <-  tests/test_detonation_semantic_verdict.py
+    distinctive oracle literals: 36; echoed verbatim in impl: 6
+      ECHO: 'detonate'
+      ECHO: 'detonation'
+      ECHO: 'fs_snapshot_diff'
+      ECHO: 'outcome'
+      ECHO: 'success'
+      ECHO: 'target'
+
+--- ngv2/conductor_seams.py  <-  tests/test_conductor_seams_wired.py
+    distinctive oracle literals: 32; echoed verbatim in impl: 14
+      ECHO: 'build_evidence'
+      ECHO: 'command_for_phase'
+      ECHO: 'finding'
+      ECHO: 'findings'
+      ECHO: 'harvest'
+      ECHO: 'load_state'
+      ECHO: 'n_artifacts'
+      ECHO: 'output_dir'
+      ECHO: 'output_path'
+      ECHO: 'persist'
+      ECHO: 'run_conductor_step'
+      ECHO: 'run_gates'
+
+--- ngv2/fsm_detect.py  <-  tests/ngv2/test_fsm_detect.py
+    distinctive oracle literals: 55; echoed verbatim in impl: 18
+      ECHO: 'build_files'
+      ECHO: 'content_hash'
+      ECHO: 'details'
+      ECHO: 'head_commit'
+      ECHO: 'interpreter_unresolved'
+      ECHO: 'is_entry'
+      ECHO: 'javascript'
+      ECHO: 'language'
+      ECHO: 'missing_evidence'
+      ECHO: 'ngv2.fsm_evidence'
+      ECHO: 'no_build_system'
+      ECHO: 'no_eligible_language'
+
+--- ngv2/fsm_provision.py  <-  tests/ngv2/test_fsm_provision.py
+    distinctive oracle literals: 26; echoed verbatim in impl: 19
+      ECHO: '--unshare-net'
+      ECHO: 'attacker'
+      ECHO: 'attacker_named_package'
+      ECHO: 'content_hash'
+      ECHO: 'details'
+      ECHO: 'install'
+      ECHO: 'install_argv'
+      ECHO: 'install_not_jailed'
+      ECHO: 'install_stderr_named_packages'
+      ECHO: 'installed_packages'
+      ECHO: 'interpreter_unresolved'
+      ECHO: 'lockfile_packages'
+
+--- ngv2/fsm_jail_build.py  <-  tests/ngv2/test_fsm_jail_build.py
+    distinctive oracle literals: 39; echoed verbatim in impl: 17
+      ECHO: '--bind'
+      ECHO: '--ro-bind'
+      ECHO: '--unshare-ipc'
+      ECHO: '--unshare-net'
+      ECHO: '--unshare-pid'
+      ECHO: 'bwrap_available'
+      ECHO: 'content_hash'
+      ECHO: 'details'
+      ECHO: 'jail_argv'
+      ECHO: 'jail_build_gate'
+      ECHO: 'jail_unavailable'
+      ECHO: 'missing_evidence'
+
+=== INTERPRETATION ===
+Echoes here are CANDIDATES for the X3.5 mutation recheck, not proof of gaming.
+any candidate echo found: True

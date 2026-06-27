@@ -1,0 +1,1 @@
+{"verdict": "STALL", "exit": 2, "elapsed": 526.1, "watched_states": {"ast_merge_module_scope_order": "unplanned"}, "running_live": [], "max_concurrency": 0, "parallel_evidence": null, "fail_counts": {}, "worker_starts": {}, "commits": {}, "daemon_alive": true, "sidecars_now": [], "reason": "total_silent", "silent_secs": 494.9, "watched_stall_secs": 525.9, "running_now": []}

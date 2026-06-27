@@ -1,0 +1,266 @@
+{
+  "items": [
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "_VariableAnonymizer defines visit_arg(self, node: ast.arg) -> ast.arg.",
+          "visit_arg renames node.arg through self._rename_map when node.arg is not in self._protected, allocating a new name via self._next_name() when no mapping exists yet.",
+          "visit_arg leaves node.arg unchanged when node.arg is in self._protected, preserving top-level function parameter protection.",
+          "Nested function and lambda parameter declarations and their internal references in the function body share the same anonymized name in the output of anonymize_code.",
+          "All 38 pre-existing tests in tests/test_cross_examiner.py continue to pass alongside the new unit tests covering nested function and lambda arg anonymization."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "low",
+        "files_touched": [
+          "harness/cross_examiner.py",
+          "tests/test_cross_examiner.py"
+        ],
+        "meta_task_type": "refactor",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "A lambda whose parameter name shadows a name that was already renamed in an outer scope by visit_Name: the lambda parameter declaration and any references to it within the lambda body must end up with the same var_N identifier, even if a mapping already exists in self._rename_map.",
+            "A nested function whose parameter name matches a top-level function parameter (which is in self._protected): the visit_arg call must leave such a nested arg unchanged because the brief specifies behavior is gated on self._protected membership, not on lexical nesting."
+          ],
+          "functional_requirements": [
+            "Override visit_arg(self, node: ast.arg) -> ast.arg on _VariableAnonymizer so the NodeTransformer visits ast.arg nodes during traversal.",
+            "When node.arg is in self._protected, return the node unchanged so top-level function parameters (and other protected names already collected by _collect_protected/_collect_params) keep their original names.",
+            "When node.arg is not in self._protected and not yet in self._rename_map, allocate a new generic name via self._next_name() and store the mapping under node.arg in self._rename_map.",
+            "When node.arg is not in self._protected, mutate node.arg to self._rename_map[node.arg] (using the freshly allocated mapping if one was just inserted) and return the node so the renamed declaration is emitted in ast.unparse output.",
+            "Add unit tests in tests/test_cross_examiner.py that exercise anonymize_code on inputs containing nested helper functions and lambdas, asserting both the argument signatures and their internal references are renamed to the same var_N identifiers, and that the existing tests in the file continue to pass."
+          ],
+          "implementation_notes": "Mirror the structure of the existing visit_Name method on _VariableAnonymizer (harness/cross_examiner.py:108-116). The new visit_arg should: (1) early-return node if node.arg in self._protected, (2) if node.arg not in self._rename_map, insert self._rename_map[node.arg] = self._next_name(), (3) assign node.arg = self._rename_map[node.arg], (4) return node. Do not call generic_visit on the ast.arg (it has no relevant children to traverse for renaming). Do not add new state to __init__ and do not alter _collect_protected or _collect_params. For tests, use ast.parse + ast.unparse round-trips or direct substring assertions on anonymize_code output: feed code like 'def f(x):\\n    def g(y):\\n        return y + 1\\n    return g(x)' and assert that the inner parameter and its body reference are both rewritten to the same var_N token, while x remains x.",
+          "interfaces": "Method signature: def visit_arg(self, node: ast.arg) -> ast.arg within class _VariableAnonymizer(ast.NodeTransformer) in harness/cross_examiner.py. The method must be compatible with ast.NodeTransformer dispatch and return an ast.arg instance. It must consult self._protected, self._rename_map, and self._next_name() exactly as the existing visit_Name method does, mutating node.arg in place and returning the same node.",
+          "non_goals": [
+            "Do not modify any other classes, helper functions, or module-level logic in harness/cross_examiner.py.",
+            "Do not modify any files other than harness/cross_examiner.py and tests/test_cross_examiner.py.",
+            "Do not change how top-level function parameter protection works (the _collect_protected/_collect_params pathway must remain untouched).",
+            "No integration tests are required for this isolated AST-level refactor; coverage is limited to unit-level assertions over anonymize_code output."
+          ],
+          "objective": "Fix _VariableAnonymizer in harness/cross_examiner.py so that argument names declared in nested functions and lambdas are renamed consistently with their usages, while preserving the existing protection of top-level function parameters and other module-level names."
+        },
+        "spec_author": null,
+        "task_id": "RB_JR_fix_variable_anonymizer_visit_arg",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 8,
+          "property_tests": [
+            {
+              "name": "test_property_lambda_param_consistent_with_internal_reference_when_shadowing_outer_rename"
+            }
+          ],
+          "regression_tests": [
+            {
+              "name": "test_regression_nested_arg_matching_protected_top_level_param_is_left_unchanged"
+            }
+          ],
+          "test_data_requirements": "Small inline Python source strings constructed in each test (no fixtures) containing: a module-level function with a nested helper function whose parameter is referenced in its body; a module-level function returning a lambda whose parameter is referenced in its body; a case where the inner parameter name collides with a top-level function parameter (e.g. both named 'x'); and a case where the inner parameter name matches a local variable already renamed by visit_Name in the outer scope. Tests should call anonymize_code from harness.cross_examiner and assert on substring patterns or on re-parsed ast.arg/ast.Name identifiers.",
+          "unit_tests": [
+            {
+              "name": "test_visit_arg_renames_nested_function_parameter_declaration"
+            },
+            {
+              "name": "test_visit_arg_renames_lambda_parameter_declaration"
+            },
+            {
+              "name": "test_nested_function_parameter_matches_internal_reference"
+            },
+            {
+              "name": "test_lambda_parameter_matches_internal_reference"
+            },
+            {
+              "name": "test_top_level_function_parameters_remain_protected"
+            }
+          ]
+        },
+        "title": "Add visit_arg to _VariableAnonymizer to rename nested function and lambda arguments",
+        "token_budget_ratio": {
+          "implementation_tokens": 200,
+          "note": "Implementation is a ~6 line method addition mirroring visit_Name; the bulk of effort is writing focused unit + property + regression tests that exercise nested function and lambda argument renaming without disturbing the existing 38 tests.",
+          "test_tokens": 400
+        },
+        "verification_command": "python -m pytest tests/test_cross_examiner.py -q"
+      },
+      "diff_item_id": "f4119f6810e13640dfa57933227524d27ff8866a",
+      "field_divergences": [
+        [
+          "scope",
+          [
+            "Fix _VariableAnonymizer in harness/cross_examiner.py so that argument names declared in nested functions and lambdas are renamed consistently with their usages, while preserving the existing protection of top-level function parameters and other module-level names.",
+            [
+              "Override visit_arg(self, node: ast.arg) -> ast.arg on _VariableAnonymizer so the NodeTransformer visits ast.arg nodes during traversal.",
+              "When node.arg is in self._protected, return the node unchanged so top-level function parameters (and other protected names already collected by _collect_protected/_collect_params) keep their original names.",
+              "When node.arg is not in self._protected and not yet in self._rename_map, allocate a new generic name via self._next_name() and store the mapping under node.arg in self._rename_map.",
+              "When node.arg is not in self._protected, mutate node.arg to self._rename_map[node.arg] (using the freshly allocated mapping if one was just inserted) and return the node so the renamed declaration is emitted in ast.unparse output.",
+              "Add unit tests in tests/test_cross_examiner.py that exercise anonymize_code on inputs containing nested helper functions and lambdas, asserting both the argument signatures and their internal references are renamed to the same var_N identifiers, and that the existing tests in the file continue to pass."
+            ]
+          ],
+          [
+            "Modify the variable anonymizer in harness/cross_examiner.py to correctly rename nested function and lambda argument declarations while preserving top-level parameters.",
+            [
+              "Override visit_arg(self, node: ast.arg) -> ast.arg in _VariableAnonymizer class.",
+              "If node.arg is not in self._protected and not in self._rename_map, allocate a new generic name using self._next_name() and store it in self._rename_map.",
+              "Update node.arg to the mapped generic name.",
+              "Ensure that nested helper function parameters and lambda parameter declarations are correctly anonymized along with their references inside those scopes."
+            ]
+          ]
+        ],
+        [
+          "edge_cases",
+          [
+            "A lambda whose parameter name shadows a name that was already renamed in an outer scope by visit_Name: the lambda parameter declaration and any references to it within the lambda body must end up with the same var_N identifier, even if a mapping already exists in self._rename_map.",
+            "A nested function whose parameter name matches a top-level function parameter (which is in self._protected): the visit_arg call must leave such a nested arg unchanged because the brief specifies behavior is gated on self._protected membership, not on lexical nesting."
+          ],
+          []
+        ],
+        [
+          "non_goals",
+          [
+            "Do not modify any other classes, helper functions, or module-level logic in harness/cross_examiner.py.",
+            "Do not modify any files other than harness/cross_examiner.py and tests/test_cross_examiner.py.",
+            "Do not change how top-level function parameter protection works (the _collect_protected/_collect_params pathway must remain untouched).",
+            "No integration tests are required for this isolated AST-level refactor; coverage is limited to unit-level assertions over anonymize_code output."
+          ],
+          [
+            "Do not modify any other files or other classes in harness/cross_examiner.py.",
+            "Do not change how top-level function parameter protection works.",
+            "Do not modify or add integration tests as integration testing is not required for this task."
+          ]
+        ],
+        [
+          "tests",
+          {
+            "integration_tests": [],
+            "minimum_test_count": 8,
+            "property_tests": [
+              {
+                "name": "test_property_lambda_param_consistent_with_internal_reference_when_shadowing_outer_rename"
+              }
+            ],
+            "regression_tests": [
+              {
+                "name": "test_regression_nested_arg_matching_protected_top_level_param_is_left_unchanged"
+              }
+            ],
+            "test_data_requirements": "Small inline Python source strings constructed in each test (no fixtures) containing: a module-level function with a nested helper function whose parameter is referenced in its body; a module-level function returning a lambda whose parameter is referenced in its body; a case where the inner parameter name collides with a top-level function parameter (e.g. both named 'x'); and a case where the inner parameter name matches a local variable already renamed by visit_Name in the outer scope. Tests should call anonymize_code from harness.cross_examiner and assert on substring patterns or on re-parsed ast.arg/ast.Name identifiers.",
+            "unit_tests": [
+              {
+                "name": "test_visit_arg_renames_nested_function_parameter_declaration"
+              },
+              {
+                "name": "test_visit_arg_renames_lambda_parameter_declaration"
+              },
+              {
+                "name": "test_nested_function_parameter_matches_internal_reference"
+              },
+              {
+                "name": "test_lambda_parameter_matches_internal_reference"
+              },
+              {
+                "name": "test_top_level_function_parameters_remain_protected"
+              }
+            ]
+          },
+          {
+            "integration_tests": [],
+            "minimum_test_count": 10,
+            "property_tests": [],
+            "regression_tests": [],
+            "test_data_requirements": "Test python code strings containing nested functions, lambdas, and combinations of top-level functions.",
+            "unit_tests": [
+              {
+                "name": "test_nested_function_args_anonymized"
+              },
+              {
+                "name": "test_lambda_args_anonymized"
+              },
+              {
+                "name": "test_top_level_preserved_nested_anonymized"
+              },
+              {
+                "name": "test_existing_38_tests_pass"
+              }
+            ]
+          }
+        ]
+      ],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "In _VariableAnonymizer, override visit_arg(self, node: ast.arg) -> ast.arg to correctly rename nested function and lambda argument declarations.",
+          "Ensure top-level function parameters are preserved and not anonymized.",
+          "Nested function and lambda argument names and their internal references are anonymized consistently.",
+          "Add unit tests in tests/test_cross_examiner.py verifying these behaviors, and ensure all 38 existing tests plus new tests pass."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "low",
+        "files_touched": [
+          "harness/cross_examiner.py",
+          "tests/test_cross_examiner.py"
+        ],
+        "meta_task_type": "refactor",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [],
+          "functional_requirements": [
+            "Override visit_arg(self, node: ast.arg) -> ast.arg in _VariableAnonymizer class.",
+            "If node.arg is not in self._protected and not in self._rename_map, allocate a new generic name using self._next_name() and store it in self._rename_map.",
+            "Update node.arg to the mapped generic name.",
+            "Ensure that nested helper function parameters and lambda parameter declarations are correctly anonymized along with their references inside those scopes."
+          ],
+          "implementation_notes": "By overriding visit_arg, we intercept ast.arg nodes. Since _collect_protected collects top-level arguments, they are in self._protected and will be skipped. Nested and lambda arguments are not top-level, so they are not in self._protected. Renaming them and adding them to self._rename_map ensures that subsequent Name node visits (which reference these parameters) will look up the same renamed mapping and be consistently anonymized.",
+          "interfaces": "Internal AST traversal class _VariableAnonymizer in harness/cross_examiner.py.",
+          "non_goals": [
+            "Do not modify any other files or other classes in harness/cross_examiner.py.",
+            "Do not change how top-level function parameter protection works.",
+            "Do not modify or add integration tests as integration testing is not required for this task."
+          ],
+          "objective": "Modify the variable anonymizer in harness/cross_examiner.py to correctly rename nested function and lambda argument declarations while preserving top-level parameters."
+        },
+        "spec_author": null,
+        "task_id": "task_01",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 10,
+          "property_tests": [],
+          "regression_tests": [],
+          "test_data_requirements": "Test python code strings containing nested functions, lambdas, and combinations of top-level functions.",
+          "unit_tests": [
+            {
+              "name": "test_nested_function_args_anonymized"
+            },
+            {
+              "name": "test_lambda_args_anonymized"
+            },
+            {
+              "name": "test_top_level_preserved_nested_anonymized"
+            },
+            {
+              "name": "test_existing_38_tests_pass"
+            }
+          ]
+        },
+        "title": "Fix _VariableAnonymizer to rename nested function and lambda argument declarations",
+        "token_budget_ratio": {
+          "implementation_tokens": 200,
+          "note": "Minimal logic change in visitor, with detailed test cases checking AST output correctness.",
+          "test_tokens": 400
+        },
+        "verification_command": "pytest tests/test_cross_examiner.py"
+      },
+      "kind": "divergent",
+      "match_reason": "files_and_title"
+    }
+  ]
+}

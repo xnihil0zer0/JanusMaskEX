@@ -1,0 +1,1 @@
+{"code": "__JANUSMASK_MANIFEST__ = {\n    'tools/webui_control.py': r'''@@PLACEHOLDER_CONTROL@@''',\n    'tools/webui_server.py': r'''@@PLACEHOLDER_SERVER@@''',\n    'tools/webui_static/app.js': r'''@@PLACEHOLDER_APP@@''',\n}\n", "task_id": "typed-widgets-impl"}

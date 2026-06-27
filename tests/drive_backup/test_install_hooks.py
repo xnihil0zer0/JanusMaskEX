@@ -2,7 +2,7 @@
 
 Pins `tools/drive_backup/install_hooks.py`:
 SENTINEL ('# >>> janusmask-drive-backup >>>'), DEFAULT_REPOS
-(['/home/xnihil0zer0/JanusMaskJR', '/home/xnihil0zer0/NobleGreedv2']),
+(['/home/xnihil0zer0/AI-Data/JanusMaskEX', '/home/xnihil0zer0/NobleGreedv2']),
 render_shim(janusmask_root, *, chained_hook=None) -> str,
 InstallResult{repo, hook_path, action, ok},
 install(repo_roots=DEFAULT_REPOS, *, fs, janusmask_root=JANUSMASK_ROOT,
@@ -25,7 +25,7 @@ from tools.drive_backup.install_hooks import (
 )
 
 
-JM_ROOT = "/home/xnihil0zer0/JanusMaskJR"
+JM_ROOT = "/home/xnihil0zer0/AI-Data/JanusMaskEX"
 
 
 class FakeFS:
@@ -61,7 +61,7 @@ class FakeFS:
 
 def test_default_repos_and_sentinel():
     assert DEFAULT_REPOS == [
-        "/home/xnihil0zer0/JanusMaskJR",
+        "/home/xnihil0zer0/AI-Data/JanusMaskEX",
         "/home/xnihil0zer0/NobleGreedv2",
     ]
     assert SENTINEL == "# >>> janusmask-drive-backup >>>"
@@ -79,7 +79,7 @@ def test_render_shim_shape():
 
 
 def test_render_shim_chains_to_original_when_given():
-    chained = "/home/xnihil0zer0/JanusMaskJR/.git/hooks/pre-push.pre-janusmask"
+    chained = "/home/xnihil0zer0/AI-Data/JanusMaskEX/.git/hooks/pre-push.pre-janusmask"
     shim = render_shim(JM_ROOT, chained_hook=chained)
     assert chained in shim
     # Still exits 0 for the backup step and references the module.
@@ -118,7 +118,7 @@ def test_render_shim_chained_hook_still_runs_synchronously():
     """The detach applies ONLY to the backup step. A chained original hook
     must still run SYNCHRONOUSLY and gate the push (its non-zero exit blocks),
     so it is NOT backgrounded."""
-    chained = "/home/xnihil0zer0/JanusMaskJR/.git/hooks/pre-push.pre-janusmask"
+    chained = "/home/xnihil0zer0/AI-Data/JanusMaskEX/.git/hooks/pre-push.pre-janusmask"
     shim = render_shim(JM_ROOT, chained_hook=chained)
     # The chained original still gates the push.
     assert "exit_code=$?" in shim or "exit $exit_code" in shim

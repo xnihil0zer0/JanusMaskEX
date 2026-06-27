@@ -74,8 +74,8 @@ def _drive_auto_commit(tmp_path, *, working_dir):
     """
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    (tmp_path / "JanusMaskJR_staging").mkdir()
-    (tmp_path / "JanusMaskJR").mkdir(exist_ok=True)
+    (tmp_path / "JanusMaskEX_staging").mkdir()
+    (tmp_path / "JanusMaskEX").mkdir(exist_ok=True)
 
     task = _make_task(working_dir)
     task_id = "flag2_probe"
@@ -87,7 +87,7 @@ def _drive_auto_commit(tmp_path, *, working_dir):
         proc = mock.MagicMock()
         proc.returncode = 0
         if isinstance(cmd, list) and cmd[:2] == ["git", "rev-parse"]:
-            proc.stdout = str(tmp_path / "JanusMaskJR")
+            proc.stdout = str(tmp_path / "JanusMaskEX")
             proc.stderr = ""
         else:
             proc.stdout = ""

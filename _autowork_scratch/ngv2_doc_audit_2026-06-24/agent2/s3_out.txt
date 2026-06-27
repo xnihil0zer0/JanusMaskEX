@@ -1,0 +1,53 @@
+========================================================================
+s3 (A): default operating point — parallel_cap / agy_pool vs live config
+========================================================================
+  live: parallel_cap: 5
+  live: claude_parallel_cap: 4
+  live: agy_pool:
+  agy_pool.enabled=true  size=8
+  DOC says: parallel_cap: 4 (§1A, §7 'default 4 concurrent pairs')
+  DOC §1A prereq: agy_pool OFF by default (must be set). LIVE shows enabled:true.
+
+========================================================================
+s3 (B): contract STATUS drift — what actually landed (git, both repos)
+========================================================================
+
+  P1.2 detonation_authenticity_provenance (doc=☐):
+    grep 'p12-classify-poc-authenticity-provenance': 5ab82c2 Integrate validated code for p12-classify-poc-authenticity-provenance
+    grep 'p12-detonation-verdict-provenance-impl': aa718c9 Integrate validated code for p12-detonation-verdict-provenance-impl
+
+  P1.3 wire_loopback_per_cwe_channels (doc=☐):
+    grep 'wire-loopback-per-cwe-channels-impl': 80722d6 Integrate validated code for wire-loopback-per-cwe-channels-impl
+    grep 'impl-loopback-listener': cab40a7 Integrate validated code for impl-loopback-listener
+
+  P2.1-c0 scaffold (doc: epic ☐, MEMORY says c0 landed):
+    grep 'p21-c0-fsm-evidence-scaffold': dc07188 Integrate validated code for p21-c0-fsm-evidence-scaffold
+    grep 'p21-c0-fsm-scaffold-oracle': 9a712e6 Integrate validated code for p21-c0-fsm-scaffold-oracle
+
+  P2.1-c3 fsm_jail_build (doc=☐):
+    grep 'p21-c3-fsm-jail-build': e4280e1 Integrate validated code for p21-c3-fsm-jail-build-oracle
+
+========================================================================
+s3 (C): semantic_verdict empty-sig — is the §4-P1.2 / §8-G10 'sig=""→confirmed
+        vacuous-confirm RED' claim still true in live detonation.py?
+========================================================================
+  empty-sig guard in semantic_verdict:
+     def semantic_verdict(exit_code, stdout: str, stderr: str, fs_snapshot_diff: str, *, success_marker: str, expected_fs_signature: str, nonce: str='') -> str:
+         """Pure Semantic-Oracle verdict over an injected runner result.
+     
+         Upgrades the weak exit-code+grep gate: a detonation is only ``'confirmed'``
+         when the process exited cleanly (``exit_code == 0``), emitted the
+         ``success_marker`` on stdout or stderr, AND mutated the filesystem in a way
+         whose ``expected_fs_signature`` shows up in ``fs_snapshot_diff``.
+     
+         A nonzero ``exit_code`` always dominates and yields ``'error'`` -- even if
+         the marker and FS signature are both present. An ``exit_code`` of ``0`` or
+         ``None`` that does not clear the confirmed bar yields ``'refuted'``.
+     
+         This function is pure: no I/O, no clock, no randomness; the same inputs
+         always produce the same verdict.
+         """
+         if exit_code is n
+
+  guard present (rejects empty/whitespace sig): True
+  empty-sig returns: 'refuted'

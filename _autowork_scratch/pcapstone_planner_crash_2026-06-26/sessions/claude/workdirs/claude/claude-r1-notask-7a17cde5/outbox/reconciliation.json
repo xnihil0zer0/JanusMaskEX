@@ -1,0 +1,142 @@
+{
+  "responses": [
+    {
+      "diff_item_id": "__critique__",
+      "stance": "amend"
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "bg06-missing-windows-execv-edge-case",
+      "category": "missing_edge_case",
+      "severity": "error",
+      "task_id": "BG_06",
+      "field_path": "tasks[BG_06].spec.edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Cross-platform PID semantics: os.execv on POSIX replaces the process image in-place (PID preserved), but on Windows the underlying CRT emulates execv via spawn-then-exit, so the PID changes. Either gate the handover on sys.platform != 'win32', or rewrite the acceptance criterion to drop the PID-preservation guarantee on Windows."
+      },
+      "message": "BG_06's acceptance criterion explicitly states 'keeping the same PID', and BG_07 asserts PID preservation. On Windows, os.execv does NOT preserve PID — this will silently break the contract on that platform. The current edge_cases list (sys.executable/argv missing, env vars lost) does not cover this. Either add a Windows-skip edge case or document a POSIX-only non_goal."
+    },
+    {
+      "finding_id": "bg06-missing-fd-and-signal-state-edge-case",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "BG_06",
+      "field_path": "tasks[BG_06].spec.edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Open file descriptors and signal-handler state survive execv unless explicitly cleared. Inherited FDs (log files, locks, pipes to subprocesses) can leak into the new image; custom signal handlers reset to defaults. Enumerate FDs to close (set FD_CLOEXEC at open time or close on handover) and re-register signal handlers post-exec."
+      },
+      "message": "BG_06 hot-swaps the running interpreter but the spec does not address inherited file descriptors or signal-handler state across execv. Stale FDs cause subtle leaks (e.g., log rotation broken, lock files held); dropped signal handlers cause SIGTERM/SIGINT to kill the rehydrated process. This is the canonical execv pitfall and must be covered before BG_07 can meaningfully assert 'state is preserved'."
+    },
+    {
+      "finding_id": "bg07-missing-platform-skip-edge-case",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "BG_07",
+      "field_path": "tasks[BG_07].spec.edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Skip the PID-preservation assertion on Windows (sys.platform == 'win32') — execv there spawns a new process. Without this guard the E2E test will become a flaky cross-platform CI failure rather than a real regression signal."
+      },
+      "message": "BG_07's edge_cases cover port-bind delay and env propagation but ignore the same platform asymmetry that BG_06 ignores. The 'PID preserved' assertion needs an explicit platform gate or the test will report Windows execv emulation as a true regression."
+    },
+    {
+      "finding_id": "bg03-missing-atomic-write-edge-case",
+      "category": "missing_edge_case",
+      "severity": "error",
+      "task_id": "BG_03",
+      "field_path": "tasks[BG_03].spec.edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Crash mid-write produces a truncated state file. Use atomic write (tmp + os.replace) so STATE.json is never observed half-written. Also handle concurrent writers if more than one orchestrator process can call serialize_orchestrator_state."
+      },
+      "message": "BG_03 lists 'corrupt state file: fallback to clean state' as if corruption only comes from external causes — but the most likely corruption source is the orchestrator itself crashing during serialize between truncate and write. Without atomic tmp+rename, every crash window can poison the very state the handover is supposed to preserve. This is a primary failure mode, not an edge case."
+    },
+    {
+      "finding_id": "bg01-missing-not-in-git-repo-edge-case",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "BG_01",
+      "field_path": "tasks[BG_01].spec.edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Caller invokes create_staging_worktree when CWD is not inside a git repository, or when `git` binary is not on PATH. Detect early and raise a typed exception rather than letting subprocess.run surface a cryptic CalledProcessError."
+      },
+      "message": "BG_01 is the foundational git-worktree wrapper but edge_cases only cover stale worktrees and pre-existing paths. The two most common failure modes for any git-shelling helper — 'not a git repo' and 'git binary missing' — are absent. Without an explicit handler these surface downstream as opaque verification failures in BG_02 and BG_05."
+    },
+    {
+      "finding_id": "bg05-missing-precommit-and-signing-edge-case",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "BG_05",
+      "field_path": "tasks[BG_05].spec.edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Pre-commit hooks or commit signing (commit.gpgSign=true) cause `git merge --ff-only` to fail on the resulting commit/merge-commit. Decide explicitly whether to honor hooks (fail closed, raise) or document that staging-to-parent merges are fast-forward only and therefore do not invoke commit hooks."
+      },
+      "message": "BG_05 calls `git merge --ff-only` against the parent branch but does not consider repo-level commit hooks or required signing — both common in this repo's policy ('Never skip hooks (--no-verify)...'). On a true FF the merge-commit is a label move so most hooks no-op, but contributors with local pre-merge hooks or required-signing will see surprising failures. Worth an explicit edge case."
+    },
+    {
+      "finding_id": "bg02-missing-oom-edge-case",
+      "category": "missing_edge_case",
+      "severity": "info",
+      "task_id": "BG_02",
+      "field_path": "tasks[BG_02].spec.edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Verification subprocess hits the sandbox memory_limit_mb (256MB per harness/config.yaml) and is killed by the kernel — surface as a distinct failure mode from generic non-zero exit so the orchestrator can retry or escalate intelligently."
+      },
+      "message": "BG_02 covers timeout (600s) and SyntaxError but not OOM kill, which the sandbox config (memory_limit_mb=256) makes a realistic class of failure. Conflating OOM with generic non-zero exit will obscure root cause when the planner triages staging failures."
+    },
+    {
+      "finding_id": "bg04-missing-dual-stack-edge-case",
+      "category": "missing_edge_case",
+      "severity": "info",
+      "task_id": "BG_04",
+      "field_path": "tasks[BG_04].spec.edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "WebUI may listen on both IPv4 and IPv6 (or on a wildcard that creates two bound sockets). release_for_handover must close ALL listening sockets, not just the first, or the rebind after exec will EADDRINUSE on the remaining one."
+      },
+      "message": "BG_04 talks about 'the' socket as a singleton, but a typical http.server / uvicorn config can bind multiple sockets (dual-stack v4/v6, multiple interfaces). Missing this edge case is exactly the kind of bug that the 'avoid EADDRINUSE on restart' objective is meant to prevent."
+    },
+    {
+      "finding_id": "bg07-test-task-nonzero-impl-budget",
+      "category": "other",
+      "severity": "warn",
+      "task_id": "BG_07",
+      "field_path": "tasks[BG_07].token_budget_ratio",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "implementation_tokens": 0,
+        "test_tokens": 250,
+        "note": "Pure test task — the deliverable IS the test file, so implementation tokens should be 0 and the full budget should flow to test_tokens."
+      },
+      "message": "BG_07 has meta_task_type 'test_integration' and its sole deliverable is tests/integration/test_blue_green.py. Assigning 100 implementation_tokens vs 150 test_tokens implies there is non-test implementation work, which there is not. The validator (plan_validator.py:107) explicitly excuses test_* tasks from the 1.5x ratio, so this should be 0/250 — the current split is a copy-paste from the non-test tasks."
+    },
+    {
+      "finding_id": "all-tasks-templated-token-budget",
+      "category": "test_heavy_violation",
+      "severity": "info",
+      "field_path": "tasks[*].token_budget_ratio",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "note": "Right-size each task individually instead of templating 100/150 everywhere. Trivial wrappers (BG_01, BG_04) need less; BG_06 (cross-platform execv with FD/signal handling) needs more."
+      },
+      "message": "Every non-test task carries the identical 100/150 budget — exactly at the validator's 1.5x minimum. The uniformity signals these were not estimated per task; BG_01 (thin git wrapper) and BG_06 (process exec with FD and platform nuance) cannot plausibly have the same complexity. Sitting at the floor across the board leaves no margin if any one task expands."
+    },
+    {
+      "finding_id": "all-tasks-weak-verification-command",
+      "category": "other",
+      "severity": "warn",
+      "field_path": "tasks[*].verification_command",
+      "suggested_patch": {
+        "op": "add_dependency",
+        "detail": "Replace import-only smoke checks with pytest invocations of the corresponding test_spec entries, e.g. for BG_05 use `python -m pytest tests/harness/test_git_integration.py::test_merge_staging_to_parent_success` instead of `python -c \"from harness import git_integration; print(...)\"`."
+      },
+      "message": "verification_command for BG_01/BG_02/BG_03/BG_05/BG_06 is just `python -c 'from harness import X; print(\"... check passed\")'`, which only proves the module imports — it does not exercise any of the acceptance criteria (worktree creation, ff-only merge, execv semantics, state rehydration). The orchestrator-side V1 gate (plan_validator.py:230) only requires the field be non-empty, so these will pass the gate while providing no actual verification signal."
+    }
+  ]
+}

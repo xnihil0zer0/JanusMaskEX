@@ -1,0 +1,88 @@
+===== NGv2 ngv2/ FSM-related files =====
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  2378 Jun 16 02:06 auth_bootstrap.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  6478 Jun  7 11:13 bounty_gate.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  1949 Jun 13 17:29 conductor_loop.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0 22551 Jun 24 12:24 conductor_seams.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  3020 Jun 13 11:15 detonation_evidence_gate.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  3755 Jun 24 12:54 detonation.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  2465 Jun 24 19:55 fsm_detect.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  1518 Jun 24 19:00 fsm_evidence.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  3075 Jun 24 19:45 fsm_jail_build.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  2564 Jun 24 19:49 fsm_provision.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  4729 Jun 13 17:39 gated_advance.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  8168 Jun 24 19:00 gate_executor.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  4065 Jun 11 14:08 grounding_confidence_gate.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  5767 Jun 11 17:16 human_checkpoint_gate.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  2208 Jun 13 11:51 hunt_conductor.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  5426 Jun 15 11:51 loopback_listener.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0 11061 Jun 24 16:15 _loopback_netns.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  3069 Jun 11 14:03 novelty_gate.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  8211 Jun 24 15:55 poc_authenticity_gate.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0 29981 Jun 24 16:15 poc_runner_live.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  1800 Jun  6 07:48 poc_runner.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  4662 Jun 14 05:52 run_hunt.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0 29207 Jun 11 21:32 session_api.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0 23177 Jun 12 14:52 session_gate.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  6498 Jun 14 13:01 sink_extract.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  4219 Jun 15 14:39 sink_instrument.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0 11498 Jun 14 13:57 sink_localize.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  5238 Jun 13 11:18 sink_presence_gate.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  4240 Jun 13 11:12 sink_reachability_gate.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  3262 Jun 12 14:26 sink_taxonomy.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  1929 Jun 11 14:51 source_qualify_gate.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  3237 Jun 12 14:43 source_sink_prefilter.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  5011 Jun 11 13:05 state_machine.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  5926 Jun 11 17:18 submission_readiness_gate.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  1195 Jun 13 21:47 test_human_checkpoint_gate.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  3664 Jun 24 19:00 transition_planner.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  2140 Jun  6 14:32 triage_aggregate.py
+
+===== look for env_states / fsm handler dir =====
+/home/xnihil0zer0/NobleGreedv2/ngv2/fsm_jail_build.py
+/home/xnihil0zer0/NobleGreedv2/ngv2/fsm_provision.py
+/home/xnihil0zer0/NobleGreedv2/ngv2/web_framework_detect.py
+/home/xnihil0zer0/NobleGreedv2/ngv2/fsm_detect.py
+/home/xnihil0zer0/NobleGreedv2/ngv2/fsm_evidence.py
+/home/xnihil0zer0/NobleGreedv2/ngv2/pathtrav_detect.py
+/home/xnihil0zer0/NobleGreedv2/ngv2/ssrf_detect.py
+/home/xnihil0zer0/NobleGreedv2/ngv2/deser_detect.py
+
+===== _PHASE_COUNT_KEY current state (X1 wiring) =====
+/home/xnihil0zer0/NobleGreedv2/ngv2/conductor_seams.py:20:_PHASE_COUNT_KEY = {'hunt': 'findings', 'poc': 'pocs', 'detonate': 'reports'}
+/home/xnihil0zer0/NobleGreedv2/ngv2/conductor_seams.py:56:        lbl = _PHASE_COUNT_KEY.get(phase)
+--- count_fields / intermediate counters in conductor_seams ---
+59:        count_fields = {'triage': 'triaged', 'verify': 'verified', 'novelty': 'novelties', 'report': 'report_count'}
+60:        if phase in count_fields:
+62:            state[count_fields[phase]] = int(state.get(count_fields[phase], 0) or 0) + cnt
+160:        if 'triage_result' not in ev:
+161:            if 'triage_result_payload' in state or int(state.get('triaged', 0) or 0) > 0:
+163:                payload = state.get('triage_result_payload')
+173:                                    if isinstance(js, dict) and 'triage_result' in js:
+174:                                        val = js['triage_result']
+177:                            elif isinstance(content, dict) and 'triage_result' in content:
+178:                                val = content['triage_result']
+179:                ev['triage_result'] = val
+180:        if 'verify_result' not in ev:
+181:            if 'verify_result_payload' in state or int(state.get('verified', 0) or 0) > 0:
+183:                payload = state.get('verify_result_payload')
+193:                                    if isinstance(js, dict) and 'verify_result' in js:
+194:                                        val = js['verify_result']
+197:                            elif isinstance(content, dict) and 'verify_result' in content:
+198:                                val = content['verify_result']
+199:                ev['verify_result'] = val
+200:        if 'novelty_result' not in ev:
+201:            if 'novelty_result_payload' in state or int(state.get('novelties', 0) or 0) > 0:
+203:                payload = state.get('novelty_result_payload')
+213:                                    if isinstance(js, dict) and 'novelty_result' in js:
+214:                                        val = js['novelty_result']
+217:                            elif isinstance(content, dict) and 'novelty_result' in content:
+218:                                val = content['novelty_result']
+219:                ev['novelty_result'] = val
+220:        if 'report_artifact' not in ev:
+221:            if 'report_artifact_payload' in state or int(state.get('report_count', 0) or 0) > 0:
+223:                payload = state.get('report_artifact_payload')
+233:                                    if isinstance(js, dict) and 'report_artifact' in js:
+234:                                        val = js['report_artifact']
+237:                            elif isinstance(content, dict) and 'report_artifact' in content:
+238:                                val = content['report_artifact']
+239:                ev['report_artifact'] = val

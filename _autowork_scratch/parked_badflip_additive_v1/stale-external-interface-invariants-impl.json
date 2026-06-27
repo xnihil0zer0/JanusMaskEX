@@ -1,0 +1,96 @@
+{
+  "task_id": "stale-external-interface-invariants-impl",
+  "title": "Impl: add prepare_workspace(root) gated external entrypoint via __JANUSMASK_PATCHES__ (GREEN)",
+  "meta_task_type": "harness_self_fix",
+  "priority": "high",
+  "dependencies": [],
+  "files_touched": [
+    "harness/state_reconciler.py"
+  ],
+  "acceptance_criteria": [
+    "harness/state_reconciler.py gains prepare_workspace(root) -> WorkspaceStatus, appended additively via the R-ANCHOR __JANUSMASK_PATCHES__ pattern (no whole-file reproduction, no raw-editing of semantic markers).",
+    "prepare_workspace enforces ownership / allowlist / dirty (fail-CLOSED: non-git root treated DIRTY and refused) / STAGED_UNMERGED gates before any mutation.",
+    "prepare_workspace acquires the shared state_reconcile.lock and delegates report/apply to cleanup_state (it is an alias, not a reimplementation).",
+    "Staging-worktree reclamation is scoped: siblings are verified still registered and a bare `git worktree prune` is NEVER invoked.",
+    "The oracle tests/harness/test_prepare_workspace_invariants.py turns GREEN.",
+    "autowork.state_reconcile flag is not flipped."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/harness/test_prepare_workspace_invariants.py -q",
+  "spec": {
+    "objective": "Implement prepare_workspace(root) -> WorkspaceStatus as the fail-closed external entrypoint/alias over cleanup_state in harness/state_reconciler.py, satisfying the oracle. Append via the additive __JANUSMASK_PATCHES__ R-ANCHOR block; enforce all gates; acquire the one shared lock; perform scoped staging-worktree reclamation only.",
+    "functional_requirements": [
+      "Add prepare_workspace(root) -> WorkspaceStatus to harness/state_reconciler.py strictly via the additive __JANUSMASK_PATCHES__ R-ANCHOR block \u2014 no whole-file rewrite and no raw-editing of semantic markers.",
+      "Enforce the ownership and allowlist gates, refusing any root that fails either, before any mutation.",
+      "Make the dirty check fail CLOSED: a non-git root is treated DIRTY and refused; do not trust target_bootstrap._is_dirty's clean-on-non-git answer; dirty git roots are also refused.",
+      "Enforce the STAGED_UNMERGED gate, refusing roots with staged-unmerged entries.",
+      "Acquire the shared state_reconcile_lock(state_dir) context manager (the one shared lock) and then delegate the report/apply to cleanup_state rather than reimplementing disk rmtree/compaction.",
+      "Perform scoped staging-worktree reclamation only \u2014 verify siblings are still registered and NEVER invoke a bare `git worktree prune`."
+    ],
+    "interfaces": "prepare_workspace(root) -> WorkspaceStatus in harness/state_reconciler.py; alias over cleanup_state(root, *, mode=\"report\"|\"apply\") -> WorkspaceStatus; serializes under state_reconcile_lock(state_dir). Consumes the disk reapers (from stale-disk-reapers) only indirectly through cleanup_state.",
+    "edge_cases": [
+      "Non-git root: refuse as DIRTY (fail-CLOSED) even though target_bootstrap._is_dirty returns clean.",
+      "Clean owned + allowlisted git root with a stale staging worktree and a still-registered sibling: reclaim only the stale staging worktree, leave the registered sibling intact, no bare prune.",
+      "Staged-unmerged index: refuse via STAGED_UNMERGED gate.",
+      "Concurrent caller: serialize on the single shared state_reconcile.lock; do not create a second lock."
+    ],
+    "non_goals": [
+      "Does not run a bare `git worktree prune`.",
+      "Does not implement the disk rmtree/compaction itself (delegates to cleanup_state / stale-disk-reapers).",
+      "Does not reproduce harness/state_reconciler.py whole \u2014 additive append only.",
+      "Does not run a live daemon / integration and does not flip autowork.state_reconcile."
+    ],
+    "implementation_notes": "Append the new function inside the existing __JANUSMASK_PATCHES__ R-ANCHOR additive region. Order the gates ownership -> allowlist -> dirty (fail-CLOSED non-git) -> STAGED_UNMERGED before acquiring the lock and delegating to cleanup_state. For reclamation, enumerate registered worktrees and prune only the scoped stale staging worktree after confirming siblings remain registered; never shell out to a bare `git worktree prune`."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_prepare_workspace_added_via_janusmask_patches_anchor"
+      },
+      {
+        "name": "test_ownership_and_allowlist_gates_enforced"
+      },
+      {
+        "name": "test_dirty_fail_closed_non_git_root_refused"
+      },
+      {
+        "name": "test_staged_unmerged_gate_enforced"
+      },
+      {
+        "name": "test_acquires_shared_state_reconcile_lock_and_delegates_to_cleanup_state"
+      },
+      {
+        "name": "test_scoped_reclamation_preserves_registered_siblings"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [
+      {
+        "name": "test_gate_ordering_stable_across_synthesized_roots"
+      }
+    ],
+    "regression_tests": [
+      {
+        "name": "test_regression_no_bare_git_worktree_prune_invoked"
+      },
+      {
+        "name": "test_regression_autowork_state_reconcile_flag_not_flipped"
+      }
+    ],
+    "minimum_test_count": 9,
+    "test_data_requirements": "Reuses the oracle's hermetic synthesized git/non-git roots under tmp_path; observes lock acquisition and worktree subprocess calls to confirm scoped reclamation and absence of any bare `git worktree prune`."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 600,
+    "test_tokens": 900,
+    "note": "Additive function plus gate wiring; tests dominated by the shared oracle which the impl must turn GREEN."
+  },
+  "attribution_metadata": {
+    "proposed_by": "claude",
+    "reconciled": false,
+    "diff_resolution": null
+  },
+  "_debug_stamping_reason": "Task was only proposed by Claude.",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR"
+}

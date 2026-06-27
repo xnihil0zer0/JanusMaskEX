@@ -86,7 +86,7 @@ def _run_auto_commit(tmp_path, *, bwrap_enabled):
     state_dir = tmp_path / "state"
     state_dir.mkdir()
     # mutant work_dir / state sessions makedir targets must be real dirs:
-    (tmp_path / "JanusMaskJR_staging").mkdir()
+    (tmp_path / "JanusMaskEX_staging").mkdir()
 
     task = _make_task()
     task_id = "h2a_probe_jail" if bwrap_enabled else "h2a_probe_fallback"
@@ -99,8 +99,8 @@ def _run_auto_commit(tmp_path, *, bwrap_enabled):
         proc.returncode = 0
         if isinstance(cmd, list) and cmd[:2] == ["git", "rev-parse"]:
             # worktree_root resolves to tmp_path; staging sibling is
-            # tmp_path/JanusMaskJR_staging (created above).
-            proc.stdout = str(tmp_path / "JanusMaskJR")
+            # tmp_path/JanusMaskEX_staging (created above).
+            proc.stdout = str(tmp_path / "JanusMaskEX")
             proc.stderr = ""
         else:
             proc.stdout = ""
@@ -126,9 +126,9 @@ def _run_auto_commit(tmp_path, *, bwrap_enabled):
          mock.patch("shutil.copytree"), \
          mock.patch("shutil.rmtree"), \
          mock.patch("os.symlink"):
-        # JanusMaskJR worktree root (rev-parse stdout) must exist so the .venv
+        # JanusMaskEX worktree root (rev-parse stdout) must exist so the .venv
         # symlink check + path resolves behave; staging sibling already created.
-        (tmp_path / "JanusMaskJR").mkdir(exist_ok=True)
+        (tmp_path / "JanusMaskEX").mkdir(exist_ok=True)
         _auto_commit_accepted(state_dir, task, task_id)
 
     non_git = [c for c in run_calls if not (isinstance(c, list) and c[:1] == ["git"])]

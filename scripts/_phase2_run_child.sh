@@ -3,7 +3,7 @@
 # Stage each task from the plan, then dispatch in the given (dependency) order
 # via impl_dispatch_once.sh. Reports commit outcome per task.
 set -u
-cd /home/xnihil0zer0/JanusMaskJR
+cd /home/xnihil0zer0/AI-Data/JanusMaskEX
 PLAN="$1"; shift
 echo "=== staging tasks from $PLAN ==="
 for tid in "$@"; do

@@ -1,0 +1,72 @@
+{
+  "task_id": "difffuzz-w2b-architecture-contracts",
+  "title": "Update architecture contracts taxonomy table and invariant",
+  "meta_task_type": "docs_writing",
+  "priority": "high",
+  "dependencies": [
+    "difffuzz-w2b-flip-policy"
+  ],
+  "files_touched": [
+    "docs/ARCHITECTURE_CONTRACTS.md"
+  ],
+  "acceptance_criteria": [
+    "The bypass_fuzzer \u2713 checkmark is cleared for harness_plumbing and harness_self_fix rows in docs/ARCHITECTURE_CONTRACTS.md section 2 table.",
+    "The exception prose is amended to add harness_self_fix and harness_plumbing to the reviewed narrowings list.",
+    "Verification command 'python -m pytest tests/adversarial/test_taxonomies.py -q' passes all 12 tests successfully."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "low",
+  "verification_command": "python -m pytest tests/adversarial/test_taxonomies.py -q",
+  "spec": {
+    "objective": "Document the sanctioned narrowing of fuzzer bypass types in ARCHITECTURE_CONTRACTS.md.",
+    "functional_requirements": [
+      "Clear the bypass_fuzzer checkmark for harness_plumbing in the taxonomy table.",
+      "Clear the bypass_fuzzer checkmark for harness_self_fix in the taxonomy table.",
+      "Add harness_self_fix and harness_plumbing to the invariant narrowing exception list in the prose."
+    ],
+    "interfaces": "Markdown documentation file docs/ARCHITECTURE_CONTRACTS.md.",
+    "edge_cases": [
+      "Ensure documentation edits don't conflict with any automated validation checking doc-to-code alignment in integration tests."
+    ],
+    "non_goals": [
+      "Do not touch other table rows, sections, or code files to keep doc integration clean.",
+      "Do not modify any test code or introduce external file validation during integration."
+    ],
+    "implementation_notes": "A single __JANUSMASK_PATCHES__ symbol patch or markdown replacement edit.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/adversarial/test_taxonomies.py\n```python\nimport pytest\nfrom harness.planner.taxonomies import BYPASS_FUZZER_TYPES, META_TASK_POLICY, META_TASK_TYPES, SIDE_EFFECT_META_TYPES, SKIP_SMOKE_GATE_TYPES, is_test_prefixed\ndef test_policy_dict_is_populated():\n    ...\ndef test_every_policy_entry_has_required_flags():\n    ...\ndef test_meta_task_types_matches_policy_keys():\n    ...\ndef test_bypass_fuzzer_types_derives_from_policy():\n    ...\ndef test_side_effect_meta_types_derives_from_policy():\n    ...\ndef test_bypass_and_side_effect_are_subsets_of_canonical():\n    ...\ndef test_skip_smoke_gate_types_derives_from_policy():\n    ...\ndef test_skip_smoke_gate_is_subset_of_bypass():\n    ...\ndef test_harness_self_fix_skips_smoke_gates():\n    ...\ndef test_test_authoring_policy_entry():\n    ...\n@pytest.mark.parametrize('value', ['hooks_integration'])\ndef test_known_bypass_values_are_in_bypass_set(value):\n    ...\n@pytest.mark.parametrize('value', ['sandbox_infra', 'data_model', 'harness_plumbing', 'orchestration', 'planner_tooling', 'mcp_plumbing', 'state_machine', 'io_adapter', 'harness_self_fix'])\ndef test_known_side_effect_values_are_in_side_effect_set(value):\n    ...\n```\n"
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_policy_dict_is_populated"
+      },
+      {
+        "name": "test_every_policy_entry_has_required_flags"
+      },
+      {
+        "name": "test_known_side_effect_values_are_in_side_effect_set"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [],
+    "regression_tests": [
+      {
+        "name": "test_known_side_effect_values_are_in_side_effect_set"
+      }
+    ],
+    "minimum_test_count": 12,
+    "test_data_requirements": "Requires code changes from flip-policy task to match."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 100,
+    "test_tokens": 200,
+    "note": "Verify against the taxonomy tests."
+  },
+  "attribution_metadata": {
+    "proposed_by": "gemini",
+    "reconciled": false,
+    "diff_resolution": null
+  },
+  "_debug_stamping_reason": "Task was only proposed by Gemini.",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+  "repair_feedback": "event=verification_failed\nexit=1\nstdout_tail:\n.......F............                                                     [100%]\n=================================== FAILURES ===================================\n___________________ test_skip_smoke_gate_is_subset_of_bypass ___________________\n\n    def test_skip_smoke_gate_is_subset_of_bypass():\n>       assert SKIP_SMOKE_GATE_TYPES.issubset(BYPASS_FUZZER_TYPES)\nE       AssertionError: assert False\nE        +  where False = <built-in method issubset of frozenset object at 0x78d3efb2c9e0>(frozenset({'config_schema', 'docs_writing', 'epic_planning', 'hooks_integration', 'mcp_plumbing', 'mcp_server_change', ...}))\nE        +    where <built-in method issubset of frozenset object at 0x78d3efb2c9e0> = frozenset({'config_schema', 'docs_writing', 'epic_planning', 'harness_plumbing', 'harness_self_fix', 'hooks_integration', ...}).issubset\n\ntests/adversarial/test_taxonomies.py:62: AssertionError\n=========================== short test summary info ============================\nFAILED tests/adversarial/test_taxonomies.py::test_skip_smoke_gate_is_subset_of_bypass\n1 failed, 19 passed in 0.14s\n"
+}

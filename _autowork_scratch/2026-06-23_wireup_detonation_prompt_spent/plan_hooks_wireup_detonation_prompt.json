@@ -1,0 +1,233 @@
+{
+  "tasks": [
+    {
+      "task_id": "wireup-detonation-prompt-impl",
+      "title": "Append contract-gated LIVE-ROOT detonation clause to the test-authoring branch of prepare_task_prompt",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [
+        "wireup-detonation-prompt-oracle"
+      ],
+      "files_touched": [
+        "harness/orchestrator.py"
+      ],
+      "acceptance_criteria": [
+        "Emits a __JANUSMASK_PATCHES__ SYMBOL patch (kind symbol, name prepare_task_prompt) replacing the existing top-level def in harness/orchestrator.py (1-part top-level def -> NO R-anchor).",
+        "Reproduces the WHOLE prepare_task_prompt function VERBATIM except for ONE addition; the base 'TEST-AUTHORING DISPATCH' framing and all other branches (base prompt, partial_edit, multi-file __JANUSMASK_MANIFEST__, spec_summary tail, repair_feedback) stay byte-identical.",
+        "Inside the existing `if mtt == 'test_authoring':` block, AFTER the base TEST-AUTHORING DISPATCH line, computes contract = (task.get('constraints') or {}).get('integration_contract') and validates it: isinstance dict; entrypoints a non-empty list with EVERY entry in LIVE_ROOTS (local import from harness.wire_up); symbols non-empty; runtime_oracle a non-empty string.",
+        "When the contract is VALID, appends the detonation clause as a Python string interpolating the contract's entrypoints and symbols, containing all five markers: 'LIVE-ROOT DETONATION ORACLE', 'executed_with_live_root_ancestor', '_drive_run_pipeline', 'UNMOCKED', 'pure_helper'.",
+        "When the contract is invalid or absent, leaves the prompt unchanged (no markers appended).",
+        "No new helper function, no new gate, no contract threading, no allowlist edit; touches only harness/orchestrator.py.",
+        "Uses only triple-double-quote (\"\"\") docstrings; the appended clause keeps inner quoting simple (no triple-quote-inside-triple-quote, no backslash-escaped quotes).",
+        "regression_tests >= 2; verification_command is the bare `python -m pytest tests/adversarial/test_prepare_task_prompt_detonation_clause.py -q`, which substring-contains the task-1 oracle file (red-pair)."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "high",
+      "verification_command": "python -m pytest tests/adversarial/test_prepare_task_prompt_detonation_clause.py -q",
+      "spec": {
+        "objective": "Implement the contract-gated LIVE-ROOT detonation clause in harness/orchestrator.py::prepare_task_prompt so that, when a test_authoring task carries a VALID integration_contract, the built worker prompt instructs the agent to author a LIVE-ROOT detonation oracle instead of a hermetic unit test, with a pure_helper wire_exempt fallback. Delivered as a __JANUSMASK_PATCHES__ SYMBOL patch that reproduces prepare_task_prompt verbatim except for this one append, turning the task-1 oracle GREEN (red-pair).",
+        "functional_requirements": [
+          "FR1: Emit a __JANUSMASK_PATCHES__ SYMBOL patch (kind symbol, name prepare_task_prompt) replacing the single top-level def at harness/orchestrator.py:1425 (1-part top-level def -> NO R-anchor), reproducing the entire function VERBATIM except for the single addition below.",
+          "FR2: Inside the existing `if mtt == 'test_authoring':` block, AFTER the base `prompt += '\\nTEST-AUTHORING DISPATCH:...'` line (orchestrator.py:1475-1476) and before the `if spec_summary:` tail, compute contract = (task.get('constraints') or {}).get('integration_contract').",
+          "FR3: Validate the contract with a local import `from harness.wire_up import LIVE_ROOTS` (matching the file's in-function import pattern): valid iff isinstance(contract, dict) AND contract.get('entrypoints') is a non-empty list with EVERY entry in LIVE_ROOTS AND contract.get('symbols') is non-empty AND contract.get('runtime_oracle') is a non-empty string.",
+          "FR4: When the contract is VALID, append a detonation clause built as a Python string interpolating the contract's entrypoints and symbols and containing all five markers ('LIVE-ROOT DETONATION ORACLE', 'executed_with_live_root_ancestor', '_drive_run_pipeline', 'UNMOCKED', 'pure_helper') plus the observe_symbol_execution / wire_exempt guidance from the brief.",
+          "FR5: When the contract is invalid or absent, leave the prompt unchanged so none of the markers appear and the base 'TEST-AUTHORING DISPATCH' framing remains; all non-test_authoring branches stay byte-identical.",
+          "FR6: Add no new helper, no new gate, no contract threading and no allowlist/decision-file edit from this task; touch nothing in prepare_task_prompt other than the new contract-gated append; use only \"\"\" docstrings with simple inner quoting."
+        ],
+        "interfaces": "harness/orchestrator.py::prepare_task_prompt(task: dict) -> str (top-level def at line 1425). mtt resolved at line 1462. Existing test-authoring base clause at lines 1475-1476. Contract in scope: (task.get('constraints') or {}).get('integration_contract') with shape {entrypoints:[...], symbols:[...], runtime_oracle:'...'}. Local import: from harness.wire_up import LIVE_ROOTS (= ['harness/orchestrator.py','harness/orchestrator_worker.py','harness/autowork_daemon.py','harness/planner/cli.py']). Non-vacuity is enforced by the existing stub_target mutation gate at orchestrator.py:3050-3167 (no new gate).",
+        "edge_cases": [
+          "constraints missing entirely (task.get('constraints') is None) -> `(task.get('constraints') or {})` yields {} -> contract None -> no clause.",
+          "contract present but not a dict -> no clause.",
+          "entrypoints empty list, or symbols empty, or runtime_oracle missing/empty -> no clause.",
+          "entrypoints a mixed list with at least one entry not in LIVE_ROOTS -> invalid (EVERY entry must be in LIVE_ROOTS) -> no clause.",
+          "Interpolating entrypoints/symbols into the clause must not break Python string quoting (no triple-quote-inside-triple-quote, no backslash-escaped quotes).",
+          "Other branches (base prompt, partial_edit, multi-file __JANUSMASK_MANIFEST__, spec_summary tail, repair_feedback) are NOT covered by the scoped vcmd, so a transcription slip there passes this vcmd but breaks the broad suite -- reproduce the whole function verbatim to avoid it."
+        ],
+        "non_goals": [
+          "No new gate code (stub_target gate at orchestrator.py:3050-3167 already enforces detonation non-vacuity).",
+          "No integration test and no live-environment / LIVE_ROOT stand-up: this leaf modifies a pure prompt-builder string asserted only via substring checks (integration excuse).",
+          "No change to any other branch of prepare_task_prompt; no new helper; no contract threading.",
+          "No allowlist edit, no decision file authored from this brief (harness/orchestrator.py is TRUST-CORE; the decision file is pre-authored out-of-band via the pinned required_task_ids)."
+        ],
+        "implementation_notes": "Reproduce prepare_task_prompt VERBATIM as a SYMBOL patch; the ONLY diff is inside `if mtt == 'test_authoring':`, after the base TEST-AUTHORING DISPATCH append. Add: `from harness.wire_up import LIVE_ROOTS` (local import); `contract = (task.get('constraints') or {}).get('integration_contract')`; then `if isinstance(contract, dict):` extract eps = contract.get('entrypoints'), syms = contract.get('symbols'), ro = contract.get('runtime_oracle'); valid = (isinstance(eps, list) and eps and all(e in LIVE_ROOTS for e in eps) and syms and isinstance(ro, str) and ro.strip()); when valid, `prompt += ` a clause that interpolates eps and syms. Embed this guidance verbatim as the prompt content (interpolating entrypoints/symbols where natural): \"LIVE-ROOT DETONATION ORACLE (this task carries an integration_contract): instead of a hermetic unit test, author a pytest module that, for EACH contract symbol, drives the declared LIVE_ROOT entrypoint for ONE bounded iteration with the symbol left UNMOCKED, under `with observe_symbol_execution([symbol]) as obs:` (from harness.wire_up), and asserts `obs.executed_with_live_root_ancestor(symbol, LIVE_ROOTS) is True`. Use the canonical driver scaffold `_drive_run_pipeline` from tests/harness/test_wire_up_runtime_observe.py VERBATIM (patch every spawn collaborator at its source module, return the task once then None, bound the loop with a _StopLoop sentinel, and LEAVE THE TARGET SYMBOL UNMOCKED so its real body runs via a production call edge). DO NOT call the symbol directly. DETONATION NON-VACUITY: declare the symbol's module as mutation_target so the harness re-runs this oracle against a stubbed mutant -- the assertion MUST fail when the symbol body is replaced by raise NotImplementedError; assert observed execution, never a bare True. For any symbol that genuinely cannot detonate from a LIVE_ROOT in one bounded iteration, do NOT fabricate a driver -- declare a `pure_helper` wire_exempt claim (validated by harness.wire_up.validate_exemption against the static floor).\" Keep the clause as plain string concatenation with simple inner quoting; do not use ''' and do not backslash-escape quotes. Leave the prompt unchanged on the invalid/absent branch."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_prepare_task_prompt_valid_contract_emits_all_detonation_markers"
+          },
+          {
+            "name": "test_prepare_task_prompt_valid_contract_interpolates_entrypoints_and_symbols"
+          },
+          {
+            "name": "test_prepare_task_prompt_valid_contract_keeps_base_dispatch_framing"
+          },
+          {
+            "name": "test_prepare_task_prompt_no_contract_omits_markers_keeps_base"
+          },
+          {
+            "name": "test_prepare_task_prompt_non_test_authoring_omits_markers"
+          },
+          {
+            "name": "test_prepare_task_prompt_entrypoint_not_in_live_roots_omits_markers"
+          },
+          {
+            "name": "test_prepare_task_prompt_empty_symbols_omits_markers"
+          },
+          {
+            "name": "test_prepare_task_prompt_missing_runtime_oracle_omits_markers"
+          },
+          {
+            "name": "test_prepare_task_prompt_empty_entrypoints_omits_markers"
+          },
+          {
+            "name": "test_prepare_task_prompt_mixed_entrypoints_omits_markers"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_prepare_task_prompt_no_contract_omits_markers_keeps_base"
+          },
+          {
+            "name": "test_prepare_task_prompt_non_test_authoring_omits_markers"
+          },
+          {
+            "name": "test_prepare_task_prompt_base_dispatch_present_when_contract_invalid"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "Reuses the task-1 oracle tests/adversarial/test_prepare_task_prompt_detonation_clause.py as the red-pair (same bare vcmd). No additional test data; the impl must turn that oracle from RED (against the stubbed mutant / pre-impl) to GREEN. Regression intent: the control and invalid cases guard the base 'TEST-AUTHORING DISPATCH' framing within the scoped vcmd; the whole function is reproduced verbatim to protect the uncovered branches in the broad suite."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 300,
+        "test_tokens": 500,
+        "note": "Impl reuses the task-1 oracle as its red-pair (no new test file), so the >=1.5x test ratio is a schema floor rather than new test authoring; impl budget covers reproducing prepare_task_prompt verbatim plus the single contract-gated append."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    },
+    {
+      "task_id": "wireup-detonation-prompt-oracle",
+      "title": "Author adversarial oracle for contract-gated LIVE-ROOT detonation clause in prepare_task_prompt",
+      "meta_task_type": "test_authoring",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tests/adversarial/test_prepare_task_prompt_detonation_clause.py"
+      ],
+      "mutation_target": "harness.orchestrator",
+      "acceptance_criteria": [
+        "Authors tests/adversarial/test_prepare_task_prompt_detonation_clause.py (tests/** is NOT sensitive -> no decision file).",
+        "Imports `from harness.orchestrator import prepare_task_prompt` and `from harness.wire_up import LIVE_ROOTS`; calls prepare_task_prompt(task) DIRECTLY with literal task dicts (no LLM, no subprocess, no exec/eval/__import__).",
+        "Case (A): a test_authoring task carrying a VALID constraints.integration_contract (entrypoints a non-empty list all in LIVE_ROOTS e.g. ['harness/orchestrator.py']; symbols non-empty e.g. ['_save_final_output']; runtime_oracle a non-empty string) yields a prompt CONTAINING every detonation marker: 'LIVE-ROOT DETONATION ORACLE', 'executed_with_live_root_ancestor', '_drive_run_pipeline', 'UNMOCKED', 'pure_helper'.",
+        "Case (B) CONTROL: a test_authoring task with NO integration_contract yields NONE of the detonation markers, but the base 'TEST-AUTHORING DISPATCH' framing is still PRESENT.",
+        "Case (C) CONTROL: a non-test_authoring task (e.g. meta_task_type harness_self_fix) yields none of the detonation markers.",
+        "Case (D) TEETH: an INVALID integration_contract yields NONE of the markers with base 'TEST-AUTHORING DISPATCH' framing still PRESENT, covered as SEPARATE cases: (d1) entrypoint NOT in LIVE_ROOTS, (d2) empty symbols, (d3) missing/empty runtime_oracle, (d4) empty entrypoints, (d5) mixed one-good-one-bad entrypoint list.",
+        "Test functions named test_<unit>_<behaviour>; only triple-double-quote (\"\"\") docstrings, never ''' and never backslash-escaped quotes.",
+        "Declares mutation_target harness.orchestrator so the stub_target gate (orchestrator.py:3050-3167) stubs the module and the suite FAILS on the mutant (non-vacuity).",
+        "verification_command is the bare `python -m pytest tests/adversarial/test_prepare_task_prompt_detonation_clause.py -q`."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/adversarial/test_prepare_task_prompt_detonation_clause.py -q",
+      "spec": {
+        "objective": "Author tests/adversarial/test_prepare_task_prompt_detonation_clause.py, an adversarial oracle that pins the contract-gated LIVE-ROOT detonation clause appended to the test-authoring worker prompt by harness/orchestrator.py::prepare_task_prompt. It imports the function and LIVE_ROOTS, calls prepare_task_prompt directly with literal task dicts, and asserts marker presence under a VALID contract and marker absence under no-contract / non-test_authoring / each kind of INVALID contract -- pinning the entrypoints-subset-of-LIVE_ROOTS + non-empty-symbols + non-empty-runtime_oracle validity logic, not mere presence.",
+        "functional_requirements": [
+          "FR1: Import `from harness.orchestrator import prepare_task_prompt` and `from harness.wire_up import LIVE_ROOTS` by normal import / importlib only (exec/eval/__import__ are AST-banned); call prepare_task_prompt(task) DIRECTLY with literal task dicts (no LLM, no subprocess); use only \"\"\" docstrings.",
+          "FR2: (A) Given a test_authoring task with a VALID constraints.integration_contract (entrypoints a non-empty list all in LIVE_ROOTS e.g. ['harness/orchestrator.py']; symbols non-empty e.g. ['_save_final_output']; runtime_oracle a non-empty string), assert the returned prompt CONTAINS all five detonation markers: 'LIVE-ROOT DETONATION ORACLE', 'executed_with_live_root_ancestor', '_drive_run_pipeline', 'UNMOCKED', 'pure_helper'.",
+          "FR3: (B) CONTROL: given a test_authoring task with NO integration_contract, assert NONE of the five markers are present AND the base 'TEST-AUTHORING DISPATCH' framing is still present (no regression to the base clause).",
+          "FR4: (C) CONTROL: given a non-test_authoring task (e.g. meta_task_type harness_self_fix), assert NONE of the five markers are present.",
+          "FR5: (D) TEETH: given a test_authoring task with an INVALID integration_contract, assert NONE of the five markers are present and the base 'TEST-AUTHORING DISPATCH' framing is still present, with SEPARATE test cases for (d1) an entrypoint not in LIVE_ROOTS, (d2) empty symbols, (d3) missing/empty runtime_oracle, (d4) empty entrypoints, and (d5) a mixed one-good-one-bad entrypoint list -- pinning the full validity predicate, not a presence-only `if contract:`.",
+          "FR6: Declare mutation_target `harness.orchestrator` so the stub_target mutation gate stubs every function body in harness/orchestrator.py to `raise NotImplementedError`; the stubbed prepare_task_prompt then raises on every call so cases (A)(B)(C)(D) error and the vcmd FAILS on the mutant (non-vacuity satisfied)."
+        ],
+        "interfaces": "Module under test: harness/orchestrator.py::prepare_task_prompt(task: dict) -> str. Contract access in scope of the function: contract = (task.get('constraints') or {}).get('integration_contract') with shape {entrypoints:[...], symbols:[...], runtime_oracle:'...'}. Validity floor: isinstance dict AND entrypoints non-empty list with every entry in harness.wire_up.LIVE_ROOTS AND symbols non-empty AND runtime_oracle a non-empty string. LIVE_ROOTS = ['harness/orchestrator.py','harness/orchestrator_worker.py','harness/autowork_daemon.py','harness/planner/cli.py']. Five detonation markers: 'LIVE-ROOT DETONATION ORACLE', 'executed_with_live_root_ancestor', '_drive_run_pipeline', 'UNMOCKED', 'pure_helper'. Base framing string: 'TEST-AUTHORING DISPATCH'. Model the import/call convention on tests/adversarial/test_prepare_task_prompt_test_authoring.py (which declares NO mutation_target; this oracle DOES).",
+        "edge_cases": [
+          "(d1) entrypoints contain a value NOT in LIVE_ROOTS (e.g. ['harness/not_a_live_root.py']) -> invalid -> no markers, base framing present.",
+          "(d2) symbols is empty -> invalid -> no markers, base framing present.",
+          "(d3) runtime_oracle missing or empty string -> invalid -> no markers, base framing present.",
+          "(d4) entrypoints is empty -> invalid -> no markers, base framing present.",
+          "(d5) entrypoints is a mixed list of one valid LIVE_ROOT and one non-LIVE_ROOT (e.g. ['harness/orchestrator.py','harness/not_a_live_root.py']) -> still invalid (EVERY entry must be in LIVE_ROOTS) -> no markers, base framing present.",
+          "No integration_contract key at all, and constraints missing entirely (task.get('constraints') is None) -> no markers, base framing present.",
+          "Avoid asserting on exact whitespace/formatting of the base clause; use substring containment so the impl's verbatim base string is not over-pinned."
+        ],
+        "non_goals": [
+          "No integration test and no live-environment stand-up: this oracle only substring-asserts on the returned prompt string (the integration excuse applies).",
+          "No assertions about other prepare_task_prompt branches (base prompt, partial_edit, multi-file manifest, spec_summary tail, repair_feedback).",
+          "No new gate code, no allowlist edit, no decision file, no dispatch.",
+          "No exec/eval/__import__; no ''' triple-single-quote literals; no backslash-escaped quotes."
+        ],
+        "implementation_notes": "Place at tests/adversarial/test_prepare_task_prompt_detonation_clause.py. Build small literal task dicts: a valid-contract test_authoring task ({'meta_task_type':'test_authoring','constraints':{'integration_contract':{'entrypoints':['harness/orchestrator.py'],'symbols':['_save_final_output'],'runtime_oracle':'drive harness/orchestrator.py for one bounded iteration'}}}), a no-contract test_authoring task, a non-test_authoring task (meta_task_type 'harness_self_fix'), and one invalid-contract task per d1-d5. Define MARKERS = ('LIVE-ROOT DETONATION ORACLE','executed_with_live_root_ancestor','_drive_run_pipeline','UNMOCKED','pure_helper') and assert all-in for (A) and none-in for (B)(C)(D). For (B) and every (D) case also assert 'TEST-AUTHORING DISPATCH' in prompt. Name functions test_prepare_task_prompt_<behaviour>. Import LIVE_ROOTS and reuse its first element as the valid entrypoint so the test tracks the production constant rather than hard-coding it. Declare mutation_target harness.orchestrator in the task (the tightest bare dotted module containing prepare_task_prompt)."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_prepare_task_prompt_valid_contract_emits_all_detonation_markers"
+          },
+          {
+            "name": "test_prepare_task_prompt_valid_contract_interpolates_entrypoints_and_symbols"
+          },
+          {
+            "name": "test_prepare_task_prompt_valid_contract_keeps_base_dispatch_framing"
+          },
+          {
+            "name": "test_prepare_task_prompt_no_contract_omits_markers_keeps_base"
+          },
+          {
+            "name": "test_prepare_task_prompt_non_test_authoring_omits_markers"
+          },
+          {
+            "name": "test_prepare_task_prompt_entrypoint_not_in_live_roots_omits_markers"
+          },
+          {
+            "name": "test_prepare_task_prompt_empty_symbols_omits_markers"
+          },
+          {
+            "name": "test_prepare_task_prompt_missing_runtime_oracle_omits_markers"
+          },
+          {
+            "name": "test_prepare_task_prompt_empty_entrypoints_omits_markers"
+          },
+          {
+            "name": "test_prepare_task_prompt_mixed_entrypoints_omits_markers"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_prepare_task_prompt_base_dispatch_present_when_no_contract"
+          },
+          {
+            "name": "test_prepare_task_prompt_base_dispatch_present_when_contract_invalid"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "Inline literal task dicts only: one valid-contract test_authoring task, one no-contract test_authoring task, one non-test_authoring (harness_self_fix) task, and five invalid-contract test_authoring tasks (d1-d5). The valid entrypoint is taken from LIVE_ROOTS (imported from harness.wire_up). No fixtures, no filesystem, no network, no subprocess."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 1200,
+        "note": "Pure test-authoring leaf: all budget is test tokens (impl_tokens 0). Substring-only adversarial oracle, ~10 unit cases plus base-framing regression checks."
+      },
+      "attribution_metadata": {
+        "proposed_by": "claude",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Claude."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_wireup_detonation_prompt.md",
+  "source_brief_sha256": "0b6327299dcfcd4d54654aa54d7ec066ef38a0d4fe3a67eb3b7bf9073cb05bc9",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+  "required_task_ids": [
+    "wireup-detonation-prompt-oracle",
+    "wireup-detonation-prompt-impl"
+  ]
+}

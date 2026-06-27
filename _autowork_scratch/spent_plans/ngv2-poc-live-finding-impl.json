@@ -1,0 +1,32 @@
+{
+  "task_id": "ngv2-poc-live-finding-impl",
+  "title": "poc_writer + poc worker consume live dict findings and resolve repo-relative evidence",
+  "meta_task_type": "implementation",
+  "priority": 1,
+  "dependencies": [],
+  "files_touched": [
+    "ngv2/poc_writer.py",
+    "ngv2/workers/poc.py"
+  ],
+  "acceptance_criteria": [
+    "poc_writer coerces a dict finding (the live session-row shape) into a Finding so template resolution and grounding work; Finding objects still supported.",
+    "Grounding resolves a repo-relative cited evidence path against the target repo root (Target.repo_root or a directory-path-string target).",
+    "The poc worker run_stage builds a repo-root-bearing target from context['repo'] while preserving the display target slug.",
+    "All poc oracles (existing wired + CWE-94/22 + live-dict-finding + worker-live-finding + repair) pass; no regression."
+  ],
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/test_poc_writer_wired.py tests/test_poc_writer_cwe94_cwe22.py tests/test_poc_writer_live_finding_wired.py tests/test_poc_worker_live_finding_wired.py tests/test_poc_repair_loop_wired.py -q",
+  "spec": {
+    "objective": "Whole-file-replace ngv2/poc_writer.py (add _coerce_finding, _repo_root, _resolve_evidence; coerce at write_poc/synthesize/ground_finding/draft_poc; resolve evidence against repo root in default_resolver) and ngv2/workers/poc.py (add _RepoTarget + _build_target; run_stage passes a repo-root-bearing target) so live dict findings synthesize grounded, target-importing PoCs end-to-end.",
+    "functional_requirements": [
+      "Submission is a whole-file manifest for ngv2/poc_writer.py AND ngv2/workers/poc.py."
+    ],
+    "interfaces": "Public signatures unchanged (write_poc/synthesize/ground_finding/draft_poc/run_stage); dict findings and repo-root targets are now accepted.",
+    "edge_cases": [
+      "unresolvable evidence -> pre-grounding ValueError",
+      "untemplatable category (e.g. CWE-862) -> honest failure artifact, no crash",
+      "display target slug preserved in artifacts"
+    ]
+  },
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

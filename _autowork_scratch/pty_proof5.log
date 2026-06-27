@@ -1,0 +1,37 @@
+[proof] work_dir=/tmp/ptyproof_iumad5dv
+[proof] jailed[:10]=['/usr/bin/bwrap', '--die-with-parent', '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--ro-bind', '/usr']
+[run] READY reached at 1s; sending seed
+[run] t=10s at_idle=False seen_work=True consec=0 deliv=False stable=0
+[run] t=20s at_idle=False seen_work=True consec=0 deliv=False stable=0
+[run] t=30s at_idle=False seen_work=True consec=0 deliv=False stable=0
+[dbg] rfind ready=6807 in_flight=6825 len=6981
+[dbg] tail compact: ...'───❯────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────⏵⏵bypasspermissionson(shift+tabtocycle)·esctointerrupt14104tokensglobalversion:2.1.156·latestversion:2.1.177✗auto-updatefailed·try/doctorornpmi-g@anthropic-ai/claude-code✻brewedfor37s❯←foragents51'
+[proof] ready=True idle=True dead_early=None in 40s
+[proof] === final screen tail ===
+
+
+✢in…
+
+
+
+
+
+
+g
+
+
+
+
+
+
+●Done. I created outbox/submission.pywithexactlythespecifiedcontents:  print('PTY_JAIL_OK')  No other files were created.✢Booping… (37s · ↓213 tokens)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⏵⏵bypasspermissionson (shift+tabtocycle)·esctointerrupt14104tokens
+globalVersion:2.1.156·latestVersion:2.1.177✗Auto-updatefailed·Try/doctor ornpmi-g@anthropic-ai/claude-code
+✻Brewed for 37s❯ ← for agents    51
+
+[proof] outbox/submission.py exists=True content="print('PTY_JAIL_OK')\n"
+[proof] PASS

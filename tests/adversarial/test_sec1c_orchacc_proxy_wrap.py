@@ -91,8 +91,8 @@ def _drive_auto_commit(tmp_path, monkeypatch, *, sandbox_enabled):
     state_dir = tmp_path / "state"
     state_dir.mkdir()
     # mutant work_dir / staging sibling + worktree root must be real dirs:
-    (tmp_path / "JanusMaskJR_staging").mkdir()
-    (tmp_path / "JanusMaskJR").mkdir(exist_ok=True)
+    (tmp_path / "JanusMaskEX_staging").mkdir()
+    (tmp_path / "JanusMaskEX").mkdir(exist_ok=True)
 
     task = {
         "verification_command": "pytest tests/test_dummy.py",
@@ -131,7 +131,7 @@ def _drive_auto_commit(tmp_path, monkeypatch, *, sandbox_enabled):
         proc = mock.MagicMock()
         proc.returncode = 0
         if isinstance(cmd, list) and cmd[:2] == ["git", "rev-parse"]:
-            proc.stdout = str(tmp_path / "JanusMaskJR")
+            proc.stdout = str(tmp_path / "JanusMaskEX")
         else:
             proc.stdout = ""
         proc.stderr = ""

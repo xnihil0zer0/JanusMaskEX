@@ -1,0 +1,18 @@
+RETURNCODE (validator-only revert, helper kept): 1
+tests/harness/test_manifest_drop_undeclared_keys.py::test_validate_submission_drops_undeclared_key_and_passes FAILED [ 12%]
+tests/harness/test_manifest_drop_undeclared_keys.py::test_validate_submission_effective_manifest_is_declared_subset_only FAILED [ 25%]
+tests/harness/test_manifest_drop_undeclared_keys.py::test_validate_submission_emits_warning_naming_dropped_key FAILED [ 37%]
+tests/harness/test_manifest_drop_undeclared_keys.py::test_validate_submission_missing_key_still_rejects_manifest_incomplete PASSED [ 50%]
+tests/harness/test_manifest_drop_undeclared_keys.py::test_validate_submission_clean_manifest_passes_unchanged_no_warning PASSED [ 62%]
+tests/harness/test_manifest_drop_undeclared_keys.py::test_restrict_sidecar_to_declared_drops_stray_key_and_rewrites_subset PASSED [ 75%]
+tests/harness/test_manifest_drop_undeclared_keys.py::test_restrict_sidecar_to_declared_noop_when_all_keys_declared PASSED [ 87%]
+tests/harness/test_manifest_drop_undeclared_keys.py::test_restrict_sidecar_to_declared_robust_to_malformed_or_nondict_sidecar PASSED [100%]
+=================================== FAILURES ===================================
+/home/xnihil0zer0/JanusMaskJR/tests/harness/test_manifest_drop_undeclared_keys.py:51: AssertionError
+/home/xnihil0zer0/JanusMaskJR/tests/harness/test_manifest_drop_undeclared_keys.py:59: AssertionError
+/home/xnihil0zer0/JanusMaskJR/tests/harness/test_manifest_drop_undeclared_keys.py:69: AssertionError
+FAILED tests/harness/test_manifest_drop_undeclared_keys.py::test_validate_submission_drops_undeclared_key_and_passes
+FAILED tests/harness/test_manifest_drop_undeclared_keys.py::test_validate_submission_effective_manifest_is_declared_subset_only
+FAILED tests/harness/test_manifest_drop_undeclared_keys.py::test_validate_submission_emits_warning_naming_dropped_key
+========================= 3 failed, 5 passed in 0.14s ==========================
+BEHAVIORAL_REVERT_GOES_RED: True

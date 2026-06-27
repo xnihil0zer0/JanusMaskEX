@@ -1,0 +1,21 @@
+=== (1) handlers ARE import-reachable (importable + callable) ===
+  import ngv2.fsm_detect.detect: OK callable
+  import ngv2.fsm_provision.provision_gate: OK callable
+  import ngv2.fsm_jail_build.jail_build_gate: OK callable
+  import ngv2.fsm_evidence.advance_gate: OK callable
+
+=== (2) call-sites of each handler from the LIVE conductor ===
+  TOTAL live call-sites across conductor: {'detect': 0, 'provision_gate': 0, 'jail_build_gate': 0, 'advance_gate': 0}
+  -> sum = 0 (expect 0 => orphaned)
+
+=== (3) live wiring touch-points ===
+  run_hunt._INITIAL_PHASE = 'hunt'  (expect 'detect' if FSM live; got hunt -> NOT wired)
+  ENV_PHASE_ORDER members present in live PHASE_ORDER: []  (expect all 6; got 0/6)
+  gate_executor transition gates touching env states: []  (expect non-empty if wired)
+  env states referenced in transition_planner.py: []  (expect all 6 if wired)
+  ngv2/workers/<env-phase>.py modules: []  (expect 6 if wired)
+
+=== VERDICT G14 ===
+  handlers importable (pass import-reachability gate): True
+  handlers have ZERO live call-sites (BUILT-not-WORKS):  True
+  G14 (reachability != called-ness): CONFIRMED — a NEW first-class systemic gap

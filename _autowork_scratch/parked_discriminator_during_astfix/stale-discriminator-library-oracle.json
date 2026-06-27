@@ -1,0 +1,103 @@
+{
+  "task_id": "stale-discriminator-library-oracle",
+  "title": "RED oracle: liveness/reachability discriminators use EXACT parsed task_id equality (t1 vs t12) and self-heal stem parsing",
+  "meta_task_type": "test_authoring",
+  "mutation_target": "harness.state_reconciler",
+  "priority": "high",
+  "dependencies": [],
+  "files_touched": [
+    "tests/harness/test_discriminator_library.py"
+  ],
+  "acceptance_criteria": [
+    "Authors EXACTLY ONE new pytest oracle file tests/harness/test_discriminator_library.py driving the harness.state_reconciler discriminator library over synthesized running/*.pid files and session_slug workdirs built in its own tmp_path; touches no source.",
+    "RED on HEAD: pid_is_live, task_id_has_live_pidfile, the session_slug parser, the ledger cross-ref and worktree-reachability predicates do not exist yet, so the oracle fails on HEAD; GREEN after stale-discriminator-library-impl lands.",
+    "Asserts EXACT parsed task_id equality, NEVER substring: a LIVE regular pidfile running/t12.pid must NOT make task_id 't1' report a live pidfile, and 't12' itself must report live (substring t1-in-t12 rejected both directions).",
+    "Asserts self-heal stem parsing: a LIVE running/selfheal_<agent>_t1_<pid>.pid makes task_id 't1' report live, while a LIVE running/selfheal_<agent>_t12_<pid>.pid must NOT make 't1' report live (exact parsed task_id equality across the self-heal stem).",
+    "Asserts the session_slug parser extracts the EXACT task_id from '<agent>-r<n>-<task_id>-<uuid8>' (including task_ids that themselves contain hyphens) and returns a falsy/None result for malformed slugs.",
+    "Asserts pid_is_live is FAIL-CLOSED: a live PID (os.getpid via signal-0) is live, a never-allocated/dead PID is not, and an unparseable/empty pidfile body resolves to not-live rather than raising.",
+    "Asserts LIVE-FIRST workdir liveness: a session_slug workdir for 't12' backed by a live pidfile must NOT keep dead task_id 't1' alive (exact equality after parsing BOTH the slug and the pidfile stem).",
+    "Every test function is hermetic and self-contained (own tmp_path, no live state/, no network, no live-daemon run); test_spec.regression_tests contains >= 2 entries; non_goals contains the literal word integration."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/harness/test_discriminator_library.py -q",
+  "spec": {
+    "objective": "Author the ONE new RED pytest oracle that pins the behavioral contract of the harness.state_reconciler liveness/reachability discriminator library: pid_is_live, task_id_has_live_pidfile (EXACT parsed task_id equality across regular running/<task_id>.pid and self-heal running/selfheal_<agent>_<task_id>_<pid>.pid stems, NEVER substring), the session_slug parser for '<agent>-r<n>-<task_id>-<uuid8>', plus the ledger cross-ref and worktree-reachability predicates. The oracle is RED on HEAD because these helpers are absent.",
+    "functional_requirements": [
+      "Create exactly one new pytest file tests/harness/test_discriminator_library.py that imports and drives the harness.state_reconciler discriminators over synthesized running/*.pid files and session_slug workdirs built in the test's own tmp_path, and edits no source file; the oracle is RED on HEAD because the helpers do not yet exist.",
+      "Assert task_id_has_live_pidfile uses EXACT parsed task_id equality and NEVER substring: synthesize a LIVE running/t12.pid (pid == os.getpid()) and assert task_id_has_live_pidfile(running_dir, 't1') is False (t1 is a substring of t12 but not the parsed task_id) while task_id_has_live_pidfile(running_dir, 't12') is True.",
+      "Assert self-heal stem parsing with exact equality: synthesize a LIVE running/selfheal_<agent>_t1_<pid>.pid and assert task_id 't1' reports a live pidfile; synthesize a LIVE running/selfheal_<agent>_t12_<pid>.pid and assert task_id 't1' does NOT report a live pidfile (the self-heal stem is parsed for its exact embedded task_id, not substring-matched).",
+      "Assert the session_slug parser extracts the EXACT task_id from '<agent>-r<n>-<task_id>-<uuid8>' (e.g. 'claude-r2-fix-alpha-thing-deadbeef' -> 'fix-alpha-thing', preserving internal hyphens) and returns a falsy/None value for a malformed slug that lacks the agent/round/uuid8 shape.",
+      "Assert pid_is_live is FAIL-CLOSED: a live PID (the running test process via os.getpid(), checked with signal 0) is reported live, a dead/never-allocated PID is reported not-live, and an empty or non-integer pidfile body resolves to not-live rather than raising.",
+      "Assert LIVE-FIRST workdir/worktree liveness across BOTH parsed sides: a session_slug workdir named for task_id 't12' that is backed by a live pidfile must NOT keep dead task_id 't1' alive; reachability/ledger cross-ref predicates agree only when the parsed task_ids are exactly equal."
+    ],
+    "interfaces": "Imports from harness.state_reconciler the discriminator library: pid_is_live(...) -> bool, task_id_has_live_pidfile(running_dir, task_id) -> bool, a session_slug parser for '<agent>-r<n>-<task_id>-<uuid8>', and the ledger cross-ref / worktree-reachability predicates. The oracle synthesizes regular running/<task_id>.pid and self-heal running/selfheal_<agent>_<task_id>_<pid>.pid files plus session_slug-named workdirs under its own tmp_path and drives each predicate by exact parsed task_id equality. Liveness is decided against a live PID via os.getpid()/signal-0 so no sleeping or real daemon is needed.",
+    "edge_cases": [
+      "Substring trap both directions: live running/t12.pid must not satisfy task_id 't1', and a live running/t1.pid must not satisfy task_id 't12'.",
+      "Self-heal stem: selfheal_<agent>_t1_<pid>.pid parses to task_id 't1' exactly; selfheal_<agent>_t12_<pid>.pid does not satisfy 't1'.",
+      "task_id containing internal hyphens parsed correctly out of the session_slug '<agent>-r<n>-<task_id>-<uuid8>'.",
+      "Malformed session_slug (missing r<n> or uuid8) -> parser returns None/falsy, not a wrong task_id.",
+      "Empty / non-integer / missing pidfile body -> pid_is_live FAIL-CLOSED to not-live (no exception).",
+      "Dead PID (never-allocated, e.g. a very large pid) -> not live; live PID via os.getpid() -> live.",
+      "Hermeticity: every test owns its tmp_path running/ dir and session_slug workdirs; no live state/, no network, no live-daemon run."
+    ],
+    "non_goals": [
+      "integration \u2014 no live-daemon run and no live state/ directory; the oracle is a hermetic unit drive over synthesized running/*.pid files and session_slug dirs in its own tmp_path, no network.",
+      "Does NOT author tests for move/delete/cleanup_state/rmtree/prepare_workspace behavior \u2014 the discriminators are pure predicates.",
+      "Does NOT use or assert substring matching for task_id anywhere \u2014 exact parsed equality only.",
+      "Does NOT edit harness/state_reconciler.py or any source file.",
+      "Does NOT assert on the autowork.state_reconcile flag or flip it."
+    ],
+    "implementation_notes": "One file: tests/harness/test_discriminator_library.py. Build a tmp running/ directory and write synthesized pidfiles: running/<task_id>.pid for the regular case and running/selfheal_<agent>_<task_id>_<pid>.pid for the self-heal case, writing str(os.getpid()) for LIVE cases and a large never-allocated pid for dead cases. Build session_slug-named workdirs '<agent>-r<n>-<task_id>-<uuid8>' under tmp_path. Drive pid_is_live with os.getpid() (live) and a never-allocated pid (dead) plus an empty/garbage pidfile (fail-closed). Assert the t1-vs-t12 substring trap in BOTH directions for both the regular and self-heal stems. Drive the session_slug parser on a slug whose task_id contains internal hyphens and on a malformed slug. Provide at least two regression functions covering (a) the t1-vs-t12 exact-equality substring trap and (b) the self-heal stem exact-equality parse. Keep every function fully hermetic: own tmp_path, no live state/, no shared globals, no network, no sleeping."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_discriminator_library_imports_red_on_head"
+      },
+      {
+        "name": "test_regular_pidfile_exact_task_id_equality_t1_vs_t12"
+      },
+      {
+        "name": "test_selfheal_stem_exact_task_id_equality_parse"
+      },
+      {
+        "name": "test_session_slug_parser_extracts_exact_task_id_with_hyphens"
+      },
+      {
+        "name": "test_pid_is_live_fail_closed_on_garbage_and_dead_pid"
+      },
+      {
+        "name": "test_live_first_workdir_liveness_t12_does_not_keep_t1_alive"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [
+      {
+        "name": "test_no_substring_match_either_direction_for_any_task_id_pair"
+      }
+    ],
+    "regression_tests": [
+      {
+        "name": "test_substring_trap_t1_vs_t12_exact_equality_regular_stem"
+      },
+      {
+        "name": "test_selfheal_stem_t12_does_not_satisfy_t1"
+      }
+    ],
+    "minimum_test_count": 10,
+    "test_data_requirements": "Per-test tmp_path running/ directory with synthesized pidfiles: a LIVE running/t12.pid and running/t1.pid (str(os.getpid())), a LIVE running/selfheal_<agent>_t1_<pid>.pid and running/selfheal_<agent>_t12_<pid>.pid, a dead pidfile (large never-allocated pid), and an empty/non-integer pidfile. Session_slug workdirs '<agent>-r<n>-<task_id>-<uuid8>' including a task_id with internal hyphens and a malformed slug. No live state/, no network, no live-daemon run, no shared globals."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 40,
+    "test_tokens": 220,
+    "note": "Pure test_authoring oracle: nearly all budget is the authored pytest file plus small scaffolding for synthesized pidfiles and session_slug workdirs."
+  },
+  "attribution_metadata": {
+    "proposed_by": "reconciled",
+    "reconciled": true,
+    "diff_resolution": "reconciled"
+  },
+  "_debug_stamping_reason": "Task was divergent and resolved via reconciliation.",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR"
+}

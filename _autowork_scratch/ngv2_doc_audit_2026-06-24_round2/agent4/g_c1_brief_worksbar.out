@@ -1,0 +1,50 @@
+=== c1 brief: WORKS bar — does it demand a CALL-path or just import/orphan-wire? ===
+7:interfaces: "P2.1 env-readiness-FSM child c1 (`fsm_detect`) — the FIRST env state (DETECT), built on the LANDED c0 shared contract `ngv2/fsm_evidence.py` (commit dc07188: `phase_artifact_hash`, `advance_gate`, `ENV_PHASE_ORDER`, `PHASE_ORDER`). Delivers a NEW standalone module `ngv2/fsm_detect.py` with a PURE, deterministic state handler `detect(detect_input: dict) -> dict` that classifies the target's language / build system from a PRE-STAGED filesystem-summary dict (the impure `os.walk` / `web_framework_detect.detect_frameworks` scan is the INJECTED seam, NOT part of this pure leaf — it is supplied as data so the gate is determinism-clean), resolves the ABI interpreter pin (`.python-version` / `pyproject` requires-python string carried in the input), checks eligibility at entry, and emits a content_hash'd `DetectArtifact` dict via `ngv2.fsm_evidence.phase_artifact_hash`. It INHERITS the c0 fail-closed invariant: a `prev_artifact` that is absent / None / `{}` / non-dict / hash-tampered must NOT advance (delegated to `ngv2.fsm_evidence.advance_gate`). Fail-closed typed terminals on its OWN classification: language not in {py,js} -> `no_eligible_language`; no build file present -> `no_build_system`; SHA != pin -> `sha_mismatch`; interpreter pin unresolved -> `interpreter_unresolved`. X-criteria: X1 (a py/js fixture summary advances) + X2 (an ineligible/no-build-file summary is REFUSED with a typed terminal) + X4 (the new state's transition is gated, never auto-advances on absent prior evidence). PARALLEL-SAFE: this child edits ONLY its two NEW files (`ngv2/fsm_detect.py` + its oracle) — DISJOINT from c2 (`ngv2/fsm_provision.py`) and c3 (`ngv2/fsm_jail_build.py`); the live-FSM wiring (inserting `detect` into `PHASE_ORDER`/`worker_phases`/`_TRANSITION_GATES`/`conductor_seams`) is DEFERRED to a single later integration leaf so the three siblings never collide on a shared file. WIRE-UP: `detect` reaches the `python -m ngv2.run_hunt` LIVE_ROOT by CONSUMING the on-live-chain `ngv2.fsm_evidence` (imported by `transition_planner`/`gate_executor`, which `conductor_seams.build_default_seams` imports, which `run_hunt` calls); the deferred integration leaf adds the inbound importer that threads `detect` into the running conductor."
+15:(READ each named file first). ONE new module, ONE behavior, NO live-FSM mutation:
+18:   no module-level side effects). It imports the LANDED c0 contract:
+19:   `from ngv2.fsm_evidence import phase_artifact_hash, advance_gate, ENV_PHASE_ORDER`. It defines a PURE,
+43:     round-trips through `advance_gate` (the c0 invariant: the produced artifact is itself a valid prior for the
+55:  and `ENV_PHASE_ORDER = ('detect','provision','jail_build','health_probe','reachability_probe',
+59:  reduces into `detect_input`; c1 does NOT call it (it would import `os.walk` impurity into the pure leaf).
+63:- `ngv2/run_hunt.py:85` (READ-ONLY) — the `python -m ngv2.run_hunt` LIVE_ROOT (`if __name__ == '__main__'`)
+64:  that calls `build_default_seams`; the wire-up chain target.
+65:- `ngv2/conductor_seams.py:39` `build_default_seams` (READ-ONLY) — imports `transition_planner`/`gate_executor`
+66:  (both of which now import `ngv2.fsm_evidence` after c0), establishing the live-chain `fsm_evidence` sits on.
+69:Integration is out of scope for the implementation task (the literal word `integration` MUST appear here AND
+70:in the implementation task's `non_goals` to excuse the integration-test requirement). Do NOT insert `detect`
+71:into the live `PHASE_ORDER`, `transition_planner.worker_phases`, `gate_executor._TRANSITION_GATES`,
+72:`stage_command_map.AGENT_PHASES`, or `conductor_seams` — that live-FSM wiring is a SEPARATE later integration
+75:`ngv2/web_framework_detect.py`, `ngv2/poc_runner_live.py`, or `ngv2/contracts.py`. Do NOT call `os.walk`,
+79:into the shared enum is the integration leaf's job). Do NOT build the PROVISION/JAIL/HEALTH/REACH/BASELINE
+82:# Deliverables
+96:    ['p21-c1-fsm-detect-oracle']`. `non_goals` MUST contain the literal word `integration`. `verification_command`
+105:  the oracle (`dependencies: ['p21-c1-fsm-detect-oracle']`); the oracle imports the not-yet-existing
+109:- Wire-up / LIVE_ROOT: `ngv2.fsm_detect` CONSUMES (imports) `ngv2.fsm_evidence`, which is already imported by
+110:  `ngv2.transition_planner` + `ngv2.gate_executor`, which `ngv2.conductor_seams.build_default_seams` imports,
+111:  which `ngv2.run_hunt.run_hunt` (run_hunt.py:40) calls — so `fsm_detect` participates in the live
+112:  `python -m ngv2.run_hunt` evidence chain. The INBOUND importer that threads `detect` into the running
+113:  conductor is added by the DEFERRED integration leaf (the module-level `orphan_unwired` gate is default-OFF, so
+117:Import the generated `ngv2.fsm_detect` via `importlib` (`spec.loader.exec_module` or the installed package path
+118:— `exec`/`eval`/`__import__` are AST-banned). Data-driven over fixture dicts BUILT IN THE TEST (NO literal
+121:1. WIRING / reachability (non-vacuous): assert `ngv2.fsm_detect` imports the c0 contract — i.e. the SAME
+143:   repeated calls; a reordered-keys copy of `detect_input` yields the IDENTICAL artifact `content_hash`.
+
+--- non_goals / acceptance / verification_command excerpt ---
+6:  - p21-c1-fsm-detect-oracle
+7:interfaces: "P2.1 env-readiness-FSM child c1 (`fsm_detect`) — the FIRST env state (DETECT), built on the LANDED c0 shared contract `ngv2/fsm_evidence.py` (commit dc07188: `phase_artifact_hash`, `advance_gate`, `ENV_PHASE_ORDER`, `PHASE_ORDER`). Delivers a NEW standalone module `ngv2/fsm_detect.py` with a PURE, deterministic state handler `detect(detect_input: dict) -> dict` that classifies the target's language / build system from a PRE-STAGED filesystem-summary dict (the impure `os.walk` / `web_framework_detect.detect_frameworks` scan is the INJECTED seam, NOT part of this pure leaf — it is supplied as data so the gate is determinism-clean), resolves the ABI interpreter pin (`.python-version` / `pyproject` requires-python string carried in the input), checks eligibility at entry, and emits a content_hash'd `DetectArtifact` dict via `ngv2.fsm_evidence.phase_artifact_hash`. It INHERITS the c0 fail-closed invariant: a `prev_artifact` that is absent / None / `{}` / non-dict / hash-tampered must NOT advance (delegated to `ngv2.fsm_evidence.advance_gate`). Fail-closed typed terminals on its OWN classification: language not in {py,js} -> `no_eligible_language`; no build file present -> `no_build_system`; SHA != pin -> `sha_mismatch`; interpreter pin unresolved -> `interpreter_unresolved`. X-criteria: X1 (a py/js fixture summary advances) + X2 (an ineligible/no-build-file summary is REFUSED with a typed terminal) + X4 (the new state's transition is gated, never auto-advances on absent prior evidence). PARALLEL-SAFE: this child edits ONLY its two NEW files (`ngv2/fsm_detect.py` + its oracle) — DISJOINT from c2 (`ngv2/fsm_provision.py`) and c3 (`ngv2/fsm_jail_build.py`); the live-FSM wiring (inserting `detect` into `PHASE_ORDER`/`worker_phases`/`_TRANSITION_GATES`/`conductor_seams`) is DEFERRED to a single later integration leaf so the three siblings never collide on a shared file. WIRE-UP: `detect` reaches the `python -m ngv2.run_hunt` LIVE_ROOT by CONSUMING the on-live-chain `ngv2.fsm_evidence` (imported by `transition_planner`/`gate_executor`, which `conductor_seams.build_default_seams` imports, which `run_hunt` calls); the deferred integration leaf adds the inbound importer that threads `detect` into the running conductor."
+64:  that calls `build_default_seams`; the wire-up chain target.
+70:in the implementation task's `non_goals` to excuse the integration-test requirement). Do NOT insert `detect`
+87:- A NEW pipeline-authored RED oracle `tests/ngv2/test_fsm_detect.py` (the `test_authoring` task) — RED now
+91:- EXACTLY ONE implementation task + ONE `test_authoring` oracle task (a RED-PAIR). These EXACT task_ids
+96:    ['p21-c1-fsm-detect-oracle']`. `non_goals` MUST contain the literal word `integration`. `verification_command`
+97:    MUST substring-name the oracle's authored test file `tests/ngv2/test_fsm_detect.py`.
+102:  - `p21-c1-fsm-detect-oracle` — meta_task_type: `test_authoring`; files_touched: EXACTLY
+104:- RED-PAIR ordering (correct direction): the oracle task has `dependencies: []` and the impl task `depends on`
+105:  the oracle (`dependencies: ['p21-c1-fsm-detect-oracle']`); the oracle imports the not-yet-existing
+106:  `ngv2.fsm_detect` so it is a genuine red-pair (else the planner could drop the standalone oracle).
+107:- verification_command (BARE, selects >=1 real test, never pytest exit 5; NO `cd`):
+109:- Wire-up / LIVE_ROOT: `ngv2.fsm_detect` CONSUMES (imports) `ngv2.fsm_evidence`, which is already imported by
+113:  conductor is added by the DEFERRED integration leaf (the module-level `orphan_unwired` gate is default-OFF, so
+114:  this does not block the parallel build; the oracle still asserts the consumed-contract wiring below).
+116:## The pre-committed oracle (the `test_authoring` task) MUST assert (RED-now -> GREEN-after, non-vacuous, ungameable):
+119:answer-key hash; NO clock/uuid/random/network/subprocess; the impure scan is NOT exercised — the oracle hands

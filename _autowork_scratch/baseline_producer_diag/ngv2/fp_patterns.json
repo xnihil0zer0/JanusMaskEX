@@ -1,0 +1,126 @@
+{
+  "version": 10,
+  "description": "False positive patterns learned from NobleGreed bug hunting. Used by fp_filter.py to suppress known FPs.",
+  "patterns": [
+    {
+      "id": "fp_001",
+      "added_at": "2026-03-29T05:14:59.871915+00:00",
+      "vuln_pattern_id": "postmessage_wildcard",
+      "cwe": "CWE-346",
+      "file_pattern": "*sep24*",
+      "code_signature": "postMessage(*, \"*\")",
+      "context": "Stellar SEP-24 protocol mandates cross-origin postMessage with wildcard origin",
+      "reason": "protocol_mandated",
+      "source": "protocol_review",
+      "confidence": 0.9
+    },
+    {
+      "id": "fp_002",
+      "added_at": "2026-03-29T05:14:59.872323+00:00",
+      "vuln_pattern_id": "csrf_exempt_state_change",
+      "cwe": "CWE-352",
+      "file_pattern": "*",
+      "code_signature": "csrf_exempt",
+      "context": "API endpoints using bearer token auth do not need CSRF protection \u2014 tokens not sent automatically by browser",
+      "reason": "protocol_mandated",
+      "source": "protocol_review",
+      "confidence": 0.9
+    },
+    {
+      "id": "fp_003",
+      "added_at": "2026-03-29T05:14:59.874059+00:00",
+      "vuln_pattern_id": "jwt_decode_without_verify",
+      "cwe": "CWE-347",
+      "file_pattern": "*sdk*",
+      "code_signature": "jwt_decode",
+      "context": "SDK from() factories decode JWT to read claims; verification happens at transaction submission layer",
+      "reason": "protocol_mandated",
+      "source": "protocol_review",
+      "confidence": 0.9
+    },
+    {
+      "id": "fp_004",
+      "added_at": "2026-03-29T05:14:59.874320+00:00",
+      "vuln_pattern_id": "secret_in_url_param",
+      "cwe": "CWE-598",
+      "file_pattern": "*sep24*",
+      "code_signature": "token",
+      "context": "Stellar SEP-24 interactive flow mandates token in URL query parameter per spec",
+      "reason": "protocol_mandated",
+      "source": "protocol_review",
+      "confidence": 0.9
+    },
+    {
+      "id": "fp_005",
+      "added_at": "2026-03-29T05:14:59.874572+00:00",
+      "vuln_pattern_id": "unsafe_deserialization",
+      "cwe": "CWE-502",
+      "file_pattern": "*",
+      "code_signature": "pickle.load",
+      "context": "pickle in local-only libraries without HTTP server \u2014 no remote attacker can supply input. Huntr classifies as informational.",
+      "reason": "no_remote_attack_path",
+      "source": "huntr_audit",
+      "confidence": 0.9
+    },
+    {
+      "id": "fp_006",
+      "added_at": "2026-03-29T05:14:59.874837+00:00",
+      "vuln_pattern_id": "eval_usage",
+      "cwe": "CWE-95",
+      "file_pattern": "*",
+      "code_signature": "ast.literal_eval",
+      "context": "ast.literal_eval() only evaluates Python literals, not arbitrary expressions. Not exploitable.",
+      "reason": "safe_api",
+      "source": "manual_review",
+      "confidence": 0.9
+    },
+    {
+      "id": "fp_007",
+      "added_at": "2026-03-29T05:14:59.895295+00:00",
+      "vuln_pattern_id": "command_injection",
+      "cwe": "CWE-78",
+      "file_pattern": "*shell*",
+      "code_signature": "ShellOperation",
+      "context": "ShellOperation is designed to run shell commands \u2014 this is its intended purpose, not a vulnerability",
+      "reason": "by_design",
+      "source": "manual_review",
+      "confidence": 0.9
+    },
+    {
+      "id": "fp_008",
+      "added_at": "2026-03-29T05:14:59.895628+00:00",
+      "vuln_pattern_id": "ssrf_fetch",
+      "cwe": "CWE-918",
+      "file_pattern": "*reader*",
+      "code_signature": "requests.get",
+      "context": "Reader integrations fetch URLs from developer config, not end-user input. SSRF requires attacker-controlled URLs.",
+      "reason": "developer_configured",
+      "source": "manual_review",
+      "confidence": 0.9
+    },
+    {
+      "id": "fp_009",
+      "added_at": "2026-03-29T05:14:59.895925+00:00",
+      "vuln_pattern_id": "archive_slip_extractall",
+      "cwe": "CWE-22",
+      "file_pattern": "*",
+      "code_signature": "canonical",
+      "context": "Extraction code includes canonical path checks or zipfile.Path validation. Not exploitable when checks are present.",
+      "reason": "already_mitigated",
+      "source": "manual_review",
+      "confidence": 0.9
+    },
+    {
+      "id": "fp_010",
+      "added_at": "2026-03-29T05:14:59.896228+00:00",
+      "vuln_pattern_id": "path_traversal",
+      "cwe": "CWE-22",
+      "file_pattern": "*checkpoint*",
+      "code_signature": "save_dir",
+      "context": "Model checkpoint save paths are user-configured via config, not attacker-controlled. Expected behavior.",
+      "reason": "developer_configured",
+      "source": "manual_review",
+      "confidence": 0.9
+    }
+  ]
+}

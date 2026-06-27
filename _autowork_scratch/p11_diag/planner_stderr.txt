@@ -1,0 +1,17 @@
+2026-06-19T23:17:05 
+────────────────────────────────────────────────────────────
+2026-06-19T23:17:05   [38;5;141m[1mORCH[0m [1mphase: planning[0m
+2026-06-19T23:17:05 ────────────────────────────────────────────────────────────
+2026-06-19T23:17:05 
+  [38;5;141m[1mORCH[0m [38;5;33m[1mCLAUDE[0m [1mphase: planning[0m
+2026-06-19T23:17:05 
+  [38;5;141m[1mORCH[0m [38;5;208m[1mGEMINI[0m [1mphase: planning[0m
+2026-06-19T23:17:05   [38;5;141m[1mORCH[0m [38;5;208m[1mGEMINI[0m [38;5;82mspawning[0m [2m/usr/bin/bwrap[0m
+2026-06-19T23:17:11   [38;5;141m[1mORCH[0m [38;5;33m[1mCLAUDE[0m [38;5;245mwaiting for submission...[0m
+2026-06-19T23:17:11   [38;5;141m[1mORCH[0m [38;5;33m[1mCLAUDE[0m [38;5;82mplanning artifact received[0m [2m(13187 chars)[0m
+2026-06-19T23:17:11   [38;5;141m[1mORCH[0m [38;5;33m[1mCLAUDE[0m [2malready exited (code 0)[0m
+2026-06-19T23:22:07   [38;5;141m[1mORCH[0m [38;5;208m[1mGEMINI[0m [38;5;245mwaiting for submission...[0m
+2026-06-19T23:22:07   [38;5;141m[1mORCH[0m [38;5;208m[1mGEMINI[0m [38;5;82mplanning artifact received[0m [2m(12574 chars)[0m
+2026-06-19T23:22:07   [38;5;141m[1mORCH[0m [38;5;208m[1mGEMINI[0m [2malready exited (code 0)[0m
+2026-06-19T23:22:07   [38;5;141m[1mORCH[0m claude=submitted  gemini=submitted
+Both agents failed to produce a valid draft.

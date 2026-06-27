@@ -14,7 +14,7 @@ def hook_runner_mod(tmp_path):
                 src_path = candidate
                 break
     if not src_path.exists():
-        src_path = Path('/home/xnihil0zer0/JanusMaskJR/tools/drive_backup/hook_runner.py')
+        src_path = Path('/home/xnihil0zer0/AI-Data/JanusMaskEX/tools/drive_backup/hook_runner.py')
     dest_path = tmp_path / 'hook_runner.py'
     shutil.copy(src_path, dest_path)
     spec = importlib.util.spec_from_file_location('hook_runner_temp', str(dest_path))

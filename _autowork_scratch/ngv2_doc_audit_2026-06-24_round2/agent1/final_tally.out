@@ -1,0 +1,11 @@
+TOTAL unique citations: 145
+file resolved: 134
+file unresolved(dead/NA): 11
+citations with explicit line: 53
+  of those OUT-OF-RANGE (hard dead line): 6
+   OOR: DOC-A 151 transition_planner.py:64-72
+   OOR: DOC-A 470 ngv2/transition_planner.py:64-72
+   OOR: DOC-A 478 transition_planner.py:66
+   OOR: DOC-B 233 transition_planner.py:64-72
+   OOR: DOC-B 663 ngv2/transition_planner.py:64-72
+   OOR: DOC-B 676 transition_planner.py:66

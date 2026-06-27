@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "entrypoints": [
+    {
+      "framework": "fastapi",
+      "kind": "route",
+      "attacker_boundary": "network",
+      "signature_regex": [
+        "@\\w+\\.(?:get|post|put|delete|patch|options|head|websocket)\\s*\\(",
+        "\\bAPIRouter\\s*\\("
+      ]
+    },
+    {
+      "framework": "flask",
+      "kind": "route",
+      "attacker_boundary": "network",
+      "signature_regex": [
+        "@\\w+\\.route\\s*\\(",
+        "\\.add_url_rule\\s*\\("
+      ]
+    },
+    {
+      "framework": "django",
+      "kind": "route",
+      "attacker_boundary": "network",
+      "signature_regex": [
+        "\\bre_path\\s*\\(",
+        "\\burlpatterns\\b",
+        "\\bpath\\s*\\("
+      ]
+    },
+    {
+      "framework": "aiohttp",
+      "kind": "route",
+      "attacker_boundary": "network",
+      "signature_regex": [
+        "@routes\\.(?:get|post|put|delete|patch|head|view)\\s*\\(",
+        "\\.router\\.add_(?:get|post|put|delete|route)\\s*\\("
+      ]
+    },
+    {
+      "framework": "tornado",
+      "kind": "route",
+      "attacker_boundary": "network",
+      "signature_regex": [
+        "\\bclass\\s+\\w+\\s*\\(\\s*tornado\\.web\\.RequestHandler\\b"
+      ]
+    },
+    {
+      "framework": "click",
+      "kind": "cli",
+      "attacker_boundary": "cli",
+      "signature_regex": [
+        "@click\\.command\\s*\\(",
+        "@\\w+\\.command\\s*\\("
+      ]
+    },
+    {
+      "framework": "argparse",
+      "kind": "cli",
+      "attacker_boundary": "cli",
+      "signature_regex": [
+        "\\bargparse\\.ArgumentParser\\s*\\("
+      ]
+    },
+    {
+      "framework": "mff",
+      "kind": "model_load",
+      "attacker_boundary": "model_file",
+      "signature_regex": [
+        "\\btorch\\.load\\s*\\(",
+        "\\bpickle\\.load\\s*\\(",
+        "\\bjoblib\\.load\\s*\\(",
+        "\\bkeras\\.models\\.load_model\\s*\\(",
+        "\\bload_model\\s*\\(",
+        "\\bsafetensors[\\w.]*\\.load(?:_file)?\\s*\\(",
+        "\\.from_pretrained\\s*\\(",
+        "\\bload_pretrained_model\\s*\\("
+      ]
+    }
+  ]
+}

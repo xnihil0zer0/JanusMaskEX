@@ -19,7 +19,7 @@
 # per the `-m` clause; the explicit per-module .py paths below register all five.
 runtime_entrypoint: python -m tools.drive_backup.hook_runner
 managed_repos:
-  - /home/xnihil0zer0/JanusMaskJR
+  - /home/xnihil0zer0/AI-Data/JanusMaskEX
   - /home/xnihil0zer0/NobleGreedv2
 modules:
   - tools/drive_backup/archiver.py

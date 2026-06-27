@@ -1334,8 +1334,8 @@ pages.rebuild = async () => {
   return `<h2>Cleanroom Rebuild</h2>
     <div class="card">
       <p class="muted">Reconstruct a project BLIND into a fresh replicant repo. The source stays a read-only oracle; the autowork daemon completes the rebuild autonomously (allowlist-gated, resumable). Leave Modules blank to auto-discover, or list a slice to rebuild one module.</p>
-      <div class="row"><label>Input project dir<br><input id="rebuild-input" type="text" size="64" placeholder="/home/xnihil0zer0/JanusMask  or  samples/widgets"></label></div>
-      <div class="row"><label>Output replicant dir<br><input id="rebuild-output" type="text" size="64" placeholder="/home/xnihil0zer0/JanusMaskJR"></label></div>
+      <div class="row"><label>Input project dir<br><input id="rebuild-input" type="text" size="64" placeholder="/home/xnihil0zer0/AI-Data/JanusMaskEX  or  samples/widgets"></label></div>
+      <div class="row"><label>Output replicant dir<br><input id="rebuild-output" type="text" size="64" placeholder="/home/xnihil0zer0/AI-Data/JanusMaskEX"></label></div>
       <div class="row"><label>Modules (optional, comma-sep)<br><input id="rebuild-modules" type="text" size="64" placeholder="harness/depth_validator.py"></label></div>
       <div class="row"><label>Test files (optional, comma-sep)<br><input id="rebuild-tests" type="text" size="64" placeholder="tests/test_depth_validator.py"></label></div>
       <div class="row"><label>Seed files (optional, comma-sep)<br><input id="rebuild-seeds" type="text" size="64" placeholder="harness/__init__.py"></label></div>

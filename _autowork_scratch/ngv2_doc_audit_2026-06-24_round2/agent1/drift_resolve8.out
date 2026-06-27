@@ -1,0 +1,23 @@
+=== build_evidence span in NGv2 conductor_seams: cited :86-117, def at 112 ===
+260: def _rollup_inner(art: Any, phase: str) -> List[Dict[str, Any]]:
+279: def _findings_from_artifacts(arts: Any) -> List[Dict[str, Any]]:
+--- line 86 context (cited as start of build_evidence span) ---
+                state['parked_package'] = pkg
+--- nearest def at-or-before 86 ---
+  39: def build_default_seams(session_id: str, db: Any, llm_client: Any, ctx: dict) -> dict:
+--- line 117 ---
+        repo = state.get('repo')
+
+=== target_bootstrap.py:162-184 — does it appear in docs? ===
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:154:| **G8** | **Host-networked, un-jailed dependency install.** Dep install runs as a host subprocess with full network *outside* the `--unshare-net` jail, in both NGv2 scratch and JanusMask production bootstrap. A malicious dep build hook executes on the host. | **CONFIRMED** | NGv2 scratch `poc_runner_live.py:322-343` (`MAX_DEP_INSTALL_ROUNDS=3`); JanusMask prod `target_bootstrap._ensure_venv:162-184` (host `pip install`, network on, errors swallowed). | 01·02·04 |
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:192:> **JanusMask side landed 2026-06-19** (`2049f78`, oracle `tests/harness/test_target_bootstrap_jailed_install.py` 8/8 GREEN).
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:193:> `target_bootstrap._ensure_venv` now installs deps inside a `build_jail_argv(bind_credentials=False)` jail:
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:202:- `harness/target_bootstrap.py::_ensure_venv` (`:162-184`) — replace host `pip install` (network on,
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:215:**Operator gate:** `target_bootstrap.py` — confirm sensitivity class; decision file if denied.
+
+=== auth_bootstrap.py:25-37 (doc-A:149) vs actual bootstrap_auth ===
+doc cites is_auth_required/_build_client at 25-37; bootstrap_auth at 37 -> let's see full def list
+15:class AuthSpec:
+25:def is_auth_required(spec: AuthSpec | None) -> bool:
+29:def _build_client(app, framework: str) -> object:
+37:def bootstrap_auth(app, spec: AuthSpec | None=None) -> object:

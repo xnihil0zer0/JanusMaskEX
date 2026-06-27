@@ -1,0 +1,92 @@
+{
+  "task_id": "stale-reconcile-serialization-lock-oracle",
+  "title": "RED oracle: two concurrent mutators serialize on the shared state_reconcile.lock; slow op holds it but NOT git_commit.lock",
+  "meta_task_type": "test_authoring",
+  "mutation_target": "harness.state_reconciler",
+  "priority": "high",
+  "dependencies": [
+    "stale-reconcile-serialization-lock-impl"
+  ],
+  "files_touched": [
+    "tests/harness/test_state_reconcile_lock.py"
+  ],
+  "acceptance_criteria": [
+    "ONE new pytest oracle file tests/harness/test_state_reconcile_lock.py is authored and touches no source.",
+    "Test imports state_reconcile_lock from harness.state_reconciler and is RED on HEAD because that module does not yet exist.",
+    "A two-mutator concurrency test proves both mutators NEVER enter the destructive section at the same time (mutual exclusion under the single shared state_reconcile.lock).",
+    "A test proves the slow destructive section runs while the dedicated state_reconcile.lock at state_dir/control/autowork/state_reconcile.lock is held.",
+    "A test proves git_commit.lock is NOT held across the slow section (a probe can flock state_dir/control/autowork/git_commit.lock while the slow op runs under state_reconcile_lock).",
+    "Every test is hermetic: builds its own tmp_path state_dir, never touches live state/, never opens the network.",
+    "test_spec.regression_tests has >= 2 entries."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/harness/test_state_reconcile_lock.py -q",
+  "spec": {
+    "objective": "Author the RED oracle that pins the shared-mutex contract for the not-yet-existing harness.state_reconciler.state_reconcile_lock: two concurrent mutators serialize on ONE dedicated state_reconcile.lock so they never both enter the destructive section, and the slow op is held under state_reconcile_lock but NEVER under git_commit.lock.",
+    "functional_requirements": [
+      "Author exactly one new pytest file tests/harness/test_state_reconcile_lock.py that imports state_reconcile_lock from harness.state_reconciler; it is RED on HEAD because that module/symbol does not exist yet (import/attribute failure is the expected RED).",
+      "A mutual-exclusion test launches two concurrent mutators (threads) that each `with state_reconcile_lock(state_dir):` then enter a shared destructive section guarded by an instrumented counter, and asserts the observed max concurrency in the destructive section is exactly 1 (the two never overlap).",
+      "A test asserts that while a mutator holds state_reconcile_lock and runs a deliberately slow destructive op, the dedicated lock file state_dir/control/autowork/state_reconcile.lock exists and is exclusively held (a non-blocking flock attempt from a probe fails).",
+      "A test asserts the slow section never holds git_commit.lock: while the mutator runs its slow op under state_reconcile_lock, a probe CAN non-blockingly flock state_dir/control/autowork/git_commit.lock, proving git_commit.lock is distinct and not held across the slow op."
+    ],
+    "interfaces": "Drives the to-be-built context manager state_reconcile_lock(state_dir) from harness.state_reconciler; the lock file is the single dedicated state_dir/control/autowork/state_reconcile.lock, distinct from state_dir/control/autowork/git_commit.lock.",
+    "edge_cases": [
+      "Module/symbol absent on HEAD -> import or AttributeError surfaces as the expected RED, not as a collection error that hides the assertion intent.",
+      "Concurrency instrumentation must use a real synchronization barrier so a non-serializing (buggy) implementation reliably trips the max-concurrency==1 assertion rather than passing by luck of timing.",
+      "fcntl may be unavailable on the platform; the probe assertions are written so the test only asserts the flock-based exclusion when fcntl is importable, skipping cleanly otherwise.",
+      "Every assertion operates inside its own tmp_path so re-runs and parallel test sessions never collide on a shared lock file."
+    ],
+    "non_goals": [
+      "integration: NO live-daemon run; this is a hermetic two-mutator unit drive in its own tmp_path with no live state/ and no network.",
+      "Does NOT edit harness/state_reconciler.py or tools/brief_reaper.py (the impl task owns those).",
+      "Does NOT exercise classify_product, discriminators, cleanup_state, disk reapers, prepare_workspace, or any status logic \u2014 only the lock primitive's serialization contract.",
+      "Does NOT raw-edit or assert against any semantic marker (pause/full_stop/inactivity_escalated.json/live allowlist) and never raw-edits git_commit.lock."
+    ],
+    "implementation_notes": "Place the file at tests/harness/test_state_reconcile_lock.py (tests/harness/ already has __init__.py). Use threading plus a shared in-section counter protected so the test can observe overlap; gate exclusion via state_reconcile_lock around the section. For the lock-held / git_commit-not-held probes, open the lock files with os.open(O_RDWR|O_CREAT) and attempt fcntl.flock(LOCK_NB|LOCK_EX) from a separate fd, mirroring harness.autowork_daemon._acquire_commit_lock_or_reclaim's lock-file location convention (state_dir/control/autowork/<name>.lock). The slow op should sleep long enough that the probe runs while the section is still active. RED on HEAD is correct and expected for a test_authoring oracle."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_import_state_reconcile_lock_red_on_head"
+      },
+      {
+        "name": "test_two_mutators_never_both_in_destructive_section"
+      },
+      {
+        "name": "test_slow_op_holds_state_reconcile_lock"
+      },
+      {
+        "name": "test_slow_op_does_not_hold_git_commit_lock"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [
+      {
+        "name": "test_serialization_holds_across_repeated_concurrent_runs"
+      }
+    ],
+    "regression_tests": [
+      {
+        "name": "test_lock_released_on_normal_exit_allows_reacquire"
+      },
+      {
+        "name": "test_lock_released_on_exception_inside_with_block"
+      }
+    ],
+    "minimum_test_count": 6,
+    "test_data_requirements": "Per-test tmp_path state_dir with control/autowork/ created on demand; no live state/, no fixtures beyond stdlib threading/fcntl; no network."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 0,
+    "test_tokens": 400,
+    "note": "Pure test_authoring oracle: all budget is the RED concurrency/lock-distinction oracle; no production tokens."
+  },
+  "attribution_metadata": {
+    "proposed_by": "reconciled",
+    "reconciled": true,
+    "diff_resolution": "reconciled"
+  },
+  "_debug_stamping_reason": "Task was divergent and resolved via reconciliation.",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR"
+}

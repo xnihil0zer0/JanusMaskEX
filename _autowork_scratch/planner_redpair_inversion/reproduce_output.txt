@@ -1,0 +1,33 @@
+=== CASE A (BUG: new module ABSENT, vc names oracle test) ===
+  module_present_on_disk = False
+  impl.verification_command = 'python -m pytest tests/ngv2/test_fsm_evidence.py -q'
+  INPUT : oracle.deps=[]            impl.deps=['fsm-oracle']
+  OUTPUT: oracle.deps=['fsm-impl']  impl.deps=[]
+  -> RESULT: INVERTED (oracle-first; impl fires before test authored => DEADLOCK)
+  expect_inversion=True  observed_inversion=True  -> AS-EXPECTED
+
+=== CASE B (CONTROL: existing module PRESENT, vc names oracle test) ===
+  module_present_on_disk = True
+  impl.verification_command = 'python -m pytest tests/ngv2/test_fsm_evidence.py -q'
+  INPUT : oracle.deps=[]            impl.deps=['fsm-oracle']
+  OUTPUT: oracle.deps=[]  impl.deps=['fsm-oracle']
+  -> RESULT: PRESERVED (correct red-pair direction)
+  expect_inversion=False  observed_inversion=False  -> AS-EXPECTED
+
+=== CASE C (NEGATIVE: module ABSENT, vc does NOT name oracle test) ===
+  module_present_on_disk = False
+  impl.verification_command = 'python -m pytest tests/ngv2/test_unrelated_smoke.py -q'
+  INPUT : oracle.deps=[]            impl.deps=['fsm-oracle']
+  OUTPUT: oracle.deps=['fsm-impl']  impl.deps=[]
+  -> RESULT: INVERTED (oracle-first; impl fires before test authored => DEADLOCK)
+  expect_inversion=True  observed_inversion=True  -> AS-EXPECTED
+
+==================== SUMMARY ====================
+CASE A (bug reproduces inversion)        : CONFIRMED
+CASE B (control preserves direction)     : CONFIRMED
+CASE C (negative still inverts)          : CONFIRMED
+
+VERDICT: DEFECT VERIFIED
+  (A: new-module red-pair INVERTS today; B: on-disk module is carved out;
+   C: a genuine non-red-pair still inverts => any fix that drops is_file()
+      must KEEP inverting C, only stop inverting A.)

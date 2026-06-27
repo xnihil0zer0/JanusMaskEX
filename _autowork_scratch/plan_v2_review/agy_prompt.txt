@@ -1,0 +1,65 @@
+You are running an ADVERSARIAL REVIEW PANEL of 4 independent sub-agents. Each sub-agent
+adversarially reviews a PLAN and proposes ORDERING CORRECTIONS optimized for one goal:
+restore a broken self-building software "factory" to operation and KEEP it operational
+AS FAST AS POSSIBLE. No fallbacks (commit to decisions; do not propose optional hedges,
+escape-hatch flags, or "we could also" branches). Every fix must be a PERMANENT
+root-cause change, never a one-off workaround.
+
+SITUATION (ground truth):
+- Repo: /home/xnihil0zer0/JanusMaskJR — a pipeline that builds its own code: planner ->
+  stage -> a blind worker synthesizes code -> AST-merge -> verify -> commit.
+- It is currently PAUSED and WEDGED: 18 blocked tasks failing on `incomplete_ast` /
+  empty-objective briefs; its self-heal loop can DIAGNOSE but cannot APPLY fixes because
+  the flag `selfheal_auto_promote` is OFF; the sibling repo it builds into
+  (/home/xnihil0zer0/NobleGreedv2) is clean.
+- Rule: "never hand-edit production code outside the pipeline" — only tests/oracles/briefs
+  are hand-authorable; production harness changes must go through the pipeline. But the
+  pipeline is the broken thing (bootstrapping trap).
+- Measured build rate ~14-21 completed units ("leaves") per day.
+- Core diagnosis: the factory is NOT compounding — the same blocker classes recur because
+  fixes are one-offs; two universal mechanisms (a blue-green staging-worktree handoff and a
+  shadow->enforce canary promotion) were each BUILT and then CLIPPED back to special-case;
+  capabilities ship behind OFF flags; it accretes complexity faster than it consolidates.
+
+THE PLAN UNDER REVIEW (read it fully):
+  /home/xnihil0zer0/JanusMaskJR/INTERVENTION_ANALYSIS_00_FINAL_REPORT.md
+Supporting evidence (read as needed):
+  /home/xnihil0zer0/JanusMaskJR/INTERVENTION_ANALYSIS_01_transcripts.md
+  /home/xnihil0zer0/JanusMaskJR/INTERVENTION_ANALYSIS_02_git_selfheal.md
+  /home/xnihil0zer0/JanusMaskJR/INTERVENTION_ANALYSIS_03_archive_forensics.md
+  /home/xnihil0zer0/JanusMaskJR/INTERVENTION_ANALYSIS_04_seam_map.md
+The plan has Tiers 0 (Universal Edit Path / verbatim-manifest apply), 0b (restore the
+blue-green + canary substrate, un-neuter 4 OFF flags), 1 (A1-A7 planner normalize passes +
+flag flips), 2 (B1-B8 daemon verbs / self-heal / deadlock policies), 3 (C1-C3 NGv2-boundary,
+each gated behind a NobleGreedv2 regression run), 4 (D1-D4 guardrails). Note: A2
+(mutation_target normalizer) is ALREADY LANDED and a C1 precursor is landed.
+
+THE 4 SUB-AGENT LENSES (produce one independent correction list per lens):
+  SUB-AGENT 1 — CRITICAL PATH / THROUGHPUT: what is the minimum ordered set that gets the
+    daemon dispatching successful leaves again; what in the current ordering is off the
+    critical path or buried too late.
+  SUB-AGENT 2 — DEPENDENCY TOPOLOGY: is the ordering a correct topological sort? Where does
+    step N require a capability that a LATER step builds (including the bootstrapping trap)?
+  SUB-AGENT 3 — DURABILITY / ANTI-REWEDGE: what must land early so it STAYS operational and
+    stops re-wedging (stale-lock/inactivity auto-clear, unify dual pause mechanism, sidecar/
+    retry-budget reset, turn self-heal from diagnose-only to apply, standing passes so
+    blockers stop recurring)?
+  SUB-AGENT 4 — CUT / COMPOUND: be the editor — the minimal compounding set; cut or defer
+    everything that is a one-off or off-path; is the big-ticket UEP/blue-green restore worth
+    its cost vs a smaller compounding core?
+
+OUTPUT — write FOUR separate files (and nothing else; do not modify any other file, do not
+run git, do not touch production code):
+  /home/xnihil0zer0/JanusMaskJR/_autowork_scratch/plan_v2_review/agy1_criticalpath.md
+  /home/xnihil0zer0/JanusMaskJR/_autowork_scratch/plan_v2_review/agy2_topology.md
+  /home/xnihil0zer0/JanusMaskJR/_autowork_scratch/plan_v2_review/agy3_durability.md
+  /home/xnihil0zer0/JanusMaskJR/_autowork_scratch/plan_v2_review/agy4_cut.md
+
+Each file MUST contain a numbered list of 5-10 DISCRETE CORRECTIONS. Each correction:
+  - **LABEL:** a short canonical name (3-6 words) — used to match against other reviewers
+    for a cross-panel vote, so make labels describe the IDEA not your lens.
+  - **Correction:** one or two concrete sentences.
+  - **Rationale:** why it speeds restore-to-operational or keeps it operational.
+  - **Ordering impact:** where it moves in the sequence / what it displaces.
+Each file ends with **PROPOSED ORDERED PLAN** as a short numbered sequence.
+Be specific; cite file paths/line numbers from the seam-map report where relevant.

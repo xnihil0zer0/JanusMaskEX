@@ -1,0 +1,25 @@
+=== gate_executor.py:24 doc quote (DOC-A:151) ===
+gate_executor.py:24`). **[RE-AUDIT 2026-06-21 — REFUTED for the spawn-set/gate-t
+--- gate_executor.py line 24 vs 25 ---
+
+class TypedTerminal:
+
+=== detonation.py:3 doc quotes (semantic_verdict) ===
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:489:detonation.py:3` `semantic_verdict`;
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:695:detonation.py:3`
+--- detonation.py line 3 vs 4 ---
+
+def semantic_verdict(exit_code, stdout: str, stderr: str, fs_snapshot_diff: str, *, success_marker: str, expected_fs_signature: str, nonce: str='') -> str:
+
+=== _count claim DOC-A:158 full quote ===
+| **G12** | **Parked-for-approval sessions never page a human** (no notification artifact). Correctly human-gated, but invisible. | **CONFIRMED** | parks at `awaiting_submission` (`transition_planner.py:36`) with no escalation. | 01·04 |
+
+
+=== where ARE the spawn lines the doc means by 64-72/66,67,70,71? (worker_phases at 53) ===
+    worker_phases = [('hunt', 'findings', 'triage'), ('triage', 'triaged', 'verify'), ('verify', 'verified', 'poc'), ('poc', 'pocs', 'detonate'), ('detonate', 'reports', 'novelty'), ('novelty', 'novelties', 'report'), ('report', 'report_count', 'awaiting_submission')]
+    for worker_phase, count_field, next_phase in worker_phases:
+        if phase == worker_phase:
+            if _count(count_field) <= 0:
+                return {'action': 'spawn_stage', 'target_phase': worker_phase, 'reason': '%s artifacts absent; spawn %s stage' % (worker_phase, worker_phase)}
+            return {'action': 'apply_gates', 'target_phase': next_phase, 'reason': '%s artifacts present; apply gates to %s' % (worker_phase, next_phase)}
+    return {'action': 'advance', 'target_phase': None, 'reason': 'no spawn condition for phase %r' % (phase,)}

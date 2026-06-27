@@ -1,0 +1,107 @@
+{
+  "task_id": "claudecap-parallel-isolation-oracle",
+  "title": "Oracle: Author tests/harness/test_claudecap_parallel_isolation.py regression tests for parallel isolation",
+  "meta_task_type": "test_authoring",
+  "mutation_target": "harness.autowork_daemon",
+  "priority": "critical",
+  "dependencies": [],
+  "files_touched": [
+    "tests/harness/test_claudecap_parallel_isolation.py"
+  ],
+  "acceptance_criteria": [
+    "The test file tests/harness/test_claudecap_parallel_isolation.py is authored and contains >= 10 non-vacuous tests.",
+    "Asserts that `claude_parallel_cap=4` + disjoint tasks -> parallel branch chosen.",
+    "Asserts that `claude_parallel_cap=1` -> sequential branch chosen (second task suspended/serialized).",
+    "Asserts that overlapping tasks are serialized.",
+    "Asserts that headless claude worker env contains a distinct `CLAUDE_CONFIG_DIR`.",
+    "Asserts that gemini/agy worker env does not contain `CLAUDE_CONFIG_DIR`.",
+    "Passes with exit code 0 when run against an implemented orchestrator/daemon: python -m pytest tests/harness/test_claudecap_parallel_isolation.py -q"
+  ],
+  "spec_author": null,
+  "estimated_complexity": "low",
+  "verification_command": "python -m pytest tests/harness/test_claudecap_parallel_isolation.py -q",
+  "spec": {
+    "objective": "Author unit tests validating that the configurable Claude parallel cap and per-worker config directory isolation logic behave correctly under various settings, and assert fail-safe, default-off, and backwards-compatible behavior.",
+    "functional_requirements": [
+      "Verify that when `claude_parallel_cap` is set to 4 and multiple tasks with disjoint files are dispatched, the dispatcher spawns them concurrently on the parallel branch without suspending them.",
+      "Verify that when `claude_parallel_cap` is set to 1, the dispatcher executes tasks sequentially and suspends running workers.",
+      "Verify that tasks with overlapping files are still serialized (veto holds via decides/parallelism checks).",
+      "Verify that the Claude headless worker environment gets a distinct per-task config directory derived from work_dir.",
+      "Verify that the Gemini/Agy worker environment is unchanged by the Claude parallel isolation logic."
+    ],
+    "interfaces": "Tests harness/orchestrator.py and harness/autowork_daemon.py.",
+    "edge_cases": [
+      "test_claude_parallel_cap_4_disjoint_tasks_run_concurrently: cap=4 with two disjoint-files claude tasks dispatch via the parallel branch (no mutual SIGSTOP).",
+      "test_claude_parallel_cap_1_is_fully_sequential: cap=1 reproduces today's sequential/suspend behavior (back-compat).",
+      "test_overlapping_files_still_serialize_under_cap: overlapping files_touched still serialize (veto holds).",
+      "test_headless_claude_env_gets_distinct_config_dir: each claude worker env gets a distinct per-task CLAUDE_CONFIG_DIR; gemini/agy env unchanged."
+    ],
+    "non_goals": [
+      "An integration shim, an integration-level e2e harness, or a live-concurrency integration test is explicitly out of scope."
+    ],
+    "implementation_notes": "Create tests/harness/test_claudecap_parallel_isolation.py, importing pytest, autowork_daemon, and orchestrator, stubbing out os/shutil effects and load_config."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_claude_parallel_cap_parallel_dispatch_disjoint_files"
+      },
+      {
+        "name": "test_claude_parallel_cap_sequential_dispatch_fallback"
+      },
+      {
+        "name": "test_claude_parallel_cap_one_sequential_behavior"
+      },
+      {
+        "name": "test_file_overlap_veto_continues_to_serialize_tasks"
+      },
+      {
+        "name": "test_headless_claude_gets_distinct_config_dir"
+      },
+      {
+        "name": "test_gemini_agy_env_remains_unchanged"
+      },
+      {
+        "name": "test_config_dir_seeding_failsafe_on_exception"
+      },
+      {
+        "name": "test_claude_parallel_cap_validation_defaults"
+      },
+      {
+        "name": "test_claude_parallel_cap_clamping_to_effective_parallel_cap"
+      },
+      {
+        "name": "test_no_unapproved_or_manifest_files_created"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [],
+    "regression_tests": [
+      {
+        "name": "test_claude_parallel_cap_4_disjoint_tasks_run_concurrently"
+      },
+      {
+        "name": "test_claude_parallel_cap_1_is_fully_sequential"
+      },
+      {
+        "name": "test_overlapping_files_still_serialize_under_cap"
+      },
+      {
+        "name": "test_headless_claude_env_gets_distinct_config_dir"
+      }
+    ],
+    "minimum_test_count": 10,
+    "test_data_requirements": "No external test data. Stubs directory structure and load_config."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 0,
+    "test_tokens": 300,
+    "note": "Pure test authoring task, implementation is in the next task."
+  },
+  "attribution_metadata": {
+    "proposed_by": "gemini",
+    "reconciled": false,
+    "diff_resolution": null
+  },
+  "_debug_stamping_reason": "Task was only proposed by Gemini."
+}

@@ -1,0 +1,12 @@
+=== JM ledger: accepted/integrated p21 tasks ===
+-rw------- 1 xnihil0zer0 xnihil0zer0 23114978 Jun 24 19:55 state/impl_progress.jsonl
+
+=== distinct p21 task_ids in ledger (any event) ===
+"task_id": "p21-c0-fsm-evidence-scaffold"
+"task_id": "p21-c0-fsm-scaffold-oracle"
+"task_id": "p21-c1-fsm-detect-impl"
+"task_id": "p21-c1-fsm-detect-oracle"
+"task_id": "p21-c2-fsm-provision-impl"
+"task_id": "p21-c2-fsm-provision-oracle"
+"task_id": "p21-c3-fsm-jail-build-impl"
+"task_id": "p21-c3-fsm-jail-build-oracle"

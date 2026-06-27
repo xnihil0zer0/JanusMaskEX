@@ -1,0 +1,48 @@
+# DENY-ALL — stale-state recovery FINALIZED 2026-06-18.
+# All four tracks (T1 credential gate, T2 reaper+delegation, T3 archive/reap,
+# regression repairs) landed and combined-gate green. Root briefs/plans archived
+# to _autowork_archive/2026-06-18_stale_state_finalized/. No slugs promotable.
+report03_p0_agy_seed_history
+report03_p0_jail_recarve
+report03_p0_orch_home
+# Report 02 (fuzzable surface) — P1 + P2 leaf briefs activated 2026-06-19.
+# Epic 'report02_fuzzable_surface' DE-ALLOWLISTED by overseer: allowlisting an
+# epic:true parent transitively admits ALL children (would draft/clobber P1/P2 and
+# leak deferred P3/P4/P5). Leaves carry the work; epic stays design-of-record only.
+report02_p1_dict_synth
+report02_p2_onesided_oracle
+# Root-cause hardening (2026-06-19): stale selfheal_skip marker silently stalls a
+# corrected+re-planned brief (brief_status.py:74 keys on it for ANY slug). Single-file
+# harness_self_fix; slug deliberately NOT selfheal_-prefixed.
+briefstatus_stale_skip_gate
+# Int 4 P0 (verdict v3 §4 THIRD): harness/sandbox.py main_pool() template dedup.
+# Single-file harness_self_fix; decision file pre-authored. Leaf slug only.
+int4_p0_sandbox_pool_dedup
+# Root-cause fix (2026-06-19): planner hard-rejects non-canonical task priorities
+# (P0/P1/P2/P3, ints, Capitalized) instead of normalizing them. Apply the
+# scripts/impl_normalize_priority.py PRIORITY_MAP inside normalize_plan, before
+# validate_plan. De-risks Int 4 P2 (slug 'P2' would trigger the same inference).
+planner_priority_normalize
+int3_p2_cwd_pinning
+int3_p3_resume_loop
+# Int 2 P2 (verdict v3 P1-locked): activate the one-sided oracle BLOCKING tier --
+# execute lone candidate out-of-process via sandbox executor, fail-closed. Leaf slug.
+int2_onesided_blocking
+# Int 3 resume-reader import fix (2026-06-19): _resume_pinned_session_enabled imports
+# load_config from the non-existent harness.config -> swallowed ModuleNotFoundError ->
+# reader always False -> workers.resume_pinned_session INERT. One-line import fix to
+# harness.orchestrator. Single-file harness_self_fix; NOT in _NEVER_AUTO_APPROVE (no decision).
+resume_reader_import_fix
+# Int 2 (verdict v3): add INTRINSIC METAMORPHIC relations (idempotence + order-invariance)
+# to the one-sided oracle BLOCKING tier, executed OUT-OF-PROCESS, behind a new
+# default-OFF flag autowork.onesided_metamorphic. Single-file harness_self_fix; no decision.
+int2_onesided_metamorphic
+# Int 2 v2 (verdict v3) — RE-AUTHORED behaviorally after the prior oracle was
+# over-constrained with implementation-pins (reader source-location pin + probe
+# call-count exhaustiveness). Corrected red-pair: oracle asserts the VERDICT only.
+# Single-file harness_self_fix on diff_fuzzer.py; NOT in _NEVER_AUTO_APPROVE (no decision).
+int2_onesided_metamorphic_v2
+# Self-healing archive-on-integrate: reconciler sweep (reap_stale_disk) reaps
+# spent-but-unarchived briefs via the idempotent reap_for_task. Fixes fire-once miss.
+# Single-file harness_self_fix on harness/state_reconciler.py; NOT in _NEVER_AUTO_APPROVE (no decision).
+reconciler_reaps_spent_briefs

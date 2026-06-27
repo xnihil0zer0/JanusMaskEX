@@ -19,7 +19,7 @@ import dataclasses
 import pytest
 from harness.planner.brief_loader import PlanningBrief
 from harness.planner.brief_loader import load_brief
-WORKING_DIR = '/home/xnihil0zer0/JanusMaskJR'
+WORKING_DIR = '/home/xnihil0zer0/AI-Data/JanusMaskEX'
 SECTIONS = '# Title\nBrief title body.\n\n# Scope\nScope body text.\n\n# Inputs\nInputs body text.\n\n# Non-Goals\nNon-goals body text.\n\n# Deliverables\nDeliverables body text.\n'
 
 def _write_brief(tmp_path, fm_lines):

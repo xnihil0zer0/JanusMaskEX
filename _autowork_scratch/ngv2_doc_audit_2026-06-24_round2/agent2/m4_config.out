@@ -1,0 +1,52 @@
+===== M4(b): is nonce passed by detonate()/detonate_live to semantic_verdict? =====
+4:def semantic_verdict(exit_code, stdout: str, stderr: str, fs_snapshot_diff: str, *, success_marker: str, expected_fs_signature: str, nonce: str='') -> str:
+23:    if nonce:
+24:        if nonce not in stdout and nonce not in stderr or nonce not in fs_snapshot_diff:
+71:            verdict = semantic_verdict(exit_code, stdout, stderr, fs_snapshot_diff, success_marker=self.success_marker, expected_fs_signature=expected_fs_signature)
+--- detonate_live nonce passing (poc_runner_live) ---
+9:(:class:`ngv2.detonation.DetonationChamber` and :func:`ngv2.detonation.semantic_verdict`)
+18:that :func:`ngv2.detonation.semantic_verdict` consumes (the richer Semantic-Oracle gate)
+34:``semantic_verdict`` matches ``expected_fs_signature`` against.
+178:    is the ``fs_snapshot_diff`` that :func:`ngv2.detonation.semantic_verdict` scans
+237:    ``expected_fs_signature`` is supplied) the :func:`ngv2.detonation.semantic_verdict`
+356:            from ngv2.detonation import semantic_verdict
+357:            result['verdict'] = semantic_verdict(result['exit_code'], result['stdout'], result['stderr'], result['fs_snapshot_diff'], success_marker=success_marker, expected_fs_signature=expected_fs_signature)
+
+===== M4(a): network_live still confirms non-localhost w/ no target import? =====
+4:``{real_target, self_contained_mock, network_live}`` and reports whether a
+24:_LOCALHOST_TOKENS: Tuple[str, ...] = ('localhost', '127.0.0.1', '0.0.0.0', '::1')
+27:_MODE_NETWORK_LIVE = 'network_live'
+111:        ``network_live``; the other three are booleans; and
+127:    targets_localhost = False
+158:                targets_localhost = True
+177:    elif issues_network_request and (not defines_vuln_locally) and (not targets_localhost):
+###### CONFIG.YAML LIVE VALUES ######
+55:  brief_max_size_bytes: 50000
+59:  #   dict_corpus_synthesis (Int 2 P1, d8be0b6): make dict/Dict-annotated params
+68:  dict_corpus_synthesis: true
+69:  enabled: true
+80:  parallel_cap: 5
+81:  claude_parallel_cap: 4
+87:  wire_up_gate: true
+88:  wire_up_runtime_gate: false
+89:  wire_up_runtime_gate_enforce: false
+91:  batch_size_per_worker: 2000
+92:  enabled: true
+96:  worker_pool_size: 1
+122:  enabled: true
+136:synthesis:
+138:  active_agents:
+152:  enabled: true
+154:  default_backend: claude
+163:  # Claude worker execution backend.
+177:  # to restore that jailed-interactive PTY backend + --continue warm resume.
+178:  claude_backend: headless
+187:  # Project-local pool of isolated agy worker HOMEs (harness/agy_pool.py).
+190:  # HOME so parallel agy registries cannot corrupt each other. size MUST be >=
+191:  # autowork.parallel_cap (currently 5) so no concurrent worker is left unpooled.
+192:  agy_pool:
+193:    enabled: true
+194:    size: 8
+197:# capability sub-keys, default-ON (owner-enabled 2026-06-10). ac_enabled
+199:# master gate and the sub-key are true. NOTE: ac_enabled reads the RUNTIME gate at
+203:  enabled: true

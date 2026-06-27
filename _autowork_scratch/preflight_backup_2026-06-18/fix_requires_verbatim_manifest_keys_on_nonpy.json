@@ -1,0 +1,84 @@
+{
+  "task_id": "fix_requires_verbatim_manifest_keys_on_nonpy",
+  "title": "Fix _requires_verbatim_manifest to require manifest only when a non-.py target is present (drop the file-count clause)",
+  "meta_task_type": "harness_self_fix",
+  "priority": "high",
+  "dependencies": [
+    "oracle_multifile_py_patch_routing"
+  ],
+  "files_touched": [
+    "harness/orchestrator.py"
+  ],
+  "acceptance_criteria": [
+    "harness.orchestrator._requires_verbatim_manifest(files_touched) returns True iff at least one target does not end in .py; the len(files_touched) > 1 clause is removed.",
+    "A multi-file, all-.py task now routes to the __JANUSMASK_PATCHES__ dispatch.",
+    "A task containing any non-.py target still routes to the whole-file __JANUSMASK_MANIFEST__ dispatch.",
+    "The new oracle tests/adversarial/test_multifile_py_patch_routing.py is GREEN after the change.",
+    "The existing guard tests/adversarial/test_nonpy_manifest_routing.py stays GREEN (non-.py -> manifest, single-.py -> patches).",
+    "Only the single function _requires_verbatim_manifest is changed; the manifest validation branch, the patches apply/commit path, and other routing inputs are untouched.",
+    "verification_command python -m pytest tests/adversarial/test_multifile_py_patch_routing.py tests/adversarial/test_nonpy_manifest_routing.py -q passes."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "low",
+  "verification_command": "python -m pytest tests/adversarial/test_multifile_py_patch_routing.py tests/adversarial/test_nonpy_manifest_routing.py -q",
+  "spec": {
+    "objective": "Change harness.orchestrator._requires_verbatim_manifest so it keys on the presence of a non-.py target rather than on file count. It should return True iff any target does not end in .py, allowing multi-file all-.py tasks to dispatch as symbol/region patches (which git_integration._commit_accepted_output_patches already applies per-file) while preserving whole-file manifest mode whenever a non-.py target is present.",
+    "functional_requirements": [
+      "_requires_verbatim_manifest(files_touched) returns True iff at least one entry in files_touched does not end with .py (remove the len(files_touched) > 1 clause).",
+      "A multi-file, all-.py files_touched list yields False, so prepare_task_prompt selects the __JANUSMASK_PATCHES__ dispatch.",
+      "Any files_touched list containing a non-.py target yields True, so prepare_task_prompt selects the whole-file __JANUSMASK_MANIFEST__ dispatch, matching prior behavior."
+    ],
+    "interfaces": "harness.orchestrator._requires_verbatim_manifest(files_touched) -> bool. Consumed by harness.orchestrator.prepare_task_prompt's patches-vs-manifest branch. Signature and call sites are unchanged.",
+    "edge_cases": [
+      "Multi-file, all-.py list -> False (patches) \u2014 the behavior this fix unlocks.",
+      "Multi-file list with one non-.py target -> True (manifest) \u2014 unchanged.",
+      "Single-.py-file list -> False (patches) \u2014 unchanged.",
+      "Single non-.py-file list -> True (manifest) \u2014 unchanged."
+    ],
+    "non_goals": [
+      "integration",
+      "No end-to-end daemon run; verification is via the pytest verification_command only.",
+      "Do not change how non-.py or mixed targets route \u2014 those still force the whole-file manifest.",
+      "Do not change the manifest validation branch, the patches apply/commit path, or any other routing input.",
+      "Do not author an integration test."
+    ],
+    "implementation_notes": "Single-function edit: replace `return len(files_touched) > 1 or any(not f.endswith('.py') for f in files_touched)` with `return any(not f.endswith('.py') for f in files_touched)` (preserving the existing empty-list semantics). No other lines should change. Land after the oracle so the oracle flips RED -> GREEN and tests/adversarial/test_nonpy_manifest_routing.py remains GREEN.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/adversarial/test_nonpy_manifest_routing.py\n```python\n\"\"\"RED oracle: route non-Python / multi-file bypass-fuzzer edits to the\nVERBATIM ``__JANUSMASK_MANIFEST__`` whole-file path instead of the Python-only\n``__JANUSMASK_PATCHES__`` symbol-patch path.\n\nRoot cause (HANDOFF_multifile_nonpython_edits.md \u00a71): in\n``harness.orchestrator.prepare_task_prompt`` the ``mtt in BYPASS_FUZZER_TYPES``\nguard is checked FIRST and is true for every safe edit type\n(``harness_plumbing``, ``harness_self_fix`` ...). So a non-Python (``.js`` /\n``.css`` / ``.yaml``) or multi-file edit leaf is forced into the PARTIAL-EDIT\ndispatch (branch A), whose applier ``_apply_symbol_patch`` is pure ``ast.parse``\nand CANNOT apply a non-Python file -> ``ast.parse`` raises -> rollback -> the\nstructural oracle fails. The verbatim whole-file apply already exists\n(``git_integration._apply_file_to_target`` non-``.py`` arm writes verbatim); the\nbug is purely DISPATCH ROUTING.\n\nFix: a module-level predicate ``_requires_verbatim_manifest(files_touched)`` ->\nTrue when the leaf touches > 1 file OR any non-``.py`` target. ``prepare_task_prompt``\nmust route those leaves to the ``__JANUSMASK_MANIFEST__`` branch even when\n``mtt in BYPASS_FUZZER_TYPES``; a single ``.py`` edit STILL uses the patches path.\n\nTests 1-2 FAIL on HEAD (RED -> the routing bug) and pass after the fix. Tests\n3-6 are regression / guardrail invariants that must hold both before and after.\n\"\"\"\nfrom __future__ import annotations\n\nimport json\nimport subprocess\n\nimport pathlib\n\nimport pytest\n\nfrom harness import git_integration\nfrom harness.orchestrator import prepare_task_prompt, _save_final_output\n\n\n# Markers that uniquely identify which dispatch block the prompt emitted.\n_MANIFEST_TOKEN = \"__JANUSMASK_MANIFEST__\"\n_MANIFEST_HEADER = \"MULTI-FILE DISPATCH\"\n_PATCHES_HEADER = \"PARTIAL-EDIT DISPATCH\"\n\n\ndef _git(args, cwd):\n    subprocess.run(\n        [\"git\"] + args, cwd=str(cwd), check=True,\n        stdout=subprocess.PIPE, stderr=subprocess.PIPE,\n    )\n\n\n# ---------------------------------------------------------------------------\n# 1. multi-file non-Python bypass leaf -> MANIFEST dispatch (RED on HEAD)\n# ---------------------------------------------------------------------------\ndef test_prepare_prompt_multifile_nonpy_routes_to_manifest():\n    task = {\n        \"task_id\": \"t-frontend\",\n        \"meta_task_type\": \"harness_plumbing\",  # in BYPASS_FUZZER_TYPES\n        \"files_touched\": [\n            \"tools/webui_static/app.js\",\n            \"tools/webui_static/styles.css\",\n        ],\n    }\n    prompt = prepare_task_prompt(task)\n    assert _MANIFEST_TOKEN in prompt and _MANIFEST_HEADER in prompt, (\n        \"multi-file non-Python bypass leaf must get the __JANUSMASK_MANIFEST__ \"\n        \"(verbatim whole-file) dispatch\"\n    )\n    assert _PATCHES_HEADER not in prompt, (\n        \"multi-file non-Python bypass leaf was forced into the PARTIAL-EDIT \"\n        \"(Python-only symbol-patch) dispatch -- that path cannot apply .js/.css\"\n    )\n\n\n# ---------------------------------------------------------------------------\n# 2. single non-Python bypass leaf -> MANIFEST dispatch (RED on HEAD)\n# ---------------------------------------------------------------------------\ndef test_prepare_prompt_single_nonpy_routes_to_manifest():\n    task = {\n        \"task_id\": \"t-config\",\n        \"meta_task_type\": \"harness_self_fix\",  # in BYPASS_FUZZER_TYPES\n        \"files_touched\": [\"harness/config.yaml\"],\n    }\n    prompt = prepare_task_prompt(task)\n    assert _MANIFEST_TOKEN in prompt, (\n        \"single non-Python bypass leaf (config.yaml) must get the verbatim \"\n        \"__JANUSMASK_MANIFEST__ dispatch, not the symbol-patch dispatch\"\n    )\n    assert _PATCHES_HEADER not in prompt, (\n        \"single non-Python bypass leaf was forced into the PARTIAL-EDIT \"\n        \"(ast.parse) dispatch -- ast.parse on YAML raises -> rollback\"\n    )\n\n\n# ---------------------------------------------------------------------------\n# 3. REGRESSION: single .py bypass leaf STILL uses the patches path\n# ---------------------------------------------------------------------------\ndef test_prepare_prompt_single_py_still_uses_patches():\n    task = {\n        \"task_id\": \"t-webui-control\",\n        \"meta_task_type\": \"harness_plumbing\",\n        \"files_touched\": [\"tools/webui_control.py\"],\n    }\n    prompt = prepare_task_prompt(task)\n    assert _PATCHES_HEADER in prompt, (\n        \"single .py bypass leaf must keep using the working __JANUSMASK_PATCHES__ \"\n        \"symbol-patch dispatch (webui_control proved it works)\"\n    )\n    assert _MANIFEST_TOKEN not in prompt, (\n        \"single .py bypass leaf must NOT be re-routed to the manifest dispatch\"\n    )\n\n\n# ---------------------------------------------------------------------------\n# 4. GUARDRAIL: _save_final_output for a manifest writes .files.json (not .patches)\n# ---------------------------------------------------------------------------\ndef test_save_final_output_manifest_writes_files_sidecar(tmp_path):\n    state_dir = tmp_path / \"state\"\n    (state_dir / \"output\").mkdir(parents=True)\n    task_id = \"t-save-manifest\"\n    code = (\n        \"__JANUSMASK_MANIFEST__ = {\\n\"\n        \"    'a.js': r'''console.log(1);\\n''',\\n\"\n        \"    'b.css': r''':root { color: red; }\\n''',\\n\"\n        \"}\\n\"\n    )\n    _save_final_output(state_dir, task_id, code)\n    files_sidecar = state_dir / \"output\" / f\"{task_id}.files.json\"\n    patches_sidecar = state_dir / \"output\" / f\"{task_id}.patches.json\"\n    assert files_sidecar.exists(), \"manifest submission must emit a .files.json sidecar\"\n    assert not patches_sidecar.exists(), \"manifest submission must NOT emit a .patches.json sidecar\"\n    saved = json.loads(files_sidecar.read_text(encoding=\"utf-8\"))\n    assert saved == {\"a.js\": \"console.log(1);\\n\", \"b.css\": \":root { color: red; }\\n\"}\n\n\n# ---------------------------------------------------------------------------\n# 5. END-TO-END: a manifest commit lands non-Python files VERBATIM (one commit)\n# ---------------------------------------------------------------------------\ndef test_commit_manifest_lands_nonpy_files_verbatim(tmp_path):\n    root = tmp_path / \"repo\"\n    root.mkdir()\n    _git([\"init\", \"-q\"], root)\n    _git([\"config\", \"user.email\", \"nonpy@test\"], root)\n    _git([\"config\", \"user.name\", \"nonpy\"], root)\n    app = root / \"app.js\"\n    styles = root / \"styles.css\"\n    app.write_text(\"// OLD\\n\", encoding=\"utf-8\")\n    styles.write_text(\"/* OLD */\\n\", encoding=\"utf-8\")\n    _git([\"add\", \"-A\"], root)\n    _git([\"commit\", \"-q\", \"-m\", \"init\"], root)\n    head_before = subprocess.run(\n        [\"git\", \"rev-parse\", \"HEAD\"], cwd=str(root),\n        check=True, stdout=subprocess.PIPE,\n    ).stdout.decode().strip()\n\n    state_dir = root / \"state\"\n    out_dir = state_dir / \"output\"\n    out_dir.mkdir(parents=True)\n    task_id = \"t-commit-manifest\"\n    new_app = \"function chatIsOpen() { return false; }\\n// NEW\\n\"\n    new_styles = \":root { --mode-tier-r: #0f0; }\\n\"\n    manifest = {\"app.js\": new_app, \"styles.css\": new_styles}\n    (out_dir / f\"{task_id}.files.json\").write_text(\n        json.dumps(manifest, indent=2), encoding=\"utf-8\"\n    )\n\n    result = git_integration.commit_accepted_output(\n        task_id,\n        str(app),\n        state_dir,\n        worktree_root=root,\n        meta_task_type=\"harness_plumbing\",\n        approval_ok=True,\n        working_dir=None,  # SELF\n    )\n\n    assert result.get(\"committed\") is True, (\n        \"manifest commit failed: \" + repr(result.get(\"error\"))\n    )\n    # files landed byte-equal to the manifest values (verbatim, no AST mangling)\n    assert app.read_text(encoding=\"utf-8\") == new_app\n    assert styles.read_text(encoding=\"utf-8\") == new_styles\n    # exactly one new commit\n    head_after = subprocess.run(\n        [\"git\", \"rev-parse\", \"HEAD\"], cwd=str(root),\n        check=True, stdout=subprocess.PIPE,\n    ).stdout.decode().strip()\n    assert head_after != head_before\n    parent = subprocess.run(\n        [\"git\", \"rev-parse\", \"HEAD~1\"], cwd=str(root),\n        check=True, stdout=subprocess.PIPE,\n    ).stdout.decode().strip()\n    assert parent == head_before, \"manifest commit must add exactly one commit\"\n\n\n# ---------------------------------------------------------------------------\n# 6. NEGATIVE CONTROL: a symbol patch targeting a .js file fails LOUD\n# ---------------------------------------------------------------------------\ndef test_symbol_patch_on_js_is_rejected_nonsilent():\n    js_source = \"function boot() {\\n  return 1;\\n}\\n\"\n    new_block = \"function boot() {\\n  return 2;\\n}\\n\"\n    with pytest.raises((SyntaxError, ValueError, KeyError)):\n        git_integration._apply_symbol_patch(js_source, \"boot\", new_block)\n\n```\n"
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_multifile_all_py_no_longer_requires_manifest"
+      },
+      {
+        "name": "test_any_nonpy_target_still_requires_manifest"
+      },
+      {
+        "name": "test_single_py_target_does_not_require_manifest"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [],
+    "regression_tests": [
+      {
+        "name": "test_nonpy_manifest_routing_guard_stays_green"
+      },
+      {
+        "name": "test_multifile_py_patch_routing_oracle_now_green"
+      }
+    ],
+    "minimum_test_count": 5,
+    "test_data_requirements": "Reuses the in-memory files_touched lists from the oracle plus the existing tests/adversarial/test_nonpy_manifest_routing.py guard. No daemon, repo state, or fixtures required."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 80,
+    "test_tokens": 200,
+    "note": "Tiny single-function change; verification leans on the same-plan oracle plus the existing guard, so test budget dominates."
+  },
+  "attribution_metadata": {
+    "proposed_by": "reconciled",
+    "reconciled": true,
+    "diff_resolution": "reconciled"
+  },
+  "_debug_stamping_reason": "Task was divergent and resolved via reconciliation.",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR"
+}

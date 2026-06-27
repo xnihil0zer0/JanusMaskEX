@@ -1,0 +1,349 @@
+{
+  "tasks": [
+    {
+      "task_id": "difffuzz-w2-architecture-contracts",
+      "title": "Update architecture contracts documentation for flipped types",
+      "meta_task_type": "docs_writing",
+      "priority": "high",
+      "dependencies": [
+        "difffuzz-w2-flip-policy"
+      ],
+      "files_touched": [
+        "docs/ARCHITECTURE_CONTRACTS.md"
+      ],
+      "acceptance_criteria": [
+        "docs/ARCHITECTURE_CONTRACTS.md is updated successfully.",
+        "The verification command passes successfully."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/adversarial/test_taxonomies.py -q",
+      "spec": {
+        "objective": "Update the architecture contracts documentation in docs/ARCHITECTURE_CONTRACTS.md \u00a72 to reflect the removal of harness_plumbing and harness_self_fix from the bypass list.",
+        "functional_requirements": [
+          "In the \u00a72 taxonomy table, clear the bypass_fuzzer checkmark (\u2713) for harness_plumbing and harness_self_fix.",
+          "Extend the parenthetical exception in the \u00a72 invariant prose to also list harness_self_fix and harness_plumbing as sanctioned narrowings."
+        ],
+        "interfaces": "Updates docs/ARCHITECTURE_CONTRACTS.md.",
+        "edge_cases": [
+          "Verify that the table columns and markdown alignment remain neat and correct."
+        ],
+        "non_goals": [
+          "Single file only, no integration; do NOT edit README.md or harness/** here."
+        ],
+        "implementation_notes": "Since the target file is a non-Python file (.md), the delivery uses a single-file __JANUSMASK_MANIFEST__ verbatim manifest:\n\n```python\n__JANUSMASK_MANIFEST__ = {\n    'docs/ARCHITECTURE_CONTRACTS.md': r\"\"\"# JanusMaskJR \u2014 Architecture Contracts & Intent (ADR)\n\nStatus: Accepted (living reference) \u00b7 Scope: harness synthesis/commit pipeline\ninvariants \u00b7 Audience: future contributors (human or agent).\n\nThis document records the **load-bearing contracts** of the harness and the\n**intent** behind them, with `file:symbol` citations so each claim is verifiable\nagainst the tree. It is a contract reference, not a tutorial. Where a line number\nis given it may drift; the symbol/text is authoritative. **Do not weaken any\ncontract below without an explicit operator decision** \u2014 several are deliberate\nsecurity boundaries that have already been breached and re-closed.\n\n---\n\n## 1. Dual-agent synthesis contract (NO single-agent acceptance)\n\nTwo **independent** agents must BOTH produce valid code before a submission can\nadvance past synthesis. The active agents default to `['claude', 'gemini']`\n(`harness/orchestrator_worker.py` `active_agents`; gemini == agy/antigravity-cli).\n\nThe acceptance predicate requires *all four* of: both agents OK **and** both\nagents returned non-empty code:\n\n- Worker path (`use_retry_module`):\n  `harness/orchestrator_worker.py::run` \u2014\n  `synthesis_success = bool(agent_a_ok and agent_b_ok and agent_a_code and agent_b_code)`\n  (the `~:237` dual-agent invariant line).\n- Orchestrator mirror (`use_retry_module`):\n  `harness/orchestrator.py` \u2014\n  `synthesis_success = bool(claude_ok and gemini_ok and claude_code and gemini_code)`\n  (`~:1818`; the legacy retry-loop sets `synthesis_success = True` only after BOTH\n  per-agent `_validate_submission` calls pass, `orchestrator_worker.py` `~:296\u2013309`).\n\nIf `synthesis_success` is false the task is marked **rejected/blocked**\n(`orchestrator_worker.py` `~:311` \u2192 `_mark_blocked(..., 'synthesis_or_ast_failed')`,\n`exit_code = 1`). If **both** agents time out the worker exits `2` (timeout, retryable)\n*before* validation (the `double_timeout` guard, `~:230` / `~:259`).\n\n**Invariant:** there is NO single-agent / lone-candidate acceptance, ever. A\nsingle valid candidate is never sufficient. (Tamper precedent:\n`agy-autonomous-single-agent-tamper` \u2014 agy once implanted obfuscated single-agent\nacceptance; byte-compare both invariant lines after every spawn.)\n\n### `claude_fallback`\n`claude_fallback` only **fills a `None` claude slot** \u2014 it does not relax the\ndual-agent requirement. When claude returns `None` in *either* slot (a or b,\nsequential or parallel), the orchestrator re-runs that one slot as the\n`claude_fallback` agent (`harness/orchestrator.py` `run_both_agents`, the four\n`run_agent_phase('claude_fallback', ...)` call sites `~:572\u2013614`). The result\nstill has to satisfy the full `bool(... and ... and ... and ...)` predicate above.\n\n---\n\n## 2. `meta_task_type` taxonomy\n\nDefined in `harness/planner/taxonomies.py::META_TASK_POLICY` (a\n`dict[str, dict[str, bool]]`). Three derived frozensets gate behavior:\n\n- `BYPASS_FUZZER_TYPES` \u2014 types with `bypass_fuzzer: True`; skip the differential\n  fuzzer stage.\n- `SIDE_EFFECT_META_TYPES` \u2014 types with `skip_structural_decomp: True`.\n- `SKIP_SMOKE_GATE_TYPES` \u2014 types with `skip_smoke_gates: True`; skip the smoke gates.\n\nFlag meanings:\n- `bypass_fuzzer` \u2014 task is exempt from the differential fuzzer (the two agents'\n  outputs are not fuzz-compared for behavioral equivalence). These tasks also\n  dispatch on the symbol/region patch path (see \u00a73).\n- `skip_structural_decomp` \u2014 task skips structural decomposition (treated as a\n  side-effecting/whole-unit change rather than decomposed into pure functions).\n- `skip_smoke_gates` \u2014 task skips the smoke-test gates.\n\nEnumeration of `META_TASK_POLICY` (\u2713 = flag True; blank = False/absent):\n\n| meta_task_type        | bypass_fuzzer | skip_structural_decomp | skip_smoke_gates |\n|-----------------------|:-------------:|:----------------------:|:----------------:|\n| sandbox_infra         |   | \u2713 |   |\n| mcp_server_change     | \u2713 |   | \u2713 |\n| config_schema         | \u2713 |   | \u2713 |\n| data_model            | \u2713 | \u2713 |   |\n| cli_tooling           |   |   |   |\n| test_unit             | \u2713 |   | \u2713 |\n| test_integration      | \u2713 |   | \u2713 |\n| test_e2e              | \u2713 |   | \u2713 |\n| test_acceptance       | \u2713 |   | \u2713 |\n| docs_writing          | \u2713 |   | \u2713 |\n| refactor              |   |   |   |\n| logging_observability |   |   |   |\n| orchestration         |   | \u2713 |   |\n| harness_plumbing      |   | \u2713 | \u2713 |\n| planner_tooling       |   | \u2713 |   |\n| hooks_integration     | \u2713 |   | \u2713 |\n| validation            |   |   |   |\n| mcp_plumbing          | \u2713 | \u2713 |   |\n| state_machine         | \u2713 | \u2713 |   |\n| io_adapter            |   | \u2713 |   |\n| harness_self_fix      |   | \u2713 | \u2713 |\n\nSo `BYPASS_FUZZER_TYPES` = every row with \u2713 in column 1 (all but `cli_tooling`,\n`refactor`, `logging_observability`, `io_adapter`, `sandbox_infra`, `orchestration`,\n`planner_tooling`, `validation`, `harness_plumbing`, `harness_self_fix`). `SKIP_SMOKE_GATE_TYPES` =\n`mcp_server_change`, `config_schema`, `test_unit`, `test_integration`, `test_e2e`,\n`test_acceptance`, `docs_writing`, `harness_plumbing`, `hooks_integration`,\n`harness_self_fix`. `META_TASK_TYPES` is `frozenset(META_TASK_POLICY.keys())`;\n`is_test_prefixed` recognizes the `test_*` family.\n\n**Invariant:** never narrow `BYPASS_FUZZER_TYPES` (i.e. never remove a type or flip\na `bypass_fuzzer: True` to False) \u2014 it is a do-NOT guarded by\n`tests/.../test_allowlist_promotion_guard.py`-class checks and the post-spawn audit.\n(Exception: the removal of `sandbox_infra`, `orchestration`, `planner_tooling`,\n`validation`, `harness_self_fix`, and `harness_plumbing` is a sanctioned, reviewed narrowing\nunder the restore-differential-fuzzing program.)\n\n---\n\n## 3. Dispatch / routing doctrine (plan \u00a71.4)\n\nSource of truth: `JANUSMASKJR_CONTINUATION_PLAN_REV4.md` \u00a71.4. The routing rule\ndetermines whether a change goes through the **pipeline** (agents synthesize a\npatch) or is a sanctioned **hand-edit** (operator-authored, isolation-class).\n\n- **Symbol/region patch path.** `harness_self_fix` (and all `BYPASS_FUZZER_TYPES`)\n  dispatch on the `__JANUSMASK_PATCHES__` symbol/region path\n  (`harness/orchestrator.py` dispatch `~:845`), regardless of file size.\n- **The \u00a73.10 \"wall\" \u2014 what a symbol patch CANNOT do.** A symbol patch can only\n  **REPLACE one existing `def`/`class`** per `symbol` entry\n  (`harness/git_integration.py` enforces one-def/class-per-symbol, `~:980`); a\n  `region` patch only replaces text between two pre-existing sentinels. The prompt\n  forbids any top-level statement other than the patches assignment. Therefore a\n  change that **ADDS a new top-level import / function / constant cannot be\n  expressed as a symbol patch** \u2014 it hits the \u00a73.10 wall and routes to a\n  **HAND-EDIT**. (This is exactly why GAP_H4 routed hand-edit.)\n- **Large-function surgical edits.** A symbol patch of a large existing function\n  forces the agent to reproduce the whole function verbatim except the change \u2014\n  high tamper/error risk \u2014 so surgical edits to very large functions are safer as\n  **HAND-EDITS** than pipelined.\n- **Whole-file manifest path** (`__JANUSMASK_MANIFEST__`) is the alternative route\n  for **additive** changes that the symbol path cannot express. (Multi-file tasks\n  must emit a manifest sidecar; absence triggers `manifest_missing` /\n  `multi_file_missing_sidecar`, `harness/orchestrator.py` `_validate_submission`\n  / `_auto_commit_accepted`.)\n- **Everything else routes pipeline.** Isolation / gate-integrity / containment\n  fixes, \u00a73.10-wall (add-symbol) changes, and surgical edits to large\n  commit-critical functions are the sanctioned hand-edit classes.\n\n---\n\n## 4. \u00a71b apply-scope gate (protected-path commit gate)\n\nSource: `harness/git_integration.py::_enforce_apply_scope`\n(invoked from the three commit/apply sites `~:665`, `~:828`, `~:1120`).\n\nTwo independent constraints:\n1. **Membership** \u2014 when `allowed_files` is not None, every committed rel-path\n   must be a member of the task's resolved `files_touched` (both sides normalized\n   via `_norm`, rel-vs-rel \u2014 see GAP_H1 note).\n2. **Sensitive / protected** \u2014 a rel-path under **`harness/**`, `config/**`, or\n   `scripts/**`** (`_SENSITIVE_APPLY_GLOBS`, matched by `_matches_sensitive`) is\n   **rejected** unless BOTH hold:\n   - `meta_task_type == 'harness_self_fix'`, AND\n   - `approval_ok` is True \u2014 i.e. an operator approval file exists at\n     `state/control/decisions/<task_id>.json` with `{\"decision\": \"approve\"}`\n     (or `\"approved\"`), read by `harness/orchestrator.py::_apply_approval_granted`.\n\n`_apply_approval_granted` is **fail-closed**: absent / corrupt / non-dict / any\nother decision \u2192 False, so a protected-path commit is denied until the operator\nexplicitly opts in (`_approval_ok = _apply_approval_granted(...)`,\n`orchestrator.py` `~:1539`).\n\n**Scope note:** \u00a71b guards **commits only**. It does NOT cover direct filesystem\nwrites to the tree (those are the jail's job \u2014 \u00a75) nor `state/**` writes.\n\n---\n\n## 5. The bwrap jail (write boundary on the source tree)\n\nSource: `harness/agent_jail.py` (CONTAIN C2). Summary of its module docstring +\n`build_jail_argv`:\n\n- Every agent subprocess spawn is wrapped in **bubblewrap (`bwrap`)** with the\n  **repository bind-mounted READ-ONLY**, so a write to any tracked source file is\n  denied by the **kernel**, not by a `-p`-mode hook that may fail to load. This\n  closes the GAP_H4 breach (a rejected gemini submission had landed directly in\n  `harness/ast_retry.py`).\n- **Writable surfaces are minimized** to exactly what a spawn legitimately needs:\n  the per-spawn `work_dir` (outbox submission + inbox staging),\n  `state/sessions/` (hook ledger + canonical submission record), and\n  `state/planning/sessions/` (planning drafts the planner reads back). The rest of\n  `state/` \u2014 `control/**` (full_stop / decisions / allowlist), `tasks/**` \u2014 is\n  **read-only**, because \u00a71b does not cover `state/**` and a writable state would\n  let an agent self-approve, un-halt, or queue work via the filesystem. The\n  track-record book and shadow-hook log are deliberately read-only (fail-open\n  telemetry; keeps it from being a self-influence vector).\n- **HOME exposure** is three subdirs only \u2014 `~/.nvm` (vendored node), `~/.gemini`\n  (agy OAuth/CLI), `~/.claude` (claude state) \u2014 with `~/.claude/projects/*/memory`\n  **ro-overlaid** so an agent cannot poison session-memory steering future runs,\n  and the operator-side CLI config re-overlaid read-only\n  (`~/.claude/settings*.json`, `~/.claude/skills`, `~/.claude/plugins`,\n  `~/.gemini/GEMINI.md`, `~/.gemini/config`). `~/.claude.json` is bound read-only.\n  (claude additionally requires `--verbose` under the jail.)\n- **Config-gated + fail-closed.** Enabled via `config.yaml` `agent_sandbox.bwrap`\n  (`sandbox_enabled`). If the key is true but `bwrap` is not on PATH, the spawn is\n  **ABORTED** (`build_jail_argv` raises `FileNotFoundError`) rather than silently\n  running an un-jailed agent.\n\n**Critical scope:** this is a **WRITE boundary on the repo source tree, not an\nexfiltration boundary.** `--share-net` is required (agents call model APIs) and\nHOME is readable. See memory note `claude-agent-uncontained-cd-into-repo`: CWD\nrelocation alone does NOT contain an agent that opens an absolute repo path \u2014 the\njail is what contains it.\n\n---\n\n## 6. AST validation gate (severity semantics)\n\nSource: `harness/ast_enforcer.py::validate_code` (`Violation.severity: str`).\n\nA submission is **rejected** iff it has at least one violation with\n`severity == 'error'`; `'warning'` is **advisory only** and never blocks\nacceptance. The error-filter is applied at the call sites:\n`harness/orchestrator.py::_validate_submission` \u2014\n`errors = [v for v in ... if v.severity == 'error']` (`~:1001`, `~:1027`, `~:1055`)\nand the retry prompts only echo `v.severity == 'error'` violations.\n\n`'error'` rules (reject): `syntax`, `incomplete_ast`, `nondeterminism`,\n`security` (banned calls / hardcoded credentials), `bare_except`, `os_system`,\n`return_type_mismatch`, `manifest_missing`.\n\n`'warning'` rules (advisory only): `subprocess_no_check`, `side_effect`,\n`unbounded_recursion`, and notably **`module_too_large`** \u2014 a module exceeding the\nrecommended 1500-line limit emits a `module_too_large` **warning**, NOT an error,\nso file size alone never rejects a submission (`ast_enforcer.py` `~:227\u2013229`).\n\n---\n\n## Cross-references\n- Routing & invariants: `JANUSMASKJR_CONTINUATION_PLAN_REV4.md` \u00a71.4, \u00a72.\n- Synthesis: `harness/orchestrator_worker.py`, `harness/orchestrator.py`.\n- Commit gate: `harness/git_integration.py`, `harness/orchestrator.py`.\n- Jail: `harness/agent_jail.py`.\n- AST gate: `harness/ast_enforcer.py`.\n- Taxonomy: `harness/planner/taxonomies.py`.\"\"\"\n}\n```\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/adversarial/test_taxonomies.py\n```python\nimport pytest\nfrom harness.planner.taxonomies import BYPASS_FUZZER_TYPES, META_TASK_POLICY, META_TASK_TYPES, SIDE_EFFECT_META_TYPES, SKIP_SMOKE_GATE_TYPES, is_test_prefixed\ndef test_policy_dict_is_populated():\n    ...\ndef test_every_policy_entry_has_required_flags():\n    ...\ndef test_meta_task_types_matches_policy_keys():\n    ...\ndef test_bypass_fuzzer_types_derives_from_policy():\n    ...\ndef test_side_effect_meta_types_derives_from_policy():\n    ...\ndef test_bypass_and_side_effect_are_subsets_of_canonical():\n    ...\ndef test_skip_smoke_gate_types_derives_from_policy():\n    ...\ndef test_skip_smoke_gate_is_subset_of_bypass():\n    ...\ndef test_harness_self_fix_skips_smoke_gates():\n    ...\ndef test_test_authoring_policy_entry():\n    ...\n@pytest.mark.parametrize('value', ['harness_plumbing', 'hooks_integration', 'harness_self_fix'])\ndef test_known_bypass_values_are_in_bypass_set(value):\n    ...\n@pytest.mark.parametrize('value', ['sandbox_infra', 'data_model', 'harness_plumbing', 'orchestration', 'planner_tooling', 'mcp_plumbing', 'state_machine', 'io_adapter', 'harness_self_fix'])\ndef test_known_side_effect_values_are_in_side_effect_set(value):\n    ...\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_policy_dict_is_populated"
+          },
+          {
+            "name": "test_every_policy_entry_has_required_gates"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "tests/adversarial/test_taxonomies.py::test_meta_task_types_matches_policy_keys"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Requires standard test execution environment and test_taxonomies.py."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Standard budget ratio."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "difffuzz-w2-flip-policy",
+      "title": "Flip bypass_fuzzer flag for harness_plumbing and harness_self_fix",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [
+        "difffuzz-w2-routing-oracle",
+        "difffuzz-w2-loosen-membership",
+        "difffuzz-w2-fix-readme-audit"
+      ],
+      "files_touched": [
+        "harness/planner/taxonomies.py"
+      ],
+      "acceptance_criteria": [
+        "META_TASK_POLICY assignment in harness/planner/taxonomies.py is patched successfully.",
+        "The verification command tests/harness/test_difffuzz_w2_routing.py, tests/adversarial/test_taxonomies.py, and tests/harness/test_readme_audit_agent_d.py all pass GREEN."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/harness/test_difffuzz_w2_routing.py tests/adversarial/test_taxonomies.py tests/harness/test_readme_audit_agent_d.py -q",
+      "spec": {
+        "objective": "Flip the bypass_fuzzer flag from True to False in harness/planner/taxonomies.py::META_TASK_POLICY for both harness_self_fix and harness_plumbing, forcing fuzzer routing to activate.",
+        "functional_requirements": [
+          "Set bypass_fuzzer to False for harness_plumbing in META_TASK_POLICY.",
+          "Set bypass_fuzzer to False for harness_self_fix in META_TASK_POLICY."
+        ],
+        "interfaces": "No new public interfaces; updates META_TASK_POLICY dict in harness/planner/taxonomies.py.",
+        "edge_cases": [
+          "Ensure all other keys and flags are byte-identical, and frozensets are computed correctly from the policy dict."
+        ],
+        "non_goals": [
+          "Do NOT edit orchestrator.py or any _NEVER_AUTO_APPROVE file for integration; do NOT flip any entry other than harness_self_fix and harness_plumbing."
+        ],
+        "implementation_notes": "Emit a single-file __JANUSMASK_PATCHES__ symbol patch for META_TASK_POLICY:\n\n```python\n__JANUSMASK_PATCHES__ = [\n    {\n        'file': 'harness/planner/taxonomies.py',\n        'kind': 'symbol',\n        'name': 'META_TASK_POLICY',\n        'code': r\"\"\"META_TASK_POLICY: dict[str, dict[str, bool]] = {'sandbox_infra': {'bypass_fuzzer': False, 'skip_structural_decomp': True}, 'mcp_server_change': {'bypass_fuzzer': True, 'skip_structural_decomp': False, 'skip_smoke_gates': True}, 'config_schema': {'bypass_fuzzer': True, 'skip_structural_decomp': False, 'skip_smoke_gates': True}, 'data_model': {'bypass_fuzzer': False, 'skip_structural_decomp': True}, 'cli_tooling': {'bypass_fuzzer': False, 'skip_structural_decomp': False}, 'test_unit': {'bypass_fuzzer': True, 'skip_structural_decomp': False, 'skip_smoke_gates': True}, 'test_integration': {'bypass_fuzzer': True, 'skip_structural_decomp': False, 'skip_smoke_gates': True}, 'test_e2e': {'bypass_fuzzer': True, 'skip_structural_decomp': False, 'skip_smoke_gates': True}, 'test_acceptance': {'bypass_fuzzer': True, 'skip_structural_decomp': False, 'skip_smoke_gates': True}, 'docs_writing': {'bypass_fuzzer': True, 'skip_structural_decomp': False, 'skip_smoke_gates': True}, 'refactor': {'bypass_fuzzer': False, 'skip_structural_decomp': False}, 'logging_observability': {'bypass_fuzzer': False, 'skip_structural_decomp': False}, 'orchestration': {'bypass_fuzzer': False, 'skip_structural_decomp': True}, 'harness_plumbing': {'bypass_fuzzer': False, 'skip_structural_decomp': True, 'skip_smoke_gates': True}, 'planner_tooling': {'bypass_fuzzer': False, 'skip_structural_decomp': True}, 'hooks_integration': {'bypass_fuzzer': True, 'skip_structural_decomp': False, 'skip_smoke_gates': True}, 'validation': {'bypass_fuzzer': False, 'skip_structural_decomp': False}, 'mcp_plumbing': {'bypass_fuzzer': True, 'skip_structural_decomp': True}, 'state_machine': {'bypass_fuzzer': False, 'skip_structural_decomp': True, 'stateful_fuzz': True}, 'io_adapter': {'bypass_fuzzer': False, 'skip_structural_decomp': True}, 'harness_self_fix': {'bypass_fuzzer': False, 'skip_structural_decomp': True, 'skip_smoke_gates': True}, 'test_authoring': {'bypass_fuzzer': False, 'skip_structural_decomp': True, 'skip_interface_fuzz': True}, 'epic_planning': {'bypass_fuzzer': True, 'skip_structural_decomp': True, 'skip_smoke_gates': True}}\"\"\"\n    }\n]\n```\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/adversarial/test_taxonomies.py\n```python\nimport pytest\nfrom harness.planner.taxonomies import BYPASS_FUZZER_TYPES, META_TASK_POLICY, META_TASK_TYPES, SIDE_EFFECT_META_TYPES, SKIP_SMOKE_GATE_TYPES, is_test_prefixed\ndef test_policy_dict_is_populated():\n    ...\ndef test_every_policy_entry_has_required_flags():\n    ...\ndef test_meta_task_types_matches_policy_keys():\n    ...\ndef test_bypass_fuzzer_types_derives_from_policy():\n    ...\ndef test_side_effect_meta_types_derives_from_policy():\n    ...\ndef test_bypass_and_side_effect_are_subsets_of_canonical():\n    ...\ndef test_skip_smoke_gate_types_derives_from_policy():\n    ...\ndef test_skip_smoke_gate_is_subset_of_bypass():\n    ...\ndef test_harness_self_fix_skips_smoke_gates():\n    ...\ndef test_test_authoring_policy_entry():\n    ...\n@pytest.mark.parametrize('value', ['harness_plumbing', 'hooks_integration', 'harness_self_fix'])\ndef test_known_bypass_values_are_in_bypass_set(value):\n    ...\n@pytest.mark.parametrize('value', ['sandbox_infra', 'data_model', 'harness_plumbing', 'orchestration', 'planner_tooling', 'mcp_plumbing', 'state_machine', 'io_adapter', 'harness_self_fix'])\ndef test_known_side_effect_values_are_in_side_effect_set(value):\n    ...\n```\n\n## tests/harness/test_readme_audit_agent_d.py\n```python\nimport ast\nimport yaml\nfrom harness.planner.taxonomies import META_TASK_POLICY, BYPASS_FUZZER_TYPES, SIDE_EFFECT_META_TYPES, SKIP_SMOKE_GATE_TYPES\nfrom harness.orchestrator import _NEVER_AUTO_APPROVE\ndef test_readme_taxonomy_bypass_fuzzer_matches_policy():\n    ...\ndef test_readme_documents_every_policy_type():\n    ...\ndef test_derived_sets_consistent_with_policy():\n    ...\ndef test_implementation_is_not_a_meta_task_type():\n    ...\ndef test_never_auto_approve_matches_readme():\n    ...\ndef test_allowed_extra_node_kinds_match_readme():\n    ...\ndef test_control_pause_flag_path_config_value():\n    ...\ndef test_readme_section8_config_subtrees():\n    ...\ndef test_readme_glossary_live_roots():\n    ...\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_flipped_routing_harness_self_fix"
+          },
+          {
+            "name": "test_flipped_routing_harness_plumbing"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "tests/adversarial/test_taxonomies.py::test_policy_dict_is_populated"
+          },
+          {
+            "name": "tests/harness/test_readme_audit_agent_d.py::test_readme_taxonomy_bypass_fuzzer_matches_policy"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Requires that tests/harness/test_difffuzz_w2_routing.py is already present and that loosen-membership and readme-audit tasks have landed."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Standard budget ratio."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "difffuzz-w2-routing-oracle",
+      "title": "Author routing oracle to verify diff-fuzzer routing behaviour for flipped types",
+      "meta_task_type": "test_authoring",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tests/harness/test_difffuzz_w2_routing.py"
+      ],
+      "acceptance_criteria": [
+        "The test file tests/harness/test_difffuzz_w2_routing.py is written completely.",
+        "The tests pass under pytest tests/harness/test_difffuzz_w2_routing.py -q.",
+        "The test file asserts that should_bypass_fuzzer is False for harness_self_fix and harness_plumbing, True for config_schema and mcp_plumbing, and False for test_authoring."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/harness/test_difffuzz_w2_routing.py -q",
+      "mutation_target": "harness.planner.taxonomies",
+      "spec": {
+        "objective": "Author a pytest test file tests/harness/test_difffuzz_w2_routing.py that verifies the behavior of should_bypass_fuzzer for both flipped and control meta_task_types.",
+        "functional_requirements": [
+          "Assert should_bypass_fuzzer is False for harness_self_fix and harness_plumbing.",
+          "Assert should_bypass_fuzzer is True for config_schema and mcp_plumbing, and False for test_authoring."
+        ],
+        "interfaces": "No new public interfaces; pytest file tests/harness/test_difffuzz_w2_routing.py containing test_flipped_routing_harness_self_fix, test_flipped_routing_harness_plumbing, test_control_config_schema, test_control_mcp_plumbing, and test_control_test_authoring.",
+        "edge_cases": [
+          "Task objects must be constructed via Task(task_id='t', meta_task_type=t) to match orchestrator routing expectations."
+        ],
+        "non_goals": [
+          "Do not perform integration testing or assert over META_TASK_POLICY directly; assert observable should_bypass_fuzzer behavior."
+        ],
+        "implementation_notes": "Write the entire test file directly to tests/harness/test_difffuzz_w2_routing.py:\n\n```python\n\"\"\"Oracle: check if fuzzer routing works properly.\n\nAssert that should_bypass_fuzzer returns False for:\n- harness_self_fix\n- harness_plumbing\nAssert that should_bypass_fuzzer returns True/False as expected for controls:\n- config_schema (True)\n- mcp_plumbing (True)\n- test_authoring (False)\n\"\"\"\nfrom harness.orchestrator import should_bypass_fuzzer, Task\n\ndef test_flipped_routing_harness_self_fix():\n    assert should_bypass_fuzzer(Task(task_id='t1', meta_task_type='harness_self_fix')) is False\n\ndef test_flipped_routing_harness_plumbing():\n    assert should_bypass_fuzzer(Task(task_id='t2', meta_task_type='harness_plumbing')) is False\n\ndef test_control_config_schema():\n    assert should_bypass_fuzzer(Task(task_id='t3', meta_task_type='config_schema')) is True\n\ndef test_control_mcp_plumbing():\n    assert should_bypass_fuzzer(Task(task_id='t4', meta_task_type='mcp_plumbing')) is True\n\ndef test_control_test_authoring():\n    assert should_bypass_fuzzer(Task(task_id='t5', meta_task_type='test_authoring')) is False\n```"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_flipped_routing_harness_self_fix"
+          },
+          {
+            "name": "test_flipped_routing_harness_plumbing"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "tests/harness/test_difffuzz_w2_routing.py::test_control_config_schema"
+          },
+          {
+            "name": "tests/harness/test_difffuzz_w2_routing.py::test_control_mcp_plumbing"
+          },
+          {
+            "name": "tests/harness/test_difffuzz_w2_routing.py::test_control_test_authoring"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Requires standard harness environment and orchestrator.py module imports."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Standard budget ratio."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "difffuzz-w2-fix-readme-audit",
+      "title": "Update README bypass fuzzer audit dictionary",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [
+        "difffuzz-w2-loosen-membership"
+      ],
+      "files_touched": [
+        "tests/harness/test_readme_audit_agent_d.py"
+      ],
+      "acceptance_criteria": [
+        "README_BYPASS_FUZZER dict in tests/harness/test_readme_audit_agent_d.py is updated successfully.",
+        "The verification command passes successfully."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/harness/test_difffuzz_w2_routing.py -q",
+      "spec": {
+        "objective": "Update the module-global README_BYPASS_FUZZER dict in tests/harness/test_readme_audit_agent_d.py so it pre-matches the flipped policy for harness_plumbing and harness_self_fix.",
+        "functional_requirements": [
+          "Set harness_plumbing to False in README_BYPASS_FUZZER dict.",
+          "Set harness_self_fix to False in README_BYPASS_FUZZER dict."
+        ],
+        "interfaces": "No new public interfaces; updates README_BYPASS_FUZZER dict in tests/harness/test_readme_audit_agent_d.py.",
+        "edge_cases": [
+          "Verify that all other keys in README_BYPASS_FUZZER remain unchanged to prevent configuration drifts."
+        ],
+        "non_goals": [
+          "This is a tests/** edit only, without integration; do NOT verify against the audit test here (it is transiently RED)."
+        ],
+        "implementation_notes": "Emit a single-file __JANUSMASK_PATCHES__ symbol patch for README_BYPASS_FUZZER:\n\n```python\n__JANUSMASK_PATCHES__ = [\n    {\n        'file': 'tests/harness/test_readme_audit_agent_d.py',\n        'kind': 'symbol',\n        'name': 'README_BYPASS_FUZZER',\n        'code': r\"\"\"README_BYPASS_FUZZER = {\n    'data_model': False,\n    'config_schema': True,\n    'validation': False,\n    'planner_tooling': False,\n    'orchestration': False,\n    'harness_plumbing': False,\n    'mcp_plumbing': True,\n    'mcp_server_change': True,\n    'hooks_integration': True,\n    'docs_writing': True,\n    'epic_planning': True,\n    'cli_tooling': False,\n    'refactor': False,\n    'logging_observability': False,\n    'io_adapter': False,\n    'state_machine': False,\n    'sandbox_infra': False,\n    'test_unit': True,\n    'test_integration': True,\n    'test_e2e': True,\n    'test_acceptance': True,\n    'test_authoring': False,\n    'harness_self_fix': False,\n}\"\"\"\n    }\n]\n```"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_flipped_routing_harness_self_fix"
+          },
+          {
+            "name": "test_flipped_routing_harness_plumbing"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "tests/harness/test_readme_audit_agent_d.py::test_derived_sets_consistent_with_policy"
+          },
+          {
+            "name": "tests/harness/test_readme_audit_agent_d.py::test_implementation_is_not_a_meta_task_type"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Requires the routing oracle tests/harness/test_difffuzz_w2_routing.py to be present on disk."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Standard budget ratio."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "difffuzz-w2-loosen-membership",
+      "title": "Loosen membership test in test_taxonomies.py",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tests/adversarial/test_taxonomies.py"
+      ],
+      "acceptance_criteria": [
+        "The test_known_bypass_values_are_in_bypass_set in tests/adversarial/test_taxonomies.py is patched successfully.",
+        "The tests pass under pytest tests/adversarial/test_taxonomies.py -q."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/adversarial/test_taxonomies.py -q",
+      "spec": {
+        "objective": "Loosen the bypass membership check by removing harness_plumbing and harness_self_fix from test_known_bypass_values_are_in_bypass_set parametrization, so that it passes under both old and new policy.",
+        "functional_requirements": [
+          "Remove harness_plumbing and harness_self_fix from the parametrize list of test_known_bypass_values_are_in_bypass_set.",
+          "Keep hooks_integration in the parametrize list so that it continues to assert bypass status."
+        ],
+        "interfaces": "No new public interfaces; updates test_known_bypass_values_are_in_bypass_set in tests/adversarial/test_taxonomies.py.",
+        "edge_cases": [
+          "Do not weaken the other tests in tests/adversarial/test_taxonomies.py like test_harness_self_fix_skips_smoke_gates."
+        ],
+        "non_goals": [
+          "This is a tests/** edit only, without integration; do NOT edit harness/**."
+        ],
+        "implementation_notes": "Emit a single-file __JANUSMASK_PATCHES__ symbol patch:\n\n```python\n__JANUSMASK_PATCHES__ = [\n    {\n        'file': 'tests/adversarial/test_taxonomies.py',\n        'kind': 'symbol',\n        'name': 'test_known_bypass_values_are_in_bypass_set',\n        'code': r\"\"\"@pytest.mark.parametrize(\n    \"value\",\n    [\n        \"hooks_integration\",\n    ],\n)\ndef test_known_bypass_values_are_in_bypass_set(value):\n    assert value in BYPASS_FUZZER_TYPES\"\"\"\n    }\n]\n```\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/adversarial/test_taxonomies.py\n```python\nimport pytest\nfrom harness.planner.taxonomies import BYPASS_FUZZER_TYPES, META_TASK_POLICY, META_TASK_TYPES, SIDE_EFFECT_META_TYPES, SKIP_SMOKE_GATE_TYPES, is_test_prefixed\ndef test_policy_dict_is_populated():\n    ...\ndef test_every_policy_entry_has_required_flags():\n    ...\ndef test_meta_task_types_matches_policy_keys():\n    ...\ndef test_bypass_fuzzer_types_derives_from_policy():\n    ...\ndef test_side_effect_meta_types_derives_from_policy():\n    ...\ndef test_bypass_and_side_effect_are_subsets_of_canonical():\n    ...\ndef test_skip_smoke_gate_types_derives_from_policy():\n    ...\ndef test_skip_smoke_gate_is_subset_of_bypass():\n    ...\ndef test_harness_self_fix_skips_smoke_gates():\n    ...\ndef test_test_authoring_policy_entry():\n    ...\n@pytest.mark.parametrize('value', ['harness_plumbing', 'hooks_integration', 'harness_self_fix'])\ndef test_known_bypass_values_are_in_bypass_set(value):\n    ...\n@pytest.mark.parametrize('value', ['sandbox_infra', 'data_model', 'harness_plumbing', 'orchestration', 'planner_tooling', 'mcp_plumbing', 'state_machine', 'io_adapter', 'harness_self_fix'])\ndef test_known_side_effect_values_are_in_side_effect_set(value):\n    ...\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_known_bypass_values_are_in_bypass_set"
+          },
+          {
+            "name": "test_harness_self_fix_skips_smoke_gates"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "tests/adversarial/test_taxonomies.py::test_known_side_effect_values_are_in_side_effect_set"
+          },
+          {
+            "name": "tests/adversarial/test_taxonomies.py::test_policy_dict_is_populated"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Requires pytest and harness.planner.taxonomies modules."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Standard budget ratio."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_difffuzz_taxonomy_wave2.md",
+  "source_brief_sha256": "809998ee7330166826fd7a3b096c7017a91dd7f4444db87bc5858f45f3f42f59",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+  "required_task_ids": [
+    "difffuzz-w2-routing-oracle",
+    "difffuzz-w2-loosen-membership",
+    "difffuzz-w2-fix-readme-audit",
+    "difffuzz-w2-flip-policy",
+    "difffuzz-w2-architecture-contracts"
+  ]
+}

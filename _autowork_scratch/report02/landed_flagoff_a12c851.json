@@ -1,0 +1,45 @@
+{
+  "build_input_strategy_repr": "input_strategy()",
+  "bypass_fuzzer_types": [
+    "config_schema",
+    "data_model",
+    "docs_writing",
+    "epic_planning",
+    "harness_plumbing",
+    "harness_self_fix",
+    "hooks_integration",
+    "mcp_plumbing",
+    "mcp_server_change",
+    "orchestration",
+    "planner_tooling",
+    "sandbox_infra",
+    "test_acceptance",
+    "test_e2e",
+    "test_integration",
+    "test_unit",
+    "validation"
+  ],
+  "is_fuzzable_annotation": {
+    "Config": false,
+    "Optional[dict]": false,
+    "Path": true,
+    "ast.FunctionDef": true,
+    "dict": false,
+    "dict[str, int]": true,
+    "int": true,
+    "list[dict]": false,
+    "list[int]": true,
+    "str": true
+  },
+  "one_side_waiver": {
+    "equivalent": true,
+    "error": null,
+    "skipped_reason": "Target function 'g' defined on one side only (missing in code_b); meta_task_type='harness_self_fix' is in the fuzzer-bypass set; skipping fuzz by policy"
+  },
+  "strategy_for_annotation::Path": "sampled_from(('a.py', 'b/c.txt', 'x', 'dir/sub/f.json', '__init__.py', 'test_x.py', '.hidden', 'm.pyc', 'pkg/mod.py', 'tests/test_y.py')).map(lambda s: pathlib.Path('/tmp/jm_fuzz') / s)",
+  "strategy_for_annotation::dict": "integers(min_value=-1000, max_value=1000)",
+  "strategy_for_annotation::dict[str, int]": "dictionaries(keys=text(alphabet=characters(categories=('L', 'N', 'P', 'Z')), max_size=100), values=integers(min_value=-10000, max_value=10000), max_size=10)",
+  "strategy_for_annotation::int": "integers(min_value=-10000, max_value=10000)",
+  "strategy_for_annotation::list[dict]": "lists(integers(min_value=-1000, max_value=1000), max_size=20)",
+  "strategy_for_annotation::str": "text(alphabet=characters(categories=('L', 'N', 'P', 'Z')), max_size=100)"
+}

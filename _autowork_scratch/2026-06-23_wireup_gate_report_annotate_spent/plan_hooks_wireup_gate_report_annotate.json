@@ -1,0 +1,220 @@
+{
+  "tasks": [
+    {
+      "task_id": "wireup-gate-annotate-impl",
+      "title": "IMPL: ADDITIVELY emit report-only `wireup_symbol_verdict` per new top-level callable in `_run_wire_up_gate` (harness/orchestrator.py:2241)",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [
+        "wireup-gate-annotate-oracle"
+      ],
+      "files_touched": [
+        "harness/orchestrator.py"
+      ],
+      "operator_decision_required": true,
+      "auto_approve_requested": true,
+      "acceptance_criteria": [
+        "Replaces EXACTLY ONE top-level symbol `_run_wire_up_gate` via a single `__JANUSMASK_PATCHES__` payload with one `kind:'symbol'` patch keyed on `_run_wire_up_gate` (top-level -> direct symbol patch, no R-anchor, no nesting); touches no other production file and no other symbol.",
+        "Adds exactly three imports from harness.wire_up (`symbol_reachable_from_live_root`, `detonate_oracle`, `validate_exemption`) and reuses the existing `new_top_level_callables`/`LIVE_ROOTS` import (orchestrator.py:2175) as-is.",
+        "Inside the existing `if _wire_up_runtime_gate_enabled(state_dir):` branch, AFTER the existing orphan_symbol_unwired report/enforce handling, emits one phase=='report', event=='wireup_symbol_verdict' row per S in new_syms carrying ts, phase, task_id, event, commit_sha (result.get('sha')), file (rel), symbol (S), floor_reachable, contract_detonated, exempt_honored, would_be_orphan via `write_jsonl_row(state_dir / 'impl_progress.jsonl', {...})`.",
+        "The existing uncovered/suppress criterion (:2300-2323), the orphan_symbol_unwired report/enforce branch (:2324-2339), the module-level orphan_unwired gate (:2343-2354), the rollback path, and the return value remain BYTE-IDENTICAL in behavior; `_wire_up_runtime_gate_enforce_enabled` / `wire_up_runtime_gate_enforce` are NOT touched; config/config.yaml is NOT edited.",
+        "The verdict block runs ONLY when `wire_up_runtime_gate` is ON, sits inside the existing contained try/except, never mutates uncovered / the orphan row / the rollback / the return value, and with both knobs OFF the gate is byte-identical to today.",
+        "Operator decision file state/control/decisions/wireup-gate-annotate-impl.json is required (harness/orchestrator.py is in _NEVER_AUTO_APPROVE, orchestrator.py:2545) even under auto-approve.",
+        "Verified by the oracle's own authored file via `python -m pytest tests/harness/test_wire_up_gate_verdict_annotation.py -q`; the broad adversarial suite is NOT used."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/harness/test_wire_up_gate_verdict_annotation.py -q",
+      "spec": {
+        "objective": "In `_run_wire_up_gate` (harness/orchestrator.py:2241), ADDITIVELY emit a report-only `wireup_symbol_verdict` ledger event per new top-level callable by composing the three landed harness/wire_up.py primitives (floor / detonation / exemption) for each S in new_syms, WITHOUT changing the existing uncovered/suppress logic, the orphan_symbol_unwired row, the rollback path, or the gate's return value. Delivered as a single __JANUSMASK_PATCHES__ kind:'symbol' patch keyed on `_run_wire_up_gate`.",
+        "functional_requirements": [
+          "Via a single __JANUSMASK_PATCHES__ kind:'symbol' patch keyed on the top-level `_run_wire_up_gate`, ADD exactly three imports from harness.wire_up (`symbol_reachable_from_live_root`, `detonate_oracle`, `validate_exemption`) and reuse the existing `new_top_level_callables`/`LIVE_ROOTS` import; do not re-import the existing two.",
+          "For EACH S in new_syms compute floor_reachable = bool(symbol_reachable_from_live_root(staging_path, rel, S)).",
+          "Compute contract_detonated True ONLY when a structurally valid contract names S (_contract_valid and S in _csymbols) AND detonate_oracle(...)[S] is True; read the oracle source DEFENSIVELY from staging_path / _contract['runtime_oracle'] with live_root_files = the contract _entrypoints, and fail-close contract_detonated to False on any read/parse/run error or when no valid contract names S (no live detonation in the hermetic jail).",
+          "Compute exempt_honored = bool(validate_exemption('pure_helper', S, rel, staging_path).honored) for any S (recording the would-be status; it does NOT gate on S in _exempt), and would_be_orphan = (not floor_reachable) and (not contract_detonated) and (not exempt_honored).",
+          "LOG each symbol's verdict as a SEPARATE phase=='report', event=='wireup_symbol_verdict' row via the SAME write_jsonl_row(state_dir / 'impl_progress.jsonl', {...}) writer, carrying at minimum ts, phase:'report', task_id, event:'wireup_symbol_verdict', commit_sha (result.get('sha')), file (rel), symbol (S), floor_reachable, contract_detonated, exempt_honored, would_be_orphan -- distinguishable from orphan_symbol_unwired by its event value.",
+          "Run the whole verdict block ONLY when `wire_up_runtime_gate` is ON, inside the existing contained try/except (each per-symbol read also defensively wrapped so one symbol's failure never aborts the loop or the gate), NEVER mutating uncovered / the orphan_symbol_unwired row / the rollback path / the return value; the existing uncovered/suppress criterion (:2300-2323), the orphan_symbol_unwired report/enforce branch (:2324-2339), the module-level orphan_unwired gate (:2343-2354) and the return value stay byte-identical, and with both knobs OFF the block does not run."
+        ],
+        "interfaces": "Single __JANUSMASK_PATCHES__ payload, one kind:'symbol' patch keyed on `_run_wire_up_gate` (top-level symbol -> direct patch, no R-anchor, no nesting). Composes: `symbol_reachable_from_live_root(repo_root, module_rel, symbol, *, roots=LIVE_ROOTS) -> bool` (wire_up.py:689); `detonate_oracle(oracle_source, symbols, live_root_files, *, repo_root, jailed=True) -> dict[str,bool]` (wire_up.py:572, fail-closed, never raises); `validate_exemption(category, symbol, module_rel, repo_root, *, roots=LIVE_ROOTS) -> ExemptionVerdict(honored, requires_recheck, reason)` (wire_up.py:667). Emits via `write_jsonl_row(state_dir / 'impl_progress.jsonl', {...})`. Inserts the new block AFTER the existing orphan_symbol_unwired handling, inside the existing `if _wire_up_runtime_gate_enabled(state_dir):` branch, using already-computed new_syms / _entrypoints / _csymbols / _oracle (_contract['runtime_oracle']) / _contract_valid / rel / staging_path / result.",
+        "edge_cases": [
+          "(a) A new top-level callable that PASSES the floor -> floor_reachable true in its wireup_symbol_verdict row.",
+          "(b) A non-reachable orphan with no contract and no exemption -> would_be_orphan true; the existing orphan_symbol_unwired path is unchanged and the gate still returns False with no rollback.",
+          "A wire_exempt symbol that fails the floor -> exempt_honored false in the verdict row WHILE the existing orphan_symbol_unwired suppression for that symbol is byte-identical (additive, not a behavior change).",
+          "A valid integration_contract names S but the hermetic jail cannot detonate -> contract_detonated fail-closes to a False bool and detonate_oracle never raises out of the gate.",
+          "A per-symbol read failure inside the loop -> the defensive try/except keeps the verdict block from raising out of the gate and never mutates uncovered or the return value.",
+          "Both knobs OFF -> the verdict block does not run; the gate is byte-identical to today."
+        ],
+        "non_goals": [
+          "No integration test: unit-level wire-up-gate harness symbol patch, never drives the pipeline -- no new integration surface. integration_tests is empty for this in-place harness edit and the integration-test requirement is excused; no real integration_tests are added.",
+          "HARD NEGATIVE: do NOT change, weaken, reorder, or read-into the existing uncovered set, the _contract_valid computation, the _exempt membership, the orphan_symbol_unwired report/enforce branch (:2324-2339), the rollback path (_rollback_rejected_commit), the _mark_blocked call, the module-level orphan_unwired gate (:2343-2354), or the gate's return value.",
+          "Do NOT touch _wire_up_runtime_gate_enforce_enabled or the wire_up_runtime_gate_enforce knob; do NOT edit config/config.yaml.",
+          "Do NOT re-implement reachability, detonation, or exemption -- compose the three named primitives verbatim; do NOT run a live detonation (detonate_oracle fail-closes to False in the hermetic jail).",
+          "Do NOT edit any other file, replace any other symbol, create a new module, author tests beyond the one paired oracle, or use exec/eval/compile/__import__ (AST-banned by harness/ast_enforcer.py)."
+        ],
+        "implementation_notes": "Insert the additive block inside the existing `if _wire_up_runtime_gate_enabled(state_dir):` branch, AFTER new_syms / _constraints / _contract / _exempt are computed AND AFTER the existing orphan_symbol_unwired report/enforce handling, so the existing path is untouched. Adapt the illustrative sketch to the real surrounding block (do NOT paste full bodies): loop over new_syms with a per-symbol try/except that fail-closes _floor/_deto/_ex, reading the oracle source only when _contract_valid and S in _csymbols, then write the report-only row with a DISTINCT event 'wireup_symbol_verdict'. REQUIRES the operator decision file state/control/decisions/wireup-gate-annotate-impl.json (harness/orchestrator.py is in _NEVER_AUTO_APPROVE, orchestrator.py:2545) even under auto-approve; operator_decision_required and auto_approve_requested are set in the brief frontmatter. Fix-forward redpair: verified by the oracle's own authored file; do NOT use the broad adversarial suite (non-hermetic, flakes in the staging worktree and would wrongly block the harness_self_fix jail gate).",
+        "operator_decision_required": true,
+        "operator_decision_file": "state/control/decisions/wireup-gate-annotate-impl.json"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_three_wire_up_imports_added"
+          },
+          {
+            "name": "test_floor_reachable_computed_per_symbol"
+          },
+          {
+            "name": "test_contract_detonated_fail_closed_without_valid_contract"
+          },
+          {
+            "name": "test_exempt_honored_via_validate_exemption"
+          },
+          {
+            "name": "test_verdict_row_schema_distinct_event"
+          },
+          {
+            "name": "test_block_runs_only_when_runtime_gate_on"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_report_only_never_returns_true_or_rolls_back"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_floor_reachable_symbol_emits_verdict"
+          },
+          {
+            "name": "test_orphan_symbol_verdict_would_be_orphan"
+          }
+        ],
+        "minimum_test_count": 9,
+        "test_data_requirements": "Verified by the oracle's authored hermetic suite tests/harness/test_wire_up_gate_verdict_annotation.py (synthetic parent + staging worktree, runtime-gate ON / enforce OFF). Regression fixtures: a floor-reachable new callable (asserts floor_reachable true) and a non-reachable, no-contract, non-exempt callable (asserts would_be_orphan true, orphan_symbol_unwired unchanged, gate returns False with no rollback). No network, no live detonation, no broad adversarial suite."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 400,
+        "test_tokens": 700,
+        "note": "Small in-place single-symbol harness patch; verified fix-forward by the paired oracle, so test_tokens (700) >= 1.5 * implementation_tokens (400)."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "wireup-gate-annotate-oracle",
+      "title": "ORACLE: RED tests for additive report-only `wireup_symbol_verdict` event in `_run_wire_up_gate`",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "harness.orchestrator",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tests/harness/test_wire_up_gate_verdict_annotation.py"
+      ],
+      "acceptance_criteria": [
+        "New file tests/harness/test_wire_up_gate_verdict_annotation.py imports the REAL `_run_wire_up_gate` via normal import (`from harness.orchestrator import _run_wire_up_gate`) -- never exec/eval/compile/__import__ (AST-banned).",
+        "Reuses the hermetic synthetic-git-tree helpers from tests/harness/test_wire_up_runtime_gate_accept.py: `_build_tree`, `_arm`, `_task`, `_drive`, `_read_rows`.",
+        "Arms `wire_up_runtime_gate` ON via `_arm(monkeypatch, True)` AND enforce OFF via `monkeypatch.setattr(orchestrator, '_wire_up_runtime_gate_enforce_enabled', lambda *a, **k: False, raising=False)`.",
+        "Provides a helper selecting verdict rows by `event == 'wireup_symbol_verdict'` and `symbol == S` from impl_progress.jsonl.",
+        "Encodes all six brief assertions (floor-reachable true; would_be_orphan true; wire_exempt-fails-floor exempt_honored false WITH the existing orphan_symbol_unwired suppression UNCHANGED; wire_exempt-passes-floor exempt_honored true; property that the gate never returns True and never rolls back; both-knobs-OFF strict no-op).",
+        "Detonation stays hermetic/offline: asserts only that `contract_detonated` is a fail-closed bool (False with no valid contract naming S; consulted-but-False in a valid-contract fixture) -- never depends on a live detonation succeeding.",
+        "The suite is RED on HEAD because the `wireup_symbol_verdict` event does not exist yet; it does NOT import or run the broad adversarial suite."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/harness/test_wire_up_gate_verdict_annotation.py -q",
+      "spec": {
+        "objective": "Author the paired RED oracle tests/harness/test_wire_up_gate_verdict_annotation.py that pin the ADDITIVE, report-only per-symbol `wireup_symbol_verdict` annotation emitted by `_run_wire_up_gate` (harness/orchestrator.py:2241) for each new top-level callable, while proving the existing uncovered/suppress logic, the orphan_symbol_unwired row, the rollback path, and the gate return value are byte-identical in behavior.",
+        "functional_requirements": [
+          "Author tests/harness/test_wire_up_gate_verdict_annotation.py (new file, beside test_wire_up_runtime_gate_accept.py) importing the REAL `_run_wire_up_gate` via a normal import / importlib only (never exec/eval/compile/__import__), and reuse the `_build_tree`/`_arm`/`_task`/`_drive`/`_read_rows` helper idiom; arm `wire_up_runtime_gate` ON and `_wire_up_runtime_gate_enforce_enabled` OFF via monkeypatch.",
+          "Assert a floor-reachable new top-level callable (fixture where S is statically reachable from a LIVE_ROOT) yields a `wireup_symbol_verdict` event with `floor_reachable: true`, forcing `symbol_reachable_from_live_root` to be wired.",
+          "Assert a non-floor-reachable orphan with no contract and not exempt yields a verdict event with `would_be_orphan: true` (floor_reachable, contract_detonated and exempt_honored all False).",
+          "Assert a `wire_exempt` symbol that FAILS the floor yields a verdict with `exempt_honored: false` (forcing `validate_exemption` to be wired) AND that for the SAME input the EXISTING orphan_symbol_unwired suppression is UNCHANGED (the verbatim wire_exempt still suppresses the existing orphan row), and a `wire_exempt` symbol that PASSES the floor yields `exempt_honored: true`.",
+          "PROPERTY assertion: under runtime-gate ON + enforce OFF, the gate NEVER returns True and NEVER rolls back (staging tip unchanged, no rejected/blocked row) for any verdict fixture; and detonation stays fail-closed -- `contract_detonated` is False with no valid contract naming S and is still a bool (consulted but fail-closed False) in a valid-contract fixture.",
+          "Assert both knobs OFF is a strict no-op (no `wireup_symbol_verdict` events, no `orphan_symbol_unwired` rows, returns False, staging tip unchanged) and that the whole suite is hermetic/offline and RED on current HEAD."
+        ],
+        "interfaces": "Drives the REAL `harness.orchestrator._run_wire_up_gate` over a hermetic synthetic git tree built by `_build_tree(root, parent_src, child_src, rel=...)` -> (state_dir, repo, staging, sha). Arms with `_arm(monkeypatch, True)` (monkeypatches `orchestrator._wire_up_runtime_gate_enabled`, raising=False) plus a separate `monkeypatch.setattr(orchestrator, '_wire_up_runtime_gate_enforce_enabled', lambda *a, **k: False, raising=False)`. Builds tasks via `_task(task_id, *, integration_contract=, wire_exempt=, top_wire_exempt=)`, runs via `_drive(task, state_dir, repo, staging, sha, task_id) -> (returned, rows, head)`, and reads rows via `_read_rows(state_dir)`. Selects verdict rows by `event == 'wireup_symbol_verdict'` and `symbol == S`.",
+        "edge_cases": [
+          "Floor-reachable new callable -> floor_reachable true.",
+          "Non-reachable orphan, no contract, not exempt -> would_be_orphan true.",
+          "wire_exempt symbol failing the floor -> exempt_honored false WHILE the existing orphan_symbol_unwired suppression for that same symbol is unchanged (no orphan row).",
+          "wire_exempt symbol passing the floor -> exempt_honored true.",
+          "Valid integration_contract names S but the hermetic jail cannot detonate -> contract_detonated is a fail-closed bool (False), verdict still emitted.",
+          "Both knobs OFF -> strict no-op, returns False, staging tip unchanged."
+        ],
+        "non_goals": [
+          "No integration test: unit-level wire-up-gate oracle / harness symbol patch, never drives the pipeline -- no new integration surface. The oracle drives only the REAL `_run_wire_up_gate` over a hermetic synthetic git tree; it never drives the full pipeline, spawns an agent, or hits a real LIVE_ROOT inline, so the integration-test requirement is excused and no real integration_tests are added.",
+          "Do NOT run a live detonation; the hermetic test relies on `detonate_oracle` fail-closing to False and asserts only that `contract_detonated` is a fail-closed bool.",
+          "Do NOT import or run the broad adversarial suite (non-hermetic, flaky in the staging worktree).",
+          "Do NOT touch or re-author any existing test of the uncovered/suppress predicate or the orphan_symbol_unwired branch; do NOT edit any production file.",
+          "Do NOT use exec/eval/compile/__import__ anywhere (AST-banned by harness/ast_enforcer.py)."
+        ],
+        "implementation_notes": "Place the new test beside tests/harness/test_wire_up_runtime_gate_accept.py and import its helper idiom (`_build_tree`, `_arm`, `_task`, `_drive`, `_read_rows`). For the floor-reachable fixture, make the child add a new top-level callable that is statically reachable from a LIVE_ROOT entry; for the orphan fixture, add a non-reachable callable with no integration_contract and no wire_exempt. For the additive-suppression assertion (assertion 3) feed a verbatim `wire_exempt` entry and assert BOTH that exempt_honored is False in the new verdict row AND that no orphan_symbol_unwired row is written for that symbol -- this is the key proof the new logic is additive, not a behavior change. Keep everything offline; the suite must be RED on HEAD because no `wireup_symbol_verdict` event exists yet.",
+        "operator_decision_required": false
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_floor_reachable_symbol_emits_verdict"
+          },
+          {
+            "name": "test_orphan_symbol_would_be_orphan_true"
+          },
+          {
+            "name": "test_wire_exempt_fail_floor_exempt_honored_false"
+          },
+          {
+            "name": "test_wire_exempt_fail_floor_orphan_row_still_suppressed"
+          },
+          {
+            "name": "test_wire_exempt_pass_floor_exempt_honored_true"
+          },
+          {
+            "name": "test_contract_detonated_false_without_valid_contract"
+          },
+          {
+            "name": "test_valid_contract_consults_detonation_fail_closed_bool"
+          },
+          {
+            "name": "test_both_knobs_off_strict_no_op"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [
+          {
+            "name": "test_report_only_gate_never_returns_true_or_rolls_back"
+          }
+        ],
+        "regression_tests": [
+          {
+            "name": "test_red_on_head_no_wireup_symbol_verdict_event"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Hermetic synthetic git trees built via `_build_tree`: a parent module tracked at HEAD plus a sibling staging worktree whose child adds the relevant new top-level callable(s). Fixtures: (a) a child callable statically reachable from a LIVE_ROOT; (b) a non-reachable orphan callable with no contract / no exemption; (c) a wire_exempt callable that fails the floor; (d) a wire_exempt callable that passes the floor; (e) a valid integration_contract (entrypoints subset of LIVE_ROOTS, runtime_oracle present) naming S where detonation fail-closes. No network, no real LIVE_ROOT, no agent spawn."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 1200,
+        "note": "test_authoring task: all budget is test-authoring tokens; implementation_tokens is 0 so test_tokens must be > 0."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_wireup_gate_report_annotate.md",
+  "source_brief_sha256": "4588100952fea619d39fc0f37f441f98e09a62239beadf3707c7880d78b60311",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+  "required_task_ids": [
+    "wireup-gate-annotate-oracle",
+    "wireup-gate-annotate-impl"
+  ]
+}

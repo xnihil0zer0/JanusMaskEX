@@ -25,7 +25,7 @@ from tools.drive_backup.hook_runner import run_backup
 from tools.drive_backup.install_hooks import render_shim
 
 
-JM_ROOT = "/home/xnihil0zer0/JanusMaskJR"
+JM_ROOT = "/home/xnihil0zer0/AI-Data/JanusMaskEX"
 ZERO = "0" * 40
 
 
@@ -121,7 +121,7 @@ def _refs_for(sha):
 
 def test_run_backup_scopes_base_and_record_by_repo():
     base_seen = []
-    led = RepoSpyLedger({"NobleGreedv2": "n" * 40, "JanusMaskJR": "j" * 40})
+    led = RepoSpyLedger({"NobleGreedv2": "n" * 40, "JanusMaskEX": "j" * 40})
     rc = run_backup(
         "/home/xnihil0zer0/NobleGreedv2",
         _refs_for("a" * 40),

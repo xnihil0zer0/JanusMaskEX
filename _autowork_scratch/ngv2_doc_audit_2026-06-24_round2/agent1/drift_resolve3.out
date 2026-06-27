@@ -1,0 +1,42 @@
+=== look up the EXACT doc quotes for poc_runner_live :272-293 :373 :434, poc_writer :342-369 :685 ===
+
+=== poc_runner_live.py line 272-293 actual ===
+        pip_installer = lambda _name, _target_dir: _default_pip_installer(_name, _target_dir, _jail_py)
+    if timeout_s is None:
+        timeout_s = float(spec.get('timeout_s', DEFAULT_TIMEOUT_S))
+    path_entries = ['/usr/bin', '/bin', '/usr/local/bin']
+    if python_bin:
+        pb = Path(python_bin).resolve()
+        bin_dir = str(pb.parent)
+        prefix = str(pb.parent.parent)
+        if os.path.isdir(prefix):
+            extra_ro.append(prefix)
+        path_entries.insert(0, bin_dir)
+    child_env = {'PATH': ':'.join(path_entries), 'HOME': '/tmp', 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
+    if isinstance(spec.get('env'), Mapping):
+        child_env.update({str(k): str(v) for k, v in spec['env'].items()})
+    work_dir = tempfile.mkdtemp(prefix='ngv2-detonate-')
+    deps_dir = os.path.join(work_dir, JMDEPS_DIRNAME)
+    os.makedirs(deps_dir, exist_ok=True)
+    target_top = _target_top_packages(repo_root, ())
+    try:
+        poc_name = _poc_filename(poc)
+        poc_path = os.path.join(work_dir, poc_name)
+        with open(poc_path, 'w', encoding='utf-8') as fh:
+=== :373 ===
+    def runner(poc: PoC, target_spec: object) -> Tuple[Optional[int], str, str, int]:
+        spec = _resolve_target_spec(target_spec)
+        if 'repo_root' not in spec and repo_root is not None:
+=== :434 (file has 537) ===
+def _default_pip_installer(name: str, target_dir: str, python_bin: str='/usr/bin/python3') -> bool:
+    """Host-side ``pip install --target`` of a single dep, run with the JAIL's
+    interpreter so the installed (possibly compiled) ABI matches the interpreter
+
+=== poc_writer.py :342-369, :685 ===
+def render_source_driving_py(g: Grounding, cwe: str) -> str:
+    canonical_cwe = _bank_cwe(cwe)
+    from ngv2 import payload_bank
+--- :685 ---
+_SINK_CWE_RULES: tuple = (('CWE-89', ('cursor.execute', 'executescript', 'executemany', '.execute', '.raw', 'rawquery')), ('CWE-78', ('create_subprocess_exec', 'create_subprocess_shell', 'subprocess', 'system', 'popen', 'check_output', 'check_call', 'getoutput', 'getstatusoutput', 'commands', 'spawn')), ('CWE-502', ('pickle', 'cpickle', 'marshal', 'yaml.load', 'yaml.unsafe_load', 'jsonpickle', 'shelve')), ('CWE-94', ('eval', 'exec', 'compile', '__import__', 'literal_eval', 'compile_restricted', 'restrictedpython')), ('CWE-918', ('requests', 'urllib', 'urlopen', 'urlretrieve', 'httpx', 'aiohttp', 'socket', 'http.client')), ('CWE-22', ('send_file', 'sendfile', 'extractall', 'os.path.join', 'safe_join', 'pathlib', 'shutil.copy', 'open')))
+
+def sink_to_cwe(sink_name: Any, call_sites: Any) -> Optional[str]:

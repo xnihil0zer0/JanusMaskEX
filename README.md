@@ -139,7 +139,7 @@ The supervisor `scripts/run-autowork.sh` **self-starts and self-sustains** the d
 `state/control/autowork.pid`, and **respawns the child** with capped exponential backoff if it dies.
 
 ```bash
-cd /home/xnihil0zer0/JanusMaskJR
+cd /home/xnihil0zer0/AI-Data/JanusMaskEX
 
 # (first time only) seed gitignored state, configs, venv, deps, and memory
 scripts/bootstrap.sh
@@ -226,7 +226,7 @@ A short **irreducible** set can NEVER auto-approve, regardless of any flag (`_NE
 
 ```bash
 # 1. Write the brief at the REPO ROOT (filename stem == slug):
-#    /home/xnihil0zer0/JanusMaskJR/brief_hooks_my_feature.md
+#    /home/xnihil0zer0/AI-Data/JanusMaskEX/brief_hooks_my_feature.md
 
 # 2. Allowlist the slug (one per line; '#' comments and blanks ignored; DENY-ALL if empty).
 echo "my_feature" >> state/control/autowork/auto_promote.allowlist
@@ -244,7 +244,7 @@ A SINGLE-file internal harness fix. This is the smallest brief that loads cleanl
 
 ```markdown
 ---
-working_dir: "/home/xnihil0zer0/JanusMaskJR"
+working_dir: "/home/xnihil0zer0/AI-Data/JanusMaskEX"
 required_task_ids:
   - fix-my-defect
 interfaces: "harness/foo.py::do_thing — EDIT existing. Replace ONLY the function do_thing so it returns sorted output. Additive/fail-soft: signature unchanged."

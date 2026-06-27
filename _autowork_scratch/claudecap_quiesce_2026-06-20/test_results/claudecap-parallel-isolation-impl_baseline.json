@@ -1,0 +1,8 @@
+{
+  "task_id": "claudecap-parallel-isolation-impl",
+  "command": "python -m pytest tests/harness/test_claudecap_parallel_isolation.py -q",
+  "outcome": "failed",
+  "exit_code": 4,
+  "stdout": "\nno tests ran in 0.01s\n",
+  "stderr": "ERROR: file or directory not found: tests/harness/test_claudecap_parallel_isolation.py\n\n"
+}

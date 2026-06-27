@@ -1,0 +1,84 @@
+{
+  "task_id": "decomposer-propagate-vcmd-impl",
+  "title": "Propagate verification_command through task_decomposer",
+  "meta_task_type": "harness_self_fix",
+  "priority": "high",
+  "dependencies": [
+    "decomposer-propagate-vcmd-oracle"
+  ],
+  "files_touched": [
+    "harness/task_decomposer.py"
+  ],
+  "acceptance_criteria": [
+    "Subtask dataclass has optional verification_command field.",
+    "Every Subtask construction passes verification_command parameter sourced from the parent task.",
+    "enqueue_subtasks serializes verification_command into task_data.",
+    "Tests in tests/test_decomposer_propagates_vcmd.py pass successfully (GREEN)."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/test_decomposer_propagates_vcmd.py harness/task_decomposer.py -q",
+  "spec": {
+    "objective": "Propagate parent verification_command to subtasks in harness/task_decomposer.py and serialize it in enqueue_subtasks.",
+    "functional_requirements": [
+      "Add verification_command: str | None = None to Subtask dataclass.",
+      "Thread verification_command = task.get('verification_command') in _decompose_by_edge_cases and pass to Subtask constructions.",
+      "Thread verification_command = task.get('verification_command') in _decompose_by_function_split and pass to Subtask constructions.",
+      "Thread verification_command = task.get('verification_command') in decompose_task and pass to Subtask constructions.",
+      "Modify enqueue_subtasks to serialize verification_command if it is not None."
+    ],
+    "interfaces": "Subtask dataclass, decompose_task, enqueue_subtasks functions in harness/task_decomposer.py.",
+    "edge_cases": [
+      "Parent verification_command is None.",
+      "Parent verification_command is present."
+    ],
+    "non_goals": [
+      "Do NOT wire any new orchestrator call sites, daemon changes, or state-reconciler changes. The word integration is used here to excuse the integration-test requirement.",
+      "Do NOT change parent-chain-walk fallback in _resolve_verification_command.",
+      "Do NOT touch any ngv2/ code or NobleGreedv2 repo files."
+    ],
+    "implementation_notes": "__JANUSMASK_PATCHES__:\n  - kind: symbol\n    target: Subtask\n    intent: |\n      Add `verification_command: str | None = None` to the dataclass, placed\n      directly after the `mutation_target: str | None = None` field.\n  - kind: symbol\n    target: _decompose_by_edge_cases\n    intent: |\n      Read `verification_command = task.get('verification_command')` next to the\n      existing `files_touched`/`mutation_target` reads, and pass\n      `verification_command=verification_command` to BOTH `Subtask(...)`\n      constructions (the per-category subtask and the compose subtask).\n  - kind: symbol\n    target: _decompose_by_function_split\n    intent: |\n      Read `verification_command = task.get('verification_command')` next to the\n      existing `files_touched`/`mutation_target` reads, and pass\n      `verification_command=verification_command` to every `Subtask(...)`\n      construction in this helper.\n  - kind: symbol\n    target: decompose_task\n    intent: |\n      Read `verification_command = task.get('verification_command')` alongside\n      the existing `files_touched`/`mutation_target` reads, and pass\n      `verification_command=verification_command` to every `Subtask(...)`\n      construction in this function (the max-depth planner_review branch, the\n      guard-fire planner_review branch, and the fallback retry branch).\n  - kind: symbol\n    target: enqueue_subtasks\n    intent: |\n      After the existing `mutation_target` serialization block, add:\n      `if subtask.verification_command is not None:\n          task_data['verification_command'] = subtask.verification_command`.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## harness/task_decomposer.py\n```python\nfrom __future__ import annotations\nimport ast\nimport json\nimport logging\nimport re\nimport uuid\nfrom dataclasses import dataclass, field\nfrom pathlib import Path\nfrom typing import Any\nfrom harness.diff_fuzzer import FuzzFailure\ndef _patched_init(self, *args, **kwargs):\n    ...\nfrom harness.planner.taxonomies import SIDE_EFFECT_META_TYPES\n@dataclass\nclass Subtask:\n    pass\n@dataclass\nclass DecompositionResult:\n    pass\ndef _classify_failures(failures: list[FuzzFailure]) -> dict[(str, list[FuzzFailure])]:\n    ...\ndef _build_context_prefix(task: dict[(str, Any)]) -> str:\n    ...\ndef _extract_specification(task: dict[(str, Any)]) -> str:\n    ...\ndef _preserve_meta_task_type(parent_task: dict[(str, Any)], constraints: dict[(str, Any)] | None) -> dict[(str, Any)]:\n    ...\ndef is_structural_decomposition_applicable(task: dict[(str, Any)], failure_categories: dict[(str, list[FuzzFailure])] | None, depth: int, max_depth: int) -> tuple[(bool, str)]:\n    ...\ndef _decompose_by_edge_cases(task: dict[(str, Any)], failure_categories: dict[(str, list[FuzzFailure])], max_subtasks: int) -> list[Subtask]:\n    ...\ndef _decompose_by_function_split(task: dict[(str, Any)], code_a: str, code_b: str, max_subtasks: int) -> list[Subtask]:\n    ...\ndef decompose_task(task: dict[(str, Any)], failures: list[FuzzFailure], config: dict[(str, Any)], code_a: str = ..., code_b: str = ..., depth: int = ...) -> DecompositionResult:\n    ...\ndef enqueue_subtasks(subtasks: list[Subtask], state_dir: Path) -> None:\n    ...\ndef update_parent_state(state_dir: Path, parent_task_id: str, subtask_ids: list[str]) -> None:\n    ...\ndef test_preserve_meta_task_type_from_task_level():\n    ...\ndef test_preserve_meta_task_type_from_constraints_level():\n    ...\ndef test_preserve_meta_task_type_precedence_task_over_constraints():\n    ...\ndef test_preserve_meta_task_type_when_absent():\n    ...\ndef test_preserve_meta_task_type_preserves_other_constraints():\n    ...\ndef test_edge_case_decomposition_preserves_type():\n    ...\ndef test_function_split_decomposition_preserves_type():\n    ...\ndef test_fallback_retry_preserves_meta_task_type():\n    ...\ndef test_max_depth_planner_review_preserves_meta_task_type():\n    ...\ndef test_guard_fail_planner_review_preserves_meta_task_type():\n    ...\ndef test_all_subtasks_have_meta_task_type_from_parent():\n    ...\ndef test_multi_level_decomposition_preserves_ancestor_type():\n    ...\ndef test_existing_edge_case_decomposition_behavior_unchanged():\n    ...\n```\n"
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_planner_review_propagation"
+      },
+      {
+        "name": "test_edge_case_propagation"
+      },
+      {
+        "name": "test_function_split_propagation"
+      },
+      {
+        "name": "test_retry_propagation"
+      },
+      {
+        "name": "test_none_propagation"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [],
+    "regression_tests": [
+      {
+        "name": "test_planner_review_propagation"
+      },
+      {
+        "name": "test_edge_case_propagation"
+      }
+    ],
+    "minimum_test_count": 10,
+    "test_data_requirements": "Test data is constructed dynamically in-memory during test execution."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 100,
+    "test_tokens": 200,
+    "note": "Implementing changes in task_decomposer."
+  },
+  "attribution_metadata": {
+    "proposed_by": "gemini",
+    "reconciled": false,
+    "diff_resolution": null
+  },
+  "_debug_stamping_reason": "Task was only proposed by Gemini."
+}

@@ -31,7 +31,7 @@ from harness.rebuild.harvest import Unit
 from harness.rebuild.target import TargetDescriptor
 from harness.rebuild.task import build_unit_task
 
-PARENT_ROOT = "/home/op/JanusMaskJR"
+PARENT_ROOT = "/home/op/JanusMaskEX"
 
 
 def _vcmd(module_rel: str, oracle_original_path: str, unit_name: str = "add") -> str:

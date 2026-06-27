@@ -142,7 +142,7 @@ def test_cli_source_asserts_normalize_plan_threads_required_task_ids():
         if 'harness.paths' not in sys.modules:
             dummy_paths = types.ModuleType('harness.paths')
             dummy_paths._target_is_self = lambda x: True
-            dummy_paths.PROJECT_ROOT = Path('/home/xnihil0zer0/JanusMaskJR')
+            dummy_paths.PROJECT_ROOT = Path('/home/xnihil0zer0/AI-Data/JanusMaskEX')
             sys.modules['harness.paths'] = dummy_paths
         import harness.planner.cli
         cli_path = Path(harness.planner.cli.__file__)

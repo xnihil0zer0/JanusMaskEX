@@ -1,0 +1,20 @@
+guard             S_landed      S_edited      S_old_accept  S_pre_accept  
+--------------------------------------------------------------------------
+current (mtime<)  REQ/X         REQ/ok        keep/ok       REQ/ok        
+FIX-3a sha-only   keep/ok       REQ/ok        keep/ok       REQ/ok        
+FIX sha&mtime     keep/ok       REQ/ok        keep/ok       REQ/ok        
+ALT brief-mtime   REQ/X         REQ/ok        keep/ok       REQ/ok        
+ALT >= flip       REQ/X         REQ/ok        keep/ok       REQ/ok        
+
+=== correct answers per scenario ===
+  S_landed (BUG: keep)           -> KEEP
+  S_edited (FEATURE: requeue)    -> REQUEUE
+  S_old_accept (keep)            -> KEEP
+  S_pre_accept (requeue)         -> REQUEUE
+
+=== which guards discriminate BUG(keep) from FEATURE(requeue) on all 4 scenarios ===
+  current (mtime<)  : has a wrong cell
+  FIX-3a sha-only   : ALL CORRECT
+  FIX sha&mtime     : ALL CORRECT
+  ALT brief-mtime   : has a wrong cell
+  ALT >= flip       : has a wrong cell

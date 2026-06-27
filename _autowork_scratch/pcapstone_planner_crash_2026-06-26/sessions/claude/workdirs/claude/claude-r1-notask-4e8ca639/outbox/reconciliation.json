@@ -1,0 +1,102 @@
+{
+  "responses": [
+    {
+      "diff_item_id": "__critique__",
+      "stance": "amend"
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "dsp-helper-zero-arity-spurious-contract",
+      "category": "missing_edge_case",
+      "severity": "error",
+      "task_id": "DSP_PROBE_HELPER",
+      "field_path": "/tasks/1/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Zero-parameter function (arity 0 after dropping self/cls) -> do NOT invoke with any boundary value; return {} (no contract). Passing a positional boundary to a no-arg function raises TypeError that does not reflect any real invalid-input contract."
+      },
+      "message": "The enumerated edge cases cover 'more than one parameter' and methods, but NOT functions with zero required positional parameters. The helper passes None/0/\"\"/[]/{} positionally; for a 0-arg function every call raises TypeError purely because of arity. That TypeError is then recorded as an observed outcome and (via DSP_PROBE_INTEGRATION) rendered into the 'Boundary & Exception Contracts' section as if 'None -> TypeError' were a real invalid-input contract the reconstruction must reproduce. This is a correctness defect that actively misleads the synthesis agent. The arity-derivation step must detect arity==0 and return {} (or skip all inputs) rather than fabricating exception contracts."
+    },
+    {
+      "finding_id": "dsp-shared-verification-file-ordering",
+      "category": "other",
+      "severity": "error",
+      "task_id": "DSP_PROBE_HELPER",
+      "field_path": "/tasks/1/verification_command",
+      "suggested_patch": {
+        "op": "scope_verification_command",
+        "detail": "Scope each task's verification_command to only its own tests, e.g. '... -k \"probe and helper\"' for DSP_PROBE_HELPER and a complementary selector for DSP_PROBE_INTEGRATION, or split into two test files. As-is both tasks run the entire shared file."
+      },
+      "message": "Both DSP_PROBE_HELPER and DSP_PROBE_INTEGRATION declare the IDENTICAL verification_command: 'python -m pytest tests/adversarial/test_rebuild_dynamic_signature_probing.py -q'. DSP_PROBE_HELPER is a dependency built BEFORE DSP_PROBE_INTEGRATION, yet its gate runs the whole shared file. If the integration-section tests (test_oracle_usable_unit_emits_boundary_contracts_section, test_contracts_section_*, etc., which belong to DSP_PROBE_INTEGRATION) already exist in that file, DSP_PROBE_HELPER's verification will RED-fail on behavior it is not responsible for, blocking a correct helper from merging. Scope each gate to its own tests (-k selector or separate files)."
+    },
+    {
+      "finding_id": "dsp-helper-multiarg-broadcast-ambiguity",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "DSP_PROBE_HELPER",
+      "field_path": "/tasks/1/spec/functional_requirements/3",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Multi-arity function: when the same boundary value is broadcast across N required positional params, the recorded outcome key must disclose that it represents f(v, v, ...) over N args, not a single-argument call, so the rendered contract line is unambiguous (or restrict probing to arity<=1)."
+      },
+      "message": "The spec says for arity>1 to 'pass the same boundary value across the required positional params', but the outcome is keyed only by the single boundary value (None/0/...). DSP_PROBE_INTEGRATION then renders 'input -> outcome' lines with no indication of arity. For a 2+ arg function, 'None -> TypeError' is ambiguous: the agent cannot tell whether one arg or all args were None, so it cannot reliably reproduce the documented behavior — undermining the stated goal of preventing fuzzer/oracle validation failures. Either encode arity in the key/label or cap probing at arity<=1 and emit no contract otherwise."
+    },
+    {
+      "finding_id": "dsp-helper-static-impurity-gate-side-effects",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "DSP_PROBE_HELPER",
+      "field_path": "/tasks/1/spec/non_goals",
+      "suggested_patch": {
+        "op": "add_non_goal",
+        "non_goal": "Acknowledge that oracle_skip's impurity gate (_is_impure / _mutates_module_globals in harvest.py) is a STATIC AST heuristic over a fixed builtin/module denylist; a non-flagged function may still perform IO/side effects when actually executed by the probe. Keep the subprocess isolated and accept best-effort {} on any failure."
+      },
+      "message": "The plan gates probing on 'not oracle_skip' and treats those units as safe to execute. But oracle_skip's impurity signal (_is_impure in harvest.py:57) is a purely static name/attribute denylist — it does not detect side effects routed through helper calls, typed objects, or non-listed modules. The probe ACTUALLY EXECUTES the original under boundary inputs, so a function that passes the static purity check can still touch the filesystem/network at probe time. This is largely mitigated by the existing oracle (which also executes the original) and by subprocess isolation + the never-raises contract, but the spec/non_goals should explicitly state the heuristic's limits so reviewers don't assume executed-purity is guaranteed."
+    },
+    {
+      "finding_id": "dsp-integration-is-method-branch-placement",
+      "category": "missing_edge_case",
+      "severity": "info",
+      "task_id": "DSP_PROBE_INTEGRATION",
+      "field_path": "/tasks/0/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "is_method branch (unit.cls set, not whole_class): confirm section placement is valid for the method parts list too, not only the plain-function / whole_class / partial_edit branches."
+      },
+      "message": "_build_spec (task.py:18-184) has FOUR shape branches: plain function, is_method (task.py:42-50), is_whole/whole_class, and partial_edit. The integration edge cases call out oracle_skip, empty-probe, and whole_class/partial_edit placement, but never the is_method branch. In practice the helper returns {} for methods (no constructible instance) so the section is omitted, but the regression test only asserts 'whole_class_and_partial_edit_specs_still_build'. Add an explicit assertion that an oracle-usable method unit builds cleanly (and yields no section) so the parts-list insertion point is verified for that branch."
+    },
+    {
+      "finding_id": "spec-author-direction-check-ok-but-populated-spec",
+      "category": "bad_spec_author",
+      "severity": "info",
+      "task_id": "DSP_PROBE_HELPER",
+      "field_path": "/tasks/1/spec_author",
+      "message": "Direction-(d) check: BOTH tasks have spec_author == null, so neither violates the 'spec_author != null when it should be null' rule — no defect under the mandated direction. Flagging only as info: both tasks ship a FULLY authored inline `spec` block (objective, functional_requirements, edge_cases, etc.) with proposed_by=='claude' yet spec_author==null. If the schema convention is that a populated spec records its author, the inverse inconsistency (author present in content, null in field) may warrant setting spec_author='claude'. No action required if null spec_author intentionally means 'planner-merged spec, not human-authored'."
+    },
+    {
+      "finding_id": "no-inflated-benchmark-claims-present",
+      "category": "inflated_benchmark",
+      "severity": "info",
+      "message": "Checked for inflated benchmark/performance claims: NONE present. Neither task asserts speedups, accuracy/pass-rate percentages, latency numbers, or other quantitative benchmark claims. The token_budget_ratio fields (impl 100 / test 150-160) are planning estimates, not benchmark results, and are not inflated. No finding under this category."
+    },
+    {
+      "finding_id": "no-dependency-cycle",
+      "category": "dependency_cycle",
+      "severity": "info",
+      "message": "Checked dependency graph: DSP_PROBE_INTEGRATION -> [DSP_PROBE_HELPER]; DSP_PROBE_HELPER -> []. This is a single linear edge with no back-reference. No cycle exists. (Note: the dependency direction is correct — integration depends on the helper it consumes.)"
+    },
+    {
+      "finding_id": "test-heavy-rule-satisfied-min-count-loose",
+      "category": "test_heavy_violation",
+      "severity": "info",
+      "task_id": "DSP_PROBE_INTEGRATION",
+      "field_path": "/tasks/0/test_spec/minimum_test_count",
+      "suggested_patch": {
+        "op": "increase_test_count",
+        "detail": "Align minimum_test_count with the actually-enumerated test count (DSP_PROBE_INTEGRATION lists 8 tests but declares 6; DSP_PROBE_HELPER lists 10 tests and declares 8) for an honest floor."
+      },
+      "message": "Test-heavy rule is SATISFIED in both tasks: test_tokens exceed implementation_tokens (150>100 and 160>100) and integration_tests are correctly empty per the 'do not write integration tests' non_goal. Info only: minimum_test_count under-counts the enumerated tests — DSP_PROBE_INTEGRATION declares 6 but lists 8 (5 unit + 1 property + 2 regression); DSP_PROBE_HELPER declares 8 but lists 10 (8 unit + 1 property + 1 regression). The floors are loose/inconsistent between tasks; tighten them to match the real counts so the gate cannot silently pass with fewer tests than designed."
+    }
+  ]
+}

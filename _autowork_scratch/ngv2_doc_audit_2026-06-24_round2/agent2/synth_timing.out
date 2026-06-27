@@ -1,0 +1,7 @@
+=== worker_start (synthesis-start) times for closure impl slugs vs leak-fix 14:50Z ===
+p11-xproc-middle-phase-impl                   worker_start=epoch-> 2026-06-24T15:09:46.467645
+p11-hunt-triage-findings-impl                 worker_start=epoch-> 2026-06-24T16:14:32.059432
+p12-detonation-verdict-provenance-impl        worker_start=epoch-> 2026-06-24T16:46:38.389440
+wire-loopback-per-cwe-channels-impl           worker_start=epoch-> 2026-06-24T16:58:34.339092
+p12-classify-poc-authenticity-prove           worker_start=epoch-> 2026-06-24T19:49:23.726920
+(NOTE: ts in ledger is mixed ISO 'accepted' rows + epoch float rows; leak fix = 2026-06-24T14:50Z)

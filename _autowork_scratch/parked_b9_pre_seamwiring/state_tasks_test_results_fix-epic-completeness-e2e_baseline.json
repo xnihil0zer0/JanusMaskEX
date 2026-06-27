@@ -1,0 +1,8 @@
+{
+  "task_id": "fix-epic-completeness-e2e",
+  "command": "python -m pytest tests/harness/test_epic_completeness_e2e.py -q",
+  "outcome": "failed",
+  "exit_code": 4,
+  "stdout": "\nno tests ran in 0.01s\n",
+  "stderr": "ERROR: file or directory not found: tests/harness/test_epic_completeness_e2e.py\n\n"
+}

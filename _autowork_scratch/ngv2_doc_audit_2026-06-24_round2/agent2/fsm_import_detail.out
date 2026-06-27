@@ -1,0 +1,45 @@
+===== what does transition_planner import from fsm modules? =====
+8:from typing import Any
+9:from typing import Dict
+10:from typing import Optional
+60:from ngv2.fsm_evidence import PHASE_ORDER
+--- gate_executor imports ---
+15:from typing import Callable
+16:from typing import Dict
+17:from typing import List
+18:from typing import Tuple
+19:from ngv2.poc_authenticity_gate import classify_poc_authenticity
+20:from ngv2.detonation_evidence_gate import classify_detonation_evidence
+21:from ngv2.sink_presence_gate import verify_sink_present
+22:from ngv2.sink_reachability_gate import assess_sink_reachability
+95:import re
+96:from typing import Any
+107:from ngv2.fsm_evidence import PHASE_ORDER
+--- fsm_provision imports fsm_evidence? ---
+2:from typing import Any
+3:from ngv2.fsm_evidence import phase_artifact_hash, advance_gate, ENV_PHASE_ORDER
+
+===== public symbol of each fsm handler =====
+--- fsm_detect ---
+4:def detect(detect_input: Any, prev_artifact: Optional[Dict[str, Any]]=None) -> Dict[str, Any]:
+--- fsm_provision ---
+5:def provision_gate(provision_input: dict, prev_artifact: dict | None=None) -> dict:
+--- fsm_jail_build ---
+5:def jail_build_gate(jail_input: dict, prev_artifact: dict | None=None) -> dict:
+--- fsm_evidence ---
+7:def phase_artifact_hash(artifact: Any) -> str:
+12:def advance_gate(artifact: Any) -> dict:
+
+===== grep all of ngv2 (non-test) for calls to the handler entry fns =====
+/home/xnihil0zer0/NobleGreedv2/ngv2/fsm_jail_build.py:3:from ngv2.fsm_evidence import phase_artifact_hash, advance_gate, ENV_PHASE_ORDER
+/home/xnihil0zer0/NobleGreedv2/ngv2/fsm_jail_build.py:12:        advance_res = advance_gate(prev_artifact)
+/home/xnihil0zer0/NobleGreedv2/ngv2/fsm_jail_build.py:51:        h_val = phase_artifact_hash(artifact_data)
+/home/xnihil0zer0/NobleGreedv2/ngv2/fsm_provision.py:3:from ngv2.fsm_evidence import phase_artifact_hash, advance_gate, ENV_PHASE_ORDER
+/home/xnihil0zer0/NobleGreedv2/ngv2/fsm_provision.py:8:        prev_res = advance_gate(prev_artifact)
+/home/xnihil0zer0/NobleGreedv2/ngv2/fsm_provision.py:33:        h_val = phase_artifact_hash(artifact_copy)
+/home/xnihil0zer0/NobleGreedv2/ngv2/fsm_detect.py:2:from ngv2.fsm_evidence import phase_artifact_hash, advance_gate, ENV_PHASE_ORDER
+/home/xnihil0zer0/NobleGreedv2/ngv2/fsm_detect.py:14:        prev_res = advance_gate(prev_artifact)
+/home/xnihil0zer0/NobleGreedv2/ngv2/fsm_detect.py:35:    artifact_data['content_hash'] = phase_artifact_hash(artifact_copy)
+/home/xnihil0zer0/NobleGreedv2/ngv2/fsm_evidence.py:7:def phase_artifact_hash(artifact: Any) -> str:
+/home/xnihil0zer0/NobleGreedv2/ngv2/fsm_evidence.py:12:def advance_gate(artifact: Any) -> dict:
+/home/xnihil0zer0/NobleGreedv2/ngv2/fsm_evidence.py:24:        computed_hash = phase_artifact_hash(artifact_copy)

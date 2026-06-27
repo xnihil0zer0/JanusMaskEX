@@ -1,0 +1,30 @@
+=== M4-c (a): the gate's only may_confirm=True path is caller-asserted ===
+  classify_detonation_evidence({'ran_target': True, 'observed_runtime_effect': True}) -> {'evidence_kind': 'live_execution', 'may_confirm': True, 'downgraded_verdict': 'confirmed'}
+  -> evidence_kind='live_execution', may_confirm=True
+  CLAIM 'provenance asserted not proven' -> CONFIRMED
+
+=== M4-c (b): gate ignores baseline/differential/nonce entirely ===
+  with baseline_effect=True, differential=False, nonce absent -> may_confirm=True
+  -> gate reads only ['method', 'observed_runtime_effect', 'ran_target', 'self_hosted_mock']; baseline/nonce/differential keys are NOT consulted.
+
+=== M4-c (c): the producer seam stamps both trusted flags itself ===
+   seam line: return {'success': False, 'ran_target': False, 'error': 'no PoC source'}
+   seam line: result = {'success': confirmed, 'reproduced': confirmed, 'observed_runtime_effect': confirmed, 'ran_target': True, 'verdict': dlr.get('verdi
+   seam line: result['observed_runtime_effect'] = True
+   seam line: return {'success': False, 'ran_target': True, 'error': str(exc)}
+
+  seam sets literal `'ran_target': True` (unconditional): True
+  seam sets observed_runtime_effect = confirmed (its own verdict): True
+
+=== M4-c (d): is the authenticity VERDICT consumed at detonate->confirm? ===
+  ('poc','detonate') gates: ['poc_authenticity']
+  ('detonate','novelty') gates: ['detonation_evidence', 'sink_presence', 'sink_reachability']
+  -> authenticity (poc->detonate) and detonation_evidence (detonate->novelty)
+     are DISJOINT transition gates; the detonation_evidence gate does NOT
+     consult the authenticity classifier's mode/may_confirm, and neither
+     gate consults a per-run nonce or a captured baseline differential.
+
+=== SUMMARY ===
+M4-c provenance asserted-not-proven: CONFIRMED
+baseline differential consumed by gate: NO
+nonce consumed by either confirm gate: NO

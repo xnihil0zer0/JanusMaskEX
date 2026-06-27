@@ -1,0 +1,85 @@
+{
+  "task_id": "p11-hunt-triage-findings-oracle",
+  "title": "Author verification oracle for hunt->triage findings wiring",
+  "meta_task_type": "test_authoring",
+  "priority": "critical",
+  "dependencies": [],
+  "files_touched": [
+    "tests/ngv2/test_p11_hunt_triage_findings.py"
+  ],
+  "mutation_target": "ngv2.conductor_seams",
+  "acceptance_criteria": [
+    "Authors a new test file tests/ngv2/test_p11_hunt_triage_findings.py with module and in-test docstrings using triple-double-quotes.",
+    "Imports the module under test via normal import.",
+    "Drives the real run_conductor_step, gate_executor.run_gates, and transition_planner.plan_next_action without stubs or monkeypatching.",
+    "Simulates hunt worker output by feeding persist() realistic harvested artifacts containing a unique sentinel token.",
+    "Asserts findings is derived from prior_findings (not pre-injected) and contains the sentinel token, and run_gates('hunt', 'triage', ev) advances.",
+    "Asserts run_conductor_step at phase hunt advances to triage and does not block.",
+    "Asserts FSM advances past hunt to at least triage in a bounded loop composing with middle phase artifacts."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "low",
+  "verification_command": "python -m pytest tests/ngv2/test_p11_hunt_triage_findings.py -q",
+  "spec": {
+    "objective": "Author a new test file tests/ngv2/test_p11_hunt_triage_findings.py that verifies the hunt->triage transition is correctly gated by evidence['findings'] derived from state['prior_findings'].",
+    "functional_requirements": [
+      "Verify build_evidence derives findings key from state['prior_findings'] containing a unique sentinel token.",
+      "Verify run_gates('hunt', 'triage', ev) advances when findings evidence is present.",
+      "Verify run_conductor_step advances session phase from hunt to triage.",
+      "Verify end-to-end traversal of FSM from phase hunt progresses past hunt to at least triage when composed with other phase rollups."
+    ],
+    "interfaces": "A new pytest file at tests/ngv2/test_p11_hunt_triage_findings.py.",
+    "edge_cases": [
+      "State contains empty prior_findings, asserting that findings key is omitted.",
+      "Sentinel token is present in the derived findings, proving it was not a pre-injected literal."
+    ],
+    "non_goals": [
+      "Integration tests using real workers, live environment, clock, subprocess, network, or sleeps are out of scope (integration is out of scope).",
+      "Modifying any production files."
+    ],
+    "implementation_notes": "Implement tests driving the real conductor, using FakeDB to hold state, and feeding realistic hunt report rollups with unique sentinel tokens. Verify correct derivation of findings key and successful transition."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_imports_and_seam_shape"
+      },
+      {
+        "name": "test_build_evidence_derives_findings_from_carried_artifacts"
+      },
+      {
+        "name": "test_hunt_triage_advances_not_blocked"
+      },
+      {
+        "name": "test_findings_derivation_composes_with_x1_chain"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [],
+    "regression_tests": [
+      {
+        "name": "test_build_evidence_derives_findings_from_carried_artifacts"
+      },
+      {
+        "name": "test_hunt_triage_advances_not_blocked"
+      },
+      {
+        "name": "test_findings_derivation_composes_with_x1_chain"
+      }
+    ],
+    "minimum_test_count": 10,
+    "test_data_requirements": "Hunt report rollup artifacts containing a contracts.Finding shaped dictionary with a unique sentinel token."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 0,
+    "test_tokens": 300,
+    "note": "Task only authors tests, so implementation tokens are zero and test tokens cover the authored tests."
+  },
+  "attribution_metadata": {
+    "proposed_by": "gemini",
+    "reconciled": false,
+    "diff_resolution": null
+  },
+  "_debug_stamping_reason": "Task was only proposed by Gemini.",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

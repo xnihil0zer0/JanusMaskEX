@@ -1,0 +1,350 @@
+{
+  "tasks": [
+    {
+      "task_id": "p11-gate-table-typed-terminals",
+      "title": "Gate every consecutive transition, define TypedTerminal and no_template_terminal in gate_executor.py",
+      "meta_task_type": "state_machine",
+      "priority": "critical",
+      "dependencies": [
+        "p11-gate-executor-oracle"
+      ],
+      "files_touched": [
+        "ngv2/gate_executor.py",
+        "tests/ngv2/test_gate_executor_wired.py"
+      ],
+      "acceptance_criteria": [
+        "ngv2/gate_executor.py contains the top-level TypedTerminal container with the specified terminal constants (EMPTY_HUNT, NO_TEMPLATE, REFUTED, MISSING_EVIDENCE, SERVICE_NO_BIND, NO_SOURCE, NO_FINDINGS, NO_TRIAGE, NO_VERIFY, NO_NOVELTY, NO_REPORT, NO_APPROVAL, NO_SUBMISSION).",
+        "ngv2/gate_executor.py implements no_template_terminal(cwe) returning no_template:CWE-<n>.",
+        "ngv2/gate_executor.py _TRANSITION_GATES defines a gate for every consecutive PHASE_ORDER transition, failing closed on missing evidence, while preserving the existing poc->detonate and detonate->novelty gates verbatim.",
+        "tests/ngv2/test_gate_executor_wired.py asserts fail-closed behavior for the new consecutive transitions, while allowing non-consecutive transitions to advance."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/ngv2/test_p11_gate_every_transition_typed_terminals.py -q",
+      "spec": {
+        "objective": "Complete the transition gate table for fail-closed safety and define typed terminal routing symbols.",
+        "functional_requirements": [
+          "Define TypedTerminal container class containing the required constants.",
+          "Implement no_template_terminal(cwe) helper parsing CWE strings to return no_template:CWE-<n>.",
+          "Populate _TRANSITION_GATES with structural gates for the 8 remaining consecutive transitions.",
+          "Update tests/ngv2/test_gate_executor_wired.py assertions to reflect the new fail-closed transition contract."
+        ],
+        "interfaces": "ngv2.gate_executor: TypedTerminal, no_template_terminal, _TRANSITION_GATES",
+        "edge_cases": [
+          "Non-consecutive transitions remain ungated and advance.",
+          "Missing required evidence returns advance: False and reports <name>:missing_evidence.",
+          "no_template_terminal handles integer CWE inputs, case-insensitive CWE strings, and unparseable formats."
+        ],
+        "non_goals": [
+          "No integration with live agent loops or live environments.",
+          "Do not modify the pre-existing gate entries ('poc','detonate') and ('detonate','novelty') in _TRANSITION_GATES.",
+          "Do not alter the signature or internal logic of run_gates itself."
+        ],
+        "implementation_notes": "Define TypedTerminal anchored adjacent to _TRANSITION_GATES or run_gates. Ensure gate fn returns may_confirm: bool truthy iff required evidence is present.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_return_shape_contract"
+          },
+          {
+            "name": "test_source_hunt_no_gate_advances"
+          },
+          {
+            "name": "test_verify_poc_is_ungated_and_advances"
+          },
+          {
+            "name": "test_unknown_transition_advances_no_gate"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_poc_detonate_mock_poc_blocks_advance"
+          },
+          {
+            "name": "test_detonate_novelty_constant_only_callsites_blocks"
+          },
+          {
+            "name": "test_detonate_novelty_static_assertion_detonation_blocks"
+          },
+          {
+            "name": "test_detonate_novelty_all_gates_pass_advances"
+          },
+          {
+            "name": "test_poc_detonate_missing_poc_source_fails_closed"
+          },
+          {
+            "name": "test_poc_detonate_real_poc_advances"
+          },
+          {
+            "name": "test_output_is_deterministic"
+          }
+        ],
+        "minimum_test_count": 11,
+        "test_data_requirements": "Uses evidence dict structures in tests/ngv2/test_gate_executor_wired.py."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation involves updating a dictionary table and defining small helper/enum structures. Test code modifies existing test suites."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "p11-transition-planner-spawn-middle",
+      "title": "Emit spawn_stage for all agent phases in transition_planner.py",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/transition_planner.py"
+      ],
+      "acceptance_criteria": [
+        "plan_next_action in ngv2/transition_planner.py decides spawn_stage for hunt, triage, verify, poc, detonate, novelty, and report when their respective completion artifacts are absent.",
+        "Preserves the precedence of blocked, done, and awaiting_submission states.",
+        "Tests in tests/ngv2/test_transition_planner_wired.py remain green."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/ngv2/test_transition_planner_wired.py -q",
+      "spec": {
+        "objective": "Extend plan_next_action to check completion artifacts for the middle 7 worker phases and spawn their corresponding stages if absent.",
+        "functional_requirements": [
+          "Check completion artifact count for hunt, triage, verify, poc, detonate, novelty, and report phases in plan_next_action.",
+          "Return spawn_stage action if the active phase's artifact is absent/0."
+        ],
+        "interfaces": "ngv2.transition_planner: plan_next_action",
+        "edge_cases": [
+          "Default count keys in session_state to 0 if they are missing or None to fail-closed.",
+          "Precedence: blocked is checked first, done is checked second, awaiting_submission checked third."
+        ],
+        "non_goals": [
+          "No integration with live agent executions.",
+          "Do not modify PHASE_ORDER or the next phase linear ordering function."
+        ],
+        "implementation_notes": "Read count variables from session_state for triage, verify, novelty, and report phases.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/ngv2/test_transition_planner_wired.py\n```python\n\"\"\"RED oracle for ngv2.transition_planner -- the pure, deterministic DECISION\nbrain a conductor calls to know what to do next in the NobleGreed bug-hunt state\nmachine.\n\nThe hunt pipeline runs through linear phases:\n    source -> hunt -> triage -> verify -> poc -> detonate -> novelty\n           -> report -> awaiting_submission -> submitted -> done\n\nGiven the current session_state dict (phase, findings, pocs, reports, verdict,\nnovelty, approved, blocked) the function returns {action, target_phase, reason}\nwhere action is one of {spawn_stage, apply_gates, park_for_approval, advance,\nblocked, done}. It is PURE: it reads a dict and returns a dict -- no I/O, no\nclock, no randomness, no state mutation. Byte-stable determinism.\n\nThis oracle is the *_wired reachability proof: importing plan_next_action from\nthe live ngv2.transition_planner module is the wiring contract.\n\"\"\"\nimport json\n\nfrom ngv2.transition_planner import plan_next_action\n\nRESULT_KEYS = {'action', 'target_phase', 'reason'}\nACTIONS = {'spawn_stage', 'apply_gates', 'park_for_approval',\n           'advance', 'blocked', 'done'}\n\n\ndef _state(**kw):\n    base = {\n        'phase': 'hunt', 'findings': 0, 'pocs': 0, 'reports': 0,\n        'verdict': None, 'novelty': None, 'approved': False, 'blocked': False,\n    }\n    base.update(kw)\n    return base\n\n\n# --- contract: fixed-shape dict, action enum -------------------------------\ndef test_return_shape_and_action_enum_contract():\n    res = plan_next_action(_state())\n    assert set(res) == RESULT_KEYS\n    assert res['action'] in ACTIONS\n    assert res['target_phase'] is None or isinstance(res['target_phase'], str)\n    assert isinstance(res['reason'], str)\n\n\n# --- (a) phase=hunt, findings=0 -> spawn_stage(hunt) -----------------------\ndef test_hunt_without_findings_spawns_hunt_stage():\n    res = plan_next_action(_state(phase='hunt', findings=0))\n    assert res['action'] == 'spawn_stage'\n    assert res['target_phase'] == 'hunt'\n\n\n# --- (b) phase=hunt, findings=2 -> apply_gates(triage) ---------------------\ndef test_hunt_with_findings_applies_gates_to_triage():\n    res = plan_next_action(_state(phase='hunt', findings=2))\n    assert res['action'] == 'apply_gates'\n    assert res['target_phase'] == 'triage'\n\n\n# --- (c) awaiting_submission, not approved -> park_for_approval ------------\ndef test_awaiting_submission_unapproved_parks_for_approval():\n    res = plan_next_action(_state(phase='awaiting_submission', approved=False))\n    assert res['action'] == 'park_for_approval'\n    assert res['target_phase'] is None\n\n\n# --- (d) awaiting_submission, approved -> advance(submitted) ---------------\ndef test_awaiting_submission_approved_advances_to_submitted():\n    res = plan_next_action(_state(phase='awaiting_submission', approved=True))\n    assert res['action'] == 'advance'\n    assert res['target_phase'] == 'submitted'\n\n\n# --- (e) phase=done -> done ------------------------------------------------\ndef test_done_phase_is_done():\n    res = plan_next_action(_state(phase='done'))\n    assert res['action'] == 'done'\n    assert res['target_phase'] is None\n\n\n# --- (f) blocked=True (any phase) -> blocked, checked FIRST ----------------\ndef test_blocked_session_reports_blocked():\n    res = plan_next_action(_state(phase='hunt', findings=2, blocked=True))\n    assert res['action'] == 'blocked'\n    assert res['target_phase'] is None\n\n\ndef test_blocked_takes_precedence_over_done_and_awaiting():\n    # blocked is fail-closed and checked before every other branch\n    for phase in ('done', 'awaiting_submission'):\n        res = plan_next_action(_state(phase=phase, approved=True, blocked=True))\n        assert res['action'] == 'blocked'\n\n\n# --- poc/detonate missing-artifact spawn parity ----------------------------\ndef test_poc_without_pocs_spawns_poc_stage():\n    res = plan_next_action(_state(phase='poc', pocs=0))\n    assert res['action'] == 'spawn_stage'\n    assert res['target_phase'] == 'poc'\n\n\ndef test_detonate_without_reports_spawns_detonate_stage():\n    res = plan_next_action(_state(phase='detonate', reports=0))\n    assert res['action'] == 'spawn_stage'\n    assert res['target_phase'] == 'detonate'\n\n\n# --- determinism -----------------------------------------------------------\ndef test_output_is_byte_stable_deterministic():\n    st = _state(phase='hunt', findings=2)\n    a = json.dumps(plan_next_action(st), sort_keys=True)\n    b = json.dumps(plan_next_action(st), sort_keys=True)\n    assert a == b\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_hunt_without_findings_spawns_hunt_stage"
+          },
+          {
+            "name": "test_poc_without_pocs_spawns_poc_stage"
+          },
+          {
+            "name": "test_detonate_without_reports_spawns_detonate_stage"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_return_shape_and_action_enum_contract"
+          },
+          {
+            "name": "test_hunt_with_findings_applies_gates_to_triage"
+          },
+          {
+            "name": "test_awaiting_submission_unapproved_parks_for_approval"
+          },
+          {
+            "name": "test_awaiting_submission_approved_advances_to_submitted"
+          },
+          {
+            "name": "test_done_phase_is_done"
+          },
+          {
+            "name": "test_blocked_session_reports_blocked"
+          },
+          {
+            "name": "test_blocked_takes_precedence_over_done_and_awaiting"
+          },
+          {
+            "name": "test_output_is_byte_stable_deterministic"
+          }
+        ],
+        "minimum_test_count": 11,
+        "test_data_requirements": "Uses session state dictionaries in tests/ngv2/test_transition_planner_wired.py."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation involves simple edits to conditional blocks."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "p11-gate-executor-oracle",
+      "title": "Write the RED-now/GREEN-after transition gating and typed terminal oracle",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "ngv2.gate_executor",
+      "priority": "critical",
+      "dependencies": [],
+      "files_touched": [
+        "tests/ngv2/test_p11_gate_every_transition_typed_terminals.py"
+      ],
+      "acceptance_criteria": [
+        "tests/ngv2/test_p11_gate_every_transition_typed_terminals.py exists and asserts correct imports of run_gates, TypedTerminal, and PHASE_ORDER.",
+        "Tests fail-closed behavior for all 10 consecutive transitions on empty evidence.",
+        "Tests that no_template_terminal maps CWEs correctly to no_template:CWE-<n>.",
+        "Contains negative control tests verifying that valid evidence enables advance for both structural and pre-existing gates.",
+        "Asserts determinism of the gate executor output."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "low",
+      "verification_command": "python -m pytest tests/ngv2/test_p11_gate_every_transition_typed_terminals.py -q",
+      "spec": {
+        "objective": "Author the test suite verifying all phase transitions are gated, fail-closed on missing evidence, and support typed terminals.",
+        "functional_requirements": [
+          "Assert successful import of run_gates, TypedTerminal, and PHASE_ORDER.",
+          "Enumerate all consecutive transitions in PHASE_ORDER and assert they return advance: False on empty evidence.",
+          "Assert no_template_terminal(cwe) returns correct string values for raw numbers, strings, and other cwe shapes.",
+          "Assert negative controls where valid evidence successfully advances the transitions.",
+          "Assert run_gates output is deterministic (byte-stable output of json.dumps)."
+        ],
+        "interfaces": "tests.ngv2.test_p11_gate_every_transition_typed_terminals",
+        "edge_cases": [
+          "Ensure non-consecutive phase transitions do not block on empty evidence.",
+          "Assert gate results do not include missing gates in results dict when evidence is absent."
+        ],
+        "non_goals": [
+          "No integration with live agent executions."
+        ],
+        "implementation_notes": "Author this test file first so it is RED on HEAD and becomes GREEN after gate executor implementation is complete."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_oracle_imports_and_symbols"
+          },
+          {
+            "name": "test_oracle_all_consecutive_transitions_gated_fail_closed"
+          },
+          {
+            "name": "test_oracle_no_template_router_values"
+          },
+          {
+            "name": "test_oracle_negative_control_with_evidence_advances"
+          },
+          {
+            "name": "test_oracle_run_gates_determinism"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [],
+        "minimum_test_count": 8,
+        "test_data_requirements": "Uses standard dict/evidence objects."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 200,
+        "note": "This is a test-authoring task with no implementation tokens."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "p11-build-evidence-structural-keys",
+      "title": "Derive and emit new structural completion keys in build_evidence",
+      "meta_task_type": "data_model",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/conductor_seams.py"
+      ],
+      "acceptance_criteria": [
+        "build_evidence in ngv2/conductor_seams.py derives and emits all structural keys (source_ready, findings, triage_result, verify_result, novelty_result, report_artifact, submission_result, approval) correctly from state.",
+        "build_default_seams interface remains unchanged.",
+        "Tests in tests/test_conductor_seams_wired.py remain green."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/test_conductor_seams_wired.py -q",
+      "spec": {
+        "objective": "Ensure structural completion evidence is emitted by build_evidence to prevent state machine deadlocks.",
+        "functional_requirements": [
+          "Derive source_ready from prior_findings or findings artifacts.",
+          "Derive findings from prior_findings list.",
+          "Derive triage_result, verify_result, novelty_result, and report_artifact by scanning harvested artifacts.",
+          "Derive submission_result and approval from state keys."
+        ],
+        "interfaces": "ngv2.conductor_seams: build_evidence seam closure",
+        "edge_cases": [
+          "Handle missing state keys, empty lists, or None values gracefully without throwing KeyError.",
+          "Distinguish report_artifact of the report phase from detonate reports by checking filename suffixes (e.g. report.json or _submission.md)."
+        ],
+        "non_goals": [
+          "No integration with live run or subprocess executions.",
+          "Do not modify the persist or advance closures inside build_default_seams."
+        ],
+        "implementation_notes": "Implement logic to iterate over state.get('artifacts', []) to extract appropriate dictionaries based on 'kind' and 'filename'.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_conductor_seams_wired.py\n```python\n\"\"\"Behavioral oracle for ngv2/conductor_seams.build_default_seams.\n\nbuild_default_seams(session_id, db, llm_client, ctx) -> dict assembles the\nCOMPLETE seam dict that hunt_conductor.run_conductor_step consumes, wiring\nclosures to the real NGv2 modules (transition_planner, stage_command_map,\nartifact_harvester, gate_executor, hunt_conductor) plus the live subprocess\n``spawn`` seam.\n\nAssembly is pure: building the seams must NOT touch the DB, run a subprocess,\nor call the LLM -- only invoking a seam later may. Hermetic: a dict-backed fake\nDB, a recorded spawn/harvest, no real subprocess, no network.\n\"\"\"\nimport importlib\n\nimport pytest\n\nseams_mod = importlib.import_module(\"ngv2.conductor_seams\")\ntransition_planner = importlib.import_module(\"ngv2.transition_planner\")\nstage_command_map = importlib.import_module(\"ngv2.stage_command_map\")\ngate_executor = importlib.import_module(\"ngv2.gate_executor\")\nhunt_conductor = importlib.import_module(\"ngv2.hunt_conductor\")\n\nREQUIRED_SEAMS = {\n    \"ctx\", \"load_state\", \"plan\", \"command_for_phase\", \"spawn\", \"harvest\",\n    \"persist\", \"build_evidence\", \"run_gates\", \"advance\", \"run_conductor_step\",\n}\n\n\nclass _FakeDB:\n    \"\"\"Minimal in-memory SessionDB stand-in (get_session/save_session).\"\"\"\n\n    def __init__(self, initial=None):\n        self.rows = {}\n        if initial:\n            self.rows[initial[\"session_id\"]] = dict(initial)\n        self.saves = 0\n\n    def get_session(self, sid):\n        row = self.rows.get(sid)\n        return dict(row) if row is not None else None\n\n    def save_session(self, sid, state):\n        payload = dict(state)\n        payload[\"session_id\"] = sid\n        self.rows[sid] = payload\n        self.saves += 1\n\n\ndef _ctx():\n    return {\"session_id\": \"s1\", \"repo\": \"/repo\", \"target_path\": \"acme/app\",\n            \"output_dir\": \"/tmp/ngv2_cs_out\"}\n\n\ndef test_surface_all_seams_present_and_callable():\n    seams = seams_mod.build_default_seams(\"s1\", _FakeDB(), None, _ctx())\n    assert REQUIRED_SEAMS.issubset(seams.keys())\n    for key in REQUIRED_SEAMS - {\"ctx\"}:\n        assert callable(seams[key]), f\"seam {key!r} not callable\"\n    assert isinstance(seams[\"ctx\"], dict)\n    assert seams[\"ctx\"][\"session_id\"] == \"s1\"\n\n\ndef test_assembly_is_pure_no_db_access():\n    \"\"\"Building seams must not query the DB (no get_session/save_session).\"\"\"\n    db = _FakeDB({\"session_id\": \"s1\", \"phase\": \"hunt\"})\n    db.saves = 0\n    seams_mod.build_default_seams(\"s1\", db, None, _ctx())\n    assert db.saves == 0\n\n\ndef test_wires_the_real_modules():\n    seams = seams_mod.build_default_seams(\"s1\", _FakeDB(), None, _ctx())\n    assert seams[\"plan\"] is transition_planner.plan_next_action\n    assert seams[\"command_for_phase\"] is stage_command_map.command_for_phase\n    assert seams[\"run_gates\"] is gate_executor.run_gates\n    assert seams[\"run_conductor_step\"] is hunt_conductor.run_conductor_step\n\n\ndef test_command_for_phase_seam_emits_spawnable_argv():\n    seams = seams_mod.build_default_seams(\"s1\", _FakeDB(), None, _ctx())\n    spec = seams[\"command_for_phase\"](\"hunt\", seams[\"ctx\"])\n    assert spec[\"runnable\"] is True\n    assert spec[\"argv\"][:3] == [\"python\", \"-m\", \"ngv2.workers.hunt\"]\n\n\ndef test_spawn_nonrunnable_is_noop_returns_output_dir():\n    seams = seams_mod.build_default_seams(\"s1\", _FakeDB(), None, _ctx())\n    out = seams[\"spawn\"]({\"runnable\": False, \"output_path\": \"/tmp/zzz/hunt.json\"})\n    assert out == \"/tmp/zzz\"  # dirname, no subprocess run\n\n\ndef test_one_conductor_step_drives_load_plan_command_harvest_persist():\n    \"\"\"End-to-end wiring of a spawn_stage step over the assembled seams.\"\"\"\n    db = _FakeDB({\"session_id\": \"s1\", \"phase\": \"hunt\", \"findings\": 0})\n    seams = seams_mod.build_default_seams(\"s1\", db, None, _ctx())\n    recorded = {}\n    seams[\"spawn\"] = lambda cmd: recorded.setdefault(\"argv\", cmd[\"argv\"]) or \"/tmp/out\"\n    seams[\"harvest\"] = lambda phase, out: [{\"phase\": phase, \"kind\": \"finding\"}]\n    step = hunt_conductor.run_conductor_step(\"s1\", seams)\n    assert step == {\"step\": \"spawned\", \"phase\": \"hunt\", \"n_artifacts\": 1}\n    assert recorded[\"argv\"][:3] == [\"python\", \"-m\", \"ngv2.workers.hunt\"]\n    # persist seam reflected the produced artifact into the session row\n    assert db.rows[\"s1\"][\"findings\"] == 1\n\n\ndef test_advance_seam_moves_phase_forward():\n    db = _FakeDB({\"session_id\": \"s1\", \"phase\": \"hunt\", \"findings\": 1})\n    seams = seams_mod.build_default_seams(\"s1\", db, None, _ctx())\n    seams[\"advance\"](\"s1\")\n    assert db.rows[\"s1\"][\"phase\"] == transition_planner._next_phase(\"hunt\")\n\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_surface_all_seams_present_and_callable"
+          },
+          {
+            "name": "test_assembly_is_pure_no_db_access"
+          },
+          {
+            "name": "test_wires_the_real_modules"
+          },
+          {
+            "name": "test_command_for_phase_seam_emits_spawnable_argv"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_one_conductor_step_drives_load_plan_command_harvest_persist"
+          },
+          {
+            "name": "test_advance_seam_moves_phase_forward"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "Uses fake DB structures and mock seams in tests/test_conductor_seams_wired.py."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Modifications are restricted to the local helper build_evidence closure."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_p11_gate_every_transition_typed_terminals.md",
+  "source_brief_sha256": "f992846dec1a11a312918f9a596e18cd850f674286af9667e82a47555a6598de",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2",
+  "required_task_ids": [
+    "p11-gate-table-typed-terminals",
+    "p11-transition-planner-spawn-middle",
+    "p11-build-evidence-structural-keys",
+    "p11-gate-executor-oracle"
+  ]
+}

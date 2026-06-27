@@ -1,0 +1,176 @@
+{
+  "tasks": [
+    {
+      "task_id": "brief-preflight-validator-impl2",
+      "title": "Inline brief pre-flight validator early in harness/planner/cli.py:main",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [
+        "brief-preflight-validator-oracle2"
+      ],
+      "files_touched": [
+        "harness/planner/cli.py"
+      ],
+      "acceptance_criteria": [
+        "Validation logic is inlined in main() of harness/planner/cli.py.",
+        "No top-level functions or classes (e.g. check_brief_preflight) are added.",
+        "The edit is a single-symbol patch on main using __JANUSMASK_PATCHES__.",
+        "Tests in tests/harness/test_brief_preflight_validator.py go green."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/harness/test_brief_preflight_validator.py -q",
+      "spec": {
+        "objective": "Insert the inline pre-flight validation block in cli.main immediately after state_dir = Path('state') and before the existing try/except block to catch malformed briefs early.",
+        "functional_requirements": [
+          "Parse headings and collect missing/empty required sections.",
+          "Analyze ## TASK sections for missing integration or edge_case/regression mentions.",
+          "Validate consistency of required_task_ids with sections.",
+          "Wrap block in try/except Exception to fail-open, exit with code 2 on violations."
+        ],
+        "interfaces": "Inline validation logic in main() inside harness/planner/cli.py.",
+        "edge_cases": [
+          "Files are read with utf-8 encoding. Read failures are caught and appended as unreadable_brief without raising.",
+          "Task ID is extracted from canonical bullet directive, taking the last matching bullet to avoid prose decoys."
+        ],
+        "non_goals": [
+          "No integration testing with the live daemon is performed in this unit oracle."
+        ],
+        "implementation_notes": "Use local imports of re and REQUIRED_SECTIONS, BriefValidationError, _parse_frontmatter inside the validation block. Reproduce main verbatim in the patch with the inline block added.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/harness/test_brief_preflight_validator.py\n```python\nimport pytest\nfrom pathlib import Path\nimport sys\nfrom harness.planner.cli import check_brief_preflight, BriefViolation, main\nclass ProceededException(Exception):\n    pass\ndef create_valid_brief(tmp_path, **kwargs) -> Path:\n    ...\ndef test_well_formed_brief_passes(tmp_path):\n    ...\ndef test_missing_title_rejected_with_title_reason(tmp_path):\n    ...\ndef test_task_missing_integration_named(tmp_path):\n    ...\ndef test_task_missing_edge_case_guidance(tmp_path):\n    ...\ndef test_required_task_ids_mismatch(tmp_path):\n    ...\ndef test_all_failures_reported_together(tmp_path):\n    ...\ndef test_decoy_task_id_in_prose(tmp_path):\n    ...\ndef test_unreadable_path_returns_violation_never_raises(tmp_path):\n    ...\ndef test_malformed_brief_wiring_short_circuits(tmp_path, monkeypatch, capsys):\n    ...\ndef test_well_formed_brief_wiring_proceeds(tmp_path, monkeypatch):\n    ...\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_malformed_brief_missing_title_short_circuits"
+          },
+          {
+            "name": "test_malformed_brief_missing_integration_short_circuits"
+          },
+          {
+            "name": "test_malformed_brief_missing_edge_case_short_circuits"
+          },
+          {
+            "name": "test_well_formed_brief_proceeds_past_preflight"
+          },
+          {
+            "name": "test_preflight_validation_determinism"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "tests/harness/test_brief_preflight_validator.py::test_well_formed_brief_proceeds_past_preflight"
+          },
+          {
+            "name": "tests/harness/test_brief_preflight_validator.py::test_malformed_brief_missing_edge_case_short_circuits"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Runs on synthetic briefs in tests."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Standard budget ratio."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "brief-preflight-validator-oracle2",
+      "title": "Author hermetic unit tests in tests/harness/test_brief_preflight_validator.py for brief pre-flight validator in cli.main",
+      "meta_task_type": "test_authoring",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tests/harness/test_brief_preflight_validator.py"
+      ],
+      "mutation_target": "harness.planner.cli",
+      "acceptance_criteria": [
+        "tests/harness/test_brief_preflight_validator.py is overwritten with a RED hermetic oracle.",
+        "Imports only from harness.planner.cli import main (no import of check_brief_preflight or BriefViolation).",
+        "Asserts SystemExit(2), 'validation failed' stderr, and correct error substrings for missing title/integration/edge case.",
+        "Asserts well-formed brief proceeds to blind_drafts (raises ReachedBlindDrafts).",
+        "Asserts deterministic behavior for two identical runs."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/harness/test_brief_preflight_validator.py -q",
+      "spec": {
+        "objective": "Overwrites tests/harness/test_brief_preflight_validator.py with unit and integration-level mock tests verifying the preflight validation in cli.main.",
+        "functional_requirements": [
+          "Assert that a brief missing '# Title' heading causes cli.main to exit with code 2 and a validation failed stderr message mentioning 'title'.",
+          "Assert that a brief with a task section missing the word 'integration' causes cli.main to exit with code 2 and a validation failed stderr message mentioning the task ID.",
+          "Assert that a brief with a task section missing edge_case/regression guidance causes cli.main to exit with code 2.",
+          "Assert that a well-formed brief proceeds past the preflight check, raising a custom base exception from a mock of blind_drafts.",
+          "Assert that preflight checks are deterministic."
+        ],
+        "interfaces": "A test suite in tests/harness/test_brief_preflight_validator.py.",
+        "edge_cases": [
+          "Decoy task_id in prose is not mistaken for a task bullet.",
+          "A base exception is used to verify blind_drafts is reached so it escapes try-except Exception blocks."
+        ],
+        "non_goals": [
+          "No integration testing with the live daemon is performed in this unit oracle."
+        ],
+        "implementation_notes": "Write tests using pytest and tmp_path. Mock load_config and check_brief_depth. Mock blind_drafts to track calls or raise exceptions."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_malformed_brief_missing_title_short_circuits"
+          },
+          {
+            "name": "test_malformed_brief_missing_integration_short_circuits"
+          },
+          {
+            "name": "test_malformed_brief_missing_edge_case_short_circuits"
+          },
+          {
+            "name": "test_well_formed_brief_proceeds_past_preflight"
+          },
+          {
+            "name": "test_preflight_validation_determinism"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "tests/harness/test_brief_preflight_validator.py::test_well_formed_brief_proceeds_past_preflight"
+          },
+          {
+            "name": "tests/harness/test_brief_preflight_validator.py::test_malformed_brief_missing_edge_case_short_circuits"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Synthetic briefs written to tmp_path."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Standard budget ratio."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_brief_preflight_validator.md",
+  "source_brief_sha256": "9221a9e584b49471ec7a653bfbe188c80b48945e851d1df16b78e0117fac9866",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+  "required_task_ids": [
+    "brief-preflight-validator-oracle2",
+    "brief-preflight-validator-impl2"
+  ]
+}

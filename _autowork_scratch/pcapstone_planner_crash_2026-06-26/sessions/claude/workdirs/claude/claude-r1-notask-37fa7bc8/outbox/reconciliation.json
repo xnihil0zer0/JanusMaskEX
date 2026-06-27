@@ -1,0 +1,79 @@
+{
+  "responses": [
+    {
+      "diff_item_id": "__critique__",
+      "stance": "amend"
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "f-visit-arg-missing-vararg-kwarg-edge-cases",
+      "category": "missing_edge_case",
+      "severity": "error",
+      "task_id": "RB_JR_fix_variable_anonymizer_visit_arg",
+      "field_path": "/tasks/0/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "cases": [
+          "Nested function or lambda using a *vararg (e.g. 'def g(*xs): return xs') -- node.args.vararg is an ast.arg and will be visited by visit_arg; both the declaration and inner references must be renamed consistently.",
+          "Nested function using a **kwarg (e.g. 'def g(**kw): return kw') -- node.args.kwarg is an ast.arg; declaration and inner references must share the same var_N.",
+          "Nested function using keyword-only args after a bare '*' (kwonlyargs) and positional-only args before '/' (posonlyargs) -- these are also ast.arg nodes and must be renamed via visit_arg.",
+          "Nested function parameter carrying an annotation expression (e.g. 'def g(y: int): return y') -- the annotation must not be rewritten to a var_N identifier just because 'int' is also a Name; verify visit_arg does not call generic_visit on annotations in a way that mangles them, and that visit_Name leaves builtin/imported annotation names alone.",
+          "Nested function with a default value referencing an outer-scope already-renamed local (e.g. 'def f(): y = 1; def g(z=y): return z; return g') -- the default expression is evaluated in the enclosing scope and must keep its (renamed) outer reference while z and inner z share their own var_N."
+        ]
+      },
+      "message": "The spec only enumerates two edge cases (shadowing outer rename, collision with top-level protected param). Because visit_arg dispatches on every ast.arg node, it will also see vararg, kwarg, kwonlyargs, and posonlyargs of nested defs/lambdas, as well as args with annotations and defaults. None of these are covered by the spec's edge_cases or by the listed unit tests, yet they are the most likely places for the implementation to regress (e.g. an annotation Name accidentally rewritten, or a vararg/kwarg silently skipped). These edge cases must be added before implementation, otherwise the acceptance criteria 'Nested function and lambda parameter declarations and their internal references share the same anonymized name' is only partially verified."
+    },
+    {
+      "finding_id": "f-visit-arg-test-count-inconsistency",
+      "category": "test_heavy_violation",
+      "severity": "warn",
+      "task_id": "RB_JR_fix_variable_anonymizer_visit_arg",
+      "field_path": "/tasks/0/test_spec/minimum_test_count",
+      "suggested_patch": {
+        "op": "reconcile_test_count",
+        "details": "Either reduce minimum_test_count from 8 to 7 to match the enumerated tests, or add one additional explicit test (recommended: a *args/**kwargs renaming test) to the unit_tests list so the count is internally consistent."
+      },
+      "message": "test_spec lists 5 unit + 0 integration + 1 property + 1 regression = 7 named tests, but minimum_test_count=8. The implementer cannot tell whether they need to invent an 8th test or whether the count is a typo. This must be reconciled before the task is dispatched."
+    },
+    {
+      "finding_id": "f-visit-arg-token-budget-test-heavy",
+      "category": "test_heavy_violation",
+      "severity": "warn",
+      "task_id": "RB_JR_fix_variable_anonymizer_visit_arg",
+      "field_path": "/tasks/0/token_budget_ratio",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "details": "Implementation is acknowledged as a ~6 line visit_arg method mirroring the existing visit_Name. A 200:400 (1:2) implementation-to-test token ratio combined with mandatory property-based tests and a regression test for a 6-line change is disproportionate. Drop the property_tests requirement (the substring assertions in the unit tests already cover the shadowing case) and either lower test_tokens toward 250-300 or raise implementation_tokens if additional defensive edge-case handling is added. Keep the regression test."
+      },
+      "message": "For a six-line, single-method addition that mirrors an adjacent existing method, requiring property-based tests in addition to 5 unit tests and a regression test is test-heavy and likely to inflate review/merge time without raising actual confidence. Property tests are most useful when the function under test has a large input space or non-trivial invariants; visit_arg here has a 3-branch decision tree (protected / new mapping / existing mapping)."
+    },
+    {
+      "finding_id": "f-visit-arg-acceptance-criteria-mismatch",
+      "category": "other",
+      "severity": "info",
+      "task_id": "RB_JR_fix_variable_anonymizer_visit_arg",
+      "field_path": "/tasks/0/acceptance_criteria/4",
+      "suggested_patch": {
+        "op": "align_acceptance_with_test_spec",
+        "details": "Acceptance criterion #5 mentions only 'new unit tests', but test_spec mandates property_tests and regression_tests as well. Update the acceptance criterion to read '... alongside the new unit, property, and regression tests covering nested function and lambda arg anonymization' so the gate reflects what the verification_command actually has to pass."
+      },
+      "message": "Acceptance criterion text and test_spec disagree on which test categories are required. This is a low-severity but real inconsistency that could cause a reviewer to wave through a submission that drops the property/regression tests."
+    },
+    {
+      "finding_id": "f-visit-arg-shadowing-semantics-underspecified",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "RB_JR_fix_variable_anonymizer_visit_arg",
+      "field_path": "/tasks/0/spec/edge_cases/0",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "cases": [
+          "Make explicit that anonymize_code uses a single flat _rename_map across all scopes, so a lambda/nested-function parameter whose name collides with an already-renamed outer local will deliberately share the same var_N. This is acceptable for fingerprint-stripping but is NOT semantically equivalent to the original code; document this trade-off in implementation_notes and add an assertion in the corresponding test that the shared var_N is intentional, not accidental.",
+          "Conversely, an inner parameter whose name has not yet been seen must get a fresh var_N even if there are already-used var_N tokens in the file -- the test should pin counter monotonicity."
+        ]
+      },
+      "message": "The first edge case ('lambda parameter shadows already-renamed outer name -> same var_N') is stated as the desired outcome but never justified. Because _rename_map is global to the anonymizer, the implementation will produce code in which two semantically distinct bindings collapse to one identifier. This may be intentional for the anonymization use case, but it should be called out explicitly so an implementer doesn't later 'fix' it by introducing per-scope rename maps."
+    }
+  ]
+}

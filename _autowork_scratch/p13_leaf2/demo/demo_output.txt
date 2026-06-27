@@ -1,0 +1,18 @@
+[PASS] (a) POSITIVE: nonce callback reaches in-netns listener: hits=['/ssrf_F_demo_pos'] stdout='LOOPBACK_OK\nOUTBOUND_BLOCKED 192.0.2.1 OSError\nOUTBOUND_BLOCKED 1.1.1.1 OSError\n'
+[PASS] (b) OUTBOUND BLOCKED: raw-IP 192.0.2.1 & 1.1.1.1 refused: stdout='LOOPBACK_OK\nOUTBOUND_BLOCKED 192.0.2.1 OSError\nOUTBOUND_BLOCKED 1.1.1.1 OSError\n'
+[PASS] (a) BASELINE: nonce absent when PoC does not call back: baseline_hits=[]
+[PASS] (c) FS-ORACLE no-regression: path-write CWE confirms via snapshot diff: verdict=confirmed diff='A pwned_marker' success=True
+[PASS] (d) NO-CALLBACK negative: wrong nonce does NOT confirm via ssrf_channel: ssrf_channel={'success': False} success=False
+[PASS] (e) FAIL-CLOSED: setup failure raises LiveRunnerError, no host-netns fallback: raised=True msg="shared-loopback-netns detonation produced no result sentinel (jail/listener setup failed; refusing to degrade to host-netns). bootstrap stderr: '/usr/bin/python"
+[PASS] (e2) FAIL-CLOSED: lo cannot come up (no CAP_NET_ADMIN) -> raises, no fallback: raised=True msg='shared-loopback-netns detonation produced no result sentinel (jail/listener setup failed; refusing to degrade to host-netns). bootstrap stderr: "loopback-netns '
+
+================ SUMMARY ================
+  PASS  (a) POSITIVE: nonce callback reaches in-netns listener
+  PASS  (b) OUTBOUND BLOCKED: raw-IP 192.0.2.1 & 1.1.1.1 refused
+  PASS  (a) BASELINE: nonce absent when PoC does not call back
+  PASS  (c) FS-ORACLE no-regression: path-write CWE confirms via snapshot diff
+  PASS  (d) NO-CALLBACK negative: wrong nonce does NOT confirm via ssrf_channel
+  PASS  (e) FAIL-CLOSED: setup failure raises LiveRunnerError, no host-netns fallback
+  PASS  (e2) FAIL-CLOSED: lo cannot come up (no CAP_NET_ADMIN) -> raises, no fallback
+========================================
+VERDICT: WORKS (all assertions pass)

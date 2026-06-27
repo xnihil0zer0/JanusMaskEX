@@ -1,0 +1,14 @@
+claude manifest submission DROPPED undeclared keys (declared=['harness/target_bootstrap.py'], dropped=['config/target_bootstrap.yaml']): proceeding with declared subset only
+claude manifest submission DROPPED undeclared keys (declared=['harness/target_bootstrap.py'], dropped=['harness/stray_evil.py']): proceeding with declared subset only
+claude manifest submission empty/incomplete (declared=['harness/target_bootstrap.py', 'harness/second_file.py'], manifest_keys=['harness/target_bootstrap.py'])
+=== (a) stray-key drop ===
+ok_a: True
+rules_a: []
+PASS_A: True
+=== (a2) stray .py with banned construct is dropped not scanned ===
+ok_a2: True rules_a2: []
+PASS_A2: True
+=== (b) missing declared entry ===
+ok_b: False
+rules_b: ['manifest_incomplete']
+PASS_B: True

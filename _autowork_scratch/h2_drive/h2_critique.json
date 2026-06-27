@@ -1,0 +1,89 @@
+{
+  "responses": [
+    {
+      "diff_item_id": "__critique__",
+      "stance": "amend"
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "a1f3c9e2b7d04518",
+      "category": "other",
+      "severity": "error",
+      "task_id": "redpair-sanitize-impl",
+      "field_path": "/tasks/0/verification_command",
+      "suggested_patch": {
+        "op": "narrow_verification_command",
+        "new_verification_command": "python -m pytest tests/harness/test_redpair_sanitize_guard.py -k predicate -q",
+        "rationale": "Scope the impl leaf's verification to the three predicate unit cases it can actually turn GREEN."
+      },
+      "message": "verification_command for redpair-sanitize-impl runs the ENTIRE file tests/harness/test_redpair_sanitize_guard.py, but that file also contains the three end-to-end cases (test_redpair_impl_vcmd_preserved_when_oracle_has_real_mutation_target, test_non_redpair_impl_still_vacuous_ized_when_oracle_has_no_mutation_target, test_oracle_with_absent_mutation_target_does_not_qualify) which require the plan_normalizer wireup (redpair-sanitize-wireup). Since impl only depends on redpair-sanitize-predicate (not on the wireup), running its verification_command at the moment this leaf lands will be RED on those e2e cases. The acceptance criteria themselves only claim 'the predicate unit cases ... pass after this leaf lands', so the verification_command is broader than the contract it can satisfy. Narrow it with `-k predicate` (or split the file)."
+    },
+    {
+      "finding_id": "b6e2117a4c8f9033",
+      "category": "inflated_benchmark",
+      "severity": "warn",
+      "task_id": "redpair-sanitize-predicate",
+      "field_path": "/tasks/1/test_spec/minimum_test_count",
+      "suggested_patch": {
+        "op": "correct_test_count",
+        "new_minimum_test_count": 6,
+        "rationale": "Reconcile the claimed count with the 6 distinct unit_tests actually authored by this leaf; do not double-count the regression entries (one of which is the very file being authored)."
+      },
+      "message": "minimum_test_count is asserted as 10, but the leaf authors only 6 unit_tests (3 predicate + 3 end-to-end) with empty integration_tests and property_tests. The two regression_tests entries are (i) the same file being authored here (tests/harness/test_redpair_sanitize_guard.py \u2014 self-reference) and (ii) tests/planner/test_sanitize_vcmd_repo_mapping.py, which this task explicitly does NOT edit (see non_goals). Even counting both regression entries the total is 8, not 10. The '10' is an inflated test-count claim; the honest figure is 6 authored cases."
+    },
+    {
+      "finding_id": "c4d9008e51ab27f6",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "redpair-sanitize-predicate",
+      "field_path": "/tasks/1/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Suffix-collision false positive: an oracle entry 'pkg/thing.py' must NOT be treated as referenced when vcmd only mentions a different module whose path ends with that suffix, e.g. 'otherpkg/thing.py' (plain substring containment yields a false positive because 'otherpkg/thing.py' contains 'pkg/thing.py').",
+        "rationale": "Pin a negative boundary case so the guard cannot preserve a vcmd that targets an unrelated module sharing a path suffix."
+      },
+      "message": "references_sibling_oracle is specified as a plain substring predicate ('vcmd substring-contains any path in oracle_files'). Plain `in` matching admits false positives on path-suffix collisions: oracle path 'pkg/thing.py' is a substring of 'otherpkg/thing.py', and a short oracle entry like 'a.py' is a substring of 'data.py'. In the wireup this causes a genuinely-unrelated impl vcmd to be PRESERVED (guard short-circuits before the vacuous/existing-test rewrites), silently defeating the sanitizer. The oracle covers true/false/totality but pins no suffix-boundary negative case, so this correctness gap ships untested. Add a boundary assertion (and consider matching on a path/token boundary rather than bare substring)."
+    },
+    {
+      "finding_id": "d2b7e44190c6a8f1",
+      "category": "missing_edge_case",
+      "severity": "info",
+      "task_id": "redpair-sanitize-impl",
+      "field_path": "/tasks/0/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "oracle_files passed as a bare str (e.g. 'pkg/thing.py') must return False, not iterate character-by-character; vcmd passed as a non-str/list must also return False.",
+        "rationale": "A bare str is iterable and silently passes naive iteration; pin it explicitly so the isinstance(list) guard is regression-protected."
+      },
+      "message": "The totality spec says 'non-list oracle_files returns False', but no dedicated case pins the classic str-as-oracle_files trap: a bare string is iterable, so a regression that drops the isinstance(list) check would iterate characters instead of returning False without any test catching it. test_predicate_total_on_degenerate_inputs lists empty/None/non-str-entries but not the str-typed container. Cheap to add; closes a likely future-regression hole."
+    },
+    {
+      "finding_id": "e8c5320fbb1d7a49",
+      "category": "test_heavy_violation",
+      "severity": "warn",
+      "task_id": "redpair-sanitize-wireup",
+      "field_path": "/tasks/2/token_budget_ratio",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "new_test_tokens": 0,
+        "rationale": "The impl/wireup leaves author no new test source; their test budget is borrowed from the oracle leaf and should not be re-counted, or genuine new assertions should justify it."
+      },
+      "message": "Test-token accounting is double-counted across the red-pair group. The oracle leaf (redpair-sanitize-predicate) already budgets 600 test_tokens to author the whole file and explicitly owns all cases; its non_goals state the impl/wireup leaves 'do NOT author the helper module or the wireup' tests. Yet redpair-sanitize-impl claims test_tokens=200 (test_data_requirements: 'No fixtures beyond ... authored in the oracle leaf') and redpair-sanitize-wireup claims test_tokens=300, both listing the SAME e2e case names the oracle authors. So 600+200+300=1100 test_tokens are charged for ~6 cases that physically live in one file authored once. The two harness_self_fix leaves are nominally 'test-heavy' (test_tokens>impl_tokens) only by re-billing the oracle's work; they author zero new test source. Either zero out the reused test budgets or have the impl/wireup leaves add their own assertions."
+    },
+    {
+      "finding_id": "f0a1b2c3d4e5f607",
+      "category": "bad_spec_author",
+      "severity": "info",
+      "field_path": "/tasks/*/spec_author",
+      "message": "spec_author audit: all three tasks set spec_author=null. Each is meta_task_type test_authoring or harness_self_fix and is marked reconciled/derived (attribution_metadata.proposed_by='reconciled'), for which null is correct. No task carries a non-null spec_author that should be null. No violation found in this category."
+    },
+    {
+      "finding_id": "0b1c2d3e4f5a6b78",
+      "category": "dependency_cycle",
+      "severity": "info",
+      "field_path": "/tasks/*/dependencies",
+      "message": "Dependency-cycle audit: edges are redpair-sanitize-predicate -> redpair-sanitize-impl -> redpair-sanitize-wireup (predicate has no deps). The graph is a linear DAG with no back-edges; the wireup's requirement that tests/harness/test_redpair_sanitize_guard.py be GREEN is satisfied transitively (wireup->impl->predicate authors the file). No cycle found. Note: this is acyclic but see finding a1f3c9e2b7d04518 \u2014 the impl leaf's verification_command transitively needs the wireup even though no dependency edge expresses that, which is an ordering/verification mismatch rather than a cycle."
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "task_id": "p11-hunt-triage-findings-impl",
+  "title": "Derive findings evidence key from state prior_findings in build_evidence",
+  "meta_task_type": "state_machine",
+  "priority": "critical",
+  "dependencies": [
+    "p11-hunt-triage-findings-oracle"
+  ],
+  "files_touched": [
+    "ngv2/conductor_seams.py"
+  ],
+  "acceptance_criteria": [
+    "Modifies ngv2/conductor_seams.py by extending the nested build_evidence closure inside build_default_seams.",
+    "Uses a single kind:symbol patch on build_default_seams.",
+    "Derives ev['findings'] from state['prior_findings'] when findings is not in ev and prior_findings is non-empty.",
+    "Omits findings from ev entirely when prior_findings is empty or absent.",
+    "Does not modify ngv2/gate_executor.py."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "low",
+  "verification_command": "python -m pytest tests/ngv2/test_p11_hunt_triage_findings.py -q",
+  "spec": {
+    "objective": "Extend build_evidence nested closure in ngv2/conductor_seams.py to derive evidence['findings'] from state['prior_findings'].",
+    "functional_requirements": [
+      "Derive ev['findings'] from state['prior_findings'] when findings not in ev.",
+      "Omit the findings key entirely from ev when state['prior_findings'] is empty or absent (never set to None or []).",
+      "Ensure no other evidence key, closure, or gate executor logic changes."
+    ],
+    "interfaces": "Internal nested closure build_evidence within build_default_seams in ngv2/conductor_seams.py.",
+    "edge_cases": [
+      "State has no prior_findings, ev['findings'] must be omitted.",
+      "State has non-empty prior_findings, ev['findings'] must contain the list of findings."
+    ],
+    "non_goals": [
+      "Do not touch ngv2/gate_executor.py (integration is out of scope).",
+      "Do not touch transition_planner, hunt_conductor, or any other files."
+    ],
+    "implementation_notes": "Patch build_default_seams using __JANUSMASK_PATCHES__ kind:symbol replacing the enclosing function and adding findings derivation block to build_evidence.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_build_evidence_derives_findings_from_carried_artifacts"
+      },
+      {
+        "name": "test_hunt_triage_advances_not_blocked"
+      },
+      {
+        "name": "test_findings_derivation_composes_with_x1_chain"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [],
+    "regression_tests": [
+      {
+        "name": "test_build_evidence_derives_findings_from_carried_artifacts"
+      },
+      {
+        "name": "test_hunt_triage_advances_not_blocked"
+      }
+    ],
+    "minimum_test_count": 10,
+    "test_data_requirements": "Session state with mock prior_findings containing findings."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 100,
+    "test_tokens": 200,
+    "note": "Implementation involves patching conductor_seams.py; verification uses the authored oracle."
+  },
+  "attribution_metadata": {
+    "proposed_by": "gemini",
+    "reconciled": false,
+    "diff_resolution": null
+  },
+  "_debug_stamping_reason": "Task was only proposed by Gemini.",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2"
+}

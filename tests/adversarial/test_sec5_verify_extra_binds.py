@@ -78,7 +78,7 @@ def test_sec5_verify_extra_binds_orchestrator(tmp_path):
     """Assert orchestrator's verification & mutant runs receive config-driven ro/rw allowlists."""
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    (tmp_path / "JanusMaskJR_staging").mkdir()
+    (tmp_path / "JanusMaskEX_staging").mkdir()
 
     task = _make_task()
     task_id = "sec5_jail_extra_binds_orch"
@@ -93,7 +93,7 @@ def test_sec5_verify_extra_binds_orchestrator(tmp_path):
         proc = mock.MagicMock()
         proc.returncode = 0
         if isinstance(cmd, list) and cmd[:2] == ["git", "rev-parse"]:
-            proc.stdout = str(tmp_path / "JanusMaskJR")
+            proc.stdout = str(tmp_path / "JanusMaskEX")
             proc.stderr = ""
         else:
             proc.stdout = ""
@@ -125,7 +125,7 @@ def test_sec5_verify_extra_binds_orchestrator(tmp_path):
          mock.patch("shutil.copytree"), \
          mock.patch("shutil.rmtree"), \
          mock.patch("os.symlink"):
-        (tmp_path / "JanusMaskJR").mkdir(exist_ok=True)
+        (tmp_path / "JanusMaskEX").mkdir(exist_ok=True)
         orch._auto_commit_accepted(state_dir, task, task_id)
 
     # We expect exactly three calls to build_jail_argv under mutation gate:
@@ -204,7 +204,7 @@ def test_sec5_verify_extra_binds_default_config(tmp_path):
     """Assert that when allowlists are omitted, defaults are cleanly used and no extra binds occur."""
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    (tmp_path / "JanusMaskJR_staging").mkdir()
+    (tmp_path / "JanusMaskEX_staging").mkdir()
 
     task = _make_task()
     task_id = "sec5_jail_extra_binds_default"
@@ -219,7 +219,7 @@ def test_sec5_verify_extra_binds_default_config(tmp_path):
         proc = mock.MagicMock()
         proc.returncode = 0
         if isinstance(cmd, list) and cmd[:2] == ["git", "rev-parse"]:
-            proc.stdout = str(tmp_path / "JanusMaskJR")
+            proc.stdout = str(tmp_path / "JanusMaskEX")
             proc.stderr = ""
         else:
             proc.stdout = ""
@@ -250,7 +250,7 @@ def test_sec5_verify_extra_binds_default_config(tmp_path):
          mock.patch("shutil.copytree"), \
          mock.patch("shutil.rmtree"), \
          mock.patch("os.symlink"):
-        (tmp_path / "JanusMaskJR").mkdir(exist_ok=True)
+        (tmp_path / "JanusMaskEX").mkdir(exist_ok=True)
         orch._auto_commit_accepted(state_dir, task, task_id)
 
     assert len(build_jail_calls) >= 3, f"Expected at least 3 build_jail_argv calls, got {len(build_jail_calls)}"

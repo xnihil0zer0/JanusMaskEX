@@ -1,0 +1,24 @@
+==============================================================================
+AGENT-A: escape-hatch _force_smoke_gated_leaf_impl root-cause proof
+==============================================================================
+
+[precond] external test file exists: True  (/home/xnihil0zer0/NobleGreedv2/tests/ngv2/test_wire_loopback_per_cwe_channels.py)
+
+[1] survivor impl meta_task_type after escape-hatch: 'data_model'
+    (oracle collapsed? surviving task count = 2; expect 1 -- oracle dropped)
+
+[2] CURRENT data_model policy (production): {'bypass_fuzzer': False, 'skip_structural_decomp': True}
+    data_model in BYPASS_FUZZER_TYPES (prod) : False
+    => runtime gate for the retyped survivor : DIFF-FUZZED
+
+[3] SIMULATED pre-flip data_model policy      : {'bypass_fuzzer': True, 'skip_structural_decomp': True}
+    => runtime gate for the retyped survivor : BYPASS (smoke/embedded/narrow gate -- NOT diff-fuzzed)
+
+[4] DEFECT: identical external red-pair, identical escape-hatch retyping
+      BEFORE flip (data_model bypass=True) : BYPASS (smoke/embedded/narrow gate -- NOT diff-fuzzed)
+      AFTER  flip (data_model bypass=False): DIFF-FUZZED
+
+==============================================================================
+RESULT: PASS -- escape-hatch retypes external impl survivor to data_model;
+        the data_model True->False flip turns its gate BYPASS->DIFF-FUZZED.
+==============================================================================

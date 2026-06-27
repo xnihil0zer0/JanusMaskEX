@@ -4,7 +4,7 @@ import os
 import shutil
 from typing import List
 from typing import Optional
-DEFAULT_REPOS = ['/home/xnihil0zer0/JanusMaskJR', '/home/xnihil0zer0/NobleGreedv2']
+DEFAULT_REPOS = ['/home/xnihil0zer0/AI-Data/JanusMaskEX', '/home/xnihil0zer0/NobleGreedv2']
 SENTINEL = '# >>> janusmask-drive-backup >>>'
 
 @dataclass
@@ -93,7 +93,7 @@ def main(argv: Optional[List[str]]=None, *, fs=None) -> int:
     try:
         janusmask_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     except NameError:
-        janusmask_root = '/home/xnihil0zer0/JanusMaskJR'
+        janusmask_root = '/home/xnihil0zer0/AI-Data/JanusMaskEX'
     parser = argparse.ArgumentParser(description='Install drive-backup hooks.')
     parser.add_argument('--dry-run', action='store_true', help='Dry run mode')
     parser.add_argument('repos', nargs='*', help='Optional repository path overrides')

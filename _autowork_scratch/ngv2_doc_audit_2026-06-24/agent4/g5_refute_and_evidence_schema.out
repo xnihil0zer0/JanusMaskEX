@@ -1,0 +1,28 @@
+==============================================================================
+(a) REFUTE: is LoopbackListener now WIRED (P1.3 leaf-2)?
+==============================================================================
+   production importers: [('_loopback_netns.py', 'PROD'), ('loopback_listener.py', 'PROD'), ('poc_runner_live.py', 'PROD'), ('workers/_runner.py', 'PROD')]
+   -> REFUTED candidate: loopback IS wired
+
+==============================================================================
+(b) NEW: env-FSM evidence schema (c0 content_hash) vs gate_executor flat evidence
+==============================================================================
+   gate_executor imports phase_artifact_hash / advance_gate (c0)?  False
+   gate_executor imports PHASE_ORDER from fsm_evidence?            True
+   flat evidence keys the gates require: ['approval', 'call_sites', 'detonation_report', 'expected_signature', 'findings', 'novelty_result', 'poc_source', 'pre_existing', 'report_artifact', 'sink_name', 'sink_presence', 'sink_reachability', 'source_ready', 'structural', 'submission_result', 'target_import_names', 'target_source', 'triage_result', 'verify_result']
+   none of these is a content_hash'd env artifact -> the c0 content-hash
+   model (advance_gate) is NOT how transitions are actually adjudicated.
+
+   build_evidence emits the detonate->novelty gate keys?
+      target_source: YES
+      expected_signature: YES
+      sink_name: YES
+      call_sites: YES
+      detonation_report: YES
+
+==============================================================================
+(c) Are the OTHER pre-named GAP5 candidates already DOC-COVERED?
+==============================================================================
+   gap-analysis: npm_dep_staging=YES  two-actor authz(285/639/862/863)=YES  loopback wiring P1.3=YES
+   contract: npm_dep_staging=YES  two-actor authz(285/639/862/863)=YES  loopback wiring P1.3=YES
+   -> these three are ENUMERATED deliverables (P3.2-c4, P3.1, P1.3) => NOT missed.

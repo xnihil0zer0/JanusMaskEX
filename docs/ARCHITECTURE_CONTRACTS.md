@@ -1,4 +1,4 @@
-# JanusMaskJR — Architecture Contracts & Intent (ADR)
+# JanusMaskEX — Architecture Contracts & Intent (ADR)
 
 Status: Accepted (living reference) · Scope: harness synthesis/commit pipeline
 invariants · Audience: future contributors (human or agent).

@@ -19,7 +19,7 @@ It deliberately IGNORES the internal jailed-agent dirs
 import sys, os, json, glob, re, argparse, collections
 
 DEFAULT_GLOBS = [
-    "/home/xnihil0zer0/.claude/projects/-home-xnihil0zer0-JanusMaskJR/*.jsonl",
+    "/home/xnihil0zer0/.claude/projects/-home-xnihil0zer0-AI-Data-JanusMaskEX/*.jsonl",
     "/home/xnihil0zer0/.claude/projects/-home-xnihil0zer0/*.jsonl",
 ]
 

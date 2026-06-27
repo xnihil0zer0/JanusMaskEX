@@ -41,7 +41,7 @@ The redundancy hunt proved several "done" fixes were **partial**, so the gap res
 Memory claims poc_writer CWE-template coverage is THE NGv2 e2e blocker. **False against current code.** `ngv2/poc_writer.py:378-382` now templates 9 CWEs incl. the two highest-volume live findings (CWE-22 ×13, CWE-918 ×8). The real binding blocker is the **unwired `LoopbackListener`**: `detonate_live` (`poc_runner_live.py:192-271`) never starts it / injects its port / checks its sentinel, so every SSRF (CWE-918) PoC connects to a dead port → `refuted` → fail-closed. **The correct next brief is wiring the loopback listener into the detonation jail, NOT the held CWE-expansion epic.** This invalidates §8 item 6 below.
 
 ### 0.55 Provenance of every code site this plan intends to change (git-verified 2026-06-16)
-Repo age: JanusMaskJR first commit **2026-05-20** (27 days old); NobleGreedv2 separate repo. So *nothing* here is "months" old — the oldest target is 27 days. File created = first commit creating the file (`--diff-filter=A`); Symbol introduced = commit that added the function; Symbol last touched = most recent commit touching that **symbol's** line span (`git log -L`).
+Repo age: JanusMaskEX first commit **2026-05-20** (27 days old); NobleGreedv2 separate repo. So *nothing* here is "months" old — the oldest target is 27 days. File created = first commit creating the file (`--diff-filter=A`); Symbol introduced = commit that added the function; Symbol last touched = most recent commit touching that **symbol's** line span (`git log -L`).
 
 | # | Code site this plan changes | File created | Symbol introduced | Symbol last touched | Trust-core? |
 |---|---|---|---|---|---|
@@ -97,7 +97,7 @@ This section is the current execution state — the keystone fix, the live-syste
 - `state/control/git_commit.lock` — holds a dead pid (verify with `ps`/`kill -0`); a stale lock wedges commits.
 - `state/tasks/blocked/{daemon-wake-impl,mfapb-2-…}.retry.json` — both at attempts==2 and at/past the 3600s backoff, so both fire attempt-3 on the next unpaused dispatch; clearing resets the budget so the keystone-fixed tasks get a clean run. (There is NO `mfapb-3` retry sidecar and NO `daemon-wake-impl.json` blocked dict — do not look for them. Both outcomes `worker_crash_orphan`/`auto_commit_failed` ∉ `_DETERMINISTIC_OUTCOMES` → `effective_max=3`.)
 - the `state/output/*.py` sidecars (+ any `.patches.json`/`.files.json`) for the staged slugs.
-- the 4 orphan gemini workdirs `JanusMaskJR_agentwork/gemini/gemini-r1-daemon-wake-impl-*` (sibling of the repo).
+- the 4 orphan gemini workdirs `JanusMaskEX_agentwork/gemini/gemini-r1-daemon-wake-impl-*` (sibling of the repo).
 - staged specs `state/tasks/mfapb-2-…json` + `state/tasks/mfapb-3-…json` (dispatch-ready fuel that fires against the un-landed fix on resume), plus in-flight `state/planning/{brief.json,amendment_report.json}` and the stale `state/STATE.json` gemini_status. (The 849 `state/tasks/processed/` markers are NOT armed for this batch — the mfapb/daemon-wake/loopback slugs have no colliding marker; only `impl-/oracle-plan-normalizer` do, which the keystone slug must avoid.)
 
 **Allowlist.** `auto_promote.allowlist` (`state/control/autowork/`) already has active `daemon_backoff_aware_wake` and `multifile_additive_patch_bundle`. Absent and to be added: `daemon_wake_oracle` (brief exists), the not-yet-authored keystone slug, and `ngv2_loopback`.
@@ -117,7 +117,7 @@ This section is the current execution state — the keystone fix, the live-syste
 
 The factory's dominant failure mode is **fail-silent, not fail-loud.** When the pipeline hits a problem — a malformed brief, an orphaned blocked task, an un-templatable finding, an exhausted approval ceiling, an `empty_plan` whose real reason is buried under log noise — it does not crash and it does not alert. It *quietly stalls or fails closed*, in a way often indistinguishable from normal "nothing to do" or "no bug found." A human (or, in practice, an operator agent) then has to notice, dig out the real reason, fix the root cause, and run the fix through.
 
-Two cross-cutting audits (`JanusMaskJR/AUTONOMY_GAPS.md` — 12 gaps; `NobleGreedv2/AUTONOMY_GAPS.md` — 16 gaps) independently converged on this: **there is no single component that notices a problem and takes initiative to remedy it.** The existing self-heal is toothless — it can diagnose but its corrective brief requires operator promotion to ever run (see §7).
+Two cross-cutting audits (`JanusMaskEX/AUTONOMY_GAPS.md` — 12 gaps; `NobleGreedv2/AUTONOMY_GAPS.md` — 16 gaps) independently converged on this: **there is no single component that notices a problem and takes initiative to remedy it.** The existing self-heal is toothless — it can diagnose but its corrective brief requires operator promotion to ever run (see §7).
 
 ### What this is NOT
 A passive "operator-action queue" that surfaces problems to a human inbox is the **wrong** answer. It just relocates the stall. The system should *rarely* need a human.

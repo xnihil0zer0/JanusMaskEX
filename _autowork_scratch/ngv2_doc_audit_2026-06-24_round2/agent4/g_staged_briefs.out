@@ -1,0 +1,32 @@
+=== c4/c5/c6/c7/cP briefs staged anywhere in JM? ===
+/home/xnihil0zer0/JanusMaskJR/brief_hooks_p21_c1_fsm_detect.md
+
+=== existing p21 brief artifacts (what HAS been authored) ===
+/home/xnihil0zer0/JanusMaskJR/brief_hooks_p21_c1_fsm_detect.md
+
+/home/xnihil0zer0/JanusMaskJR/_autowork_scratch/ngv2_fsm/:
+conductor_seams.py
+drive_poc_srclayout.py
+gate_executor.py
+hunt_lead_client.py
+poc_worker.py
+poc_writer.py
+__pycache__
+run_hunt.py
+_runner.py
+stage_command_map.py
+
+=== ngv2_fsm scratch dir contents ===
+total 136
+drwxrwxr-x  3 xnihil0zer0 xnihil0zer0  4096 Jun 24 18:13 .
+drwxrwxr-x 60 xnihil0zer0 xnihil0zer0 12288 Jun 24 20:18 ..
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0 15763 Jun 24 18:13 conductor_seams.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  1188 Jun 24 18:13 drive_poc_srclayout.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  4270 Jun 24 18:13 gate_executor.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  7532 Jun 24 18:13 hunt_lead_client.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0 18489 Jun 24 18:13 poc_worker.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0 32042 Jun 24 18:13 poc_writer.py
+drwxrwxr-x  2 xnihil0zer0 xnihil0zer0  4096 Jun 14 10:45 __pycache__
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  4293 Jun 24 18:13 run_hunt.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0 12866 Jun 24 18:13 _runner.py
+-rw-rw-r--  1 xnihil0zer0 xnihil0zer0  2408 Jun 24 18:13 stage_command_map.py

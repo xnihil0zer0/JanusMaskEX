@@ -11,7 +11,7 @@ _archive/
 .agents/
 # AGENT-ISOLATION §3.1: per-agent isolated workdirs live OUTSIDE the repo
 # (<repo>_agentwork sibling) so this entry is belt-and-suspenders only.
-JanusMaskJR_agentwork/
+JanusMaskEX_agentwork/
 
 # pytest-testmon impact-selection DB (local, do not commit)
 .testmondata

@@ -23,11 +23,11 @@ if repo_root is None:
             repo_root = decomposer_path.resolve().parents[1]
             break
     else:
-        repo_root = Path('/home/xnihil0zer0/JanusMaskJR_agentwork/claude_fallback/claude_fallback-r1-decomposer-propagate-files-touched-oracle-a6ab61e5/inbox/targets')
+        repo_root = Path('/home/xnihil0zer0/AI-Data/JanusMaskEX_agentwork/claude_fallback/claude_fallback-r1-decomposer-propagate-files-touched-oracle-a6ab61e5/inbox/targets')
 if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
-if '/home/xnihil0zer0/JanusMaskJR' not in sys.path:
-    sys.path.insert(0, '/home/xnihil0zer0/JanusMaskJR')
+if '/home/xnihil0zer0/AI-Data/JanusMaskEX' not in sys.path:
+    sys.path.insert(0, '/home/xnihil0zer0/AI-Data/JanusMaskEX')
 
 def load_decomposer():
     decomposer_path = repo_root / 'harness' / 'task_decomposer.py'

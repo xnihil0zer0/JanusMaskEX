@@ -1,0 +1,69 @@
+{
+  "responses": [
+    {"diff_item_id": "__critique__", "stance": "amend"}
+  ],
+  "findings": [
+    {
+      "finding_id": "missing-edge-module-docstring",
+      "category": "missing_edge_case",
+      "severity": "error",
+      "task_id": "RB_JR_ast_merge_future_imports_placement",
+      "field_path": "/tasks/0/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "Target module begins with a module docstring at tgt_tree.body[0] (an ast.Expr wrapping an ast.Constant of type str). Unconditionally inserting a __future__ import at index 0 demotes the docstring to a regular string-expression statement and changes module.__doc__ to None. PEP 236 permits future statements to follow the module docstring, so the correct insertion index is 1 when body[0] is a docstring, else 0. Add a regression test asserting that a target whose first body element is a docstring retains __doc__ after merge while still placing __future__ imports legally."
+      },
+      "message": "The acceptance criteria and edge_cases list never address the module-docstring case. Inserting at index 0 unconditionally will (a) break module.__doc__ and (b) is unnecessary because PEP 236 explicitly allows __future__ imports to follow the docstring. The implementation_notes should branch on _is_bare_string_expr(tgt_tree.body[0]) (or equivalent) and offset the insertion by 1; the test_spec should include a regression test with a docstring-bearing target."
+    },
+    {
+      "finding_id": "missing-edge-multiple-future-ordering",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "RB_JR_ast_merge_future_imports_placement",
+      "field_path": "/tasks/0/spec/edge_cases/2",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "When a submission introduces multiple __future__ imports, inserting each at index 0 in iteration order reverses their relative order in the merged body. The brief currently waves this away ('the relative ordering between them is not asserted'). Replace with a deterministic rule: either insert at the running 'next_future_idx' counter so submission order is preserved, or append after the last existing __future__ import. Add a unit test that asserts submission order survives in the merged body."
+      },
+      "message": "The edge_cases entry for multiple __future__ imports explicitly declines to specify ordering. That is a real functional ambiguity, not a corner case — dict iteration order in CPython 3.7+ is deterministic, so the reversed ordering will reliably ship to disk and surprise reviewers diffing merged files. Pin the contract and test it."
+    },
+    {
+      "finding_id": "missing-edge-guard-idx-interaction-with-dep-ordering",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "RB_JR_ast_merge_future_imports_placement",
+      "field_path": "/tasks/0/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_case": "The dependency-ordering block at lines 379-390 may already have inserted nodes into tgt_tree.body and removed them from out_nodes before the drain loop runs. The brief never tests a case where a __future__ import survives that block (it would, because __future__ imports don't reference other agent-block names) AND the target body has been mutated by a prior dependency-ordering insert that shifted guard_idx. Add a test where the agent block contains a __future__ import plus a name-bound class referenced by an existing target node, so the dependency-ordering insert fires AND the drain-loop future-import branch fires in the same merge call."
+      },
+      "message": "guard_idx is recomputed at line 391 after the dependency-ordering inserts, so the math is correct, but the interaction is non-obvious and untested. A test exercising both paths in one call protects against future refactors that hoist guard_idx computation above line 391."
+    },
+    {
+      "finding_id": "test-heavy-ratio-thin",
+      "category": "test_heavy_violation",
+      "severity": "warn",
+      "task_id": "RB_JR_ast_merge_future_imports_placement",
+      "field_path": "/tasks/0/token_budget_ratio",
+      "suggested_patch": {
+        "op": "increase_test_count",
+        "new_minimum_test_count": 13,
+        "new_test_tokens": 1200,
+        "rationale": "Bring test:impl ratio from 2.25x to 3.0x to cover the docstring, ordering, and dep-ordering-interaction edge cases identified above."
+      },
+      "message": "test_tokens=900 against implementation_tokens=400 yields a 2.25x test ratio, which is thin for a refactor that touches AST merge semantics — historically the riskiest area of harness/git_integration.py. The missing edge cases (module docstring, multiple-future ordering, dep-ordering interaction) need at least three more tests, which pushes the budget toward 3x."
+    },
+    {
+      "finding_id": "non-goal-conflict-with-regression-test",
+      "category": "other",
+      "severity": "info",
+      "task_id": "RB_JR_ast_merge_future_imports_placement",
+      "field_path": "/tasks/0/spec/non_goals/4",
+      "suggested_patch": {
+        "op": "add_non_goal",
+        "clarification": "Reword 'Do not reorder or dedupe existing __future__ imports already present in the target body' to clarify that the EXISTING namespace-collision dedup at lines 359-367 is relied upon for the duplicate-import regression test, and the non-goal only forbids ADDING new dedup logic in the drain loop."
+      },
+      "message": "The non_goals entry 'Do not reorder or dedupe existing __future__ imports' reads as if dedup is forbidden, but the regression test 'test_existing_future_import_in_target_not_duplicated_when_submission_repeats_it' depends on the existing namespace-collision dedup at lines 359-367. The two are reconcilable but the wording invites a future maintainer to delete the dedup. Tighten the non-goal."
+    }
+  ]
+}

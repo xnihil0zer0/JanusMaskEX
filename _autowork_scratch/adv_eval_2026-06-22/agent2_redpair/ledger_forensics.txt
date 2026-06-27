@@ -1,0 +1,8 @@
+=== LEDGER FORENSICS (state/impl_progress.jsonl), targets-dir tasks ===
+94da1ff: oracle test file WAS committed (redpair accepted RED, exit 0) at 06:47:51Z
+ad54e44: 'Remove stale targets_dir oracle to unblock clean re-author' -> file removed
+7x oracle 'skip: in-iteration conflict with targets-dir-convention-impl' (dedup defers oracle)
+impl task_blocked: outcome=auto_commit_failed; reject_rollback files=[harness/target_bootstrap.py, config/target_bootstrap.yaml] (harness+config mix trips auto-approve gate)
+FINAL live state: impl blocked 22:04:12Z; oracle verification_failed->blocked 22:04:55Z (43s later, impl already in blocked/)
+Both currently in state/tasks/blocked/ with .retry.json {attempts:1,last_outcome:auto_commit_failed}; NO .exhausted markers; plan_attempts=3
+Live: resolve_target_path/_read_targets_dir ABSENT from harness/target_bootstrap.py (oracle still RED vs live); test file ABSENT on disk

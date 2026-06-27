@@ -1,0 +1,8 @@
+{
+  "task_id": "config-schema-oracle",
+  "command": "python -m pytest tests/webui/test_config_schema.py -q",
+  "outcome": "passed",
+  "exit_code": 0,
+  "stdout": "...........                                                              [100%]\n=============================== warnings summary ===============================\ntests/webui/test_config_schema.py::test_webui_config_schema_is_wired\n  <unknown>:11: SyntaxWarning: invalid escape sequence '\\ '\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n11 passed, 1 warning in 4.99s\n",
+  "stderr": ""
+}

@@ -1,0 +1,42 @@
+=== fsm_evidence.py FULL (c0 scaffold — holds PHASE_ORDER + ENV_PHASE_ORDER?) ===
+     1	import hashlib
+     2	import json
+     3	from typing import Any, Tuple
+     4	PHASE_ORDER: Tuple[str, ...] = ('source', 'hunt', 'triage', 'verify', 'poc', 'detonate', 'novelty', 'report', 'awaiting_submission', 'submitted', 'done')
+     5	ENV_PHASE_ORDER: Tuple[str, ...] = ('detect', 'provision', 'jail_build', 'health_probe', 'reachability_probe', 'baseline_capture')
+     6	
+     7	def phase_artifact_hash(artifact: Any) -> str:
+     8	    """Compute a deterministic SHA-256 hash for the artifact."""
+     9	    s = json.dumps(artifact, sort_keys=True, separators=(',', ':'), default=str)
+    10	    return hashlib.sha256(s.encode('utf-8')).hexdigest()
+    11	
+    12	def advance_gate(artifact: Any) -> dict:
+    13	    """Enforce fail-closed check on artifact presence, dict type, and correct content hash."""
+    14	    if not isinstance(artifact, dict):
+    15	        return {'advance': False, 'terminal': 'missing_evidence'}
+    16	    if 'content_hash' not in artifact:
+    17	        return {'advance': False, 'terminal': 'missing_evidence'}
+    18	    expected_hash = artifact['content_hash']
+    19	    if not isinstance(expected_hash, str) or not expected_hash:
+    20	        return {'advance': False, 'terminal': 'missing_evidence'}
+    21	    try:
+    22	        artifact_copy = dict(artifact)
+    23	        artifact_copy.pop('content_hash', None)
+    24	        computed_hash = phase_artifact_hash(artifact_copy)
+    25	    except Exception:
+    26	        return {'advance': False, 'terminal': 'missing_evidence'}
+    27	    if computed_hash == expected_hash:
+    28	        return {'advance': True, 'terminal': ''}
+    29	    else:
+    30	        return {'advance': False, 'terminal': 'hash_mismatch'}
+=== g2: _INITIAL_PHASE in run_hunt.py ===
+61:_INITIAL_PHASE = 'hunt'
+81:    state: Dict[str, Any] = {'session_id': session_id, 'phase': _INITIAL_PHASE, 'repo': repo, 'target': target_path, 'db_path': db_path, 'findings': 0, 'pocs': 0, 'reports': 0, 'artifacts': []}
+ngv2/session_api.py:46:_INITIAL_PHASE = 'hunt'
+ngv2/run_hunt.py:61:_INITIAL_PHASE = 'hunt'
+
+=== g2: ENV_PHASE_ORDER definition + all references in ngv2/ (non-test) ===
+ngv2/fsm_jail_build.py:3:from ngv2.fsm_evidence import phase_artifact_hash, advance_gate, ENV_PHASE_ORDER
+ngv2/fsm_provision.py:3:from ngv2.fsm_evidence import phase_artifact_hash, advance_gate, ENV_PHASE_ORDER
+ngv2/fsm_evidence.py:5:ENV_PHASE_ORDER: Tuple[str, ...] = ('detect', 'provision', 'jail_build', 'health_probe', 'reachability_probe', 'baseline_capture')
+ngv2/fsm_detect.py:2:from ngv2.fsm_evidence import phase_artifact_hash, advance_gate, ENV_PHASE_ORDER

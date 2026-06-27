@@ -1,0 +1,362 @@
+[
+ {
+  "commit": "06833ea3d",
+  "status": "M",
+  "file": "harness/autowork_daemon.py",
+  "symbol": "_soonest_blocked_retry_deadline",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "f66762c01",
+  "status": "M",
+  "file": "harness/planner/plan_normalizer.py",
+  "symbol": "_inject_integration_contracts",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "5ab79d8d5",
+  "status": "M",
+  "file": "harness/wire_up.py",
+  "symbol": "validate_exemption",
+  "floor_intro": false,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "d8e489986",
+  "status": "M",
+  "file": "harness/wire_up.py",
+  "symbol": "detonate_oracle",
+  "floor_intro": false,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "2e8f2e93f",
+  "status": "M",
+  "file": "harness/wire_up.py",
+  "symbol": "symbol_reachable_from_live_root",
+  "floor_intro": false,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "6bdaa8415",
+  "status": "M",
+  "file": "harness/orchestrator.py",
+  "symbol": "_wire_up_runtime_gate_enforce_enabled",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "9a724b695",
+  "status": "M",
+  "file": "harness/orchestrator.py",
+  "symbol": "_wire_up_runtime_gate_enabled",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "6fb413fde",
+  "status": "M",
+  "file": "harness/wire_up.py",
+  "symbol": "new_top_level_callables",
+  "floor_intro": false,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "6b14ef951",
+  "status": "M",
+  "file": "harness/orchestrator.py",
+  "symbol": "_restrict_sidecar_to_declared",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "c2b7c83e1",
+  "status": "M",
+  "file": "harness/diff_fuzzer.py",
+  "symbol": "_candidates_are_self_clone",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "d5ff0511a",
+  "status": "M",
+  "file": "harness/git_integration.py",
+  "symbol": "_finalize_existing_py_target",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "e2f105161",
+  "status": "M",
+  "file": "harness/orchestrator.py",
+  "symbol": "_promote_fallback_candidate",
+  "floor_intro": false,
+  "exists_head": true,
+  "gt_head_reachable": false
+ },
+ {
+  "commit": "a400a38cf",
+  "status": "M",
+  "file": "harness/sandbox.py",
+  "symbol": "_jailed_popen",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "c6224c485",
+  "status": "M",
+  "file": "harness/state_reconciler.py",
+  "symbol": "_watchdog_bump_attempt",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "c6224c485",
+  "status": "M",
+  "file": "harness/state_reconciler.py",
+  "symbol": "_watchdog_cfg_section",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "c6224c485",
+  "status": "M",
+  "file": "harness/state_reconciler.py",
+  "symbol": "_watchdog_config",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "c6224c485",
+  "status": "M",
+  "file": "harness/state_reconciler.py",
+  "symbol": "_watchdog_enabled",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "c6224c485",
+  "status": "M",
+  "file": "harness/state_reconciler.py",
+  "symbol": "_watchdog_ledger_newest",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "c6224c485",
+  "status": "M",
+  "file": "harness/state_reconciler.py",
+  "symbol": "_watchdog_parse_iso",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "c6224c485",
+  "status": "M",
+  "file": "harness/state_reconciler.py",
+  "symbol": "_watchdog_terminate",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "c6224c485",
+  "status": "M",
+  "file": "harness/state_reconciler.py",
+  "symbol": "_watchdog_truthy",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "c6224c485",
+  "status": "M",
+  "file": "harness/state_reconciler.py",
+  "symbol": "_watchdog_write_escalation",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "c6224c485",
+  "status": "M",
+  "file": "harness/state_reconciler.py",
+  "symbol": "detect_and_heal_stalls",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "c6224c485",
+  "status": "M",
+  "file": "harness/state_reconciler.py",
+  "symbol": "reap_spent_briefs",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "7f392c914",
+  "status": "M",
+  "file": "harness/planner/blind_draft.py",
+  "symbol": "_coerce_task_priorities",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "98e5fd1e4",
+  "status": "M",
+  "file": "harness/autowork_daemon.py",
+  "symbol": "_daemon_source_sha",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "98e5fd1e4",
+  "status": "M",
+  "file": "harness/autowork_daemon.py",
+  "symbol": "_should_reload_daemon",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "c33f80828",
+  "status": "M",
+  "file": "harness/orchestrator.py",
+  "symbol": "_seed_claude_config_dir",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "184cc8f30",
+  "status": "M",
+  "file": "harness/autowork_daemon.py",
+  "symbol": "_claude_parallel_cap",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "184cc8f30",
+  "status": "M",
+  "file": "harness/autowork_daemon.py",
+  "symbol": "_seed_claude_config_dir",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "8cebe55f9",
+  "status": "M",
+  "file": "harness/test_author.py",
+  "symbol": "get_assigned_names",
+  "floor_intro": false,
+  "exists_head": true,
+  "gt_head_reachable": false
+ },
+ {
+  "commit": "8cebe55f9",
+  "status": "M",
+  "file": "harness/test_author.py",
+  "symbol": "is_descendant_of_any",
+  "floor_intro": false,
+  "exists_head": true,
+  "gt_head_reachable": false
+ },
+ {
+  "commit": "8cebe55f9",
+  "status": "M",
+  "file": "harness/test_author.py",
+  "symbol": "is_literal_absence_assert_expr",
+  "floor_intro": false,
+  "exists_head": true,
+  "gt_head_reachable": false
+ },
+ {
+  "commit": "8cebe55f9",
+  "status": "M",
+  "file": "harness/test_author.py",
+  "symbol": "is_self_source_expr",
+  "floor_intro": false,
+  "exists_head": true,
+  "gt_head_reachable": false
+ },
+ {
+  "commit": "8cebe55f9",
+  "status": "M",
+  "file": "harness/test_author.py",
+  "symbol": "repair_selfref_assertions",
+  "floor_intro": false,
+  "exists_head": true,
+  "gt_head_reachable": false
+ },
+ {
+  "commit": "2049f78fd",
+  "status": "M",
+  "file": "harness/target_bootstrap.py",
+  "symbol": "_external_venv_dir",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "2049f78fd",
+  "status": "M",
+  "file": "harness/target_bootstrap.py",
+  "symbol": "_jailed_install_argv",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "2049f78fd",
+  "status": "M",
+  "file": "harness/target_bootstrap.py",
+  "symbol": "_resolve_target_interpreter",
+  "floor_intro": true,
+  "exists_head": true,
+  "gt_head_reachable": true
+ },
+ {
+  "commit": "f2837eb02",
+  "status": "M",
+  "file": "harness/agy_pool.py",
+  "symbol": "assert_pool_invariant",
+  "floor_intro": false,
+  "exists_head": true,
+  "gt_head_reachable": false
+ },
+ {
+  "commit": "f2837eb02",
+  "status": "M",
+  "file": "harness/agy_pool.py",
+  "symbol": "effective_pool_size",
+  "floor_intro": false,
+  "exists_head": true,
+  "gt_head_reachable": false
+ }
+]

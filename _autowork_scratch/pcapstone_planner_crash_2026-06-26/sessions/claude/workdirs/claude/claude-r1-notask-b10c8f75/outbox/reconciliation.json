@@ -1,0 +1,20 @@
+{
+  "responses": [
+    {
+      "diff_item_id": "4ddc3dfc17229e52b8bab7ada5e5820228a13f19",
+      "stance": "defend"
+    },
+    {
+      "diff_item_id": "b0f397a2eab526941d6818868caa81930e1b5f98",
+      "stance": "defend"
+    },
+    {
+      "diff_item_id": "6b555ac54f8af3c9d98f4e77a0f4feb5b3acaa27",
+      "stance": "concede"
+    },
+    {
+      "diff_item_id": "e79687ecb8e6614f18edc08c169bf43459b33c28",
+      "stance": "concede"
+    }
+  ]
+}

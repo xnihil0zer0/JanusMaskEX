@@ -1,0 +1,33 @@
+========================================================================
+s2: wire-up per-symbol static floor portability (X13 / §5.5 RELIES-ON-NOOP)
+========================================================================
+JM LIVE_ROOTS (hardcoded default): ['harness/orchestrator.py', 'harness/orchestrator_worker.py', 'harness/autowork_daemon.py', 'harness/planner/cli.py']
+
+External fixture root: /tmp/s2_extfix_a5rjirlp
+  pkg/util.py::helper  -- reached from entry.py __main__
+  pkg/dead.py::orphan_never_called -- zero callers
+
+(1) helper, DEFAULT JM roots (orchestrator behavior): floor=False
+    expected for a CORRECT portable gate: True (it IS wired).
+    >>> FALSE POSITIVE (the no-op the doc warns of)
+
+(2) helper, roots=['entry.py'] (target-derived root): floor=True
+
+(3) orphan, DEFAULT roots: floor=False   roots=['entry.py']: floor=False
+
+--- live config / call-site facts ---
+  config: wire_up_gate: true
+  config: wire_up_runtime_gate: false
+  config: wire_up_runtime_gate_enforce: false
+  orchestrator floor call sites:
+     _floor_reachable = bool(symbol_reachable_from_live_root(staging_path, rel, _vsym))
+       passes roots=: False
+
+=== VERDICT ===
+>>> X13 is STILL RED: with default JM roots the floor false-positives a
+>>> genuinely-wired external symbol as orphan; only an explicit target-
+>>> derived root fixes it, and the orchestrator passes NO roots=.
+>>> => §5 gate #5 / P1.3 / P3.1 'assert a non-test importer' acceptance
+>>>    CANNOT be enforced by the per-symbol floor on external NGv2.
+
+(fixture left at /tmp/s2_extfix_a5rjirlp for inspection)

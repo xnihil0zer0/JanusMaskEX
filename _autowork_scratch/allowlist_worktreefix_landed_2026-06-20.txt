@@ -1,0 +1,5 @@
+# FOCUSED ALLOWLIST 2026-06-20 — only the worktree-teardown rc=128 root-cause fix.
+# Diagnosed (prune-before-remove deletes the dangling admin entry -> remove rc=128),
+# brief+RED oracle authored & locally validated, oracle pre-committed (0aaadf5),
+# RED-on-parent independently confirmed 4/4. Deny-all backup: allowlist_pre_eval_2026-06-20.txt
+worktree_teardown_remove_before_prune

@@ -1,0 +1,92 @@
+{
+  "task_id": "stale-reconcile-serialization-lock-impl",
+  "title": "GREEN impl: NEW harness/state_reconciler.py exposing state_reconcile_lock; brief_reaper wraps its move under it",
+  "meta_task_type": "harness_self_fix",
+  "priority": "high",
+  "dependencies": [],
+  "files_touched": [
+    "harness/state_reconciler.py",
+    "tools/brief_reaper.py"
+  ],
+  "acceptance_criteria": [
+    "NEW file harness/state_reconciler.py is created via whole-file __JANUSMASK_MANIFEST__ (this is the file-creating leaf).",
+    "harness/state_reconciler.py exposes state_reconcile_lock(state_dir) as a context manager that acquires and releases the single dedicated lock file state_dir/control/autowork/state_reconcile.lock.",
+    "state_reconcile_lock is distinct from git_commit.lock: it never opens, acquires, or releases state_dir/control/autowork/git_commit.lock.",
+    "tools/brief_reaper.py is edited additively to wrap its archive move in `with state_reconcile_lock(state_dir):`, deriving state_dir as <repo_root>/state.",
+    "The slow destructive (move) section runs under state_reconcile_lock and NEVER under git_commit.lock; behavior is fail-closed and the reaper stays fully fail-safe (returns [] on any error).",
+    "The oracle test file tests/harness/test_state_reconcile_lock.py is GREEN after this lands.",
+    "test_spec.regression_tests has >= 2 entries."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/harness/test_state_reconcile_lock.py -q",
+  "spec": {
+    "objective": "Create the NEW harness/state_reconciler.py and the single shared serialization primitive state_reconcile_lock(state_dir), then make tools/brief_reaper.py acquire that shared lock around its move \u2014 turning the oracle GREEN while honoring the ONE-SHARED-LOCK invariant.",
+    "functional_requirements": [
+      "Create harness/state_reconciler.py via a whole-file __JANUSMASK_MANIFEST__ defining a @contextmanager state_reconcile_lock(state_dir) that opens/creates state_dir/control/autowork/state_reconcile.lock (mkdir parents exist_ok), takes an exclusive fcntl.flock(LOCK_EX), yields, and releases (LOCK_UN + close) in a finally so two callers serialize on this ONE dedicated lock.",
+      "state_reconcile_lock is distinct from git_commit.lock: it only ever touches state_reconcile.lock and never opens/acquires/releases git_commit.lock, so a slow destructive section held under it leaves git_commit.lock free.",
+      "Edit tools/brief_reaper.py additively so its archive move (the _move_no_clobber calls / dest mkdir + moves) runs inside `with state_reconcile_lock(state_dir):`, importing state_reconcile_lock from harness.state_reconciler and computing state_dir = root / 'state'.",
+      "Keep the reaper fully fail-safe and fail-closed: lock acquisition or release errors are contained so reap_for_task still returns [] on any unexpected error and never raises; the move section is never run under git_commit.lock."
+    ],
+    "interfaces": "state_reconcile_lock(state_dir) -> context manager acquiring/releasing the single dedicated state_dir/control/autowork/state_reconcile.lock (in harness/state_reconciler.py); distinct from git_commit.lock; the slow destructive section is held under it but NEVER under git_commit.lock. tools/brief_reaper.py wraps its move in `with state_reconcile_lock(state_dir):`.",
+    "edge_cases": [
+      "fcntl unavailable: import it in-body and degrade so the context manager still yields (best-effort advisory lock) without raising, matching the daemon's in-body fcntl convention.",
+      "state_dir or control/autowork/ missing: create parents with mkdir(parents=True, exist_ok=True) before opening the lock file.",
+      "Exception raised inside the `with` body: the lock is still released in a finally (LOCK_UN + close) so a later mutator can acquire it.",
+      "brief_reaper called when archive=False or when nothing matches: the lock wrap must not change the existing early-return behavior and must never strand the source (MOVE NEVER DELETE).",
+      "Must never raw-edit git_commit.lock or any semantic marker; the lock file is created/locked via os.open + fcntl only."
+    ],
+    "non_goals": [
+      "integration: NO live-daemon run; correctness is proven by the hermetic oracle, not an end-to-end daemon drive.",
+      "Does NOT implement classify_product, the discriminators, cleanup_state, disk reapers, prepare_workspace, or any status logic \u2014 ONLY the lock primitive plus the reaper's acquisition of it.",
+      "Does NOT acquire or hold git_commit.lock across the slow section; does NOT use git mv; does NOT rewrite brief bytes or touch brief mtime.",
+      "Does NOT raw-edit a semantic marker (pause/full_stop/inactivity_escalated.json/live allowlist/git_commit.lock) and does NOT flip the autowork.state_reconcile flag."
+    ],
+    "implementation_notes": "Model the lock-file location and fcntl usage on harness/autowork_daemon.py:_acquire_commit_lock_or_reclaim (state_dir/control/autowork/<name>.lock, in-body `import fcntl`, os.open(O_RDWR|O_CREAT, 0o644)). state_reconcile_lock should be a simple blocking @contextmanager (from contextlib) yielding after LOCK_EX and releasing in finally \u2014 the slow op runs inside it but it must never touch git_commit.lock. In tools/brief_reaper.py, add `from harness.state_reconciler import state_reconcile_lock` (local/top-level import) and wrap only the move/dest-creation block (lines that mkdir dest and call _move_no_clobber) in `with state_reconcile_lock(root / 'state'):`, leaving the ground-truth integration checks above it unchanged. Whole-file harness/state_reconciler.py via __JANUSMASK_MANIFEST__ (file-creating leaf); brief_reaper edit is additive."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_state_reconcile_lock_creates_and_locks_dedicated_file"
+      },
+      {
+        "name": "test_state_reconcile_lock_is_not_git_commit_lock"
+      },
+      {
+        "name": "test_brief_reaper_move_runs_under_state_reconcile_lock"
+      },
+      {
+        "name": "test_brief_reaper_remains_fail_safe_on_lock_error"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [
+      {
+        "name": "test_lock_serializes_repeated_concurrent_acquirers"
+      }
+    ],
+    "regression_tests": [
+      {
+        "name": "test_oracle_test_state_reconcile_lock_is_green"
+      },
+      {
+        "name": "test_brief_reaper_existing_reap_for_task_behavior_unchanged"
+      }
+    ],
+    "minimum_test_count": 6,
+    "test_data_requirements": "tmp_path repo_root with state/control/autowork/ created on demand; synthesized brief_hooks_/plan_hooks_ pairs plus state/impl_progress.jsonl for the reaper regression; no live state/, no network."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 280,
+    "test_tokens": 420,
+    "note": "Implementation is the new lock primitive plus the additive brief_reaper wrap; tests dominate to lock in the shared-mutex and git_commit-distinction invariants."
+  },
+  "attribution_metadata": {
+    "proposed_by": "reconciled",
+    "reconciled": true,
+    "diff_resolution": "reconciled"
+  },
+  "_debug_stamping_reason": "Task was divergent and resolved via reconciliation.",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+  "repair_feedback": "event=verification_failed\nexit=4\nstdout_tail:\n\nno tests ran in 0.00s\n\nstderr_tail:\nERROR: file or directory not found: tests/harness/test_state_reconcile_lock.py\n\n"
+}

@@ -1,0 +1,5 @@
+=== AST: non-test, non-handler-file IMPORTS of c1/c2/c3 handlers/modules ===
+  (NONE)
+
+=== AST: non-test, non-handler-file CALL sites of detect()/provision_gate()/jail_build_gate() ===
+  (ZERO CALL SITES -> handlers are import-only / never invoked in production)

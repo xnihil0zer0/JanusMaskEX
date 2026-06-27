@@ -1,0 +1,4 @@
+....                                                                     [100%]
+4 passed in 0.22s
+HEAD is now at ca5dd7e Replace co-hallucinated tmux_worker oracle with real PTY-API contract
+{"task_id": "tmux-worker-pty-rebuild", "outcome": "rejected", "reason": "auto_commit_failed"}

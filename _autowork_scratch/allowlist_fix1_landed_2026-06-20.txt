@@ -1,0 +1,6 @@
+# FOCUSED ALLOWLIST 2026-06-20 — only the single-agent promotion invalid-peer ceiling-waive fix.
+# Fix #1 for claudecap: _single_agent_promotion_decision drops the dead (structurally-unreachable)
+# ceiling block so a valid+approved survivor promotes when the peer is AST-invalid (symmetric with
+# 45f6380 absent-peer waive). orchestrator_worker.py is NOT irreducible -> no decision file needed.
+# Oracle ac65566 RED-on-parent verified. claudecap oracle staged aside until this lands.
+singleagent_promotion_invalid_peer_waive

@@ -1,0 +1,15 @@
+=== D1: semantic_verdict empty-sig (M2) ===
+  [empty sig] -> 'refuted'   (kw.expected_fs_signature='')
+  [whitespace sig] -> 'refuted'   (kw.expected_fs_signature='   ')
+  [real sig present] -> 'confirmed'   (kw.expected_fs_signature='pwned_canary')
+
+=== D1: is the nonce REQUIRED or merely OPT-IN on the live confirm path? ===
+  (a) semantic_verdict(real sig, NO nonce arg)            -> 'confirmed'
+  (b) semantic_verdict(real sig, nonce='RUNNONCE...' ABSENT) -> 'refuted'
+  (c) DetonationChamber.detonate(...) verdict             -> 'confirmed'
+      -> Does detonate() even ACCEPT a nonce?  False
+  (d) semantic_verdict(.., nonce PRESENT in evidence)     -> 'confirmed'
+
+=== VERDICT ===
+M2 (empty-sig refuses): CONFIRMED
+M4-b (nonce dead/opt-in on live verdict path): CONFIRMED — live confirm with NO nonce

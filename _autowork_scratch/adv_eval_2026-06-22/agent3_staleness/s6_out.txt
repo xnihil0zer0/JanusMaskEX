@@ -1,0 +1,18 @@
+guard                       S_landed          S_corrected       S_fresh_under_currentS_touch_only      
+----------------------------------------------------------------------------------------------------
+current mtime<              WRONG(REQUEUE)    OK                OK                WRONG(REQUEUE)    
+FIX accept-sha != plan-sha  OK                OK                OK                OK                
+
+correct per scenario:
+  S_landed (BUG today: KEEP)         -> KEEP
+  S_corrected (FEATURE: REQUEUE)     -> REQUEUE
+  S_fresh_under_current (KEEP)       -> KEEP
+  S_touch_only (KEEP)                -> KEEP
+
+  current mtime<              : WRONG on some scenario
+  FIX accept-sha != plan-sha  : ALL CORRECT
+
+Note: the accept-sha fix needs a PRODUCER change to record the brief sha
+in the accept ledger row (orchestrator.py ~:3260) + a CONSUMER guard that
+compares it to the plan's current source_brief_sha256. It is immune to the
+git-stash-pop mtime touch AND correctly fires after a real brief correction.

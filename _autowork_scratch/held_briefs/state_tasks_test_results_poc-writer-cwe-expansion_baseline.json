@@ -1,0 +1,8 @@
+{
+  "task_id": "poc-writer-cwe-expansion",
+  "command": "python -m pytest tests/test_poc_writer_cwe_expansion.py tests/test_poc_writer_cwe94_cwe22.py tests/test_poc_writer_wired.py -q",
+  "outcome": "failed",
+  "exit_code": 4,
+  "stdout": "\nno tests ran in 0.01s\n",
+  "stderr": "ERROR: file or directory not found: tests/test_poc_writer_cwe_expansion.py\n\n"
+}

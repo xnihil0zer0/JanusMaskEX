@@ -1,0 +1,58 @@
+=== bare :NNN continuation refs (e.g. sandbox.py:892, :1077, :1281) ===
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:171::1077
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:171::1281
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:175::1077
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:175::1281
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:402::813
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:481::2347
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:482::2323
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:485::2317
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:485::2317
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:485::2347
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:485::2362
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:676::66
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:748::2317
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:754::2323
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:59::1077
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:59::1281
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:153::435
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:153::1077
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:153::1281
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:160::813
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:231::1077
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:231::1281
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:326::1077
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:326::1281
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:447::1077
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:447::1281
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:478::66
+
+=== sandbox.py actual sites for 1077 / 1281 (file len?) ===
+1557 /home/xnihil0zer0/JanusMaskJR/harness/sandbox.py
+            "PYTHONHASHSEED": self.config.python_hash_seed,
+
+--- grep Sandbox.execute / execute_batch / _spawn_worker / Popen (doc says these are 892/1077/1281) ---
+34:class SandboxEncoder(json.JSONEncoder):
+97:class SandboxConfig:
+172:    class SandboxEncoder(json.JSONEncoder):
+329:    class SandboxEncoder(json.JSONEncoder):
+796:def _jailed_popen(cmd: list[str], *, cwd: str, env: dict[str, str], repo_root: Path | None=None, state_dir: Path | None=None, **popen_kwargs) -> subprocess.Popen:
+804:        return subprocess.Popen(jailed_argv, cwd=cwd, env=env, **popen_kwargs)
+806:        return subprocess.Popen(cmd, cwd=cwd, env=env, **popen_kwargs)
+807:def _safe_close_proc(proc: subprocess.Popen | None) -> None:
+825:class Sandbox:
+847:    def execute(
+1005:class BatchRunner:
+1029:    def execute_batch(
+1255:class BatchWorkerPool:
+1278:    def _spawn_worker(self, worker_id: int):
+
+=== orchestrator.py cites in docs (2347, 2323) verify content ===
+                    uncovered = sorted((_s for _s in new_syms if _s not in _exempt and (not (_contract_valid and _s in _csymbols))))
+                                _floor_reachable = bool(symbol_reachable_from_live_root(staging_path, rel, _vsym))
+--- doc-A also said orchestrator.py:2969/3072/3104/3126 (build_jail_argv sites) ---
+432:        cmd = agent_jail.build_jail_argv(cmd, repo_root=_jail_repo_root, work_dir=env['JANUSMASK_WORK_DIR'], state_dir=env['JANUSMASK_STATE_DIR'], dbus_proxy_socket=_dbus_sock, extra_ro=_external_jail_extra_ro(_jail_repo_root), home=env.get('HOME'))
+3031:                        vproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _vfull], repo_root=worktree_root, work_dir=staging_path, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro) + _ext_venv_ro, extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock, bind_credentials=False), cwd=str(staging_path), capture_output=True, text=True, timeout=verification_timeout, env=_venv_jail_env())
+3134:                                    _bproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _bfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro) + _ext_venv_ro, extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock, bind_credentials=False), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_venv_jail_env())
+3166:                                        _ap = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _afull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro) + _ext_venv_ro, extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock, bind_credentials=False), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_venv_jail_env())
+3188:                                        _mproc = subprocess.run(agent_jail.build_jail_argv(['/bin/bash', '-c', _rfull], repo_root=worktree_root, work_dir=_mcopy, state_dir=state_dir, extra_ro=[sys.base_prefix, sys.prefix] + list(verify_extra_ro) + _ext_venv_ro, extra_rw=list(verify_extra_rw), dbus_proxy_socket=_sock, bind_credentials=False), cwd=_mcopy, capture_output=True, text=True, timeout=verification_timeout, env=_venv_jail_env())

@@ -1,0 +1,17 @@
+Answer-key VALUE leak CLOSED at: 2026-06-24 10:50:15-04:00  (JM commit 3f9af36)
+
+commit    commit-time (NGv2)          PRE/POST leak-fix  desc
+eb113f5   2026-06-24T11:17:04-04:00   post-fix           P1.1 xproc-middle-phase impl (conductor_seams)
+fe8384c   2026-06-24T12:24:47-04:00   post-fix           P1.1 hunt-triage-findings impl
+aa718c9   2026-06-24T12:54:48-04:00   post-fix           P1.2 detonation-verdict-provenance impl (detonation.py)
+80722d6   2026-06-24T13:16:48-04:00   post-fix           P1.3 wire-loopback impl
+5ab82c2   2026-06-24T15:55:41-04:00   post-fix           P1.2 classify-poc-authenticity-provenance
+2a83d06   2026-06-24T16:16:08-04:00   post-fix           P1.3 leaf-2 loopback (HAND-EDIT)
+dc07188   2026-06-24T19:00:00-04:00   post-fix           P2.1 c0 fsm-evidence scaffold
+e6a7f38   2026-06-24T19:45:11-04:00   post-fix           P2.1 c3 fsm-jail-build impl
+59b8b15   2026-06-24T19:49:51-04:00   post-fix           P2.1 c2 fsm-provision impl
+203d007   2026-06-24T19:55:34-04:00   post-fix           P2.1 c1 fsm-detect impl
+
+NOTE: commit-time is the NGv2 integration time, NOT the JM synth time; an
+impl committed AFTER 10:50 could still have been PLANNED (task.json generated
+with leaked notes) before. The textual-echo check (d6) is the robust test.

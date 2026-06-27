@@ -1,0 +1,133 @@
+========================================================================
+1. PLAN_KICKOFF WALL-TIME DISTRIBUTION (successful plans, from impl_progress.jsonl)
+========================================================================
+total plan_kickoff rows: 53   with wall= detail: 53
+  count = 53
+  min   = 51.6s
+  p25   = 91.9s
+  median= 118.9s
+  mean  = 468.9s
+  p75   = 646.6s
+  p90   = 1574.0s
+  max   = 1791.1s
+  histogram:
+          <60s: 3
+       60-180s: 33
+      180-400s: 3
+      400-800s: 2
+     800-1500s: 2
+       >=1500s: 10
+
+  plan_timeout rows: 7  (last 5):
+    ts=1782126213.064246 targets_dir_convention timeout=1800s
+    ts=1782128020.3875613 targets_dir_convention timeout=1800s
+    ts=1782129827.6877599 targets_dir_convention timeout=1800s
+    ts=1782143422.861589 manifest_drop_undeclared_keys timeout=1800s
+    ts=1782145229.9722505 manifest_drop_undeclared_keys timeout=1800s
+  planner_validation_rejected rows: 32  (last 3):
+    ts=1782076574.08445 p11_build_evidence_perphase wall=1150.4 reason=rc=2 stderr_tail=ap[0m\n2026-06-21T17:16:13   [38;5;141m[1mORCH[0m [38;5;208m[1mCLAUDE_FALLBACK[0m [38;5;245mwaiting for submission...[0m\n2026-06-21T17:16:13   [38;5;141m[1mORCH[0m [38;5;208m[1mCLAUDE_FALLBACK[0m [38;5;82mplanning artifact received[0m [2m(
+    ts=1782083243.9229407 p11_build_evidence_perphase wall=1625.2 reason=rc=-15 stderr_tail=:23   [38;5;141m[1mORCH[0m [38;5;208m[1mCLAUDE_FALLBACK[0m [38;5;196mdied without submitting (code 0)[0m\nclaude_fallback agent died (rc=0) without submitting\n2026-06-21T19:02:23   [38;5;141m[1mORCH[0m [38;5;208m[1mCLAUDE_FALLBACK[0m [2malrea
+    ts=1782085411.434598 agy_communicate_pipe_eof_fastfail wall=1081.6 reason=rc=-9 stderr_tail=:20   [38;5;141m[1mORCH[0m [38;5;208m[1mCLAUDE_FALLBACK[0m [38;5;196mdied without submitting (code 0)[0m\nclaude_fallback agent died (rc=0) without submitting\n2026-06-21T19:43:20   [38;5;141m[1mORCH[0m [38;5;208m[1mCLAUDE_FALLBACK[0m [2malrea
+
+  --- last 12 plan_kickoff (chronological) ---
+    ts=1782097456.2260563  wall=1525.8  label=p11_build_evidence_impl_thread_flags
+    ts=1782101725.338697  wall=1635.8  label=restore_differential_fuzzing
+    ts=1782104549.458507  wall=1711.0  label=restore_differential_fuzzing
+    ts=1782110659.813625  wall=1791.1  label=targets_dir_convention
+    ts=1782115058.60189  wall=1391.1  label=targets_dir_convention
+    ts=1782117113.9055326  wall=1785.1  label=targets_dir_convention
+    ts=1782118626.1482513  wall=1505.0  label=targets_dir_convention
+    ts=1782124405.8151064  wall=1688.3  label=targets_dir_convention
+    ts=1782131694.1912284  wall=1565.1  label=targets_dir_convention
+    ts=1782136311.2430587  wall=1574.0  label=targets_dir_convention
+    ts=1782146747.9529984  wall=1511.0  label=manifest_drop_undeclared_keys
+    ts=1782150912.3526561  wall=795.3  label=planlat_probe
+
+========================================================================
+2. PER-STAGE BREAKDOWN — last 8 plans (stage_end_ts diffs)
+========================================================================
+(delta = time from this stage's record to the NEXT stage's record)
+
+  plan span  1654.1s  (load_brief -> adversarial_review, 6 stages)  start_ts=1782126220
+      load_brief                0.0s  
+      blind_drafts           1243.9s  ##################################################
+      diff                      0.0s  
+      reconciliation          410.1s  #########################################
+      attribution_stamp         0.1s  
+      adversarial_review      (end)
+
+  plan span  1075.0s  (load_brief -> reconciliation, 4 stages)  start_ts=1782128028
+      load_brief                0.0s  
+      blind_drafts           1075.0s  ##################################################
+      diff                      0.0s  
+      reconciliation          (end)
+
+  plan span  1564.9s  (load_brief -> persist_plan, 8 stages)  start_ts=1782130129
+      load_brief                0.0s  
+      blind_drafts           1003.4s  ##################################################
+      diff                      0.0s  
+      reconciliation          348.5s  ##################################
+      attribution_stamp         0.0s  
+      adversarial_review      212.9s  #####################
+      auto_amend_gate           0.0s  
+      persist_plan            (end)
+
+  plan span  1573.8s  (load_brief -> persist_plan, 8 stages)  start_ts=1782134737
+      load_brief                0.0s  
+      blind_drafts            795.5s  ##################################################
+      diff                      0.0s  
+      reconciliation          442.9s  ############################################
+      attribution_stamp         0.0s  
+      adversarial_review      335.3s  #################################
+      auto_amend_gate           0.0s  
+      persist_plan            (end)
+
+  plan span  1558.8s  (load_brief -> adversarial_review, 6 stages)  start_ts=1782141623
+      load_brief                0.0s  
+      blind_drafts           1197.6s  ##################################################
+      diff                      0.0s  
+      reconciliation          361.2s  ####################################
+      attribution_stamp         0.0s  
+      adversarial_review      (end)
+
+  plan span  1644.8s  (load_brief -> adversarial_review, 6 stages)  start_ts=1782143430
+      load_brief                0.0s  
+      blind_drafts           1132.0s  ##################################################
+      diff                      0.0s  
+      reconciliation          512.8s  ##################################################
+      attribution_stamp         0.0s  
+      adversarial_review      (end)
+
+  plan span  1510.8s  (load_brief -> persist_plan, 8 stages)  start_ts=1782145237
+      load_brief                0.0s  
+      blind_drafts            997.1s  ##################################################
+      diff                      0.0s  
+      reconciliation          302.7s  ##############################
+      attribution_stamp         0.0s  
+      adversarial_review      210.9s  #####################
+      auto_amend_gate           0.0s  
+      persist_plan            (end)
+
+  plan span   795.1s  (load_brief -> persist_plan, 8 stages)  start_ts=1782150117
+      load_brief                0.0s  
+      blind_drafts            423.5s  ##########################################
+      diff                      0.0s  
+      reconciliation          201.8s  ####################
+      attribution_stamp         0.0s  
+      adversarial_review      169.8s  ################
+      auto_amend_gate           0.0s  
+      persist_plan            (end)
+
+========================================================================
+3. AGGREGATE STAGE SHARE across last 30 complete plans (load_brief..persist_plan)
+========================================================================
+complete plans analyzed: 30 (of 2541 total complete)
+stage                  n     sum_s   mean_s  median_s  share%
+load_brief            30       0.3      0.0       0.0     0.0
+blind_drafts          30   13731.7    457.7     293.2    60.0
+diff                  31       0.7      0.0       0.0     0.0
+reconciliation        31    6020.6    194.2      77.2    26.3
+attribution_stamp     31       0.4      0.0       0.0     0.0
+adversarial_review    31    3144.9    101.4       5.4    13.7
+auto_amend_gate       31       2.2      0.1       0.0     0.0
+TOTAL                      22900.9

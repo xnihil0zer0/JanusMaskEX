@@ -1,0 +1,88 @@
+{
+  "task_id": "selfheal_05_integration_loop_closure",
+  "title": "Integration/behavioral acceptance: the self-heal loop closes on a correctable failure",
+  "meta_task_type": "test_integration",
+  "priority": "high",
+  "dependencies": [
+    "selfheal_01_capture_ast_reason",
+    "selfheal_02_module_and_flag",
+    "selfheal_03_wire_harvest_and_eligibility",
+    "selfheal_04_restage_same_task_corrective"
+  ],
+  "files_touched": [
+    "tests/adversarial/test_selfheal_integration_loop.py"
+  ],
+  "acceptance_criteria": [
+    "This is the closed-loop seam check (P-I/P-IV): it imports the REAL harness.selfheal + harness.autowork_daemon modules and drives the actual _auto_promote path end-to-end on a CORRECTABLE failure (a bare-except AST-rule violation that explicit guidance fixes -- NOT a deterministic Gemini-eval case, which needs P5 we are NOT building).",
+    "It asserts harness/selfheal.py exists as a NEW module exporting _harvest_selfheal_briefs / _selfheal_auto_promote_enabled / _is_selfheal_brief, and that the daemon namespace re-exports all three.",
+    "It asserts _auto_promote ACTUALLY INVOKES the harvest (wiring, not a defined-but-uncalled helper): after _auto_promote runs with the flag on and a seeded diagnosing-agent outbox, the dead-letter brief lands in repo_root as brief_hooks_selfheal_<task_id>.md and the selfheal_<task_id> slug is recognized as self-heal-originated WITHOUT the operator allowlist being written.",
+    "It asserts the loop stays OPEN with the flag off (no harvest, repo_root untouched).",
+    "The oracle is already committed at tests/adversarial/test_selfheal_integration_loop.py (RED on HEAD); this task's verification_command is that oracle and it must pass GREEN once S1-S4 land.",
+    "python -m pytest tests/adversarial/test_selfheal_integration_loop.py -q passes."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "low",
+  "verification_command": "python -m pytest tests/adversarial/test_selfheal_integration_loop.py -q",
+  "spec": {
+    "objective": "Prove the §2 self-heal loop CLOSES end-to-end on a correctable failure by driving the real daemon _auto_promote path: capture-reason (S1) -> harvest the diagnosing-agent dead-letter brief into repo_root (S2 module + S3 wiring) -> flag-gated eligibility (S3) -> same-task_id corrective re-stage readiness (S4). This is the integration/behavioral-acceptance deliverable mandated by P-I/P-II so the seam is actually planned and verified, not assumed.",
+    "functional_requirements": [
+      "The integration oracle imports harness.selfheal and harness.autowork_daemon and asserts the new-module + re-export architecture.",
+      "It seeds a diagnosing-agent outbox (the dead-letter brief_hooks_<task_id>_fix.md) and an ast_validation_failed ledger reason for a CORRECTABLE failure (bare-except), monkeypatches agent_workroot, then calls the real _auto_promote and asserts repo_root receives brief_hooks_selfheal_<task_id>.md (harvest is wired and called).",
+      "It asserts the harvested slug is self-heal-originated and eligible under the flag without any allowlist write, and that flag-off leaves the loop open.",
+      "Because S1-S4 are dependencies that gate on ACCEPTED, this task runs against the fully integrated post-commit tree, so a green here means the wiring is real."
+    ],
+    "interfaces": "meta_task_type test_integration is cosmetic (gate-skip bits only); the load-bearing parts are the dependencies spanning S1-S4 (gate on accepted) and the behavioral verification_command. No production code is edited by this task -- the oracle file already exists; if the worker is asked to (re)produce it, it must keep the behavioral assertions described here and remain RED until S1-S4 land.",
+    "edge_cases": [
+      "Run before S1-S4 land -> RED (new module missing, harvest not wired).",
+      "Flag off path -> stays green throughout (loop open today)."
+    ],
+    "non_goals": [
+      "Do NOT spawn live agents (seed the outbox artifact + ledger reason instead).",
+      "Do NOT use a deterministic Gemini-eval case (that needs P5, out of scope).",
+      "Do NOT weaken any AST rule.",
+      "Do NOT set a working_dir front-matter key."
+    ],
+    "implementation_notes": "The oracle is ALREADY AUTHORED and committed at tests/adversarial/test_selfheal_integration_loop.py and is RED on HEAD. This task exists primarily to PLAN the seam check into the DAG (P-I): its dependencies span S1-S4 (gate on accepted) and its verification_command is the behavioral oracle. If the pipeline re-emits the oracle, it must drive the real _auto_promote and assert the harvest file effect + the new-module/re-export wiring (do NOT downgrade to a structural dir()/hasattr-only check).\n\n[ORACLE CONTRACT - test_selfheal_integration_loop.py] test_selfheal_is_a_new_module (harness/selfheal.py exists + exports the 3 helpers); test_daemon_reexports_selfheal_helpers (daemon namespace has all 3); test_closed_loop_harvests_and_makes_eligible_when_flag_on (_auto_promote harvests + slug recognized + no allowlist write); test_closed_loop_stays_open_when_flag_off (already GREEN, must stay green)."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_selfheal_is_a_new_module"
+      },
+      {
+        "name": "test_daemon_reexports_selfheal_helpers"
+      }
+    ],
+    "integration_tests": [
+      {
+        "name": "test_closed_loop_harvests_and_makes_eligible_when_flag_on"
+      },
+      {
+        "name": "test_closed_loop_stays_open_when_flag_off"
+      }
+    ],
+    "property_tests": [],
+    "regression_tests": [
+      {
+        "name": "test_allowlist_promotion_guard_stays_green"
+      }
+    ],
+    "minimum_test_count": 4,
+    "test_data_requirements": "A temp repo_root + state_dir, a seeded diagnosing-agent outbox with brief_hooks_<task_id>_fix.md, an ast_validation_failed ledger row, and config fixtures toggling autowork.selfheal_auto_promote true/false."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 60,
+    "test_tokens": 240,
+    "note": "Integration/seam task: load-bearing parts are the deps (span S1-S4, gate on accepted) + the behavioral vcmd; the oracle is pre-authored."
+  },
+  "attribution_metadata": {
+    "proposed_by": "claude",
+    "reconciled": false,
+    "diff_resolution": null
+  },
+  "_debug_stamping_reason": "Task was only proposed by Claude.",
+  "partial_edit": false,
+  "constraints": {
+    "no_new_module_level_imports": true
+  }
+}

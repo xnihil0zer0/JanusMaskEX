@@ -1,0 +1,22 @@
+=== REAL (current) function ===
+  bug case (sha unchanged, mtime bumped after accept):
+  [REAL] sha_matches=True plan_mtime>accept=True
+      state=queued     plan_stale=False  accepted=[] remaining=['synth-impl', 'synth-oracle']
+  feature case (sha CHANGED):
+  [REAL] sha_matches=False plan_mtime>accept=True
+      state=unplanned  plan_stale=True   accepted=[] remaining=['synth-impl', 'synth-oracle']
+
+=== PATCHED (SHA-gated guard) function ===
+  bug case (sha unchanged, mtime bumped after accept):
+  [PATCHED] sha_matches=True plan_mtime>accept=True
+      state=complete   plan_stale=False  accepted=['synth-impl', 'synth-oracle'] remaining=[]
+  feature case (sha CHANGED):
+  [PATCHED] sha_matches=False plan_mtime>accept=True
+      state=unplanned  plan_stale=True   accepted=[] remaining=['synth-impl', 'synth-oracle']
+
+=== ASSERTIONS ===
+  REAL re-queues landed brief (bug present):                 True
+  PATCHED keeps landed brief accepted+complete (bug fixed):  True
+  PATCHED re-queues SHA-changed brief (feature intact):      True
+
+  VERDICT 3a implementable & correct: True

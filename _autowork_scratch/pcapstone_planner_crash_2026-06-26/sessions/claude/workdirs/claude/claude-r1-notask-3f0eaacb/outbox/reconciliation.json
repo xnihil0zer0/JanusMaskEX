@@ -1,0 +1,167 @@
+{
+  "responses": [
+    {
+      "diff_item_id": "__critique__",
+      "stance": "amend"
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "f001-daemon-escalation-inflated-count",
+      "category": "inflated_benchmark",
+      "severity": "error",
+      "task_id": "daemon_escalation_hook",
+      "field_path": "/tasks/2/test_spec/minimum_test_count",
+      "suggested_patch": {
+        "op": "increase_test_count",
+        "minimum_test_count": 7,
+        "rationale": "Set minimum_test_count to match the actual number of enumerated tests (6 unit + 1 integration), or add three more concrete test entries to honor the claimed 10."
+      },
+      "message": "daemon_escalation_hook claims minimum_test_count: 10 but only enumerates 7 tests (6 unit_tests + 1 integration_test, plus 0 property/regression). The benchmark is inflated by 3 tests; either lower the floor to 7 or add three concrete named tests (e.g., config-missing, subprocess-failure, malformed blocked-task JSON)."
+    },
+    {
+      "finding_id": "f002-self-healing-tests-inflated-count",
+      "category": "inflated_benchmark",
+      "severity": "error",
+      "task_id": "self_healing_tests",
+      "field_path": "/tasks/4/test_spec/minimum_test_count",
+      "suggested_patch": {
+        "op": "increase_test_count",
+        "minimum_test_count": 3,
+        "rationale": "Either lower minimum_test_count to 3 to match the enumerated 2 unit + 1 integration tests, or enumerate seven more concrete test names that don't duplicate coverage already owned by RB_JR_self_heal_history_lookup."
+      },
+      "message": "self_healing_tests claims minimum_test_count: 10 but lists only 3 concrete tests (2 unit_tests + 1 integration). The benchmark is inflated by 7 tests and cannot be measured. Also note the listed tests largely duplicate coverage already paid for by RB_JR_self_heal_history_lookup (which has 8 tests on the same helpers)."
+    },
+    {
+      "finding_id": "f003-self-healing-tests-broken-deps",
+      "category": "dependency_cycle",
+      "severity": "error",
+      "task_id": "self_healing_tests",
+      "field_path": "/tasks/4/dependencies",
+      "suggested_patch": {
+        "op": "add_dependency",
+        "replace_with": [
+          "RB_JR_self_heal_claude_hook",
+          "RB_JR_self_heal_gemini_hook",
+          "RB_JR_self_heal_history_lookup",
+          "daemon_escalation_hook"
+        ],
+        "rationale": "Rename the phantom dependencies to the actual task_ids in this plan; also add the lookup helper and daemon hook since the task explicitly tests them."
+      },
+      "message": "self_healing_tests depends on task_ids 'claude_prompt_history_hook' and 'gemini_prompt_history_hook' which do not exist in this plan. The hook tasks are named RB_JR_self_heal_claude_hook and RB_JR_self_heal_gemini_hook. As written this dependency edge points to nothing and the planner cannot satisfy it. (Not strictly a cycle, but the only structural-dependency defect in the graph.)"
+    },
+    {
+      "finding_id": "f004-claude-hook-empty-edge-cases",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "RB_JR_self_heal_claude_hook",
+      "field_path": "/tasks/1/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_cases": [
+          "Inbox task.json missing files_touched key or set to non-list type.",
+          "self_healing_history.jsonl exists but is empty or contains only blank lines.",
+          "Inbox dir does not yet exist when the hook is invoked on the first prompt.",
+          "files_touched contains absolute or normalized paths that do not match jsonl entries verbatim."
+        ]
+      },
+      "message": "edge_cases is empty even though the spec branches on (a) inbox task body presence, (b) jsonl file existence, and (c) defensive extraction of files_touched. At minimum, missing/non-list files_touched, empty jsonl, and missing inbox dir need to be enumerated so the hook does not crash the first-prompt path."
+    },
+    {
+      "finding_id": "f005-gemini-hook-empty-edge-cases",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "RB_JR_self_heal_gemini_hook",
+      "field_path": "/tasks/0/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_cases": [
+          "Inbox task.json missing files_touched key or set to non-list type.",
+          "self_healing_history.jsonl exists but is empty or contains only blank lines.",
+          "Inbox dir does not yet exist when the hook is invoked on the first prompt.",
+          "systemMessage payload key is absent in the returned shape and must be initialized."
+        ]
+      },
+      "message": "Mirror of f004 for the Gemini hook. edge_cases is empty even though the hook has multiple branch points around inbox/jsonl I/O and a different response-shape contract (systemMessage vs additionalContext)."
+    },
+    {
+      "finding_id": "f006-daemon-escalation-empty-edge-cases",
+      "category": "missing_edge_case",
+      "severity": "error",
+      "task_id": "daemon_escalation_hook",
+      "field_path": "/tasks/2/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_cases": [
+          "config.yaml missing or malformed; control.autobrief_default_agent absent.",
+          "Selected agent has no command/args entry or contains unresolvable placeholders.",
+          "blocked/{task_id}.json missing or missing files_touched/objective fields.",
+          "subprocess.Popen raises (binary missing, permission denied).",
+          "Concurrent writers appending to self_healing_history.jsonl (locking / atomicity).",
+          "_retry_blocked_tasks is invoked again after escalation already ran for the same task (idempotency)."
+        ]
+      },
+      "message": "daemon_escalation_hook touches config loading, subprocess spawn, JSONL append, and retry-budget gating, yet edge_cases is empty. Idempotency (double-escalation) is even covered by an enumerated test (test_retry_blocked_tasks_does_not_double_escalate) without being captured as an edge case in the spec. Concurrent JSONL appends and missing-config paths are not surfaced anywhere."
+    },
+    {
+      "finding_id": "f007-self-healing-tests-empty-edge-cases",
+      "category": "missing_edge_case",
+      "severity": "warn",
+      "task_id": "self_healing_tests",
+      "field_path": "/tasks/4/spec/edge_cases",
+      "suggested_patch": {
+        "op": "add_edge_case",
+        "edge_cases": [
+          "Malformed/blank lines in self_healing_history.jsonl fixture.",
+          "Hook payload missing additionalContext/systemMessage key on first invocation.",
+          "Subprocess.Popen mock raising to verify escalation error path."
+        ]
+      },
+      "message": "self_healing_tests claims to validate 'comprehensive' coverage but enumerates no edge cases. Without these, the test plan cannot prove the negative paths in daemon_escalation_hook and the hook tasks."
+    },
+    {
+      "finding_id": "f008-self-healing-tests-test-heavy",
+      "category": "test_heavy_violation",
+      "severity": "warn",
+      "task_id": "self_healing_tests",
+      "field_path": "/tasks/4/token_budget_ratio",
+      "suggested_patch": {
+        "op": "tighten_token_budget",
+        "implementation_tokens": 0,
+        "test_tokens": 80,
+        "rationale": "Either fold these tests into the owning tasks (history_lookup, daemon_escalation, hook tasks) which already enumerate the same surface, or shrink the budget to a focused integration-only test file."
+      },
+      "message": "self_healing_tests is a pure test_unit task (0 impl tokens / 150 test tokens) whose enumerated tests duplicate coverage already promised by RB_JR_self_heal_history_lookup (8 tests on the same helpers) and daemon_escalation_hook (7 tests on the same flow). This is a test-heavy task with redundant scope rather than incremental coverage; either delete it, fold its unique integration test into one of the owning tasks, or scope it strictly to cross-task integration not already covered."
+    },
+    {
+      "finding_id": "f009-daemon-non-goals-irrelevant",
+      "category": "other",
+      "severity": "info",
+      "task_id": "daemon_escalation_hook",
+      "field_path": "/tasks/2/spec/non_goals",
+      "suggested_patch": {
+        "op": "add_non_goal",
+        "non_goals": [
+          "Do not block _retry_blocked_tasks on the spawned subprocess; escalation must remain fire-and-forget.",
+          "Do not rotate or truncate self_healing_history.jsonl in this task."
+        ]
+      },
+      "message": "The non_goals list mentions 'parallel task scheduling' and 'task promotion gates' which are unrelated to autowork_daemon escalation. More relevant constraints (non-blocking Popen, no jsonl rotation) are absent. The same pasted non_goals appear in self_healing_tests, suggesting boilerplate copy from an unrelated task."
+    },
+    {
+      "finding_id": "f010-history-lookup-non-goals-irrelevant",
+      "category": "other",
+      "severity": "info",
+      "task_id": "RB_JR_self_heal_history_lookup",
+      "field_path": "/tasks/3/spec/non_goals",
+      "suggested_patch": {
+        "op": "add_non_goal",
+        "non_goals": [
+          "Do not mutate or rewrite self_healing_history.jsonl from these helpers; the lookup must be read-only.",
+          "Do not import from harness/hooks/claude or harness/hooks/gemini to keep _paths.py dependency-free."
+        ]
+      },
+      "message": "non_goals references 'parallel task scheduling' and 'task promotion gates' which have no connection to a JSONL read/filter/format helper module. Replace with the read-only contract and dependency-direction constraints that actually matter for this helper."
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+===== P2.1 child slugs in NGv2 git log (all) =====
+203d007 Integrate validated code for p21-c1-fsm-detect-impl
+4f299a1 Integrate validated code for p21-c1-fsm-detect-oracle
+59b8b15 Integrate validated code for p21-c2-fsm-provision-impl
+a27ca22 Integrate validated code for p21-c2-fsm-provision-oracle
+e6a7f38 Integrate validated code for p21-c3-fsm-jail-build-impl
+e4280e1 Integrate validated code for p21-c3-fsm-jail-build-oracle
+dc07188 Integrate validated code for p21-c0-fsm-evidence-scaffold
+9a712e6 Integrate validated code for p21-c0-fsm-scaffold-oracle
+
+===== Search for 0795605 / p02 NGv2 oracle anywhere in JM =====
+(0795605 short-sha search across all JM refs:)
+fatal: Needed a single revision
+2049f78 Integrate validated code for p02-dep-install-jailed-lockfile-impl
+6f08eeb Pre-committed RED oracle for P0.2 g8_dep_install_jailed_lockfile (JanusMask side)

@@ -1,0 +1,115 @@
+{
+  "task_id": "selfheal_02_module_and_flag",
+  "title": "NEW module harness/selfheal.py (harvest/eligibility/marker) + config flag + daemon re-export import",
+  "meta_task_type": "harness_self_fix",
+  "priority": "high",
+  "dependencies": [],
+  "files_touched": [
+    "harness/selfheal.py",
+    "harness/config.yaml",
+    "harness/autowork_daemon.py"
+  ],
+  "acceptance_criteria": [
+    "A NEW module harness/selfheal.py is created exporting three module-level helpers: _selfheal_auto_promote_enabled(config) -> bool, _harvest_selfheal_briefs(state_dir, repo_root, config) -> int, and _is_selfheal_brief(slug) -> bool.",
+    "_selfheal_auto_promote_enabled(config) returns config.get('autowork', {}).get('selfheal_auto_promote', False) with default-deny when the key/section is absent (returns False for {}, {'autowork': {}}).",
+    "_harvest_selfheal_briefs(state_dir, repo_root, config) scans agent outboxes under harness.paths.agent_workroot() for files named brief_hooks_<task_id>_fix.md; ONLY when _selfheal_auto_promote_enabled(config) is true it copies each into <repo_root>/brief_hooks_selfheal_<task_id>.md (deterministic slug selfheal_<task_id>), is idempotent (skip if the dest already exists), returns the count delivered, and is a no-op returning 0 when the flag is false. It must read the workroot via harness.paths.agent_workroot() so the oracle's monkeypatch of agent_workroot takes effect, and must never raise.",
+    "_is_selfheal_brief(slug) returns True iff slug starts with 'selfheal_' (the deterministic harvest prefix), so the eligibility branch in S3 can recognize self-heal-originated briefs without consulting the operator allowlist.",
+    "harness/config.yaml gains autowork.selfheal_auto_promote: false (with a comment that it gates the self-heal closed loop).",
+    "harness/autowork_daemon.py gains a single module-level import line `from harness.selfheal import _selfheal_auto_promote_enabled, _harvest_selfheal_briefs, _is_selfheal_brief` so these names resolve in the autowork_daemon namespace (the existing oracles assert hasattr(harness.autowork_daemon, '_selfheal_auto_promote_enabled') and call d._harvest_selfheal_briefs).",
+    "Both harness/autowork_daemon.py and harness/selfheal.py remain importable at module load; tests/adversarial/test_allowlist_promotion_guard.py stays green (no harness code writes the allowlist).",
+    "python -m pytest tests/adversarial/test_selfheal_flag_eligibility.py tests/adversarial/test_selfheal_harvest_brief.py tests/adversarial/test_allowlist_promotion_guard.py -q passes."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/adversarial/test_selfheal_flag_eligibility.py tests/adversarial/test_selfheal_harvest_brief.py tests/adversarial/test_allowlist_promotion_guard.py -q",
+  "spec": {
+    "objective": "Create the NEW harness/selfheal.py module that owns the self-heal harvest/eligibility/marker logic (REV25 §2 mandated new-module architecture, so the 2400-line autowork_daemon.py only gains a 1-line import), declare the gating config flag, and re-export the helpers into the daemon namespace for backward compatibility with the existing oracles.",
+    "functional_requirements": [
+      "Create harness/selfheal.py with: _selfheal_auto_promote_enabled(config) -> bool; _harvest_selfheal_briefs(state_dir, repo_root, config) -> int; _is_selfheal_brief(slug) -> bool.",
+      "_harvest_selfheal_briefs enumerates agent_workroot()/<agent>/<session>/outbox for brief_hooks_<task_id>_fix.md (agents: claude, gemini, antigravity), and only when the flag is true copies each into <repo_root>/brief_hooks_selfheal_<task_id>.md (slug selfheal_<task_id>); idempotent (skip if dest exists), returns delivered count, never raises, swallows per-file errors and continues.",
+      "Read the workroot via `from harness.paths import agent_workroot` inside _harvest_selfheal_briefs (or reference harness.paths.agent_workroot) so the oracle's monkeypatch of harness.paths.agent_workroot is honored.",
+      "Add autowork.selfheal_auto_promote: false to the autowork section of harness/config.yaml with a clear comment.",
+      "Add the single import line in harness/autowork_daemon.py near the other top-level imports: from harness.selfheal import _selfheal_auto_promote_enabled, _harvest_selfheal_briefs, _is_selfheal_brief."
+    ],
+    "interfaces": "harness/selfheal.py is a leaf module (imports stdlib + harness.paths.agent_workroot only) to avoid an import cycle with autowork_daemon. The daemon import line is module-level (this is the ONE permitted new module-level import; the new-module architecture exists specifically to keep it to one line). _harvest_selfheal_briefs uses shutil/Path copy into repo_root.",
+    "edge_cases": [
+      "Flag absent from config -> _selfheal_auto_promote_enabled treats it as False (default).",
+      "No outboxes or no *_fix.md present -> harvest returns 0, no-op.",
+      "Flag false -> harvest never touches repo_root regardless of outbox contents (returns 0).",
+      "Destination brief_hooks_selfheal_<task_id>.md already exists -> skip (idempotent).",
+      "Partially written / unreadable outbox file or permission error -> swallow per-file error, continue, never raise.",
+      "Importing harness.selfheal must not import autowork_daemon (no cycle)."
+    ],
+    "non_goals": [
+      "Do NOT wire the harvest into _auto_promote here (that is S3) and do NOT add the eligibility branch here (S3).",
+      "Do NOT write or read the operator auto_promote.allowlist anywhere in harness/selfheal.py.",
+      "Do NOT set a working_dir front-matter key in the copied brief.",
+      "Do NOT add more than the single re-export import line to autowork_daemon.py."
+    ],
+    "implementation_notes": "NEW SINGLE-FILE MODULE harness/selfheal.py is the most pipeline-viable pattern (avoids the 'new top-level symbol in a 2400-line file' trap). single_file_edit is FALSE for this task because it also touches harness/config.yaml (one line) and harness/autowork_daemon.py (one import line) - keep those two edits minimal and additive. CRITICAL COMPATIBILITY: the daemon import line MUST bring all three helpers into the autowork_daemon namespace because tests/adversarial/test_selfheal_flag_eligibility.py asserts hasattr(harness.autowork_daemon, '_selfheal_auto_promote_enabled') and tests/adversarial/test_selfheal_harvest_brief.py calls d._harvest_selfheal_briefs(...). The constraints.no_new_module_level_imports default is RELAXED for the single daemon re-export line (it is the architecture).\n\n[ORACLE CONTRACT - test_selfheal_flag_eligibility.py] d._selfheal_auto_promote_enabled({'autowork':{'selfheal_auto_promote':True}}) is True; False / {} / {'autowork':{}} -> False. harness/config.yaml must contain the literal 'selfheal_auto_promote'.\n[ORACLE CONTRACT - test_selfheal_harvest_brief.py] d._harvest_selfheal_briefs(state, repo, cfg) with the flag on writes <repo>/brief_hooks_selfheal_<task_id>.md and returns >=1; a second call returns 0 (idempotent). With the flag off it returns 0 and writes nothing. The oracle seeds <workroot>/<agent>/<agent>-r1-<task_id>-<hex>/outbox/brief_hooks_<task_id>_fix.md and monkeypatches harness.paths.agent_workroot (and d.agent_workroot if present) to return <workroot>."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_flag_helper_true_false_default"
+      },
+      {
+        "name": "test_is_selfheal_brief_prefix"
+      },
+      {
+        "name": "test_harvest_finds_fix_brief_in_outbox"
+      },
+      {
+        "name": "test_harvest_copy_only_when_flag_true"
+      },
+      {
+        "name": "test_harvest_idempotent_skip_when_already_delivered"
+      },
+      {
+        "name": "test_harvest_never_raises_on_bad_outbox"
+      }
+    ],
+    "integration_tests": [
+      {
+        "name": "test_config_declares_selfheal_flag"
+      },
+      {
+        "name": "test_daemon_namespace_reexports_helpers"
+      }
+    ],
+    "property_tests": [
+      {
+        "name": "test_harvest_repeated_ticks_stable"
+      }
+    ],
+    "regression_tests": [
+      {
+        "name": "test_autowork_daemon_module_importable"
+      },
+      {
+        "name": "test_selfheal_module_importable_no_cycle"
+      },
+      {
+        "name": "test_allowlist_promotion_guard_stays_green"
+      }
+    ],
+    "minimum_test_count": 8,
+    "test_data_requirements": "A temp repo_root, a fake agent_workroot outbox containing brief_hooks_<task_id>_fix.md, and config fixtures toggling autowork.selfheal_auto_promote true/false/absent."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 200,
+    "test_tokens": 260,
+    "note": "New leaf module + config line + daemon re-export; tests cover both flag states, idempotency, failure isolation, and the namespace re-export contract."
+  },
+  "attribution_metadata": {
+    "proposed_by": "claude",
+    "reconciled": false,
+    "diff_resolution": null
+  },
+  "_debug_stamping_reason": "Task was only proposed by Claude.",
+  "partial_edit": true,
+  "constraints": {
+    "no_new_module_level_imports": false,
+    "single_file_edit": false
+  }
+}

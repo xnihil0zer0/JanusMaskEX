@@ -1,0 +1,40 @@
+===== NGv2 referenced SHAs =====
+NGv2  eb113f5   OK   2026-06-24 11:17:04 -0400 Integrate validated code for p11-xproc-middle-phase-impl
+NGv2  fe8384c   OK   2026-06-24 12:24:47 -0400 Integrate validated code for p11-hunt-triage-findings-impl
+NGv2  cad0a6e   OK   2026-06-24 12:14:23 -0400 Integrate validated code for p11-hunt-triage-findings-oracle
+NGv2  057310f   OK   2026-06-24 11:09:34 -0400 Integrate validated code for p11-xproc-middle-phase-oracle
+NGv2  5ab82c2   OK   2026-06-24 15:55:41 -0400 Integrate validated code for p12-classify-poc-authenticity-prove
+NGv2  aa718c9   OK   2026-06-24 12:54:48 -0400 Integrate validated code for p12-detonation-verdict-provenance-i
+NGv2  c2f7486   OK   2026-06-24 15:49:13 -0400 Integrate validated code for p12-classify-poc-authenticity-oracl
+NGv2  e10ee24   OK   2026-06-24 12:46:33 -0400 Integrate validated code for p12-detonation-verdict-provenance-o
+NGv2  80722d6   OK   2026-06-24 13:16:48 -0400 Integrate validated code for wire-loopback-per-cwe-channels-impl
+NGv2  2a83d06   OK   2026-06-24 16:16:08 -0400 P1.3 leaf-2: shared-isolated-netns loopback reachability for jai
+NGv2  ce89dc4   OK   2026-06-24 12:58:19 -0400 Integrate validated code for wire-loopback-per-cwe-channels-orac
+NGv2  ed91619   OK   2026-06-21 23:12:03 -0400 Integrate validated code for p11-build-evidence-perphase-impl
+NGv2  fa6a069   OK   2026-06-21 14:49:47 -0400 Integrate validated code for p11-build-evidence-oracle-perphase
+NGv2  a970fc7   OK   2026-06-21 10:06:14 -0400 Integrate validated code for p11-gate-table-typed-terminals
+NGv2  2a11250   OK   2026-06-21 09:32:35 -0400 Integrate validated code for p11-gate-oracle-perphase
+NGv2  731e9b2   OK   2026-06-19 23:59:03 -0400 Integrate validated code for p11-transition-planner-spawn-middle
+NGv2  ac14367   OK   2026-06-19 23:49:09 -0400 Integrate validated code for p11-gate-executor-oracle
+NGv2  9261edc   OK   2026-06-13 21:39:10 -0400 Build ngv2/conductor_seams.build_default_seams (live seam assemb
+NGv2  baf77b4   OK   2026-06-13 12:03:31 -0400 Integrate validated code for ngv2_transition_planner
+NGv2  3f9af36   ABSENT
+NGv2  dc07188   OK   2026-06-24 19:00:00 -0400 Integrate validated code for p21-c0-fsm-evidence-scaffold
+NGv2  9a712e6   OK   2026-06-24 18:57:28 -0400 Integrate validated code for p21-c0-fsm-scaffold-oracle
+NGv2  e6a7f38   OK   2026-06-24 19:45:11 -0400 Integrate validated code for p21-c3-fsm-jail-build-impl
+NGv2  e4280e1   OK   2026-06-24 19:41:15 -0400 Integrate validated code for p21-c3-fsm-jail-build-oracle
+NGv2  a27ca22   OK   2026-06-24 19:46:56 -0400 Integrate validated code for p21-c2-fsm-provision-oracle
+NGv2  59b8b15   OK   2026-06-24 19:49:51 -0400 Integrate validated code for p21-c2-fsm-provision-impl
+NGv2  4f299a1   OK   2026-06-24 19:52:45 -0400 Integrate validated code for p21-c1-fsm-detect-oracle
+NGv2  203d007   OK   2026-06-24 19:55:34 -0400 Integrate validated code for p21-c1-fsm-detect-impl
+
+===== JM referenced SHAs =====
+JM    8ef60e9   OK   2026-06-20 22:05:44 -0400 Integrate validated code for g7-fuzz-jail-credfree-oracle
+JM    a400a38   OK   2026-06-20 22:09:02 -0400 Integrate validated code for g7-fuzz-jail-credfree-impl
+JM    2049f78   OK   2026-06-19 21:56:07 -0400 Integrate validated code for p02-dep-install-jailed-lockfile-imp
+JM    b0d6999   OK   2026-06-20 20:41:45 -0400 Integrate validated code for agy-pool-config-dir-seed-impl
+JM    afea293   OK   2026-06-20 20:40:54 -0400 Integrate validated code for agy-pool-config-dir-seed-oracle
+JM    b47e8ad   OK   2026-06-23 17:21:47 -0400 Flip workers.claude_backend to headless (revert to -p / API-bill
+JM    3f9af36   OK   2026-06-24 10:50:15 -0400 Integrate validated code for stop-oracle-answerkey-leak-impl
+JM    fc8167a   OK   2026-06-23 17:32:42 -0400 Enable autowork.onesided_metamorphic (one-sided metamorphic fuzz
+JM    0795605   ABSENT

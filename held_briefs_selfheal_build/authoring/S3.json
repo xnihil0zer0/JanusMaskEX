@@ -1,0 +1,104 @@
+{
+  "task_id": "selfheal_03_wire_harvest_and_eligibility",
+  "title": "Wire harvest hook into _auto_promote and flag-gated eligibility branch into _auto_promote_brief_eligible",
+  "meta_task_type": "harness_self_fix",
+  "priority": "high",
+  "dependencies": [
+    "selfheal_02_module_and_flag"
+  ],
+  "files_touched": [
+    "harness/autowork_daemon.py"
+  ],
+  "acceptance_criteria": [
+    "_auto_promote (harness/autowork_daemon.py ~:1170) invokes _harvest_selfheal_briefs(state_dir, repo_root, config) as a best-effort step (wrapped in try/except so it never raises out of the daemon tick), BEFORE compute_brief_status is consulted, so a harvested self-heal brief is discoverable on the same tick.",
+    "_auto_promote_brief_eligible (harness/autowork_daemon.py ~:2155) gains a flag-gated OR branch: a slug recognized by _is_selfheal_brief(slug) becomes eligible when _selfheal_auto_promote_enabled(config) is true, WITHOUT consulting or writing _auto_promote_allowlist / auto_promote.allowlist.",
+    "The eligibility function must have the resolved config available to evaluate the flag (thread config to it via its callers at ~:1219 and ~:1332, or load it within); when the flag is false a self-heal slug is NOT eligible and the eligibility computation is byte-identical to today for ALL briefs (allowlist-driven).",
+    "tests/adversarial/test_allowlist_promotion_guard.py stays green: the self-heal eligibility path performs NO read or write of auto_promote.allowlist.",
+    "The decision-JSON gate for self-targeting safety-critical edits is unchanged; harness/autowork_daemon.py remains importable.",
+    "python -m pytest tests/adversarial/test_selfheal_integration_loop.py tests/adversarial/test_allowlist_promotion_guard.py -q passes."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/adversarial/test_selfheal_integration_loop.py tests/adversarial/test_allowlist_promotion_guard.py -q",
+  "spec": {
+    "objective": "Close the harvest+eligibility wiring: make _auto_promote actually CALL the harvest helper each tick (so the diagnosing-agent dead-letter brief is read back into repo_root) and make a harvested self-heal slug auto-promote-eligible under the flag WITHOUT mutating or consulting the operator allowlist.",
+    "functional_requirements": [
+      "In _auto_promote, add a best-effort call to _harvest_selfheal_briefs(state_dir, repo_root, config) wrapped in try/except (mirroring the other best-effort steps such as _retry_blocked_tasks), placed before compute_brief_status(repo_root, state_dir) so a freshly harvested brief is visible on the same iteration.",
+      "In _auto_promote_brief_eligible, add an additional eligibility branch: if _is_selfheal_brief(slug) and _selfheal_auto_promote_enabled(config) -> eligible (still honoring the mtime/age checks), bypassing the allowlist membership test for self-heal slugs only.",
+      "Thread the resolved config into _auto_promote_brief_eligible (its two call sites in _auto_promote at ~:1219 and ~:1332 already have `config` in scope) so the flag can be read; preserve the existing signature defaults and keep all non-self-heal behavior byte-identical.",
+      "Ensure NO code path in the self-heal eligibility branch reads or writes _auto_promote_allowlist / state/control/autowork/auto_promote.allowlist."
+    ],
+    "interfaces": "Calls into harness/selfheal.py helpers re-exported in S2 (_harvest_selfheal_briefs, _is_selfheal_brief, _selfheal_auto_promote_enabled). Edits two EXISTING daemon functions: _auto_promote (add a wrapped call) and _auto_promote_brief_eligible (add an OR branch + a config parameter). No new top-level symbols.",
+    "edge_cases": [
+      "Harvest raises internally -> swallowed by the try/except wrapper; the tick proceeds.",
+      "Flag false -> _is_selfheal_brief slug still falls through to the allowlist test (which it fails unless an operator allowlisted it), so byte-identical to today.",
+      "Non-self-heal slug -> _is_selfheal_brief False -> existing allowlist-driven path unchanged.",
+      "config is None at a call site -> treat as flag-off (default-deny)."
+    ],
+    "non_goals": [
+      "Do NOT create harness/selfheal.py here (done in S2).",
+      "Do NOT write or read auto_promote.allowlist for the self-heal path.",
+      "Do NOT re-stage or edit the escalation prompt here (that is S4).",
+      "Do NOT remove or relax the decision-JSON gate or the runaway ceiling.",
+      "Do NOT set a working_dir front-matter key."
+    ],
+    "implementation_notes": "Two EXISTING-function partial-edits in harness/autowork_daemon.py: (1) _auto_promote ~:1170 -> add `try: _harvest_selfheal_briefs(state_dir, repo_root, config) except Exception: <log/skip>` before the compute_brief_status call; (2) _auto_promote_brief_eligible ~:2155 -> add a `config` param (default None) and an OR branch `if _is_selfheal_brief(slug) and _selfheal_auto_promote_enabled(config or {}): <eligible>` placed so it bypasses ONLY the allowlist membership test, then pass `config` at the two call sites (~:1219, ~:1332). All edits are additive/inline in existing functions (no new top-level symbol) -> pipeline-viable as partial_edit. Note _auto_promote_brief_eligible's signature change adds a keyword-only/defaulted param so existing callers/tests that omit it still work.\n\n[ORACLE CONTRACT - test_selfheal_integration_loop.py::test_closed_loop_harvests_and_makes_eligible_when_flag_on] After d._auto_promote(repo, state, {'autowork':{'selfheal_auto_promote':True}}) with a seeded outbox + monkeypatched agent_workroot, <repo>/brief_hooks_selfheal_<task_id>.md MUST exist (proves harvest is CALLED), d._is_selfheal_brief('selfheal_<task_id>') is True, and no auto_promote.allowlist file is written. test_closed_loop_stays_open_when_flag_off must stay green (flag off -> no harvest)."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_selfheal_slug_eligible_when_flag_true"
+      },
+      {
+        "name": "test_selfheal_slug_not_eligible_when_flag_false"
+      },
+      {
+        "name": "test_eligibility_does_not_consult_allowlist_for_selfheal"
+      },
+      {
+        "name": "test_non_selfheal_eligibility_unchanged"
+      }
+    ],
+    "integration_tests": [
+      {
+        "name": "test_auto_promote_invokes_harvest_best_effort"
+      },
+      {
+        "name": "test_harvested_brief_discoverable_by_compute_brief_status"
+      },
+      {
+        "name": "test_auto_promote_harvest_never_raises"
+      }
+    ],
+    "property_tests": [
+      {
+        "name": "test_flag_false_eligibility_byte_identical"
+      }
+    ],
+    "regression_tests": [
+      {
+        "name": "test_allowlist_promotion_guard_stays_green"
+      },
+      {
+        "name": "test_autowork_daemon_module_importable"
+      }
+    ],
+    "minimum_test_count": 8,
+    "test_data_requirements": "A temp repo_root + seeded outbox, config fixtures with the flag true/false, a normal allowlisted brief, and a spy asserting auto_promote.allowlist is never read/written by the self-heal path."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 150,
+    "test_tokens": 240,
+    "note": "Two additive inline edits to existing daemon functions; tests prove the harvest is wired (called from _auto_promote) and the allowlist invariant."
+  },
+  "attribution_metadata": {
+    "proposed_by": "claude",
+    "reconciled": false,
+    "diff_resolution": null
+  },
+  "_debug_stamping_reason": "Task was only proposed by Claude.",
+  "partial_edit": true,
+  "constraints": {
+    "no_new_module_level_imports": true
+  }
+}

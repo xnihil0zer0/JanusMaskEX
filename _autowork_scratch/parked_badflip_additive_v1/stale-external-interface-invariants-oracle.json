@@ -1,0 +1,100 @@
+{
+  "task_id": "stale-external-interface-invariants-oracle",
+  "title": "Oracle: prepare_workspace(root) external-interface invariants (RED on HEAD)",
+  "meta_task_type": "test_authoring",
+  "mutation_target": "harness.state_reconciler",
+  "priority": "high",
+  "dependencies": [
+    "stale-external-interface-invariants-impl"
+  ],
+  "files_touched": [
+    "tests/harness/test_prepare_workspace_invariants.py"
+  ],
+  "acceptance_criteria": [
+    "A single new pytest oracle file tests/harness/test_prepare_workspace_invariants.py is added.",
+    "The oracle drives prepare_workspace(root) over hermetic synthesized git and non-git roots in their own tmp_path (no live state/, no network, no live daemon).",
+    "Oracle FAILS (RED) on HEAD because prepare_workspace does not yet exist / does not enforce the gates.",
+    "Oracle asserts the fail-CLOSED invariant: a non-git root is treated DIRTY and refused, independent of target_bootstrap._is_dirty's clean-on-non-git answer.",
+    "Oracle asserts ownership, allowlist, dirty, and STAGED_UNMERGED refusal gates.",
+    "Oracle asserts the shared state_reconcile.lock is acquired and that reclamation is scoped (never a bare `git worktree prune`; siblings verified still registered).",
+    "Oracle uses mutation_target harness.state_reconciler and passes the non-vacuity gate (fails against the declared mutant)."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/harness/test_prepare_workspace_invariants.py -q",
+  "spec": {
+    "objective": "Author the single hermetic pytest oracle that pins the external-interface invariants of prepare_workspace(root) in harness/state_reconciler.py: fail-CLOSED dirty (non-git root refused), ownership/allowlist/STAGED_UNMERGED gates, one shared state_reconcile.lock, and scoped staging-worktree reclamation that never runs a bare `git worktree prune`. The oracle must be RED on HEAD.",
+    "functional_requirements": [
+      "Assert prepare_workspace(root) refuses a NON-GIT root by treating it as DIRTY (fail-CLOSED), and does not trust target_bootstrap._is_dirty's False/clean answer on a non-git root.",
+      "Assert the ownership gate refuses a root not owned by the harness before any mutation occurs.",
+      "Assert the allowlist gate refuses a root outside the configured allowlist before any mutation occurs.",
+      "Assert the dirty gate refuses a git root with working-tree/uncommitted changes and permits a clean owned/allowlisted git root.",
+      "Assert the STAGED_UNMERGED gate refuses a root that has staged-unmerged entries.",
+      "Assert prepare_workspace acquires the shared state_reconcile.lock and that staging-worktree reclamation is scoped \u2014 siblings are verified still registered and a bare `git worktree prune` is never invoked \u2014 while delegating the report/apply to cleanup_state."
+    ],
+    "interfaces": "Exercises prepare_workspace(root) -> WorkspaceStatus in harness/state_reconciler.py (alias/external entrypoint over cleanup_state(root, *, mode=\"report\"|\"apply\")). Synthesizes git and non-git roots under tmp_path; stubs/observes state_reconcile_lock(state_dir) acquisition and any git worktree subprocess invocations to assert no bare prune.",
+    "edge_cases": [
+      "Non-git root where target_bootstrap._is_dirty would answer clean \u2014 must still be refused as DIRTY (the load-bearing fail-CLOSED case).",
+      "Owned + allowlisted + clean git root with one registered staging worktree and a still-registered sibling \u2014 reclamation must be scoped and leave the sibling alone.",
+      "Git root with staged-unmerged entries (conflict markers in index) \u2014 refused via STAGED_UNMERGED.",
+      "Lock already held \u2014 prepare_workspace must serialize on the single shared state_reconcile.lock rather than spawning a second lock."
+    ],
+    "non_goals": [
+      "No live-daemon / integration run; no live state/ directory; no network.",
+      "Does not assert disk rmtree/compaction behavior (that belongs to stale-disk-reapers behind cleanup_state).",
+      "Does not flip the autowork.state_reconcile flag.",
+      "Does not test a bare `git worktree prune` path \u2014 its absence is what is asserted."
+    ],
+    "implementation_notes": "Pure hermetic unit oracle in tmp_path. Build git roots with `git init` and index manipulation; build a non-git root as a plain directory. Capture any subprocess/worktree calls to prove no bare `git worktree prune`. Keep mutation_target = harness.state_reconciler so the non-vacuity gate applies the declared mutant and the authored test fails against it. RED on HEAD is expected because prepare_workspace is not yet present."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_non_git_root_treated_dirty_and_refused_fail_closed"
+      },
+      {
+        "name": "test_ownership_gate_refuses_unowned_root"
+      },
+      {
+        "name": "test_allowlist_gate_refuses_root_outside_allowlist"
+      },
+      {
+        "name": "test_dirty_git_root_refused_clean_git_root_permitted"
+      },
+      {
+        "name": "test_staged_unmerged_gate_refuses_conflicted_index"
+      },
+      {
+        "name": "test_acquires_shared_lock_and_scoped_reclamation_delegates_to_cleanup_state"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [
+      {
+        "name": "test_refusal_is_monotone_fail_closed_over_synthesized_roots"
+      }
+    ],
+    "regression_tests": [
+      {
+        "name": "test_regression_non_git_root_never_reported_clean"
+      },
+      {
+        "name": "test_regression_reclamation_never_runs_bare_git_worktree_prune"
+      }
+    ],
+    "minimum_test_count": 9,
+    "test_data_requirements": "Per-test tmp_path roots: (a) plain non-git directory; (b) `git init` repos in clean, dirty-working-tree, and staged-unmerged states; (c) a git root with a registered staging worktree plus a still-registered sibling worktree. No live state/, no network."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 100,
+    "test_tokens": 900,
+    "note": "Test-authoring leaf: nearly all budget is the oracle test file itself; impl tokens kept minimal."
+  },
+  "attribution_metadata": {
+    "proposed_by": "claude",
+    "reconciled": false,
+    "diff_resolution": null
+  },
+  "_debug_stamping_reason": "Task was only proposed by Claude.",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR"
+}

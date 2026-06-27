@@ -1,0 +1,69 @@
+
+==============================================================================
+(A) LIVE META_TASK_POLICY -- empirical bypass_fuzzer per type
+==============================================================================
+meta_task_type           bypass_fuzzer  skip_struct  skip_smoke  skip_ifz  stateful
+--------------------------------------------------------------------------------------
+cli_tooling              False          False        None        None      None
+config_schema            True           False        True        None      None
+data_model               False          True         None        None      None
+docs_writing             True           False        True        None      None
+epic_planning            True           True         True        None      None
+harness_plumbing         False          True         True        None      None
+harness_self_fix         False          True         True        None      None
+hooks_integration        True           False        True        None      None
+io_adapter               False          True         None        None      None
+logging_observability    False          False        None        None      None
+mcp_plumbing             True           True         None        None      None
+mcp_server_change        True           False        True        None      None
+orchestration            False          True         None        None      None
+planner_tooling          False          True         None        None      None
+refactor                 False          False        None        None      None
+sandbox_infra            False          True         None        None      None
+state_machine            False          True         None        None      True
+test_acceptance          True           False        True        None      None
+test_authoring           False          True         None        True      None
+test_e2e                 True           False        True        None      None
+test_integration         True           False        True        None      None
+test_unit                True           False        True        None      None
+validation               False          False        None        None      None
+--------------------------------------------------------------------------------------
+
+DIFF-FUZZED types (13): ['cli_tooling', 'data_model', 'harness_plumbing', 'harness_self_fix', 'io_adapter', 'logging_observability', 'orchestration', 'planner_tooling', 'refactor', 'sandbox_infra', 'state_machine', 'test_authoring', 'validation']
+
+BYPASS (not diff-fuzzed) types (10): ['config_schema', 'docs_writing', 'epic_planning', 'hooks_integration', 'mcp_plumbing', 'mcp_server_change', 'test_acceptance', 'test_e2e', 'test_integration', 'test_unit']
+
+>>> data_model in BYPASS_FUZZER_TYPES = False (False == data_model IS now diff-fuzzed -- the intentional ac505d7 flip)
+
+==============================================================================
+(B) How many code paths force-retype a leaf to 'data_model'?
+==============================================================================
+Assignment sites of meta_task_type <- 'data_model' in plan_normalizer.py:
+    662:        survivor['meta_task_type'] = 'data_model'
+
+=> distinct force-retype-to-data_model code paths: 1 (only the escape-hatch)
+
+==============================================================================
+(C) FIX PROTOTYPE: retype the external survivor to a type that is still
+    BYPASS (smoke-gated) and INDEPENDENT of the data_model fuzz flip.
+==============================================================================
+bypass_fuzzer=True AND skip_structural_decomp=True AND NOT skip_smoke_gates
+  (i.e. still SMOKE-GATED, fuzz-bypassed, side-effecting):
+    ['mcp_plumbing']
+
+Chosen drop-in fix target meta_task_type: 'mcp_plumbing'
+  policy: {'bypass_fuzzer': True, 'skip_structural_decomp': True}
+
+Resulting runtime gate for the external survivor:
+  CURRENT (buggy, ->data_model)        : DIFF-FUZZED
+  FIXED  (->mcp_plumbing)              : BYPASS
+
+  data_model gate UNCHANGED by fix     : DIFF-FUZZED (intentional ac505d7 flip preserved)
+
+==============================================================================
+FIX LOGIC ASSERTIONS
+==============================================================================
+RESULT: PASS
+  - data_model stays DIFF-FUZZED (ac505d7 intent preserved)
+  - external non-fuzzable survivor routes to mcp_plumbing -> SMOKE-GATED, not fuzzed
+  - the two concerns are now decoupled: future data_model flips can't re-break this

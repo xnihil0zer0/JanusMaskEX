@@ -1,0 +1,55 @@
+===== DEAD CODE check: auth_bootstrap / sink_instrument / loopback_listener prod importers =====
+--- auth_bootstrap : non-test, non-self importers ---
+  (count: 0)
+--- sink_instrument : non-test, non-self importers ---
+  (count: 0)
+--- loopback_listener : non-test, non-self importers ---
+/home/xnihil0zer0/NobleGreedv2/ngv2/_loopback_netns.py
+/home/xnihil0zer0/NobleGreedv2/ngv2/poc_runner_live.py
+/home/xnihil0zer0/NobleGreedv2/ngv2/workers/_runner.py
+  (count: 3)
+
+===== G10 fix (M2): semantic_verdict empty-sig behavior =====
+4:def semantic_verdict(exit_code, stdout: str, stderr: str, fs_snapshot_diff: str, *, success_marker: str, expected_fs_signature: str, nonce: str='') -> str:
+7:    Upgrades the weak exit-code+grep gate: a detonation is only ``'confirmed'``
+10:    whose ``expected_fs_signature`` shows up in ``fs_snapshot_diff``.
+14:    ``None`` that does not clear the confirmed bar yields ``'refuted'``.
+21:    if not expected_fs_signature or not expected_fs_signature.strip():
+22:        return 'refuted'
+23:    if nonce:
+24:        if nonce not in stdout and nonce not in stderr or nonce not in fs_snapshot_diff:
+25:            return 'refuted'
+26:    if exit_code == 0 and (success_marker in stdout or success_marker in stderr) and (expected_fs_signature in fs_snapshot_diff):
+27:        return 'confirmed'
+28:    return 'refuted'
+42:    def detonate(self, poc: PoC, target_spec, runner, *, expected_fs_signature=None) -> LiveTestReport:
+46:        Confirmation is reserved for the strong semantic oracle: a ``'confirmed'``
+49:        (``expected_fs_signature`` is a string).
+51:        When ``expected_fs_signature is None`` (the STRICT default) the gate is
+52:        marker-spoof-proof: a nonzero exit is ``'refuted'``; every other clean or
+54:        ``None``) is ``'inconclusive'`` and never ``'confirmed'``.
+64:        if expected_fs_signature is None:
+66:                verdict = 'refuted'
+71:            verdict = semantic_verdict(exit_code, stdout, stderr, fs_snapshot_diff, success_marker=self.success_marker, expected_fs_signature=expected_fs_signature)
+
+===== M4: detonation_evidence_gate keys on caller-asserted flags? =====
+/home/xnihil0zer0/NobleGreedv2/ngv2/poc_authenticity_gate.py:4:``{real_target, self_contained_mock, network_live}`` and reports whether a
+/home/xnihil0zer0/NobleGreedv2/ngv2/poc_authenticity_gate.py:7:``may_confirm`` is ``False`` for ``self_contained_mock``.
+/home/xnihil0zer0/NobleGreedv2/ngv2/poc_authenticity_gate.py:27:_MODE_NETWORK_LIVE = 'network_live'
+/home/xnihil0zer0/NobleGreedv2/ngv2/poc_authenticity_gate.py:75:    return {'mode': _MODE_SELF_CONTAINED_MOCK, 'imports_target': False, 'defines_vuln_locally': False, 'issues_network_request': False, 'may_confirm': False}
+/home/xnihil0zer0/NobleGreedv2/ngv2/poc_authenticity_gate.py:109:        ``defines_vuln_locally``, ``issues_network_request`` and ``may_confirm``.
+/home/xnihil0zer0/NobleGreedv2/ngv2/poc_authenticity_gate.py:111:        ``network_live``; the other three are booleans; and
+/home/xnihil0zer0/NobleGreedv2/ngv2/poc_authenticity_gate.py:112:        ``may_confirm == (mode != 'self_contained_mock')``.
+/home/xnihil0zer0/NobleGreedv2/ngv2/poc_authenticity_gate.py:181:    may_confirm = mode != _MODE_SELF_CONTAINED_MOCK
+/home/xnihil0zer0/NobleGreedv2/ngv2/poc_authenticity_gate.py:182:    return {'mode': mode, 'imports_target': imports_target, 'defines_vuln_locally': defines_vuln_locally, 'issues_network_request': issues_network_request, 'may_confirm': may_confirm}
+/home/xnihil0zer0/NobleGreedv2/ngv2/detonation_evidence_gate.py:22:    3. elif ran_target AND observed_runtime_effect -> live_execution
+/home/xnihil0zer0/NobleGreedv2/ngv2/detonation_evidence_gate.py:26:Then ``may_confirm == (evidence_kind == 'live_execution')`` and
+/home/xnihil0zer0/NobleGreedv2/ngv2/detonation_evidence_gate.py:27:``downgraded_verdict == 'confirmed'`` iff ``may_confirm`` else ``'unproven'``.
+/home/xnihil0zer0/NobleGreedv2/ngv2/detonation_evidence_gate.py:32:returns ``may_confirm == True``.
+/home/xnihil0zer0/NobleGreedv2/ngv2/detonation_evidence_gate.py:42:    ``method``, ``ran_target``, ``target_endpoint``, ``observed_runtime_effect``,
+/home/xnihil0zer0/NobleGreedv2/ngv2/detonation_evidence_gate.py:48:        * ``may_confirm``: bool, True iff evidence_kind == 'live_execution'
+/home/xnihil0zer0/NobleGreedv2/ngv2/detonation_evidence_gate.py:49:        * ``downgraded_verdict``: 'confirmed' iff may_confirm else 'unproven'
+/home/xnihil0zer0/NobleGreedv2/ngv2/detonation_evidence_gate.py:56:    elif report.get('ran_target') and report.get('observed_runtime_effect'):
+/home/xnihil0zer0/NobleGreedv2/ngv2/detonation_evidence_gate.py:60:    may_confirm = evidence_kind == 'live_execution'
+/home/xnihil0zer0/NobleGreedv2/ngv2/detonation_evidence_gate.py:61:    downgraded_verdict = 'confirmed' if may_confirm else 'unproven'
+/home/xnihil0zer0/NobleGreedv2/ngv2/detonation_evidence_gate.py:62:    return {'evidence_kind': evidence_kind, 'may_confirm': may_confirm, 'downgraded_verdict': downgraded_verdict}

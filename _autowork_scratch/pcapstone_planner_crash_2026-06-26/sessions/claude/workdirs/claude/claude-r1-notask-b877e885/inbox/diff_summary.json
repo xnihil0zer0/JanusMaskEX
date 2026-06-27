@@ -1,0 +1,208 @@
+{
+  "items": [
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "build_unit_task invokes the probe helper before constructing the specification, and only for units with a usable oracle (not oracle_skip); oracle_skip/impure/nondeterministic units are never probed.",
+          "When the probe yields observed contracts, the generated task 'specification' text contains a new 'Boundary & Exception Contracts' section enumerating each boundary input and its observed return value or raised exception.",
+          "When the probe yields no contracts, the specification text is unchanged (no empty section is emitted).",
+          "The contracts section instructs the synthesis agent to reproduce the documented invalid-input behavior to avoid fuzzer/oracle validation failures."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [
+          "DSP_PROBE_HELPER"
+        ],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "harness/rebuild/task.py"
+        ],
+        "meta_task_type": "harness_plumbing",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "oracle_skip unit (impure, needs_deps, untyped, whole_class, rel_import, self_mutating, unfuzzable) -> probe is skipped, no section added.",
+            "Empty probe result for an oracle-usable unit -> section omitted, spec unchanged.",
+            "whole_class / partial_edit units -> section placement must not break the existing whole-class / partial-edit spec branches.",
+            "Probe outcome contains characters needing escaping in the spec text -> render safely as plain text."
+          ],
+          "functional_requirements": [
+            "In build_unit_task (harness/rebuild/task.py), before calling _build_spec, compute oracle usability (reuse the existing oracle_skip / has_oracle logic) and call _probe_oracle_contracts ONLY when the unit is not oracle_skip; never probe impure/nondeterministic/oracle_skip units.",
+            "Thread the probed contracts mapping into _build_spec (new optional parameter) and render a clearly delimited 'Boundary & Exception Contracts' section listing each boundary input (None, 0, \"\", [], {}) alongside its observed outcome (returned value repr or raised exception type), with a directive that the reconstruction must match this behavior to prevent fuzzer validation failures.",
+            "Omit the 'Boundary & Exception Contracts' section entirely when the probe returned an empty mapping, leaving all existing spec text byte-identical to today's output for that case.",
+            "Ensure the probe call is best-effort within build_unit_task (a falsy/empty result simply skips the section) and does not change task_id, verification_command, or any other emitted task field."
+          ],
+          "implementation_notes": "oracle_skip and has_oracle are already computed in build_unit_task (task.py:352-361); move/reuse that computation so the probe gate can run BEFORE _build_spec is called (the spec is currently built at task.py:319 which is earlier than oracle_skip). The simplest approach: compute oracle_skip near the top of build_unit_task, then probe, then build the spec with the contracts. Render the section similar to existing parts blocks (a header line plus indented 'input -> outcome' lines) so it reads consistently with the rest of the spec.",
+          "interfaces": "Extend `_build_spec(...)` with a new optional keyword parameter (e.g. `boundary_contracts: dict | None = None`) and emit the section into its `parts` list. In `build_unit_task`, call `_probe_oracle_contracts(oracle_original_path, unit)` guarded by `not oracle_skip` and pass the result to `_build_spec`. No change to the public signature/return shape of build_unit_task beyond the spec text content.",
+          "non_goals": [
+            "Do not probe oracle_skip units.",
+            "Do not alter the verification_command, oracle gate, or meta_task_type routing.",
+            "Do not run untrusted/reconstructed code.",
+            "Do not write integration tests."
+          ],
+          "objective": "Wire the DSP_PROBE_HELPER results into the task specification: gate the probe on oracle usability inside build_unit_task, and render the observed input->outcome mappings as a dedicated 'Boundary & Exception Contracts' section of the spec text so synthesis agents are explicitly told how the original behaves under invalid inputs."
+        },
+        "spec_author": null,
+        "task_id": "DSP_PROBE_INTEGRATION",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 6,
+          "property_tests": [
+            {
+              "name": "test_section_only_present_iff_probe_nonempty"
+            }
+          ],
+          "regression_tests": [
+            {
+              "name": "test_task_id_and_verification_command_unaffected_by_probing"
+            },
+            {
+              "name": "test_whole_class_and_partial_edit_specs_still_build"
+            }
+          ],
+          "test_data_requirements": "Construct Unit instances (pure oracle-usable function vs an impure/oracle_skip unit) plus a TargetDescriptor double and a tmp original module file. Monkeypatch _probe_oracle_contracts to return a fixed mapping for deterministic section-rendering assertions, and assert it is NOT called for oracle_skip units.",
+          "unit_tests": [
+            {
+              "name": "test_oracle_skip_unit_is_not_probed_and_has_no_contracts_section"
+            },
+            {
+              "name": "test_oracle_usable_unit_emits_boundary_contracts_section"
+            },
+            {
+              "name": "test_empty_probe_result_omits_section_and_leaves_spec_unchanged"
+            },
+            {
+              "name": "test_contracts_section_lists_each_boundary_outcome"
+            },
+            {
+              "name": "test_contracts_section_instructs_agent_to_match_invalid_input_behavior"
+            }
+          ]
+        },
+        "title": "Render probed contracts as a Boundary & Exception Contracts spec section",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Integration is small wiring but the gating (never probe oracle_skip) and the omit-when-empty invariant are the load-bearing behaviors verified by tests.",
+          "test_tokens": 150
+        },
+        "verification_command": "python -m pytest tests/adversarial/test_rebuild_dynamic_signature_probing.py -q"
+      },
+      "diff_item_id": "9c856539a303391de4919885f5609b461ba8c409",
+      "field_divergences": [],
+      "gemini_task": null,
+      "kind": "claude_only",
+      "match_reason": null
+    },
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "A new helper (e.g. _probe_oracle_contracts) exists in harness/rebuild/task.py that, given oracle_original_path and a Unit, probes the trusted original function with the boundary values None, 0, \"\", [], and {} and returns a structured input->outcome mapping.",
+          "The probe executes the original function in an isolated subprocess with a bounded timeout and a PYTHONPATH that resolves the original module's imports; only the trusted original codebase is executed (never agent/reconstructed code).",
+          "For each boundary input the helper records whether the function returned a value (capturing its repr, e.g. False or None) or raised an exception (capturing the exception type name, e.g. TypeError or ValueError).",
+          "The helper derives parameter arity from unit.signature so boundary values are passed positionally to match the function, and returns an empty result for unparseable signatures.",
+          "The helper never raises: any import error, missing function, subprocess failure, or timeout yields an empty mapping so task generation is unaffected."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "harness/rebuild/task.py"
+        ],
+        "meta_task_type": "harness_plumbing",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "Original module at oracle_original_path fails to import (relative import, missing external dep) -> return {}.",
+            "Function unit.name is not found at module top level -> return {}.",
+            "Function takes more than one parameter -> pass the same boundary value across the required positional params (or skip if arity cannot be satisfied) without raising.",
+            "Method units (unit.cls set) where there is no constructible instance -> return {} rather than fabricating a receiver.",
+            "Subprocess hangs -> the timeout kills it and the helper returns {}.",
+            "Function returns a large/unreprable object -> truncate the repr defensively."
+          ],
+          "functional_requirements": [
+            "Add a module-level helper in harness/rebuild/task.py, e.g. `_probe_oracle_contracts(oracle_original_path: str, unit: Unit) -> dict`, that loads the stashed original module at oracle_original_path, resolves the function named unit.name, and invokes it with the boundary values None, 0, \"\", [], and {}.",
+            "Run the probe in a child process via the subprocess module (a small generated probe script executed with the parent JanusMask root on PYTHONPATH so the original module's imports resolve) with a short hard timeout; the parent original code is the only code executed.",
+            "For each boundary input, capture the outcome as either a returned value (record a short repr such as 'False' or 'None') or a raised exception (record the exception class name such as 'TypeError' or 'ValueError'), keyed by the input that produced it.",
+            "Derive the target function's positional parameter names/arity from unit.signature (parse with ast/inspect, dropping self/cls for methods) so each boundary value is supplied positionally to match the function's arity; if the signature cannot be parsed, return an empty mapping.",
+            "Guarantee the helper never propagates an exception: import errors in the original module, an undiscoverable function, subprocess non-zero exit, malformed output, or timeout must all resolve to an empty mapping (probing is best-effort and must never break task generation)."
+          ],
+          "implementation_notes": "Mirror the trust/bootstrap pattern in harness/rebuild/oracle.py: the original module is the parent's stashed source, and the parent JanusMask root must be on PYTHONPATH for its imports to resolve. Build the probe as a small inline Python program passed to `subprocess.run([sys.executable, '-c', prog], ...)` with `timeout=` and `capture_output=True`; have the program exec the original source in a namespace, call the function under each boundary input inside try/except, and emit a JSON line of {input: outcome}. Parse that JSON back in the parent. Keep boundary values as a fixed, ordered list so output is deterministic. Strip self/cls when computing arity for methods.",
+          "interfaces": "New private helper `_probe_oracle_contracts(oracle_original_path: str, unit: Unit) -> dict` in harness/rebuild/task.py. Imports the existing `Unit` type already imported in task.py. Uses the stdlib `subprocess`, `ast`/`inspect`, and `json` modules. Returns a JSON-serializable mapping from a description of the boundary input to the observed outcome string; returns {} on any failure.",
+          "non_goals": [
+            "Do not probe impure or nondeterministic functions here (callers gate on oracle_skip; this helper just executes what it is given).",
+            "Do not execute any reconstructed/agent code -- only the original file at oracle_original_path.",
+            "Do not modify the generated specification text (handled by DSP_PROBE_INTEGRATION).",
+            "Do not write integration tests."
+          ],
+          "objective": "Implement a self-contained, deterministic probing helper in harness/rebuild/task.py that runs the ORIGINAL (trusted) oracle function under standard boundary inputs in an isolated subprocess and reports, for each input, the observed return value or raised exception type. This is pure observation machinery; it does not yet alter the generated spec text (that is DSP_PROBE_INTEGRATION)."
+        },
+        "spec_author": null,
+        "task_id": "DSP_PROBE_HELPER",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 8,
+          "property_tests": [
+            {
+              "name": "test_probe_output_is_always_json_serializable_mapping"
+            }
+          ],
+          "regression_tests": [
+            {
+              "name": "test_probe_subprocess_honors_timeout_and_returns_empty"
+            }
+          ],
+          "test_data_requirements": "Small in-memory original-module source fixtures written to a tmp_path file: (a) a pure function returning False on falsy input, (b) a function raising TypeError/ValueError on None, (c) a module with an unresolvable import, (d) a function with a deliberately malformed/complex signature. No external services.",
+          "unit_tests": [
+            {
+              "name": "test_probe_returns_empty_when_original_path_missing"
+            },
+            {
+              "name": "test_probe_captures_typeerror_when_none_passed"
+            },
+            {
+              "name": "test_probe_captures_returned_false_value"
+            },
+            {
+              "name": "test_probe_records_exception_type_name_for_valueerror"
+            },
+            {
+              "name": "test_probe_parses_positional_arity_from_signature"
+            },
+            {
+              "name": "test_probe_returns_empty_on_unimportable_original_module"
+            },
+            {
+              "name": "test_probe_returns_empty_for_unparseable_signature"
+            },
+            {
+              "name": "test_probe_never_raises_and_is_deterministic_across_runs"
+            }
+          ]
+        },
+        "title": "Add deterministic subprocess oracle-probing helper to task.py",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Helper is compact but correctness-sensitive (subprocess isolation, never-raises contract), so tests dominate.",
+          "test_tokens": 160
+        },
+        "verification_command": "python -m pytest tests/adversarial/test_rebuild_dynamic_signature_probing.py -q"
+      },
+      "diff_item_id": "d1c4853e518fd7bebb3c8b2c0ab2ca37e855ac19",
+      "field_divergences": [],
+      "gemini_task": null,
+      "kind": "claude_only",
+      "match_reason": null
+    }
+  ]
+}

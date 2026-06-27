@@ -1,0 +1,24 @@
+=== D4a: differential-fuzz dormancy check (refute or confirm) ===
+Fuzz-related ledger events (last ~tail window):
+   fuzz_coverage: 87
+Recent accepts (last window): 942
+fuzz_results files on disk: 102
+Of last 20 fuzz_results: 14 REAL runs (total_inputs>0), 5 skipped/bypassed.
+
+=== D4b: answer-key-fix landing time vs which deliverables landed ===
+answer-key value-leak fix (3f9af36) committed: 2026-06-24T14:50:15+00:00
+NGv2 closure-related commits BEFORE the value-leak fix: 10
+NGv2 closure-related commits AFTER  the value-leak fix: 17
+-> deliverables landed BEFORE were built while the VERBATIM-VALUE leak was live.
+
+=== D4c: operational drift — backend config vs README ===
+config.yaml LIVE claude_backend: headless
+README says backend "currently **`tmux`**": True
+README config block shows "claude_backend: tmux": True
+-> DRIFT: headless live, but README documents tmux.
+
+=== D4d: operational drift — hunt targets relocated ===
+targets/ dir exists at NGv2: True
+  target corpus dirs: 8 -> ['h4_guildai', 'graphiti', 'w2d_modeldb', 'README.md', 'fastgpt', 'one-api', 'flowise', 'mem0']
+  NobleGreedv2-end2end-gap-analysis.md: mentions targets/ as a hunt-corpus location? False (only-as-pollution: True)
+  NGv2-closure-deliverables-and-acceptance-contract.md: mentions targets/ as a hunt-corpus location? True (only-as-pollution: True)

@@ -1,0 +1,197 @@
+{
+  "items": [
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "_is_fuzzable_annotation returns True for an ast.Attribute whose base is the Name 'ast', regardless of the attribute name (including 'AST').",
+          "Behavior for non-ast.* annotations (pathlib.Path, ast.Name, ast.Constant, ast.Subscript, ast.BinOp, other ast.Attribute bases) is unchanged.",
+          "tests/adversarial/test_rebuild_p0_pins.py and tests/adversarial/test_diff_fuzzer_structured.py pass.",
+          "The full pytest suite passes."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "trivial",
+        "files_touched": [
+          "harness/rebuild/harvest.py"
+        ],
+        "meta_task_type": "refactor",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "ast.AST: must now return True.",
+            "ast.FunctionDef, ast.Module, etc.: continue to return True.",
+            "pathlib.Path attribute: continue to return True.",
+            "Other dotted attributes whose base is not 'ast' or 'pathlib': continue to return False.",
+            "Bare Name 'Path' or names in _FUZZABLE_NAMES: continue to return True via the existing ast.Name branch."
+          ],
+          "functional_requirements": [
+            "When `node` is an ast.Attribute whose `node.value` is an ast.Name with id == 'ast', _is_fuzzable_annotation returns True unconditionally (including for attr == 'AST').",
+            "All other branches of _is_fuzzable_annotation (Name, Constant, Subscript, BinOp, pathlib.Path Attribute, default False) preserve their current behavior."
+          ],
+          "implementation_notes": "In the `isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)` branch of _is_fuzzable_annotation, replace `if base == 'ast': return node.attr != 'AST'` with `if base == 'ast': return True`. Leave the pathlib.Path clause and the trailing `return False` unchanged.",
+          "interfaces": "_is_fuzzable_annotation(node: ast.expr | None) -> bool in harness/rebuild/harvest.py (around line 228).",
+          "non_goals": [
+            "Do NOT change classification logic for any types other than ast.*.",
+            "Do NOT touch _has_unfuzzable_params or any other harvest.py helper.",
+            "Do NOT modify any file outside harness/rebuild/harvest.py."
+          ],
+          "objective": "Restore `ast.AST` to the set of annotations classified as fuzzable by _is_fuzzable_annotation. The current branch returns `node.attr != 'AST'` when the base id is 'ast', which excludes ast.AST. Per the brief, when the base id is 'ast' the function must return True for ALL attributes (including 'AST')."
+        },
+        "spec_author": null,
+        "task_id": "RB_JR_fix_is_fuzzable_annotation_ast_AST",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_harvest_classifies_function_with_ast_AST_parameter_as_fuzzable"
+            }
+          ],
+          "minimum_test_count": 4,
+          "property_tests": [],
+          "regression_tests": [
+            {
+              "name": "test_adversarial_rebuild_p0_pins_passes"
+            },
+            {
+              "name": "test_adversarial_diff_fuzzer_structured_passes"
+            },
+            {
+              "name": "test_adversarial_P1_scaffold_passes"
+            }
+          ],
+          "test_data_requirements": "Hand-built ast.Attribute nodes for `ast.AST`, `ast.FunctionDef`, `pathlib.Path`, and a non-fuzzable dotted attribute (e.g. `typing.Any`); plus a small Python source snippet annotating a parameter as `ast.AST` to feed through the harvest pipeline.",
+          "unit_tests": [
+            {
+              "name": "test_is_fuzzable_annotation_ast_AST_returns_true"
+            },
+            {
+              "name": "test_is_fuzzable_annotation_ast_FunctionDef_returns_true"
+            },
+            {
+              "name": "test_is_fuzzable_annotation_pathlib_Path_still_true"
+            },
+            {
+              "name": "test_is_fuzzable_annotation_unrelated_attribute_still_false"
+            }
+          ]
+        },
+        "title": "Classify ast.AST (and all ast.*) as fuzzable in _is_fuzzable_annotation",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Implementation is a one-line conditional change; tests must cover the AST.AST happy-path plus regressions for siblings (pathlib.Path, other ast.* attrs, unrelated attributes) and the adversarial pin suites.",
+          "test_tokens": 200
+        },
+        "verification_command": "pytest tests/ -x"
+      },
+      "diff_item_id": "85e25ecd920fa66287070d87e144a98b2f429f38",
+      "field_divergences": [],
+      "gemini_task": null,
+      "kind": "claude_only",
+      "match_reason": null
+    },
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "read_input raises HookInputError (a ValueError subclass) when stdin is not valid JSON.",
+          "read_input raises HookInputError (a ValueError subclass) when the parsed JSON is not a dict.",
+          "The HookInputError class definition in harness/hooks/_common.py is unchanged.",
+          "Existing behavior for empty/whitespace stdin (returning {}) and valid dict stdin is preserved.",
+          "Existing pytest test suite (including hooks unit tests and tests/adversarial/test_P1_scaffold.py, tests/adversarial/test_diff_fuzzer_structured.py, tests/adversarial/test_rebuild_p0_pins.py) passes."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "trivial",
+        "files_touched": [
+          "harness/hooks/_common.py"
+        ],
+        "meta_task_type": "hooks_integration",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "Empty stdin or whitespace-only stdin: must still return {} without raising.",
+            "Valid dict payload: must still return the parsed dict unchanged.",
+            "Non-dict JSON value (list, scalar, null): must raise HookInputError, not bare ValueError.",
+            "Malformed JSON (truncated, invalid escapes, etc.): must raise HookInputError chaining the original JSONDecodeError."
+          ],
+          "functional_requirements": [
+            "When stdin payload fails json.loads, read_input raises HookInputError with the original JSON decode error chained via `from exc`.",
+            "When the parsed JSON value is not a dict, read_input raises HookInputError with a message identifying the wrong type (e.g. 'hook stdin must be a JSON object, got list').",
+            "HookInputError remains a subclass of ValueError so existing `except ValueError` callers continue to handle these errors."
+          ],
+          "implementation_notes": "In harness/hooks/_common.py read_input (lines ~23-35): change `raise ValueError(f'hook stdin is not valid JSON: {exc}') from exc` to `raise HookInputError(f'hook stdin is not valid JSON: {exc}') from exc`, and change `raise ValueError(f'hook stdin must be a JSON object, got {type(data).__name__}')` to `raise HookInputError(...)` with the same message. No other code in the function or module should change.",
+          "interfaces": "read_input(stream=None) -> dict[str, Any] in harness/hooks/_common.py. HookInputError(ValueError) defined in the same module is unchanged.",
+          "non_goals": [
+            "Do NOT modify the HookInputError class definition.",
+            "Do NOT modify _normalise_decision, decision_payload, or write_decision.",
+            "Do NOT alter the empty-stdin behavior that returns {}.",
+            "Do NOT touch any file other than harness/hooks/_common.py."
+          ],
+          "objective": "Replace the two `raise ValueError(...)` statements inside read_input (one for json.JSONDecodeError, one for non-dict payloads) with `raise HookInputError(...)`, so malformed stdin produces a typed exception subclass while remaining backwards-compatible with code that catches ValueError."
+        },
+        "spec_author": null,
+        "task_id": "RB_JR_fix_read_input_hookinputerror",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_hooks_console_handles_malformed_stdin_gracefully"
+            }
+          ],
+          "minimum_test_count": 5,
+          "property_tests": [],
+          "regression_tests": [
+            {
+              "name": "test_adversarial_P1_scaffold_passes"
+            },
+            {
+              "name": "test_adversarial_diff_fuzzer_structured_passes"
+            },
+            {
+              "name": "test_adversarial_rebuild_p0_pins_passes"
+            }
+          ],
+          "test_data_requirements": "io.StringIO streams containing: empty string, whitespace, valid JSON object, JSON list, JSON scalar, and a truncated/malformed JSON fragment.",
+          "unit_tests": [
+            {
+              "name": "test_read_input_raises_hookinputerror_on_invalid_json"
+            },
+            {
+              "name": "test_read_input_raises_hookinputerror_on_non_dict_payload"
+            },
+            {
+              "name": "test_read_input_hookinputerror_is_subclass_of_valueerror"
+            },
+            {
+              "name": "test_read_input_returns_empty_dict_on_empty_stdin"
+            },
+            {
+              "name": "test_read_input_returns_parsed_dict_on_valid_json"
+            }
+          ]
+        },
+        "title": "Raise HookInputError in read_input on malformed stdin",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Implementation is a two-line literal substitution (ValueError -> HookInputError) in one helper; the bulk of effort is exercising and asserting the new exception type without regressing the existing happy paths and adversarial suites.",
+          "test_tokens": 200
+        },
+        "verification_command": "pytest tests/ -x"
+      },
+      "diff_item_id": "42d0509b3c615bd06e6ad979d7a3453f80eb2b79",
+      "field_divergences": [],
+      "gemini_task": null,
+      "kind": "claude_only",
+      "match_reason": null
+    }
+  ]
+}

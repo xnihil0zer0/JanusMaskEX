@@ -1,0 +1,48 @@
+{
+  "A1_bare_attr_ref": {
+    "mode": "self_contained_mock",
+    "imports_target": false,
+    "defines_vuln_locally": true,
+    "issues_network_request": false,
+    "may_confirm": false
+  },
+  "A1b_bare_attr_only": {
+    "mode": "self_contained_mock",
+    "imports_target": false,
+    "defines_vuln_locally": false,
+    "issues_network_request": false,
+    "may_confirm": false
+  },
+  "A1c_real_target_call": {
+    "mode": "real_target",
+    "imports_target": true,
+    "defines_vuln_locally": false,
+    "issues_network_request": false,
+    "may_confirm": true
+  },
+  "A2_network_live_remote_no_target": {
+    "mode": "network_live",
+    "imports_target": false,
+    "defines_vuln_locally": false,
+    "issues_network_request": true,
+    "may_confirm": true
+  },
+  "A2b_network_localhost": {
+    "mode": "self_contained_mock",
+    "imports_target": false,
+    "defines_vuln_locally": false,
+    "issues_network_request": true,
+    "may_confirm": false
+  },
+  "A2c_network_with_local_vuln": {
+    "mode": "self_contained_mock",
+    "imports_target": false,
+    "defines_vuln_locally": true,
+    "issues_network_request": true,
+    "may_confirm": false
+  }
+}
+
+=== CLAIM A VERDICT SUMMARY ===
+A1 bare-attr-ref flips mock->real_target/may_confirm?  False | mode=self_contained_mock may_confirm=False
+A2 network_live remote no-target confirms (may_confirm)?  True | mode=network_live may_confirm=True

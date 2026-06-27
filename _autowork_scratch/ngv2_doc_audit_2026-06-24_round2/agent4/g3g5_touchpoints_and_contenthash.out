@@ -1,0 +1,47 @@
+=== g5: CONTENT-HASH BRIDGE — consumers of advance_gate / phase_artifact_hash in LIVE gate path ===
+--- all references to advance_gate (non-handler, non-test) ---
+  ^ (if only handler files + their imports -> ZERO live consumers)
+
+--- gate_executor.run_gates: does it do any content-hash check, or flat dict + classify_*? ---
+19:from ngv2.poc_authenticity_gate import classify_poc_authenticity
+20:from ngv2.detonation_evidence_gate import classify_detonation_evidence
+39:_TRANSITION_GATES: Dict[Tuple[str, str], Tuple[_GateSpec, ...]] = {('source', 'hunt'): (('source_ready', ('source_ready',), lambda ev: {'may_confirm': bool(ev.get('source_ready')), 'terminal': TypedTerminal.NO_SOURCE}),), ('hunt', 'triage'): (('findings', ('findings',), lambda ev: {'may_confirm': bool(ev.get('findings')), 'terminal': TypedTerminal.NO_FINDINGS}),), ('triage', 'verify'): (('triage_result', ('triage_result',), lambda ev: {'may_confirm': bool(ev.get('triage_result')), 'terminal': TypedTerminal.NO_TRIAGE}),), ('verify', 'poc'): (('verify_result', ('verify_result',), lambda ev: {'may_confirm': bool(ev.get('verify_result')), 'terminal': TypedTerminal.NO_VERIFY}),), ('poc', 'detonate'): (('poc_authenticity', ('poc_source', 'target_import_names'), lambda ev: classify_poc_authenticity(ev['poc_source'], ev['target_import_names'])),), ('detonate', 'novelty'): (('detonation_evidence', ('detonation_report',), lambda ev: classify_detonation_evidence(ev['detonation_report'])), ('sink_presence', ('target_source', 'expected_signature'), lambda ev: verify_sink_present(ev['target_source'], ev['expected_signature'])), ('sink_reachability', ('sink_name', 'call_sites'), lambda ev: assess_sink_reachability(ev['sink_name'], ev['call_sites']))), ('novelty', 'report'): (('novelty_result', ('novelty_result',), lambda ev: {'may_confirm': bool(ev.get('novelty_result')), 'terminal': TypedTerminal.NO_NOVELTY}),), ('report', 'awaiting_submission'): (('report_artifact', ('report_artifact',), lambda ev: {'may_confirm': bool(ev.get('report_artifact')), 'terminal': TypedTerminal.NO_REPORT}),), ('awaiting_submission', 'submitted'): (('approval', ('approval',), lambda ev: {'may_confirm': bool(ev.get('approval')), 'terminal': TypedTerminal.NO_APPROVAL}),), ('submitted', 'done'): (('submission_result', ('submission_result',), lambda ev: {'may_confirm': bool(ev.get('submission_result')), 'terminal': TypedTerminal.NO_SUBMISSION}),)}
+41:def run_gates(from_phase: str, to_phase: str, evidence: dict) -> dict:
+63:    gates = _TRANSITION_GATES.get((from_phase, to_phase), ())
+
+=== g3_g4: the 4 touch-points for c7 ===
+--- transition_planner.worker_phases (does it list env phases?) ---
+29:    (hunt -> triage -> verify -> poc -> detonate -> novelty -> report) get a
+53:    worker_phases = [('hunt', 'findings', 'triage'), ('triage', 'triaged', 'verify'), ('verify', 'verified', 'poc'), ('poc', 'pocs', 'detonate'), ('detonate', 'reports', 'novelty'), ('novelty', 'novelties', 'report'), ('report', 'report_count', 'awaiting_submission')]
+54:    for worker_phase, count_field, next_phase in worker_phases:
+
+--- gate_executor._TRANSITION_GATES keys ---
+39:_TRANSITION_GATES: Dict[Tuple[str, str], Tuple[_GateSpec, ...]] = {('source', 'hunt'): (('source_ready', ('source_ready',), lambda ev: {'may_confirm': bool(ev.get('source_ready')), 'terminal': TypedTerminal.NO_SOURCE}),), ('hunt', 'triage'): (('findings', ('findings',), lambda ev: {'may_confirm': bool(ev.get('findings')), 'terminal': TypedTerminal.NO_FINDINGS}),), ('triage', 'verify'): (('triage_result', ('triage_result',), lambda ev: {'may_confirm': bool(ev.get('triage_result')), 'terminal': TypedTerminal.NO_TRIAGE}),), ('verify', 'poc'): (('verify_result', ('verify_result',), lambda ev: {'may_confirm': bool(ev.get('verify_result')), 'terminal': TypedTerminal.NO_VERIFY}),), ('poc', 'detonate'): (('poc_authenticity', ('poc_source', 'target_import_names'), lambda ev: classify_poc_authenticity(ev['poc_source'], ev['target_import_names'])),), ('detonate', 'novelty'): (('detonation_evidence', ('detonation_report',), lambda ev: classify_detonation_evidence(ev['detonation_report'])), ('sink_presence', ('target_source', 'expected_signature'), lambda ev: verify_sink_present(ev['target_source'], ev['expected_signature'])), ('sink_reachability', ('sink_name', 'call_sites'), lambda ev: assess_sink_reachability(ev['sink_name'], ev['call_sites']))), ('novelty', 'report'): (('novelty_result', ('novelty_result',), lambda ev: {'may_confirm': bool(ev.get('novelty_result')), 'terminal': TypedTerminal.NO_NOVELTY}),), ('report', 'awaiting_submission'): (('report_artifact', ('report_artifact',), lambda ev: {'may_confirm': bool(ev.get('report_artifact')), 'terminal': TypedTerminal.NO_REPORT}),), ('awaiting_submission', 'submitted'): (('approval', ('approval',), lambda ev: {'may_confirm': bool(ev.get('approval')), 'terminal': TypedTerminal.NO_APPROVAL}),), ('submitted', 'done'): (('submission_result', ('submission_result',), lambda ev: {'may_confirm': bool(ev.get('submission_result')), 'terminal': TypedTerminal.NO_SUBMISSION}),)}
+63:    gates = _TRANSITION_GATES.get((from_phase, to_phase), ())
+  _TRANSITION_GATES keys: [('source', 'hunt'), ('hunt', 'triage'), ('triage', 'verify'), ('verify', 'poc'), ('poc', 'detonate'), ('detonate', 'novelty'), ('novelty', 'report'), ('report', 'awaiting_submission'), ('awaiting_submission', 'submitted'), ('submitted', 'done')]
+
+--- stage_command_map.AGENT_PHASES ---
+ngv2/stage_command_map.py:10:AGENT_PHASES = frozenset({'hunt', 'triage', 'verify', 'poc', 'detonate', 'novelty', 'report'})
+ngv2/stage_command_map.py:30:    if phase not in AGENT_PHASES:
+  AGENT_PHASES: frozenset({'hunt', 'poc', 'verify', 'novelty', 'detonate', 'triage', 'report'})
+
+--- workers/<envphase>.py exist? (detect/provision/jail_build/health_probe/reachability_probe/baseline_capture) ---
+  (NO env-phase worker modules)
+  full workers/ listing:
+base.py
+detonate.py
+hunt.py
+novelty.py
+poc.py
+report.py
+_runner.py
+test_base.py
+test_detonate.py
+test_hunt.py
+test_novelty.py
+test_poc.py
+test_report.py
+test_triage.py
+test_verify.py
+triage.py
+verify.py

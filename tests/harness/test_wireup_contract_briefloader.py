@@ -28,7 +28,7 @@ the assertions are independent of the production source.
 NESTED-QUOTE HAZARD: this module uses only triple-double-quote docstrings.
 """
 from harness.planner import brief_loader
-WORKING_DIR = '/home/xnihil0zer0/JanusMaskJR'
+WORKING_DIR = '/home/xnihil0zer0/AI-Data/JanusMaskEX'
 BODY_SECTIONS = '# Title\nWireup contract brief-loader oracle fixture.\n\n# Scope\nExercise the real load_brief frontmatter parse path on disk.\n\n# Non-Goals\nNo live integration wire-up gate is exercised here; parsing only.\n\n# Inputs\nA single fixture brief written under tmp_path.\n\n# Deliverables\nA parsed PlanningBrief object.\n'
 
 def _write_brief(tmp_path, frontmatter, name='brief.md'):

@@ -1,0 +1,46 @@
+=== target_bootstrap _ensure_venv current line (doc cites :162-184) ===
+202:def _external_venv_dir(root: Path) -> Path:
+214:def _jailed_install_argv(*, root: Path, venv: Path, req: Path, pip: Path) -> list[str]:
+232:def _ensure_venv(root: Path) -> None:
+def _resolve_target_interpreter(root: Path) -> str:
+    """Resolve the interpreter used to create the target's venv.
+
+    Honors, in order: the target's ``.python-version`` (first non-blank,
+    non-comment line), then a python requirement pin in ``pyproject.toml``
+--- build_jail_argv in _ensure_venv? ---
+218:    :func:`harness.agent_jail.build_jail_argv` with ``bind_credentials=False``
+225:    package. Raises ``FileNotFoundError`` (from ``build_jail_argv``) when
+228:    from harness.agent_jail import build_jail_argv
+231:    return build_jail_argv(cmd, repo_root=root, work_dir=venv, state_dir=STATE_DIR, extra_rw=[str(venv)], bind_credentials=False)
+232:def _ensure_venv(root: Path) -> None:
+236:    No unjailed host ``pip install`` ever runs: the install dispatches through
+241:    ``FileNotFoundError`` raised by ``build_jail_argv`` is swallowed and we
+
+=== conductor_seams cited ranges in docs (48-84, 56-58, 86-117) ===
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:151:conductor_seams.py:20
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:472::86-117
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:476:conductor_seams.py:20
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:477::56-58
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:518:conductor_seams.py:20
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:625:conductor_seams.py:86
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:666::86-117
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:666::48-84
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:674:conductor_seams.py:20
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:675::56-58
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:682::86-117
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:743:conductor_seams.py:20
+--- doc lines mentioning :86-117 ---
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:472:- **build_evidence implemented:** `ngv2/conductor_seams.py::build_evidence` (`:86-117`) is present in master
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:477:only 3 phases, so `persist` (`:56-58`) never sets the `triaged/verified/novelties/report_count` counters the
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:666:  (`:86-117`) and `persist` (`:48-84`) closures are implemented and present in master.
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:675:   maps only 3 phases. `persist` (`:56-58`) bumps a session-state count **only** for those keys. But
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:682:2. **`build_evidence` (`:86-117`) does not emit the intermediate-gate keys** `triage_result / verify_result /
+
+=== pattern_scanner.py / loopback_listener.py resolution sanity ===
+-rw-rw-r-- 1 xnihil0zer0 xnihil0zer0 5426 Jun 15 11:51 /home/xnihil0zer0/NobleGreedv2/ngv2/loopback_listener.py
+-rw-rw-r-- 1 xnihil0zer0 xnihil0zer0 8458 Jun 12 16:30 /home/xnihil0zer0/NobleGreedv2/ngv2/pattern_scanner.py
+--- doc context for these bare cites ---
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:149:| **G3** | **Faithful triggering is narrow:** in-process `app.test_client()` source-driving works but is **flask/fastapi-only, injection-CWE-only, unauth-only.** `auth_bootstrap` and `LoopbackListener` are fully built but **dead code.** **[AUDIT4]** precise: `auth_bootstrap`, `loopback_listener`, and `sink_instrument` are **dead in NGv2 (test-only importers; zero production importers)** and **absent from JanusMaskJR entirely** (they are NGv2-only modules) — re-verified by grep across both repos. | **CONFIRMED** | `poc_writer.is_source_driving:315-327`, `render_source_driving_py:342-369`; `auth_bootstrap.py:25-37` + `loopback_listener.py` test-only. | 01·04 |
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:150:| **G4** | **No detection or template for authz/IDOR/BOLA (CWE-285/639/862/863)** — the financially-viable class that *all 8 mock PoCs* targeted but could only fake. `pattern_scanner` covers only `{22,78,89,95,327,502,798,918}`. | **CONFIRMED** | `pattern_scanner.py` CWE set; `_TEMPLATE_LIST` (`poc_writer.py:377`); `_SINK_CWE_RULES` injection-only (`:685`). | 01·04 |
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:291:- `ngv2/loopback_listener.py::LoopbackListener` — wired into the detonation seam (today: 0 non-test importers).
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NGv2-closure-deliverables-and-acceptance-contract.md:376:- `ngv2/pattern_scanner.py` — extend the CWE set `{22,78,89,95,327,502,798,918}` with `{285,639,862,863}`.

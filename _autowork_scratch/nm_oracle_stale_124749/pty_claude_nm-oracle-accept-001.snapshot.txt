@@ -1,0 +1,579 @@
+started=True idle=True status=OK deliverable=/home/xnihil0zer0/JanusMaskJR_agentwork/claude/claude-r1-nm-oracle-accept-001-8c00bf17/outbox/submission.py
+
+2m)
+ 524 elif isinstance(partial_err,str):
+ 525 verify_stderr=partial_err
+ 526 verify_stderr=(verify_stderr+'\n' if verify_stderrelse '')+f'[verification_commandtimedoutafter{verification_timeout}s:{texc!r}]'
+ 527 except FileNotFoundErroras fnf:
+ 528 if agent_jail.sandbox_enabled(load_config()):
+ 529 logger.warning('verification_sandbox_error:task=%s--sandboxenabledbutbwrap/jailunavailable(%r);stagingrolledbackfail-closed(neverrununjailed)',task
+ _id,fnf)
+ 530 _rollback_rejected_commit(staging_path,result.get('sha'),target_rel,task_id,'verification_sandbox_error')
+ 531 git_integration.remove_staging_worktree(str(staging_path),parent_root=worktree_root)
+ 532 try:
+ 533 write_jsonl_row(state_dir/'impl_progress.jsonl',{'ts':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'phase':'rejected','task_id':task_id,'event':
+  'verification_sandbox_error','commit_sha':result.get('sha'),'files':[target_rel],'reason':str(fnf)})
+ 534 except OSErroras exc:
+ 535 logger.warning('verification_sandbox_error:ledgerappendfailedfor%s:%s',task_id,exc)
+ 536 return False
+ 537 raise
+ 538 _nm_oracle=_new_module_red_by_absence(task,worktree_root,verify_exit,(verify_stdoutor '')+'\n' +(verify_stderror ''))
+ 539 if verify_exit!=0 and not _nm_oracle:
+ 540 cmd_preview=vcmdif len(vcmd)<=200 else vcmd[:200]+'...(truncated)'
+ 541 logger.warning('verification_failed:task=%sexit=%stimeout=%scmd=%s',task_id,verify_exit,timed_out,cmd_preview)
+ 542 _rollback_rejected_commit(staging_path,result.get('sha'),target_rel,task_id,'verification_failed')
+ 543 git_integration.remove_staging_worktree(str(staging_path),parent_root=worktree_root)
+ 544 stdout_tail=verify_stdout[-2000:]if verify_stdoutelse ''
+ 545 stderr_tail=verify_stderr[-2000:]if verify_stderrelse ''
+ 546 try:
+ 547 write_jsonl_row(state_dir/'impl_progress.jsonl',{'ts':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'phase':'rejected','task_id':task_id,'event':'ve
+ rification_failed','exit':verify_exit,'stdout_tail':stdout_tail,'stderr_tail':stderr_tail,'commit_sha':result.get('sha'),'files':[target_rel],'timed_out':timed_out})
+ 548 except OSErroras exc:
+ 549 logger.warning('verification_failed:ledgerappendfailedfor%s:%s',task_id,exc)
+ 550 return False
+ 551 logger.info('auto-commit:SUCCESSinstagingfor%s->%s(sha=%s)',task_id,target_rel,result.get('sha'))
+ 552 _mut_specs=list(task.get('mutations')or [])
+ 553 _mut_target=task.get('mutation_target')
+ 554 if (_mtt=='test_authoring' or _mut_specsor _mut_target)and not _nm_oracle:
+ 555 if not _mut_specsand (not _mut_target):
+ 556 logger.warning('mutation_gate_missing:task=%sdeclaresnomutant--rejectedfail-closed',task_id)
+ 557 _rollback_rejected_commit(staging_path,result.get('sha'),target_rel,task_id,'mutation_gate_missing')
+ 558 git_integration.remove_staging_worktree(str(staging_path),parent_root=worktree_root)
+ 559 try:
+ 560 write_jsonl_row(state_dir/'impl_progress.jsonl',{'ts':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'phase':'rejected','task_id':task_id,'event':
+  'mutation_gate_missing','commit_sha':result.get('sha'),'files':files_touched,'reason':'test_authoringtaskmustdeclaremutation_targetormutations[]'})
+ 561 except OSErroras _exc:
+ 562 logger.warning('mutation_gate_missing:ledgerappendfailedfor%s:%s',task_id,_exc)
+ 563 return False
+ 564 try:
+ 565 import reas _re
+ 566 import tempfile
+ 567
+ 568 def _valid_mut_module(_v:object)->bool:
+ 569 if not isinstance(_v,str)or not _v:
+ 570 return False
+ 571 if '/' in _vor '\\' in _vor '..' in _vor _v.endswith('.py'):
+ 572 return False
+ 573 return _re.fullmatch('[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*',_v)is not None
+ 574 _mut_all=list(_mut_specs)
+ 575 if _mut_target:
+ 576 if not _valid_mut_module(_mut_target):
+ 577 raise ValueError(f'malformedmutation_target{_mut_target!r}:notabaredottedmodulename')
+ 578 _mut_all.append({'stub_target':_mut_target})
+ 579 for _mi,_mutin enumerate(_mut_all):
+ 580 _mtmp=tempfile.mkdtemp(prefix='jm_mutgate_')
+ 581 _mvacuous=True
+ 582 try:
+ 583 _mcopy=os.path.join(_mtmp,'staging')
+ 584 shutil.copytree(str(staging_path),_mcopy,symlinks=True,ignore=shutil.ignore_patterns('.git','__pycache__','*.pyc','state','samples','.pytest_cache'
+ ,'*.egg-info'))
+ 585 _bfull=f'set-opipefail;{vcmd}'
+ 586 if agent_jail.sandbox_enabled(load_config()):
+ 587 _dbus_stack=contextlib.ExitStack()
+ 588 try:
+ 589 _sock=_dbus_stack.enter_context(proxied_session_bus())
+ 590 except Exception:
+ 591 if shutil.which('xdg-dbus-proxy')is not None:
+ 592 _dbus_stack.close()
+ 593 raise RuntimeError('agent_sandboxisenabledandxdg-dbus-proxyispresentbutthefilteredD-Busproxyfailedtostart;refusingtospawnana
+ gentontheunfilteredhostbus(fail-closed).')
+ 594 _sock=None
+ 595 try:
+ 596 _bproc=subprocess.run(agent_jail.build_jail_argv(['/bin/bash','-c',_bfull],repo_root=worktree_root,work_dir=_mcopy,state_dir=state_dir,extr
+ a_ro=[sys.base_prefix,sys.prefix]+list(verify_extra_ro)+_ext_venv_ro,extra_rw=list(verify_extra_rw),dbus_proxy_socket=_sock,bind_credentials=False),cwd=_mcopy,capture_output
+ =True,text=True,timeout=verification_timeout,env=_venv_jail_env())
+ 597 finally:
+ 598 _dbus_stack.close()
+ 599 else:
+ 600 if not _target_is_self(working_dir):
+ 601 raise RuntimeError('FLAG2_ORCH(REV22§3):refusingtoruntheverification_commandUNJAILEDviashell=Trueonthehostbecauseagent_sandboxisdi
+ sabledandthetargetisEXTERNAL(working_dir=%risoutsidetheJanusMasktree).Anexternalverify/baseline/mutantspawnMUSTruninsidethebubblewrapjail;enableagent_sandbox.bw
+ rapororiginthetaskagainstself.' %(working_dir,))
+ 602 _bproc=subprocess.run(_bfull,shell=True,cwd=_mcopy,capture_output=True,text=True,timeout=verification_timeout,env=_vcmd_scrubbed_env(),executa
+ ble='/bin/bash')
+ 603 if _bproc.returncode!=0:
+ 604 raise RuntimeError(f'mutation_gatebaseline-in-copyfailedformutant#{_mi}:theunmutatedverification_commandexits{_bproc.returncode} insidethem
+ utantcopy(apathdroppedbythecopytreeignoreset);themutantreruncannotbetrustedasacatch')
+ 605 _applied=True
+ 606 if _mut.get('stub_target'):
+ 607 _st=_mut.get('stub_target')
+ 608 if not _valid_mut_module(_st):
+ 609 raise ValueError(f'malformedstub_target{_st!r}:notabaredottedmodulename')
+ 610 from harnessimport test_author
+ 611 _sf=os.path.join(_mcopy,_st.replace('.','/')+'.py')
+ 612 with open(_sf,'r',encoding='utf-8')as _rf:
+ 613 _osrc=_rf.read()
+ 614 with open(_sf,'w',encoding='utf-8')as _wf:
+ 615 _wf.write(test_author.stub_for(_osrc))
+ 616 elif _mut.get('apply'):
+ 617 _afull=f'set-opipefail;{_mut['apply']}'
+ 618 if agent_jail.sandbox_enabled(load_config()):
+ 619 _dbus_stack=contextlib.ExitStack()
+ 620 try:
+ 621 _sock=_dbus_stack.enter_context(proxied_session_bus())
+ 622 except Exception:
+ 623 if shutil.which('xdg-dbus-proxy')is not None:
+ 624 _dbus_stack.close()
+ 625 raise RuntimeError('agent_sandboxisenabledandxdg-dbus-proxyispresentbutthefilteredD-Busproxyfailedtostart;refusingtospawn
+ anagentontheunfilteredhostbus(fail-closed).')
+ 626 _sock=None
+ 627 try:
+ 628 _ap=subprocess.run(agent_jail.build_jail_argv(['/bin/bash','-c',_afull],repo_root=worktree_root,work_dir=_mcopy,state_dir=state_dir,ext
+ ra_ro=[sys.base_prefix,sys.prefix]+list(verify_extra_ro)+_ext_venv_ro,extra_rw=list(verify_extra_rw),dbus_proxy_socket=_sock,bind_credentials=False),cwd=_mcopy,capture_outpu
+ t=True,text=True,timeout=verification_timeout,env=_venv_jail_env())
+ 629 finally:
+ 630 _dbus_stack.close()
+ 631 else:
+ 632 if not _target_is_self(working_dir):
+ 633 raise RuntimeError('FLAG2_ORCH(REV22§3):refusingtoruntheverification_commandUNJAILEDviashell=Trueonthehostbecauseagent_sandboxi
+ sdisabledandthetargetisEXTERNAL(working_dir=%risoutsidetheJanusMasktree).Anexternalverify/baseline/mutantspawnMUSTruninsidethebubblewrapjail;enableagent_sandbo
+ x.bwrapororiginthetaskagainstself.' %(working_dir,))
+ 634 _ap=subprocess.run(_afull,shell=True,cwd=_mcopy,capture_output=True,text=True,timeout=verification_timeout,env=_vcmd_scrubbed_env(),execut
+ able='/bin/bash')
+ 635 _applied=_ap.returncode==0
+ 636 else:
+ 637 _applied=False
+ 638 if _applied:
+ 639 _rfull=f'set-opipefail;{vcmd}'
+ 640 if agent_jail.sandbox_enabled(load_config()):
+ 641 _dbus_stack=contextlib.ExitStack()
+ 642 try:
+ 643 _sock=_dbus_stack.enter_context(proxied_session_bus())
+ 644 except Exception:
+ 645 if shutil.which('xdg-dbus-proxy')is not None:
+ 646 _dbus_stack.close()
+ 647 raise RuntimeError('agent_sandboxisenabledandxdg-dbus-proxyispresentbutthefilteredD-Busproxyfailedtostart;refusingtospawn
+ anagentontheunfilteredhostbus(fail-closed).')
+ 648 _sock=None
+ 649 try:
+ 650 _mproc=subprocess.run(agent_jail.build_jail_argv(['/bin/bash','-c',_rfull],repo_root=worktree_root,work_dir=_mcopy,state_dir=state_dir,
+ extra_ro=[sys.base_prefix,sys.prefix]+list(verify_extra_ro)+_ext_venv_ro,extra_rw=list(verify_extra_rw),dbus_proxy_socket=_sock,bind_credentials=False),cwd=_mcopy,capture_ou
+ tput=True,text=True,timeout=verification_timeout,env=_venv_jail_env())
+ 651 finally:
+ 652 _dbus_stack.close()
+ 653 else:
+ 654 if not _target_is_self(working_dir):
+ 655 raise RuntimeError('FLAG2_ORCH(REV22§3):refusingtoruntheverification_commandUNJAILEDviashell=Trueonthehostbecauseagent_sandboxi
+ sdisabledandthetargetisEXTERNAL(working_dir=%risoutsidetheJanusMasktree).Anexternalverify/baseline/mutantspawnMUSTruninsidethebubblewrapjail;enableagent_sandbo
+ x.bwrapororiginthetaskagainstself.' %(working_dir,))
+ 656 _mproc=subprocess.run(_rfull,shell=True,cwd=_mcopy,capture_output=True,text=True,timeout=verification_timeout,env=_vcmd_scrubbed_env(),exe
+ cutable='/bin/bash')
+ 657 _mvacuous=_mproc.returncode==0
+ 658 finally:
+ 659 shutil.rmtree(_mtmp,ignore_errors=True)
+ 660 if _mvacuous:
+ 661 logger.warning('mutation_gate_failed:task=%smutant#%ddidnotbreakverification(vacuoustest)--stagingrolledback',task_id,_mi)
+ 662 _rollback_rejected_commit(staging_path,result.get('sha'),target_rel,task_id,'mutation_gate_failed')
+ 663 git_integration.remove_staging_worktree(str(staging_path),parent_root=worktree_root)
+ 664 try:
+ 665 write_jsonl_row(state_dir/'impl_progress.jsonl',{'ts':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'phase':'rejected','task_id':task_id,
+ 'event':'mutation_gate_failed','commit_sha':result.get('sha'),'files':files_touched,'mutant_index':_mi})
+ 666 except OSErroras _exc:
+ 667 logger.warning('mutation_gate_failed:ledgerappendfailedfor%s:%s',task_id,_exc)
+ 668 return False
+ 669 logger.info('mutation_gate:task=%spassed%dmutant(s)',task_id,len(_mut_all))
+ 670 except Exceptionas _gate_exc:
+ 671 logger.error('mutation_gate_error:task=%sunexpectedexceptioninmutationgate--stagingrolledbackfail-closed:%s',task_id,_gate_exc)
+ 672 _rollback_rejected_commit(staging_path,result.get('sha'),target_rel,task_id,'mutation_gate_error')
+ 673 git_integration.remove_staging_worktree(str(staging_path),parent_root=worktree_root)
+ 674 try:
+ 675 write_jsonl_row(state_dir/'impl_progress.jsonl',{'ts':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'phase':'rejected','task_id':task_id,'event':
+  'mutation_gate_error','commit_sha':result.get('sha'),'files':files_touched,'reason':str(_gate_exc)})
+ 676 except OSErroras _exc:
+ 677 logger.warning('mutation_gate_error:ledgerappendfailedfor%s:%s',task_id,_exc)
+ 678 return False
+ 679 if _wire_up_gate_enabled(state_dir):
+ 680 if _run_wire_up_gate(task,files_touched,state_dir,task_id,staging_path,worktree_root,result,working_dir):
+ 681 return False
+ 682 try:
+ 683 write_jsonl_row(state_dir/'impl_progress.jsonl',{'ts':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'phase':'accepted','task_id':task_id,'event':'auto_c
+ ommit','commit_sha':result.get('sha'),'files':files_touched,'exit':0})
+ 684 except OSErroras exc:
+ 685 logger.warning('auto-commit:ledgerappendfailedfor%s:%s',task_id,exc)
+ 686 try:
+ 687 git_integration.merge_staging_to_parent(staging_path,worktree_root,working_dir=working_dir)
+ 688 logger.info('Mergedstagingcommitbacktoparentrepository.')
+ 689 except Exceptionas merge_err:
+ 690 logger.error('Failedtomergestagingchanges:%s',merge_err)
+ 691 _mark_blocked(state_dir,task_id,outcome='merge_failed')
+ 692 return False
+ 693 _mark_processed(state_dir,task_id)
+ 694 if 'pytest' in sys.modulesor 'PYTEST_CURRENT_TEST' in os.environ:
+ 695 logger.info('Testenvironmentdetected.Skippingos.execvprocesshandover.')
+ 696 return True
+ 697 perform_process_handover(state_dir)
+ 698 return True
+ 699 err=result.get('error')
+ 700 if err:
+ 701 logger.warning('auto-commit:FAILED%s:%s',task_id,err)
+ 702 if isinstance(err,str)and err.startswith('no_diff:'):
+ 703 try:
+ 704 marker=state_dir/'output' /f'{task_id}.no_diff'
+ 705 marker.parent.mkdir(parents=True,exist_ok=True)
+ 706 marker.write_text('1',encoding='utf-8')
+ 707 except OSErroras exc:
+ 708 logger.warning('no_diff:markerwritefailedfor%s:%s',task_id,exc)
+ 709 try:
+ 710 write_jsonl_row(state_dir/'impl_progress.jsonl',{'ts':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'phase':'rejected','task_id':task_id,'event':'no
+ _diff','commit_sha':None,'files':[target_rel],'reason':err})
+ 711 except OSErroras exc:
+ 712 logger.warning('no_diff:ledgerappendfailedfor%s:%s',task_id,exc)
+ 713 else:
+ 714 for _relin files_touched:
+ 715 if not isinstance(_rel,str):
+ 716 continue
+ 717 try:
+ 718 subprocess.run(['git','reset','-q','--',_rel],cwd=str(staging_path),check=False,timeout=30)
+ 719 except (subprocess.TimeoutExpired,FileNotFoundError,OSError)as rexc:
+ 720 logger.error('commit_failedscrub:gitreset-q--%sfailedfor%s:%s;worktreemaybeininconsistentstate',_rel,task_id,rexc)
+ 721 try:
+ 722 subprocess.run(['git','checkout','HEAD','--',_rel],cwd=str(staging_path),check=False,timeout=30)
+ 723 except (subprocess.TimeoutExpired,FileNotFoundError,OSError)as cexc:
+ 724 logger.error('commit_failedscrub:gitcheckoutHEAD--%sfailedfor%s:%s;worktreemaybeininconsistentstate',_rel,task_id,cexc)
+ 725 git_integration.remove_staging_worktree(str(staging_path),parent_root=worktree_root)
+ 726 return False
+ 727 finally:
+ 728 try:
+ 729 git_integration.remove_staging_worktree(str(staging_path),parent_root=worktree_root)
+ 730 except Exceptionas _cleanup_exc:
+ 731 logger.error('ROLLB-Dstagingcleanupfailedfor%s:%s',task_id,_cleanup_exc)
+ 732'''},
+ 733 {'file':'harness/orchestrator.py','kind':'symbol','name':'_join_stream_threads','code':r'''def_new_module_red_by_absence(task,worktree_root,verify_exit,verify_out)->b
+ ool:
+ 734 """G-NEW-MODULE-ORACLE:acceptaRED-by-absence``test_authoring``oracle.
+ 735
+ 736 ReturnsTrue iffALLhold:
+ 737 (a)thetaskis ``test_authoring``(``meta_task_type``attoplevelOR
+ 738 under``constraints``);
+ 739 (b)``mutation_target``is anon-emptyBAREdottedmodulename(no``/``,
+ 740 no``..``,notrailing``.py``);
+ 741 (c)thetargetmodulefileis ABSENTunder``worktree_root``;
+ 742 (d)verificationactuallyfailed(``verify_exit``is not None and !=0);
+ 743 (e)thefailureis absence-of-target--``verify_out``containsoneof
+ 744 ModuleNotFoundError/ImportError/AttributeErrorANDnamesthe
+ 745 target'stop-levelpackage.
+ 746
+ 747 Suchanoracleis REDpurelybyconstruction:itimportsamodulethatdoes
+ 748 not existyet,soneitherthevcmd-exit-0 gatenorthemutantnon-vacuity
+ 749 gateis applicable(youcannotmakeatestpass against,normutate,an
+ 750 absentmodule).Thenon-vacuityis establishedbyconstruction.Whenthis
+ 751 returnsTrue thecallerbypassesbothrejectionpointsand accepts.Itis
+ 752 NARROW:anexistingmodule(cfails),afailurethatneverimportsthe
+ 753 target(efails),or apassing/None verify(dfails)all return False.
+ 754
+ 755 Fail-closed:ANYunexpectederrorreturnsFalse;thehelperNEVERraises.
+ 756 """
+ 757 try:
+ 758 import reas _re
+ 759 _mtt=task.get('meta_task_type')or (task.get('constraints')or {}).get('meta_task_type')
+ 760 if _mtt!='test_authoring':
+ 761 return False
+ 762 mt=task.get('mutation_target')
+ 763 if not isinstance(mt,str)or not mt:
+ 764 return False
+ 765 if '/' in mtor '\\' in mtor '..' in mtor mt.endswith('.py'):
+ 766 return False
+ 767 if _re.fullmatch('[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*',mt)is None:
+ 768 return False
+ 769 target_file=Path(worktree_root)/(mt.replace('.','/')+'.py')
+ 770 if target_file.exists():
+ 771 return False
+ 772 if verify_exitis None or verify_exit==0:
+ 773 return False
+ 774 if isinstance(verify_out,str):
+ 775 text=verify_out
+ 776 elif verify_outis None:
+ 777 text=''
+ 778 else:
+ 779 text=str(verify_out)
+ 780 if not any((_ein textfor _ein ('ModuleNotFoundError','ImportError','AttributeError'))):
+ 781 return False
+ 782 _top=mt.split('.')[0]
+ 783 if _topnot in text:
+ 784 return False
+ 785 return True
+ 786 except Exception:
+ 787 return False
+ 788
+ 789def _join_stream_threads(proc:subprocess.Popen,timeout:float=2.0)->None:
+ 790 """Jointhestdout/stderrstreamthreadsiftheyexist."""
+ 791 threads=getattr(proc,'_stream_threads',None)
+ 792 if threads:
+ 793 for tin threads:
+ 794 t.join(timeout=timeout)
+ 795'''},
+ 796]
+
+·Galloping…(5m6s·↑22.5ktokens)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⏵⏵bypasspermissionson (shift+tabtocycle)·esctointerrupt112938tokens
+globalVersion:2.1.156·latestVersion:2.1.177✗Auto-updatefailed·Try/doctor ornpmi-g@anthropic-ai/claude-code
+✶Gal…7
+
+
+
+
+
+
+…
+
+
+
+
+
+
+✻6
+
+
+
+
+
+
+✽
+
+
+
+
+
+
+✻
+
+
+
+
+
+
+✶
+
+
+
+
+
+
+7
+
+
+
+
+
+
+*
+
+
+
+
+
+
+✢
+
+
+
+
+
+
+·Ga
+
+
+
+
+
+
+l8
+
+
+
+
+
+
+Gl
+
+
+
+
+
+
+ao8
+
+
+
+
+
+
+✢llpi
+
+
+
+
+
+
+on
+
+
+
+
+
+
+*pg
+
+
+
+
+
+
+in…
+
+
+
+
+
+
+✶g
+
+
+
+
+
+
+✻…
+
+
+
+
+
+
+✽9
+
+
+
+
+
+
+✻
+
+
+
+
+
+
+✶9
+
+
+
+
+
+
+*30
+
+
+
+
+
+
+✢
+
+
+
+
+
+
+·G
+
+
+
+
+
+
+a
+
+
+
+
+
+
+Gll
+
+
+
+
+
+
+✢ao
+
+
+
+
+
+
+lp1
+
+
+
+
+
+
+*li
+
+
+
+
+
+
+opng
+
+
+
+
+
+
+✶i…
+
+
+
+
+
+
+n
+
+
+
+
+
+
+✻g…10s · ↑ 23.1k tokens)
+
+
+
+
+
+
+✽
+
+
+
+
+
+
+2
+
+
+
+
+
+
+✻
+
+
+
+
+
+
+✶
+
+
+
+
+
+

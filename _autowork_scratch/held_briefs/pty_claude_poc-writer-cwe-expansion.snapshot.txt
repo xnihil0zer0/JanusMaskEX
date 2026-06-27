@@ -1,0 +1,3 @@
+started=True idle=False status=NO_DELIVERABLE deliverable=/home/xnihil0zer0/JanusMaskJR_agentwork/claude/claude-r1-poc-writer-cwe-expansion-e71666b9/outbox/submission.py
+
+env: ‘/home/xnihil0zer0/JanusMaskJR/.agents/claude-code/node_modules/.bin/claude’: No such file or directory

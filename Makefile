@@ -1,4 +1,4 @@
-# JanusMaskJR test tiers — inner-loop speedups (levers 1–3).
+# JanusMaskEX test tiers — inner-loop speedups (levers 1–3).
 #
 # Hand-landed bootstrap (config/invocation only; no harness logic). The LOGIC
 # pieces — auto-tagging slow tests, making the non-hermetic test cluster

@@ -1,0 +1,55 @@
+=== orchestrator :2317 :2362 (doc cites) ===
+485:- **Tier-1a′ (roots):** `resolve_roots(repo_root, contract)` helper in `wire_up.py` (auto-approvable) + thread `roots=` into the floor/exemption calls + drop the `entrypoints ⊆ LIVE_ROOTS` subset gate (`_contract_valid`, `:2317`) for declared-root contracts. Irreducible `orchestrator.py` diff ≈ 4 lines (`:2317`, `:2347`, `:2362`, `:1483`) → decision file. ~1 d. Meaningful only after Tier-0.
+748:  `LIVE_ROOTS`); `_contract_valid` (`:2317`) *requires* entrypoints ⊆ `LIVE_ROOTS`; entrypoints feed only
+--- content of 2317, 2362, 2347, 2323 ---
+                    _contract_valid = bool(_entrypoints) and all((_ep in _live for _ep in _entrypoints)) and bool(_oracle)
+                                _exempt_honored = bool(validate_exemption('pure_helper', _vsym, rel, staging_path).honored)
+--- where is validate_exemption / wire_exempt / symbol_reachable in orchestrator ---
+1484:                prompt += ("\nLIVE-ROOT DETONATION ORACLE (this task carries an integration_contract): " f"instead of a hermetic unit test, author a pytest module that, for EACH contract symbol in {syms}, " f"drives the declared LIVE_ROOT entrypoint (one of {eps}) for ONE bounded iteration with the symbol " "left UNMOCKED, under `with observe_symbol_execution([symbol]) as obs:` (from harness.wire_up), and " "asserts `obs.executed_with_live_root_ancestor(symbol, LIVE_ROOTS) is True`. Use the canonical driver " "scaffold `_drive_run_pipeline` from tests/harness/test_wire_up_runtime_observe.py VERBATIM (patch every " "spawn collaborator at its source module, return the task once then None, bound the loop with a _StopLoop " "sentinel, and LEAVE THE TARGET SYMBOL UNMOCKED so its real body runs via a production call edge). DO NOT " "call the symbol directly. DETONATION NON-VACUITY: declare the symbol's module as mutation_target so the " "harness re-runs this oracle against a stubbed mutant -- the assertion MUST fail when the symbol body is " "replaced by raise NotImplementedError; assert observed execution, never a bare True. For any symbol that " "genuinely cannot detonate from a LIVE_ROOT in one bounded iteration, do NOT fabricate a driver -- declare " "a `pure_helper` wire_exempt claim (validated by harness.wire_up.validate_exemption against the static floor).\n")
+2259:    ``integration_contract`` / ``wire_exempt`` from the task dict, and find any
+2318:                    _exempt_raw = (task.get('wire_exempt') if isinstance(task, dict) else None) or _constraints.get('wire_exempt')
+2330:                                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'rejected', 'task_id': task_id, 'event': 'orphan_symbol_unwired', 'commit_sha': result.get('sha'), 'files': files_touched, 'file': rel, 'symbols': uncovered, 'reason': 'new top-level callable(s) lack a valid per-symbol runtime-reachability contract (entrypoints subset of LIVE_ROOTS, the symbol named in the contract, a runtime_oracle declared) and are not in wire_exempt; ENFORCE -- staged commit rolled back fail-closed'})
+2337:                            write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'report', 'task_id': task_id, 'event': 'orphan_symbol_unwired', 'commit_sha': result.get('sha'), 'files': files_touched, 'file': rel, 'symbols': uncovered, 'reason': 'new top-level callable(s) lack a valid per-symbol runtime-reachability contract (entrypoints subset of LIVE_ROOTS, the symbol named in the contract, a runtime_oracle declared) and are not in wire_exempt; report-only -- fail-closed activation deferred (BUILT != WORKS)'})
+2340:                    from harness.wire_up import symbol_reachable_from_live_root, detonate_oracle, validate_exemption
+2342:                        _floor_reachable = False
+2347:                                _floor_reachable = bool(symbol_reachable_from_live_root(staging_path, rel, _vsym))
+2349:                                _floor_reachable = False
+2362:                                _exempt_honored = bool(validate_exemption('pure_helper', _vsym, rel, staging_path).honored)
+2365:                            _would_be_orphan = (not _floor_reachable) and (not _contract_detonated) and (not _exempt_honored)
+2367:                                write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'report', 'task_id': task_id, 'event': 'wireup_symbol_verdict', 'commit_sha': result.get('sha'), 'file': rel, 'symbol': _vsym, 'floor_reachable': _floor_reachable, 'contract_detonated': _contract_detonated, 'exempt_honored': _exempt_honored, 'would_be_orphan': _would_be_orphan})
+2369:                                logger.warning('wireup_symbol_verdict: ledger append failed for %s symbol %s: %s', task_id, _vsym, _exc)
+2371:                            logger.warning('wireup_symbol_verdict: verdict skipped for task=%s file=%s symbol=%s (inert; never blocks): %r', task_id, rel, _vsym, _verdict_exc)
+
+=== wire_up.py :689 and :813-816 ===
+/home/xnihil0zer0/AI-Data/Research-JanusMask/NobleGreedv2-end2end-gap-analysis.md:160:| **G13** | **The wire-up reachability gate is JM-hardcoded / not portable to external trees.** The per-symbol static floor `symbol_reachable_from_live_root` seeds only the JM-hardcoded `LIVE_ROOTS` (orchestrator passes no `roots=`), so on a foreign tree it returns `False` for genuinely-reachable symbols. **Declaring/discovering target roots is necessary but NOT sufficient** — measured NGv2 FP only drops 100%→62.5% (89.7% pkg-rooted); the residual is **source-root/package-prefix keying + tree pollution** (8151 modules, no `_SKIP_DIRS`; a single floor call > 120 s) and **~118/184 dynamically-registered modules** (registry/`importlib`/entry_points) statically unreachable by design. **NGv2 is therefore NOT a valid soak surface for the symbol gate.** (The *module* gate `check_wired` already self-reconciles via `discover_live_roots` and IS portable; the asymmetry is the symbol floor only.) | **CONFIRMED (4-agent, 2026-06-23, JM `fc8167a`)** | floor defaults to `LIVE_ROOTS`, no reconciliation (`wire_up.py:689`); `check_wired` has it (`:813-816`). External probe: reachable `helper` → floor=`False`, `check_wired.wired`=`True` (Agent-4 `s4`); NGv2 FP 100% (JM roots) / 62.5% (discovered roots) over 600 symbols (Agent-2 `fp_rate.py`); JM-self post-B7 FP 33.3% (Agent-3). Runtime gate default-OFF (`config.yaml:88-89`), 0 `wireup_symbol_verdict` rows. | (wire-up audit) |
+51:def discover_live_roots(repo_root) -> list[str]:
+361:class observe_symbol_execution:
+419:    def __enter__(self) -> 'observe_symbol_execution':
+449:    def reached_from(self, name: str) -> str | None:
+455:    def executed_from_live_root(self, name: str, live_root_files) -> bool:
+475:    def executed_with_live_root_ancestor(self, name: str, live_root_files) -> bool:
+504:    def reached(self) -> set:
+572:def detonate_oracle(oracle_source: str, symbols, live_root_files, *, repo_root, jailed: bool=True) -> dict[str, bool]:
+662:class ExemptionVerdict(NamedTuple):
+667:def validate_exemption(category, symbol, module_rel, repo_root, *, roots=LIVE_ROOTS) -> ExemptionVerdict:
+689:def symbol_reachable_from_live_root(repo_root, module_rel: str, symbol: str, *, roots: Sequence[str]=LIVE_ROOTS) -> bool:
+782:def check_wired(repo_root, new_module_rel: str, *, roots: Sequence[str]=LIVE_ROOTS, exclude: Iterable[str]=()) -> WireResult:
+--- wire_up line 689 + 813-816 content ---
+def symbol_reachable_from_live_root(repo_root, module_rel: str, symbol: str, *, roots: Sequence[str]=LIVE_ROOTS) -> bool:
+    external_reconciled = False
+    if not seeded_roots:
+        external_reconciled = True
+        seeded_roots = {r for r in discover_live_roots(repo_root) if r in module_set}
+845 /home/xnihil0zer0/JanusMaskJR/harness/wire_up.py
+
+=== diff_fuzzer.py :808 (doc-A:155) :813 (doc-B:402) ===
+
+    import subprocess
+809:def _js_spawn_seam(spec: dict) -> str:
+868:def _maybe_js_fuzz(code_a: str, code_b: str, task, config, session_id: str):
+882:    inputs = constraints.get('js_inputs')
+884:        return FuzzResult(equivalent=False, error='js task carries no usable constraints.js_inputs vectors')
+888:        return FuzzResult(equivalent=False, error='node binary unavailable for js differential fuzz')
+906:                failures.append(FuzzFailure(input_args=list(vec) if isinstance(vec, (list, tuple)) else [vec], input_kwargs={}, result_a=ra, result_b=rb, reason='js differential divergence (value/success/timeout mismatch)'))
+909:        return FuzzResult(equivalent=False, error=f'js differential fuzz failed: {exc}')
+1345:_DICT_CORPUS_TASK: tuple[dict, ...] = ({'task_id': 't1', 'meta_task_type': 'harness_self_fix', 'constraints': {'function_signature': 'def f(x: int) -> int'}}, {'task_id': 't2', 'priority': 'high', 'constraints': {}}, {'task_id': 't3', 'meta_task_type': 'rebuild_unit', 'fuzz_str_ascii': True}, {'task_id': 't4', 'dependencies': ['t1'], 'constraints': {'function_signature': 'def g(s: str) -> str'}}, {'task_id': 't5', 'language': 'js', 'constraints': {'js_inputs': [[1, 2]]}}, {'task_id': 't6', 'meta_task_type': 'test_authoring', 'estimated_complexity': 'medium'})

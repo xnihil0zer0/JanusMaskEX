@@ -1,0 +1,336 @@
+{
+  "items": [
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": null,
+      "diff_item_id": "b2cee2ada92cccc7896e7cb989e0d4e2fc54e1b5",
+      "field_divergences": [],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "nested build_evidence closure inside build_default_seams in ngv2/conductor_seams.py threads the buried detonation nonce from detonation_report_raw['raw_result']['nonce'] as fallback.",
+          "top-level nonce path detonation_report_raw['nonce'] is preserved to prevent regression.",
+          "detonation_nonce in evidence dict is populated correctly and the python -c smoke command passes."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": null,
+          "proposed_by": "gemini",
+          "reconciled": false
+        },
+        "dependencies": [
+          "pcapstone-health-guard-impl"
+        ],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "ngv2/conductor_seams.py"
+        ],
+        "meta_task_type": "io_adapter",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "Detonation report raw has top-level nonce only.",
+            "Detonation report raw has nested raw_result nonce only."
+          ],
+          "functional_requirements": [
+            "Check and extract detonation nonce from raw['raw_result']['nonce'] as fallback.",
+            "Preserve the top-level-nonce path (raw['nonce']) first to prevent regression."
+          ],
+          "implementation_notes": "__JANUSMASK_PATCHES__:\n  - file: ngv2/conductor_seams.py\n    patches:\n      - kind: symbol\n        name: build_default_seams.build_evidence\n        code: |\n          def build_evidence(state: dict[str, Any]) -> dict[str, Any]:\n              # Verbatim except nonce fallback check added.",
+          "interfaces": "build_default_seams.build_evidence closure inside ngv2/conductor_seams.py.",
+          "non_goals": [
+            "Do not perform external network communication or external corpus integration. This task has no integration goals.",
+            "No changes to other parts of conductor_seams.py or fsm machines."
+          ],
+          "objective": "Modify build_evidence in ngv2/conductor_seams.py to extract and thread the nested detonation nonce."
+        },
+        "spec_author": "gemini",
+        "task_id": "pcapstone-evidence-nonce-impl",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 5,
+          "property_tests": [],
+          "regression_tests": [
+            {
+              "name": "test_evidence_nonce_fallback_regression"
+            },
+            {
+              "name": "test_evidence_nonce_top_level_regression"
+            }
+          ],
+          "test_data_requirements": "Uses the python -c verification smoke check.",
+          "unit_tests": [
+            {
+              "name": "test_evidence_nonce_fallback_in_raw_result"
+            },
+            {
+              "name": "test_evidence_nonce_top_level_preserved"
+            }
+          ]
+        },
+        "title": "Thread buried detonation nonce into evidence (engine fix B)",
+        "token_budget_ratio": {
+          "implementation_tokens": 50,
+          "note": "Small logic change in nested build_evidence closure.",
+          "test_tokens": 75
+        },
+        "verification_command": "python -c \"from ngv2.conductor_seams import build_default_seams as b; s=b('s',None,None,{}); be=s['build_evidence']; ev=be({'evidence':{'detonation_report_raw':{'raw_result':{'nonce':'jmTESTNONCE'}}}}); assert ev.get('detonation_nonce')=='jmTESTNONCE', ev.get('detonation_nonce')\""
+      },
+      "kind": "gemini_only",
+      "match_reason": null
+    },
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": null,
+      "diff_item_id": "3535ad76de25e49d92f2167921829c8ecf98279d",
+      "field_divergences": [],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "Vulnerable twin fixture (vuln/svc.py) uses os.system for lookup_host, safe twin (safe/svc.py) uses list-arg subprocess.run.",
+          ".python-version is set to 3.10 and requirements.txt is a comment-only file for both twins.",
+          "The test uses git init/commit in tmp_path, mock_which for bwrap, and drives the real continuous conductor over target_path = <repo path>.",
+          "vulnerable twin passes detonate and parks at awaiting_submission with matching confirmed verdict and detonation_nonce == CSPRNG nonce.",
+          "safe twin blocks at detonation_evidence with refuted verdict and never reaches awaiting_submission.",
+          "All test assertions are deterministic and contain no clock/uuid/random/os.urandom."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": null,
+          "proposed_by": "gemini",
+          "reconciled": false
+        },
+        "dependencies": [
+          "pcapstone-evidence-nonce-impl"
+        ],
+        "estimated_complexity": "high",
+        "files_touched": [
+          "tests/ngv2/test_pcapstone_run_hunt_x1_x2.py",
+          "tests/ngv2/_pcapstone_fixtures/vuln/svc.py",
+          "tests/ngv2/_pcapstone_fixtures/vuln/.python-version",
+          "tests/ngv2/_pcapstone_fixtures/vuln/requirements.txt",
+          "tests/ngv2/_pcapstone_fixtures/safe/svc.py",
+          "tests/ngv2/_pcapstone_fixtures/safe/.python-version",
+          "tests/ngv2/_pcapstone_fixtures/safe/requirements.txt"
+        ],
+        "meta_task_type": "test_acceptance",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "Sandbox bwrap availability and mock configuration.",
+            "Continuous conductor phase rollup overrides for spawn and harvest."
+          ],
+          "functional_requirements": [
+            "Create vuln/svc.py, safe/svc.py, and their build files under tests/ngv2/_pcapstone_fixtures/.",
+            "Write the acceptance test in test_pcapstone_run_hunt_x1_x2.py driving run_hunt or run_conductor_step over the twins.",
+            "Verify vulnerable twin reaches awaiting_submission with confirmed verdict and nonce bound in stdout and fs-diff.",
+            "Verify safe twin blocks at detonation_evidence with refuted verdict and never confirms."
+          ],
+          "implementation_notes": "__JANUSMASK_MANIFEST__:\n  - tests/ngv2/test_pcapstone_run_hunt_x1_x2.py\n  - tests/ngv2/_pcapstone_fixtures/vuln/svc.py\n  - tests/ngv2/_pcapstone_fixtures/vuln/.python-version\n  - tests/ngv2/_pcapstone_fixtures/vuln/requirements.txt\n  - tests/ngv2/_pcapstone_fixtures/safe/svc.py\n  - tests/ngv2/_pcapstone_fixtures/safe/.python-version\n  - tests/ngv2/_pcapstone_fixtures/safe/requirements.txt",
+          "interfaces": "Test acceptance harness under tests/ngv2/.",
+          "non_goals": [
+            "Do not perform external network provisioning or external integration testing. This task has no external integration goals.",
+            "Deferred: LLM-driven hunt worker worker code.",
+            "Deferred: finding-to-poc grounding adapter.",
+            "Deferred: network-bound poc repair loop.",
+            "Do not touch any files outside tests/."
+          ],
+          "objective": "Author the committed CWE-78 twin fixtures and the X1/X2 acceptance test under tests/ to drive the continuous conductor."
+        },
+        "spec_author": "gemini",
+        "task_id": "pcapstone-run-hunt-x1-x2-oracle",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 2,
+          "property_tests": [],
+          "regression_tests": [
+            {
+              "name": "test_vuln_twin_x1_confirmed"
+            },
+            {
+              "name": "test_safe_twin_x2_refuted"
+            }
+          ],
+          "test_data_requirements": "Uses local fixtures under tests/ngv2/_pcapstone_fixtures/.",
+          "unit_tests": []
+        },
+        "title": "Author CWE-78 twin fixtures and X1/X2 acceptance test",
+        "token_budget_ratio": {
+          "implementation_tokens": 0,
+          "note": "Acceptance test authoring with zero implementation budget.",
+          "test_tokens": 300
+        },
+        "verification_command": "python -m pytest tests/ngv2/test_pcapstone_run_hunt_x1_x2.py -q"
+      },
+      "kind": "gemini_only",
+      "match_reason": null
+    },
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": null,
+      "diff_item_id": "9892baa19c268631fe0e8a85bb7529cd91b8b073",
+      "field_divergences": [],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "health_producer.py produce_health_input is updated to only probe entry_point if is_valid_identifier(entry_point) is true.",
+          "Top-level produce_health_input logic uses is_valid_identifier defined in the same module.",
+          "Task 1 oracle passes (GREEN)."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": null,
+          "proposed_by": "gemini",
+          "reconciled": false
+        },
+        "dependencies": [
+          "pcapstone-health-guard-oracle"
+        ],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "ngv2/health_producer.py"
+        ],
+        "meta_task_type": "io_adapter",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "Dotted module name like pkg.mod versus path segment like /tmp/repo.",
+            "Empty or None entry_point."
+          ],
+          "functional_requirements": [
+            "Check entry_point validity using is_valid_identifier before adding it to modules_to_probe in produce_health_input.",
+            "Ensure is_valid_identifier checks dotted identifiers correctly and excludes path segment characters."
+          ],
+          "implementation_notes": "__JANUSMASK_PATCHES__:\n  - file: ngv2/health_producer.py\n    patches:\n      - kind: symbol\n        name: produce_health_input\n        code: |\n          def produce_health_input(entry_point, is_service, jail_artifact=None, provision=None, import_fn=None, start_fn=None, probe_fn=None, repo_root=None, resolved_python_bin=None, language=None, sandbox_run_fn=None):\n              # Verbatim except line check changed from if entry_point: to if entry_point and is_valid_identifier(entry_point):",
+          "interfaces": "produce_health_input in ngv2/health_producer.py.",
+          "non_goals": [
+            "Do not integration test with external targets or live remote host network packages. This is out of scope for integration.",
+            "No changes to other parts of health_producer.py or ngv2."
+          ],
+          "objective": "Implement the health-probe path-entry guard in ngv2/health_producer.py to fix path-shaped entry point stalling."
+        },
+        "spec_author": "gemini",
+        "task_id": "pcapstone-health-guard-impl",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 5,
+          "property_tests": [],
+          "regression_tests": [
+            {
+              "name": "test_health_guard_real_jail_integration"
+            },
+            {
+              "name": "test_health_guard_regression_non_jailed_path"
+            },
+            {
+              "name": "test_health_guard_property_dotted_segment"
+            }
+          ],
+          "test_data_requirements": "Uses tests in tests/ngv2/test_pcapstone_health_guard.py.",
+          "unit_tests": [
+            {
+              "name": "test_health_guard_fix_a_guard"
+            },
+            {
+              "name": "test_health_guard_regression_valid_identifier"
+            }
+          ]
+        },
+        "title": "Implement health-probe path-entry guard (engine fix A)",
+        "token_budget_ratio": {
+          "implementation_tokens": 50,
+          "note": "Small guard modification inside produce_health_input.",
+          "test_tokens": 75
+        },
+        "verification_command": "python -m pytest tests/ngv2/test_pcapstone_health_guard.py -q"
+      },
+      "kind": "gemini_only",
+      "match_reason": null
+    },
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": null,
+      "diff_item_id": "8726fe00a0875b54936bbc00f4bbdbd8a30f7b0a",
+      "field_divergences": [],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "The test file tests/ngv2/test_pcapstone_health_guard.py is ordinary Python test source (NOT a manifest).",
+          "Imports the generated module via importlib (exec/eval/__import__ are AST-banned).",
+          "FIX-A GUARD (bwrap-free, load-bearing RED case): monkeypatches build_detonation_jail_argv to no-op (lambda cmd, **kw: list(cmd)), records argv, returns (0, '', ''), calls produce_health_input with absolute tmp_repo path, and asserts svc imported but path is not imported. RED on HEAD; GREEN after fix A.",
+          "REAL-JAIL INTEGRATION: skipif not bwrap_available(), asserts import_ok is True and classification == 'clean' over tmp_path repo with svc.py (GREEN after fix, RED on HEAD).",
+          "regression: a valid identifier entry_point like 'svc' is still probed; the non-jailed path (e.g. language='node' or is_service=True) is unchanged by the fix.",
+          "property/edge: path-shaped entry_point with dot (e.g. absolute path) is rejected (not probed), while a legal dotted module name (pkg.mod) is accepted (exercises dotted segment rule).",
+          "All test assertions are deterministic and contain no clock/uuid/random/os.urandom."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": null,
+          "proposed_by": "gemini",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "tests/ngv2/test_pcapstone_health_guard.py"
+        ],
+        "meta_task_type": "test_authoring",
+        "mutation_target": "ngv2.health_producer",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "Dotted valid identifier vs absolute/relative path entry points.",
+            "Missing bwrap sandbox fallback behavior."
+          ],
+          "functional_requirements": [
+            "Import the generated module using importlib to satisfy AST bans.",
+            "Assert bwrap-free guard logic ignores path-shaped entry_points but probes valid identifiers.",
+            "Assert real-jail health probe classification is 'clean' and import_ok is True.",
+            "Verify regression tests for service entry points, non-jailed node, and dot-segment properties."
+          ],
+          "implementation_notes": "Author ordinary Python test source tests/ngv2/test_pcapstone_health_guard.py using importlib to import health_producer.",
+          "interfaces": "Test file tests/ngv2/test_pcapstone_health_guard.py targeting ngv2.health_producer.",
+          "non_goals": [
+            "Do not integrate with external target repos or external network resources. This task is out of scope for any external integration.",
+            "Deferred: LLM-driven hunt worker worker code.",
+            "Deferred: finding-to-poc grounding adapter.",
+            "Deferred: network-bound poc repair loop.",
+            "Do not touch any other parts of ngv2 codebase."
+          ],
+          "objective": "Author the RED behavioral oracle in tests/ngv2/test_pcapstone_health_guard.py for the health-probe path-entry guard (engine fix A)."
+        },
+        "spec_author": "gemini",
+        "task_id": "pcapstone-health-guard-oracle",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 5,
+          "property_tests": [],
+          "regression_tests": [
+            {
+              "name": "test_health_guard_fix_a_guard"
+            },
+            {
+              "name": "test_health_guard_real_jail_integration"
+            },
+            {
+              "name": "test_health_guard_regression_valid_identifier"
+            },
+            {
+              "name": "test_health_guard_regression_non_jailed_path"
+            },
+            {
+              "name": "test_health_guard_property_dotted_segment"
+            }
+          ],
+          "test_data_requirements": "Temporary directories representing git repositories.",
+          "unit_tests": []
+        },
+        "title": "Author RED behavioral oracle for engine fix A (health-probe path-entry guard)",
+        "token_budget_ratio": {
+          "implementation_tokens": 0,
+          "note": "Test authoring task with zero implementation budget.",
+          "test_tokens": 200
+        },
+        "verification_command": "python -m pytest tests/ngv2/test_pcapstone_health_guard.py -q"
+      },
+      "kind": "gemini_only",
+      "match_reason": null
+    }
+  ]
+}

@@ -1,0 +1,163 @@
+{
+  "tasks": [
+    {
+      "task_id": "reap-spent-briefs-parity-oracle",
+      "title": "Author parity oracle tests for spent brief reaper",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "harness.state_reconciler",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tests/harness/test_reap_spent_briefs_parity.py"
+      ],
+      "acceptance_criteria": [
+        "Verify reject_rollback reverts count logic and prevents archiving on subsequent revert.",
+        "Verify epic plans are skipped and remain at the root.",
+        "Verify brief-less plans are skipped and remain at the root.",
+        "The oracle runs hermetically, using real tmp dirs."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/harness/test_reap_spent_briefs_parity.py -q",
+      "spec": {
+        "objective": "Assert correctness on three divergent cases (reject_rollback, epic-skip, brief-less) by authoring the parity oracle test suite.",
+        "functional_requirements": [
+          "Case c (REJECT_ROLLBACK): plan with tasks t1 and t2, paired brief, ledger has accepted for both followed by a later reject_rollback for t1 -> reap_spent_briefs returns [] and files remain at root.",
+          "Case d (EPIC): plan+brief with epic: true frontmatter/plan kind, single task accepted -> reap_spent_briefs returns [] and files remain at root.",
+          "Case e (BRIEF-LESS): plan with task accepted but no brief -> reap_spent_briefs returns [] and files remain at root."
+        ],
+        "interfaces": "Uses the live harness.state_reconciler.reap_spent_briefs signature.",
+        "edge_cases": [
+          "Ledger path does not exist",
+          "Malformed lines in the progress ledger",
+          "Multiple tasks in a plan with mixed status"
+        ],
+        "non_goals": [
+          "Do not modify state_reconciler.py or test_reconciler_reaps_spent_briefs.py in this task."
+        ],
+        "implementation_notes": "Write pytest cases under tests/harness/test_reap_spent_briefs_parity.py. Create real temporary directories for root, state, and briefs."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_reap_spent_briefs_reject_rollback_skipped"
+          },
+          {
+            "name": "test_reap_spent_briefs_epic_skipped"
+          },
+          {
+            "name": "test_reap_spent_briefs_briefless_skipped"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Temporary directories with plan JSONs, markdown briefs, and jsonl ledger files representing accepts, rollbacks, and epics."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 200,
+        "note": "This is a test_authoring task with no implementation changes."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "reap-spent-briefs-parity-impl",
+      "title": "Refactor reap_spent_briefs to delegate to canonical reaper and gate",
+      "meta_task_type": "harness_self_fix",
+      "priority": "high",
+      "dependencies": [
+        "reap-spent-briefs-parity-oracle"
+      ],
+      "files_touched": [
+        "harness/state_reconciler.py"
+      ],
+      "acceptance_criteria": [
+        "reap_spent_briefs delegates integration checks to tools.brief_reaper._integrated_task_ids.",
+        "reap_spent_briefs delegates archiving to tools.brief_reaper.reap_for_task.",
+        "reap_spent_briefs signature remains reap_spent_briefs(root) -> list.",
+        "Reaped slugs are returned as a sorted list.",
+        "All five cases (a, b, c, d, e) pass successfully."
+      ],
+      "spec_author": null,
+      "operator_decision_required": true,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/harness/test_reconciler_reaps_spent_briefs.py tests/harness/test_reap_spent_briefs_parity.py -q",
+      "spec": {
+        "objective": "Refactor reap_spent_briefs to achieve parity with tools.brief_reaper by delegating logic, fixing over-reaping bugs.",
+        "functional_requirements": [
+          "Retrieve integrated task IDs using tools.brief_reaper._integrated_task_ids.",
+          "Scan and load sorted plan_hooks_*.json files in root_path, fail-safe per plan.",
+          "Gate archival by checking if all plan task IDs are integrated before calling reap_for_task.",
+          "Delegate archival move/git-rm to tools.brief_reaper.reap_for_task and return sorted reaped slugs."
+        ],
+        "interfaces": "Preserves reap_spent_briefs(root) -> list signature.",
+        "edge_cases": [
+          "Malformed plan JSON is caught and skipped safely.",
+          "Plan with empty tasks list is skipped.",
+          "Re-entrant state lock does not deadlock during nested lock acquisition.",
+          "One unreadable plan doesn't abort the sweep of other plans."
+        ],
+        "non_goals": [
+          "Do not modify tools/brief_reaper.py, reap_for_task, _integrated_task_ids, agent_jail.py, orchestrator.py, cleanup_state, state_reconcile_lock, or the reap_stale_disk call site.",
+          "Do not remove _archive_move_collision_safe helper.",
+          "Do not restart or reconfigure the daemon.",
+          "Integration is out of scope for the implementation task."
+        ],
+        "implementation_notes": "Emit a single kind: symbol patch named reap_spent_briefs with the complete refactored body. No module-level additions.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/harness/test_reconciler_reaps_spent_briefs.py\n```python\n\"\"\"Executable oracle pinning the self-healing archive-on-integrate behaviour\nin :func:`harness.state_reconciler.reap_stale_disk`.\n\nThe reconciler sweep must REAP spent-but-unarchived briefs: when every task in\na ``plan_hooks_<slug>.json`` has an ``accepted`` row in the impl_progress\nledger, that plan and its companion ``brief_hooks_<slug>.md`` are fully\nintegrated and must be relocated under\n``_autowork_archive/<iso-date>/reconciled/`` -- end-to-end via\n``reap_stale_disk`` itself. Partially-integrated hooks must remain at the repo\nroot, and the sweep must be fail-safe / idempotent on empty or already-reaped\nroots.\n\nThis file is a verification oracle (pytest TEST file), not an implementation.\n\"\"\"\nimport json\nimport datetime\nfrom pathlib import Path\nfrom harness.state_reconciler import reap_stale_disk, reap_spent_briefs, cleanup_state, agent_workroot, external_staging_root\n\ndef _write_plan(root: Path, slug: str, task_ids) -> Path:\n    \"\"\"Write a ``plan_hooks_<slug>.json`` with the given task ids at ``root``.\"\"\"\n    plan_data = {'tasks': [{'task_id': tid} for tid in task_ids]}\n    plan_path = root / ('plan_hooks_%s.json' % slug)\n    plan_path.write_text(json.dumps(plan_data), encoding='utf-8')\n    return plan_path\n\ndef _write_brief(root: Path, slug: str) -> Path:\n    \"\"\"Write a companion ``brief_hooks_<slug>.md`` at ``root``.\"\"\"\n    brief_path = root / ('brief_hooks_%s.md' % slug)\n    brief_path.write_text('# Demo Brief\\n', encoding='utf-8')\n    return brief_path\n\ndef _write_ledger(state_dir: Path, accepted_task_ids) -> Path:\n    \"\"\"Write an impl_progress.jsonl with an ``accepted`` row per task id.\"\"\"\n    ledger_path = state_dir / 'impl_progress.jsonl'\n    with open(ledger_path, 'w', encoding='utf-8') as f:\n        for tid in accepted_task_ids:\n            f.write(json.dumps({'task_id': tid, 'phase': 'accepted'}) + '\\n')\n    return ledger_path\n\ndef test_reconciler_reaps_spent_briefs_fully_integrated(tmp_path):\n    \"\"\"(a) Every plan task accepted -> brief+plan archived under\n    _autowork_archive/<today>/reconciled/ and 'spent_briefs' lists the slug.\"\"\"\n    state_dir = tmp_path / 'state'\n    state_dir.mkdir()\n    plan_path = _write_plan(tmp_path, 'demo', ['demo-task-1', 'demo-task-2'])\n    brief_path = _write_brief(tmp_path, 'demo')\n    _write_ledger(state_dir, ['demo-task-1', 'demo-task-2'])\n    res = reap_stale_disk(tmp_path)\n    assert 'spent_briefs' in res\n    assert res['spent_briefs'] == ['demo']\n    today = datetime.date.today().isoformat()\n    archive_dir = tmp_path / '_autowork_archive' / today / 'reconciled'\n    assert not plan_path.exists()\n    assert not brief_path.exists()\n    assert (archive_dir / 'plan_hooks_demo.json').exists()\n    assert (archive_dir / 'brief_hooks_demo.md').exists()\n    res2 = reap_stale_disk(tmp_path)\n    assert 'spent_briefs' in res2\n    assert res2['spent_briefs'] == []\n\ndef test_reconciler_reaps_spent_briefs_partially_integrated(tmp_path):\n    \"\"\"(b) Only one of two plan tasks accepted -> brief+plan remain at root.\"\"\"\n    state_dir = tmp_path / 'state'\n    state_dir.mkdir()\n    plan_path = _write_plan(tmp_path, 'demo', ['demo-task-1', 'demo-task-2'])\n    brief_path = _write_brief(tmp_path, 'demo')\n    _write_ledger(state_dir, ['demo-task-2'])\n    res = reap_stale_disk(tmp_path)\n    assert 'spent_briefs' in res\n    assert res['spent_briefs'] == []\n    assert plan_path.exists()\n    assert brief_path.exists()\n    today = datetime.date.today().isoformat()\n    archive_dir = tmp_path / '_autowork_archive' / today / 'reconciled'\n    assert not (archive_dir / 'plan_hooks_demo.json').exists()\n    assert not (archive_dir / 'brief_hooks_demo.md').exists()\n\ndef test_reconciler_reaps_spent_briefs_wiring_end_to_end(tmp_path):\n    \"\"\"(c) The archival is performed BY reap_stale_disk itself: files sit at the\n    root before the call and only move once reap_stale_disk runs.\"\"\"\n    state_dir = tmp_path / 'state'\n    state_dir.mkdir()\n    plan_path = _write_plan(tmp_path, 'demo', ['demo-task-1'])\n    brief_path = _write_brief(tmp_path, 'demo')\n    _write_ledger(state_dir, ['demo-task-1'])\n    today = datetime.date.today().isoformat()\n    archive_dir = tmp_path / '_autowork_archive' / today / 'reconciled'\n    assert plan_path.exists()\n    assert brief_path.exists()\n    assert not archive_dir.exists()\n    res = reap_stale_disk(tmp_path)\n    assert res.get('spent_briefs') == ['demo']\n    assert not plan_path.exists()\n    assert not brief_path.exists()\n    assert (archive_dir / 'plan_hooks_demo.json').exists()\n    assert (archive_dir / 'brief_hooks_demo.md').exists()\n\ndef test_reconciler_reaps_spent_briefs_empty_root(tmp_path):\n    \"\"\"(d) Fail-safe: a root with no plans or ledger returns cleanly with an\n    empty 'spent_briefs' and does not raise; a re-run is also clean.\"\"\"\n    res = reap_stale_disk(tmp_path)\n    assert 'spent_briefs' in res\n    assert res['spent_briefs'] == []\n    res2 = reap_stale_disk(tmp_path)\n    assert 'spent_briefs' in res2\n    assert res2['spent_briefs'] == []\n    standalone = reap_spent_briefs(tmp_path)\n    assert list(standalone) == []\n\ndef test_state_reconciler_clutter_scan_passes(tmp_path):\n    \"\"\"Regression / positive control: the advisory clutter scan still surfaces\n    an idle planning dump (detect-only, never moved).\"\"\"\n    planning_dir = tmp_path / 'state' / 'planning'\n    planning_dir.mkdir(parents=True)\n    (planning_dir / 'merged_plan.json').write_text(json.dumps({'tasks': []}), encoding='utf-8')\n    dump_path = planning_dir / 'plan_foo.json'\n    dump_path.write_text(json.dumps({'tasks': [{'task_id': 'x'}]}), encoding='utf-8')\n    status = cleanup_state(tmp_path, mode='report')\n    reasons = {c['reason'] for c in status.clutter_candidates}\n    paths = {c['path'] for c in status.clutter_candidates}\n    assert 'planning_dump_idle' in reasons\n    assert 'state/planning/plan_foo.json' in paths\n    assert dump_path.exists()\n\ndef test_state_reconciler_path_correctness_passes(tmp_path):\n    \"\"\"Regression / positive control: the agent-workroot / external-staging path\n    derivation pins the sibling _agentwork layout the reaper depends on.\"\"\"\n    repo = tmp_path / 'repo'\n    repo.mkdir()\n    aw = agent_workroot(repo)\n    staging = external_staging_root(repo)\n    assert Path(aw) == tmp_path / 'repo_agentwork'\n    assert Path(staging) == tmp_path / 'repo_agentwork' / 'external_staging'\n    assert Path(staging).parent == Path(aw)\n```\n\n## tests/harness/test_reap_spent_briefs_parity.py\n```python\n\"\"\"Parity oracle for ``harness.state_reconciler.reap_spent_briefs``.\n\nThis is a verification oracle (a pytest test file), NOT an implementation. It\nexercises the LIVE ``reap_spent_briefs`` against real ``tmp_path`` workspaces and\nproves the three divergent reaper cases that MUST be skipped even when every task\nthey list carries an ``accepted`` ledger row:\n\n* (c) REJECT_ROLLBACK -- a plan whose tasks were accepted but one was later\n      ``reject_rollback``'d is no longer spent and must be left in place.\n* (d) EPIC            -- a plan/brief declared ``epic: true`` is a long-lived\n      container and must never be reaped.\n* (e) BRIEF-LESS      -- a plan with no paired ``brief_hooks_<slug>.md`` has no\n      pair to archive and must be skipped.\n\nPositive and negative controls anchor the oracle so it is non-vacuous in both\ndirections: a fully-accepted, non-epic, brief-paired plan IS reaped (moved out of\nroot into ``_autowork_archive``), while a partially-accepted plan and a plan with\nno ledger at all are skipped. Each scenario is built from real files/ledgers under\na pytest-provided ``tmp_path`` and checks both the returned slug list AND the\non-disk effect.\n\"\"\"\nimport json\nfrom harness.state_reconciler import reap_spent_briefs\n\ndef _accepted_row(task_id):\n    \"\"\"A canonical impl_progress ``accepted`` row for ``task_id``.\"\"\"\n    return {'task_id': task_id, 'phase': 'accepted', 'event': 'accepted', 'ts': '2026-06-20T00:00:00Z'}\n\ndef _reject_rollback_row(task_id):\n    \"\"\"A later ``reject_rollback`` row that undoes a prior acceptance.\"\"\"\n    return {'task_id': task_id, 'phase': 'rejected', 'event': 'reject_rollback', 'ts': '2026-06-20T01:00:00Z'}\n\ndef _write_ledger(root, rows):\n    \"\"\"Write ``<root>/state/impl_progress.jsonl`` from ``rows`` (one JSON/line).\"\"\"\n    state_dir = root / 'state'\n    state_dir.mkdir(parents=True, exist_ok=True)\n    ledger = state_dir / 'impl_progress.jsonl'\n    ledger.write_text(''.join((json.dumps(r) + '\\n' for r in rows)), encoding='utf-8')\n    return ledger\n\ndef _write_plan(root, slug, task_ids, *, epic=False):\n    \"\"\"Write ``<root>/plan_hooks_<slug>.json`` listing ``task_ids``.\"\"\"\n    plan = root / ('plan_hooks_%s.json' % slug)\n    payload = {'source_brief_sha256': '0' * 64, 'epic': epic, 'tasks': [{'task_id': t} for t in task_ids]}\n    plan.write_text(json.dumps(payload), encoding='utf-8')\n    return plan\n\ndef _write_brief(root, slug, *, epic=False):\n    \"\"\"Write the paired ``<root>/brief_hooks_<slug>.md``.\"\"\"\n    brief = root / ('brief_hooks_%s.md' % slug)\n    header = '---\\nepic: true\\n---\\n' if epic else ''\n    brief.write_text('%s# brief %s\\n' % (header, slug), encoding='utf-8')\n    return brief\n\ndef _archived_names(root):\n    \"\"\"Set of file names that landed anywhere under ``_autowork_archive``.\"\"\"\n    archive = root / '_autowork_archive'\n    if not archive.exists():\n        return set()\n    return {p.name for p in archive.rglob('*') if p.is_file()}\n\ndef test_reap_spent_briefs_reject_rollback_skipped(tmp_path):\n    slug = 'demo'\n    plan = _write_plan(tmp_path, slug, ['t1', 't2'])\n    brief = _write_brief(tmp_path, slug)\n    _write_ledger(tmp_path, [_accepted_row('t1'), _accepted_row('t2'), _reject_rollback_row('t1')])\n    reaped = reap_spent_briefs(tmp_path)\n    assert slug not in reaped, \"a reject_rollback'd plan must not be reaped\"\n    assert plan.exists(), 'rolled-back plan must be left in place'\n    assert brief.exists(), 'paired brief must be left in place'\n    assert 'plan_hooks_demo.json' not in _archived_names(tmp_path)\n\ndef test_reap_spent_briefs_epic_skipped(tmp_path):\n    slug = 'epicdemo'\n    plan = _write_plan(tmp_path, slug, ['t1'], epic=True)\n    brief = _write_brief(tmp_path, slug, epic=True)\n    _write_ledger(tmp_path, [_accepted_row('t1')])\n    reaped = reap_spent_briefs(tmp_path)\n    assert slug not in reaped, 'an epic plan must never be reaped'\n    assert plan.exists(), 'epic plan must be left in place'\n    assert brief.exists(), 'epic brief must be left in place'\n    assert 'plan_hooks_epicdemo.json' not in _archived_names(tmp_path)\n\ndef test_reap_spent_briefs_briefless_skipped(tmp_path):\n    slug = 'demo'\n    plan = _write_plan(tmp_path, slug, ['t1'])\n    _write_ledger(tmp_path, [_accepted_row('t1')])\n    brief = tmp_path / 'brief_hooks_demo.md'\n    assert not brief.exists(), 'fixture must leave the plan brief-less'\n    reaped = reap_spent_briefs(tmp_path)\n    assert slug not in reaped, 'a brief-less plan has no pair to reap'\n    assert plan.exists(), 'brief-less plan must be left in place'\n    assert 'plan_hooks_demo.json' not in _archived_names(tmp_path)\n\ndef test_reap_spent_briefs_fully_accepted_pair_reaped(tmp_path):\n    slug = 'spent'\n    plan = _write_plan(tmp_path, slug, ['t1', 't2'])\n    brief = _write_brief(tmp_path, slug)\n    _write_ledger(tmp_path, [_accepted_row('t1'), _accepted_row('t2')])\n    reaped = reap_spent_briefs(tmp_path)\n    assert slug in reaped, 'a fully-accepted brief-paired plan must be reaped'\n    assert not plan.exists(), 'spent plan must be moved out of root'\n    assert not brief.exists(), 'spent brief must be moved out of root'\n    archived = _archived_names(tmp_path)\n    assert 'plan_hooks_spent.json' in archived\n    assert 'brief_hooks_spent.md' in archived\n\ndef test_reap_spent_briefs_partial_acceptance_skipped(tmp_path):\n    slug = 'demo'\n    plan = _write_plan(tmp_path, slug, ['t1', 't2'])\n    brief = _write_brief(tmp_path, slug)\n    _write_ledger(tmp_path, [_accepted_row('t1')])\n    reaped = reap_spent_briefs(tmp_path)\n    assert slug not in reaped, 'a partially-integrated plan must be left in place'\n    assert plan.exists()\n    assert brief.exists()\n\ndef test_reap_spent_briefs_missing_ledger_skipped(tmp_path):\n    slug = 'demo'\n    plan = _write_plan(tmp_path, slug, ['t1'])\n    brief = _write_brief(tmp_path, slug)\n    reaped = reap_spent_briefs(tmp_path)\n    assert reaped == [], 'with no ledger nothing is accepted, so nothing is reaped'\n    assert plan.exists(), 'plan must survive a missing ledger'\n    assert brief.exists(), 'brief must survive a missing ledger'\n```\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_reap_spent_briefs_fully_integrated_delegation"
+          },
+          {
+            "name": "test_reap_spent_briefs_partially_integrated_delegation"
+          },
+          {
+            "name": "test_reap_spent_briefs_epic_skipped_delegation"
+          },
+          {
+            "name": "test_reap_spent_briefs_briefless_skipped_delegation"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_reconciler_reaps_spent_briefs_fully_integrated"
+          },
+          {
+            "name": "test_reconciler_reaps_spent_briefs_partially_integrated"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Existing tests/harness/test_reconciler_reaps_spent_briefs.py tests and new tests/harness/test_reap_spent_briefs_parity.py tests."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Ratio matches the 1.5x minimum requirement."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_reap_spent_briefs_integration_parity.md",
+  "source_brief_sha256": "14118d7ccf0f5a8b96d439a1e1dda9daec775d24fca9c58a3fa6d0585c104882",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+  "required_task_ids": [
+    "reap-spent-briefs-parity-oracle",
+    "reap-spent-briefs-parity-impl"
+  ]
+}

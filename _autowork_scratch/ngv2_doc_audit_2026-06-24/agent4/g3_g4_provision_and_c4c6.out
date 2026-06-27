@@ -1,0 +1,60 @@
+==============================================================================
+GAP-3: NGv2-side poc_runner_live._default_pip_installer — still reactive/un-jailed?
+==============================================================================
+
+[A] reactive stderr-driven dep loop:
+   :249: the missing dep is ``pip install``-ed HOST-SIDE (network available, outside the
+   :254: :data:`MAX_DEP_INSTALL_ROUNDS` rounds; pip failure degrades to the original
+   :272: pip_installer = lambda _name, _target_dir: _default_pip_installer(_name, _target_dir, _jail_py)
+   :331: for _round in range(MAX_DEP_INSTALL_ROUNDS):
+   :388: MAX_DEP_INSTALL_ROUNDS: int = 3
+   :434: def _default_pip_installer(name: str, target_dir: str, python_bin: str='/usr/bin/python3') -> bool:
+   :437: that will detonate the PoC. Network available (runs OUTSIDE the bwrap jail).
+
+[B] _default_pip_installer body uses bwrap / --unshare-net / lockfile?
+   subprocess pip install present: True
+   bwrap in installer body:        True
+   --unshare-net in installer:     False
+   lockfile/-r requirements:       False
+   single attacker-named pkg arg:  True
+
+   -> STILL host-side reactive single-pkg install: False
+
+[C] Does P0.2 / P2.1-c2 in the contract plan the poc_runner_live REWRITE
+    as its OWN task, or only reference it as a follow-on?
+   contract: > `poc_runner_live._default_pip_installer` (`:373`, `MAX_DEP_INSTALL_ROUNDS=3`) remains a separate follow-on brief.
+   contract: - NGv2 `poc_runner_live._default_pip_installer` (`:373`, `MAX_DEP_INSTALL_ROUNDS=3`) — remove the
+   contract: (`poc_runner_live._default_pip_installer` is pip-only; `_LANG_INTERP['js']=('node',)`,
+
+[D] JM briefs for the NGv2 installer rewrite (poc_runner_live): ['brief_hooks_agy_communicate_pipe_eof_fastfail.md', 'brief_hooks_p21_c2_fsm_provision.md']
+
+==============================================================================
+GAP-4: c4/c5/c6 + FSM INTEGRATION leaf — any brief/plan? docs enumerate?
+==============================================================================
+
+[E] JM briefs for c4/c5/c6 + integration:
+   brief matching 'c4': NONE
+   brief matching 'health_probe': NONE
+   brief matching 'c5': NONE
+   brief matching 'reachability': NONE
+   brief matching 'c6': NONE
+   brief matching 'baseline': NONE
+   brief matching 'integration': NONE
+   brief matching 'fsm_wire': NONE
+   brief matching 'env_fsm_integrat': NONE
+   plan_hooks matching health/reach/baseline/integration: NONE
+
+[F] Allowlist — are c4/c5/c6/integration slugs admitted?
+   'c1' allowlisted: ['p21_c1_fsm_detect']
+   'c2' allowlisted: ['p21_c2_fsm_provision']
+   'c3' allowlisted: ['p21_c3_fsm_jail_build']
+   -> c4/c5/c6/integration in allowlist: YES
+
+[G] Do the docs enumerate the FSM INTEGRATION/WIRING leaf as a DELIVERABLE
+    (the step that inserts the 6 states into PHASE_ORDER/planner/gates/seams)?
+   gap-analysis: integration-leaf-as-deliverable lines = 0
+   contract: integration-leaf-as-deliverable lines = 1
+       > **Deliverables:** `ngv2/transition_planner.py` + `ngv2/run_hunt.py` (`_INITIAL_PHASE`).
+
+   contract P2.1 child contracts listed: ['P2.1-c3', 'P2.1-c1', 'P2.1-c2', 'P2.1-c3', 'P2.1-c4', 'P2.1-c5', 'P2.1-c6', 'P2.1-c4', 'P2.1-c2']
+   contract P2.1 lists a 7th INTEGRATION child?  NO

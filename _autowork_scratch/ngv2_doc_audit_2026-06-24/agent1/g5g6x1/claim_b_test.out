@@ -1,0 +1,32 @@
+=== _TRANSITION_GATES ===
+  number of (from,to) transition keys: 10
+    ('source', 'hunt')  -> 1 gate-spec(s)
+    ('hunt', 'triage')  -> 1 gate-spec(s)
+    ('triage', 'verify')  -> 1 gate-spec(s)
+    ('verify', 'poc')  -> 1 gate-spec(s)
+    ('poc', 'detonate')  -> 1 gate-spec(s)
+    ('detonate', 'novelty')  -> 3 gate-spec(s)
+    ('novelty', 'report')  -> 1 gate-spec(s)
+    ('report', 'awaiting_submission')  -> 1 gate-spec(s)
+    ('awaiting_submission', 'submitted')  -> 1 gate-spec(s)
+    ('submitted', 'done')  -> 1 gate-spec(s)
+=== TypedTerminal members ===
+  count: 13
+    EMPTY_HUNT = 'empty_hunt'
+    MISSING_EVIDENCE = 'missing_evidence'
+    NO_APPROVAL = 'no_approval'
+    NO_FINDINGS = 'no_findings'
+    NO_NOVELTY = 'no_novelty'
+    NO_REPORT = 'no_report'
+    NO_SOURCE = 'no_source'
+    NO_SUBMISSION = 'no_submission'
+    NO_TEMPLATE = 'no_template'
+    NO_TRIAGE = 'no_triage'
+    NO_VERIFY = 'no_verify'
+    REFUTED = 'refuted'
+    SERVICE_NO_BIND = 'service_no_bind'
+=== transition_planner worker_phases spawn set ===
+   worker_phases = [('hunt', 'findings', 'triage'), ('triage', 'triaged', 'verify'), ('verify', 'verified', 'poc'), ('poc', 'pocs', 'detonate'), ('detonate', 'reports', 'novelty'), ('novelty', 'novelties', 'report'), ('report', 'report_count', 'awaiting_submission')]
+  _next_phase chain: source -> hunt -> triage -> verify -> poc -> detonate -> novelty -> report -> awaiting_submission -> submitted -> done
+=== ONE-LINE VERDICT ===
+transitions=10  typed_terminals=13  full_worker_spawn_set_present=True

@@ -1,0 +1,65 @@
+==============================================================================
+ORPHAN/CONTENTION CORRELATION — events overlapping each plan's wall window
+==============================================================================
+label                                wall  spawns  exits orphan concur_pids
+planner_blind_draft_outbox_per_s      647       0      0      0           1
+planner_redraft_once_on_invalid_     1350       0      0      0           1
+p11_build_evidence_impl_thread_f     1526       0      0      0           1
+restore_differential_fuzzing         1636       0      0      0           1
+restore_differential_fuzzing         1711       0      4      0           1
+targets_dir_convention               1791       0      0      0           1
+targets_dir_convention               1391       0      2      0           1
+targets_dir_convention               1785       0      2      0           1
+targets_dir_convention               1505       0      0      0           1
+targets_dir_convention               1688       0      2      0           1
+targets_dir_convention               1565       0      0      0           1
+targets_dir_convention               1574       0      0      0           1
+manifest_drop_undeclared_keys        1511       0      0      0           1
+planlat_probe                         795       0      0      0           1
+
+--- SLOW plans (>=800s) vs FAST plans (<200s): mean distinct pids active in window ---
+  slow plans n=12  mean concurrent pids=1.0
+  fast plans n=0  mean concurrent pids=nan
+
+--- All orphan/watchdog/reap events in the recent window (last 40) ---
+  ts=1780007730.4130929 inactivity_watchdog_triggered stuck_duration=1891.8s
+  ts=1780009208.4664452 inactivity_watchdog_triggered stuck_duration=3369.9s
+  ts=1780025356.1224434 inactivity_watchdog_triggered stuck_duration=2112.3s
+  ts=1780461115.3155034 inactivity_watchdog_triggered stuck_duration=6192.6s
+  ts=1780461894.5510583 inactivity_watchdog_triggered stuck_duration=6971.8s
+  ts=1780463697.7641518 inactivity_watchdog_triggered stuck_duration=8775.1s
+  ts=1780491897.1330745 inactivity_watchdog_triggered stuck_duration=3614.4s
+  ts=1780857211.417137 watchdog_kill pid=3535299
+  ts=1780898007.1789083 watchdog_kill pid=3730308
+  ts=2026-06-09T15:14:36Z orphan_unwired 
+  ts=1781028673.3736415 inactivity_watchdog_triggered stuck_duration=8512.5s
+  ts=1781103503.2309887 inactivity_watchdog_triggered stuck_duration=14784.6s
+  ts=1781125315.3823662 inactivity_watchdog_triggered stuck_duration=20573.5s
+  ts=1781125903.6587055 inactivity_watchdog_triggered stuck_duration=21161.8s
+  ts=1781160105.1607618 inactivity_watchdog_triggered stuck_duration=3984.9s
+  ts=1781160347.180747 inactivity_watchdog_triggered stuck_duration=4227.0s
+  ts=1781167980.4300816 inactivity_watchdog_triggered stuck_duration=7415.7s
+  ts=1781171877.4556825 inactivity_watchdog_triggered stuck_duration=3383.3s
+  ts=1781181732.4298215 inactivity_watchdog_triggered stuck_duration=3626.7s
+  ts=2026-06-11T18:07:46Z orphan_unwired 
+  ts=2026-06-11T18:10:49Z orphan_unwired 
+  ts=2026-06-11T19:04:23Z orphan_unwired 
+  ts=1781205198.8206346 watchdog_kill pid=1816010
+  ts=1781241003.294662 watchdog_kill pid=2189270
+  ts=1781265441.104927 inactivity_watchdog_triggered stuck_duration=3841.5s
+  ts=1781300157.0995471 inactivity_watchdog_triggered stuck_duration=3897.9s
+  ts=1781304119.8433907 inactivity_watchdog_triggered stuck_duration=3695.8s
+  ts=2026-06-13T01:06:52Z orphan_unwired 
+  ts=2026-06-13T01:13:21Z orphan_unwired 
+  ts=2026-06-13T01:34:05Z orphan_unwired 
+  ts=2026-06-13T03:04:37Z orphan_unwired 
+  ts=1781329274.1559055 inactivity_watchdog_triggered stuck_duration=3288.6s
+  ts=1781329622.563662 inactivity_watchdog_triggered stuck_duration=3637.0s
+  ts=1781339035.3098032 inactivity_watchdog_triggered stuck_duration=4551.8s
+  ts=1781348653.3390043 inactivity_watchdog_triggered stuck_duration=4553.4s
+  ts=1781369914.670034 inactivity_watchdog_triggered stuck_duration=3303.3s
+  ts=1781371504.4020066 inactivity_watchdog_triggered stuck_duration=4893.1s
+  ts=1781371798.605427 inactivity_watchdog_triggered stuck_duration=5187.3s
+  ts=1781372089.4027045 inactivity_watchdog_triggered stuck_duration=5478.1s
+  ts=2026-06-13T18:26:27Z orphan_unwired 
+  total orphan/watchdog/reap events in last 20k rows: 161

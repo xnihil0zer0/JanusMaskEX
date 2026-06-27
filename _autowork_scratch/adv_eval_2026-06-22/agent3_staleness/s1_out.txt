@@ -1,0 +1,22 @@
+--- (a) BUG repro — plan mtime 0.949s AFTER latest accept ---
+  plan_mtime set to        : 1782149208.949  (2026-06-22T13:26:48.949000 local)
+  accept epoch impl/oracle : 1782148684.0 / 1782149208.0
+  state        = queued
+  plan_stale   = False
+  has_plan     = True
+  accepted     = []
+  remaining    = ['synth-impl', 'synth-oracle']
+
+--- (b) CONTROL — plan mtime 10s BEFORE earliest accept ---
+  plan_mtime set to        : 1782148674.0  (2026-06-22T13:17:54 local)
+  accept epoch impl/oracle : 1782148684.0 / 1782149208.0
+  state        = complete
+  plan_stale   = False
+  has_plan     = True
+  accepted     = ['synth-impl', 'synth-oracle']
+  remaining    = []
+
+=== ASSERTIONS ===
+  (a) bug reproduced (both re-queued, NOT complete, plan_stale False): True
+  (b) control complete (no re-queue):                                  True
+  VERDICT 2a/2b: CONFIRMED

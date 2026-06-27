@@ -1,0 +1,40 @@
+=== HEADER symbols/signatures of each fsm_*.py ===
+
+### ngv2/fsm_evidence.py  (29 lines)
+1:import hashlib
+2:import json
+3:from typing import Any, Tuple
+7:def phase_artifact_hash(artifact: Any) -> str:
+12:def advance_gate(artifact: Any) -> dict:
+16:    if 'content_hash' not in artifact:
+18:    expected_hash = artifact['content_hash']
+23:        artifact_copy.pop('content_hash', None)
+24:        computed_hash = phase_artifact_hash(artifact_copy)
+
+### ngv2/fsm_detect.py  (35 lines)
+1:from typing import Any, Dict, List, Optional
+2:from ngv2.fsm_evidence import phase_artifact_hash, advance_gate, ENV_PHASE_ORDER
+4:def detect(detect_input: Any, prev_artifact: Optional[Dict[str, Any]]=None) -> Dict[str, Any]:
+14:        prev_res = advance_gate(prev_artifact)
+34:    artifact_copy.pop('content_hash', None)
+35:    artifact_data['content_hash'] = phase_artifact_hash(artifact_copy)
+
+### ngv2/fsm_provision.py  (36 lines)
+2:from typing import Any
+3:from ngv2.fsm_evidence import phase_artifact_hash, advance_gate, ENV_PHASE_ORDER
+5:def provision_gate(provision_input: dict, prev_artifact: dict | None=None) -> dict:
+8:        prev_res = advance_gate(prev_artifact)
+32:        artifact_copy.pop('content_hash', None)
+33:        h_val = phase_artifact_hash(artifact_copy)
+34:        artifact_data['content_hash'] = h_val
+
+### ngv2/fsm_jail_build.py  (54 lines)
+2:from typing import Any
+3:from ngv2.fsm_evidence import phase_artifact_hash, advance_gate, ENV_PHASE_ORDER
+5:def jail_build_gate(jail_input: dict, prev_artifact: dict | None=None) -> dict:
+8:    Validates prior artifact, checks bwrap availability, isolation flags,
+12:        advance_res = advance_gate(prev_artifact)
+17:        if not jail_input.get('bwrap_available', False):
+50:        artifact_data = {'phase': 'jail_build', 'status': 'success', 'details': {'bwrap_available': True, 'jail_argv': jail_argv, 'repo_root': repo_root, 'work_dir': work_dir}}
+51:        h_val = phase_artifact_hash(artifact_data)
+52:        artifact_data['content_hash'] = h_val

@@ -1,0 +1,23 @@
+=== G15-a: nonce is deterministic, not per-run random/unforgeable ===
+   wired SSRF nonce: nonce = 'ssrf_F_hunt'
+   wired SSRF nonce: nonce = 'ssrf_F_hunt'
+   wired SSRF nonce: nonce = f'ssrf_{clean_id}'
+   derive('F-42') run1='ssrf_F-42'  run2='ssrf_F-42'  -> DETERMINISTIC (forgeable/predictable)
+   poc_writer renders payload with nonce=MARKER  (MARKER == success marker 'VULNERABLE' -> nonce slot collapsed onto marker)
+   payload_bank.MARKER='VULNERABLE'  (the 'nonce' the PoC embeds)
+
+=== G15-b: is the nonce PERSISTED to an evidence bundle? ===
+   production lines persisting a nonce: 0
+   -> the detonation result dict (_make_detonation_seam) does NOT include a
+      'nonce' key; the SSRF nonce lives only in transient env + listener.hits.
+   seam result dict keys present: False
+
+=== G16: X9 teardown byte-identity assertion has NO impl ===
+   detonate_live rmtrees scratch:        True
+   any 'target byte-identical/target_sha' check in poc_runner_live: False
+   ngv2 production files asserting target byte-identity at teardown: NONE
+
+=== SUMMARY ===
+G15-a nonce deterministic/forgeable (not per-run random): CONFIRMED
+G15-b nonce not persisted to evidence bundle:            CONFIRMED
+G16  X9 teardown byte-identity has no impl:              CONFIRMED

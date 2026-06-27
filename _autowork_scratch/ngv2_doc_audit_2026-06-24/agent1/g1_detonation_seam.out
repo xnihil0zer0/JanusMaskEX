@@ -1,0 +1,15 @@
+=== target_spec construction in _make_detonation_seam (workers/_runner.py) ===
+291:            target_spec = {'repo_root': repo_root, 'env': {'NGV2_SSRF_CALLBACK': listener.url_for(nonce), 'NGV2_SSRF_NONCE': nonce}}
+
+=== where _make_detonation_seam is defined ===
+221:def _make_detonation_seam():
+
+=== SSRF callback + nonce threading (the per-CWE SSRF channel) ===
+291:            target_spec = {'repo_root': repo_root, 'env': {'NGV2_SSRF_CALLBACK': listener.url_for(nonce), 'NGV2_SSRF_NONCE': nonce}}
+
+=== detonate_live call with loopback=True (live SSRF channel) ===
+299:                dlr = detonate_live(poc_obj, target_spec, success_marker=marker, expected_fs_signature=fs_sig, loopback=True)
+
+DOC G1 CLAIM: "_make_detonation_seam passes only {'repo_root'} (workers/_runner.py:267)"
+RESULT: STALE -- target_spec now includes 'env' with NGV2_SSRF_CALLBACK + NGV2_SSRF_NONCE,
+        and the seam drives detonate_live(..., loopback=True) for the live SSRF channel.

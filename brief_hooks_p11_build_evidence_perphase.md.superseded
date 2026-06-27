@@ -1,0 +1,452 @@
+---
+working_dir: "/home/xnihil0zer0/NobleGreedv2"
+required_task_ids:
+  - p11-build-evidence-oracle-perphase
+  - p11-build-evidence-perphase-impl
+interfaces: >
+  2-task fix-forward RED-PAIR against the EXISTING module ngv2/conductor_seams.py.
+  TASK 1 authors a NEW oracle tests/ngv2/test_p11_build_evidence_perphase.py that
+  drives the LIVE nested build_evidence closure (obtained via the seam dict that
+  build_default_seams returns) and asserts the REAL gate_executor.run_gates advances
+  every source->...->done transition over a fully-populated state and fails-closed
+  over an empty state. TASK 2 EXTENDS the nested build_evidence closure inside
+  build_default_seams so it ALSO derives the 8 source-derived evidence keys and threads
+  the leaving-phase boolean flags from state['evidence'], turning the oracle GREEN. The oracle lands ONLY as a red-pair
+  (harness/redpair_acceptance.is_fix_forward_redpair): it is test_authoring, declares
+  mutation_target ngv2.conductor_seams (bare dotted module mapping to an on-disk
+  file), has non-empty files_touched; and TASK 2 DEPENDS ON it, touches
+  ngv2/conductor_seams.py, and runs the oracle's OWN test file in its
+  verification_command.
+---
+
+# Title
+P1.1 RED-PAIR — author the build_evidence per-phase oracle and the paired impl that
+extends the nested build_evidence closure to derive the 8 source-derived evidence keys
+and thread the leaving-phase boolean flags forward from state['evidence'].
+
+# Scope
+Emit EXACTLY TWO tasks forming a fix-forward RED-PAIR against the EXISTING module
+`ngv2/conductor_seams.py` at `/home/xnihil0zer0/NobleGreedv2`:
+
+- TASK 1 (`p11-build-evidence-oracle-perphase`, `test_authoring`) AUTHORS a NEW test
+  file `tests/ngv2/test_p11_build_evidence_perphase.py`. It changes NO production
+  file and drives the REAL nested `build_evidence` closure plus the REAL
+  `ngv2.gate_executor.run_gates` (no stubs, no monkeypatch). It is RED-by-assertion
+  until TASK 2 lands.
+- TASK 2 (`p11-build-evidence-perphase-impl`, `state_machine`) EDITS
+  `ngv2/conductor_seams.py`, extending the nested `build_evidence` closure so it ALSO
+  derives the 8 source-derived evidence keys and threads the leaving-phase boolean flags
+  from `state['evidence']`, turning TASK 1's oracle GREEN. TASK 2 DEPENDS
+  ON TASK 1 and runs TASK 1's test file in its verification_command — this is what
+  makes it the red-pair sibling.
+
+# Background — the live flow you are completing
+The per-phase gate table already landed in `ngv2/gate_executor.py` (separate, green
+concern — do NOT touch it). `run_gates(from_phase, to_phase, evidence)` now gates EVERY
+consecutive transition fail-closed: each transition requires its leaving-phase evidence
+key present/non-empty in `evidence`, else `advance` is False. The conductor
+(`ngv2/hunt_conductor.py::run_conductor_step`) does `evidence = build_evidence(state)`
+then `run_gates(state['phase'], target_phase, evidence)` and advances iff `advance`.
+`build_evidence` is the nested closure inside `build_default_seams`; today it emits ONLY
+the poc/detonate keys, NOT the per-phase gate keys the gate table requires, so the live
+FSM deadlocks at the first transition. This brief makes `build_evidence` ALSO derive the
+8 source-derived keys (incl. `source_ready`) and thread the leaving-phase boolean flags
+forward from `state['evidence']`, so the FSM traverses. (See "The target contract" for
+the precise split — the booleans are NOT among the 8 source-derived keys.)
+
+# Inputs
+READ these files FIRST in `/home/xnihil0zer0/NobleGreedv2`:
+
+- `ngv2/conductor_seams.py` — TASK 2 edits it. The top-level function
+  `build_default_seams(session_id, db, llm_client, ctx)` (spans lines 39-130)
+  contains a NESTED closure `build_evidence(state)` (lines 86-117 — the ONLY
+  `def build_evidence` in the file). Today `build_evidence` emits ONLY:
+  `poc_source`, `target_import_names`, `target_source`, `expected_signature`,
+  `sink_name`, `call_sites`, `detonation_report`. At line 130 `build_default_seams`
+  RETURNS a seam dict whose key `'build_evidence'` is that closure, whose key
+  `'run_gates'` is `gate_executor.run_gates`, and whose key `'advance'` is the nested
+  `advance` closure. The oracle obtains the closure via this seam dict — see below.
+- `ngv2/gate_executor.py` — DO NOT EDIT. The already-landed per-phase gate table.
+  `run_gates(from_phase, to_phase, evidence) -> {'advance': bool, 'blocked_by': list, 'results': dict}`.
+- `ngv2/transition_planner.py` — `PHASE_ORDER` is the live len-11 tuple
+  `('source','hunt','triage','verify','poc','detonate','novelty','report','awaiting_submission','submitted','done')`
+  (10 consecutive transitions). The oracle imports `PHASE_ORDER` from here.
+
+# The target contract — what build_evidence MUST emit
+`build_evidence(state)` returns a FLAT dict for `run_gates`. It TRANSLATES `state`
+into the gate vocabulary — it must NOT copy `state['evidence']` forward verbatim, and
+it must NOT unconditionally overwrite the leaving-phase boolean flags with an
+artifacts-scan. There are TWO distinct families of keys, and they are derived
+DIFFERENTLY: the 8 SOURCE-DERIVED keys (always computed from `state`), and the
+leaving-phase BOOLEAN FLAGS (threaded from `state['evidence']` when present, omitted
+otherwise). The committed oracle
+`tests/ngv2/test_p11_build_evidence_perphase.py` (faithful, UNCHANGED) is the
+authoritative contract and pins exactly this split.
+
+THE 8 SOURCE-DERIVED KEYS — and ONLY these when `state['evidence']` carries no
+boolean flags (the oracle's `test_oracle_build_evidence_emits_eight_keys` asserts
+`set(ev.keys()) == {poc_source, target_import_names, target_source, expected_signature,
+sink_name, call_sites, detonation_report, source_ready}` when `state['evidence']`
+holds ONLY `detonation_report_raw`):
+
+| Evidence key | build_evidence derivation |
+|---|---|
+| `poc_source` | from `state['parked_package']['poc']` |
+| `target_import_names` | MUST include package names AST-parsed from `poc_source` (so a PoC importing the target package matches even when `state['target']` differs) |
+| `target_source` | MUST contain `expected_signature`; if the repo source file does not contain the sink signature, fall back to using `expected_signature` itself as `target_source` |
+| `expected_signature` | from the finding |
+| `sink_name` | from the finding |
+| `call_sites` | from the finding |
+| `detonation_report` | computed by mapping `state['evidence']['detonation_report_raw']` through the detonation gate; then the raw key is DROPPED (NEVER emit `detonation_report_raw`) |
+| `source_ready` | `= bool(state.get('repo'))`, ALWAYS emitted, derived from repo presence (NOT from findings) |
+
+THE LEAVING-PHASE BOOLEAN / FLAG KEYS (`findings`, `triage_result`, `verify_result`,
+`novelty_result`, `report_artifact`, `approval`, `submission_result`):
+
+- These are NOT among the 8 source-derived keys. They MUST be ABSENT from the output
+  when `state['evidence']` lacks them (this is what makes the eight-keys assertion hold
+  and what keeps `run_gates` failing-closed on an empty state).
+- Thread each one into the output FROM `state['evidence']` WHEN it is present there
+  (the oracle's `test_oracle_full_state_advances_all_transitions` populates each of
+  these as a positive value inside `state['evidence']` and requires every transition to
+  advance — so the impl MUST surface them from `state['evidence']`, not clobber them).
+- They MAY ALSO be sourced from an artifacts-scan-by-phase (`state['artifacts']`
+  discriminated by `art['data']['phase']`) as a SECONDARY fallback, but ONLY when such
+  an artifact actually exists — an artifacts-scan must NEVER overwrite a value already
+  present in `state['evidence']`, and must NEVER inject a `None`/placeholder.
+- When a flag is in NEITHER `state['evidence']` NOR present as a real artifact, it MUST
+  be OMITTED entirely (absent), never set to `None`. A present-`None` bypasses
+  `run_gates`' missing-key guard and breaks fail-closed; and an extra key breaks the
+  exactly-8 assertion.
+
+MANDATORY RULES (each is load-bearing for a committed-oracle assertion):
+1. An underivable key MUST be OMITTED, never set to `None`.
+2. NEVER emit `detonation_report_raw` in the output (compute `detonation_report`, drop
+   the raw key).
+3. `target_import_names` MUST include names AST-parsed from `poc_source`.
+4. `target_source` MUST contain `expected_signature`; fall back to `expected_signature`
+   if the repo file lacks the sink.
+5. Boolean flags are threaded from `state['evidence']` when present (an artifacts-scan
+   is a NON-OVERWRITING secondary source only), and OMITTED when absent.
+
+DO NOT hand-author a concrete `build_evidence` body here — the synthesizer derives the
+implementation from this corrected spec plus the committed oracle. The whole point of
+this brief is that the GREEN oracle and the live FSM drive the SAME translating
+implementation: source-derived keys computed from `state`, boolean flags threaded
+forward from `state['evidence']`.
+
+# HARD NEGATIVES (read carefully — a prior worker broke on the #1 item below)
+- ★★ #1 — DO NOT COPY `state['evidence']` FORWARD VERBATIM, AND DO NOT UNCONDITIONALLY
+  OVERWRITE THE BOOLEAN FLAGS WITH AN ARTIFACTS-SCAN. The prior worker's failure was
+  exactly an unconditional `ev['triage_result'] = _artifact_by_phase('triage')` (etc.)
+  that OVERWROTE a positive `state['evidence']['triage_result']` with `None` and emitted
+  extra keys. The committed oracle pins the correct split:
+  `test_oracle_build_evidence_emits_eight_keys` requires that when `state['evidence']`
+  holds ONLY `detonation_report_raw`, `set(ev.keys())` is EXACTLY the 8 source-derived
+  keys (boolean flags ABSENT); `test_oracle_full_state_advances_all_transitions`
+  populates positive boolean flags INSIDE `state['evidence']` and requires every
+  transition to advance (so those flags MUST be threaded forward from `state['evidence']`,
+  not clobbered to `None`). Therefore: thread `findings`/`triage_result`/`verify_result`/
+  `novelty_result`/`report_artifact`/`approval`/`submission_result` from
+  `state['evidence']` WHEN present; OMIT each when absent; never set any to `None`.
+- Do NOT replace or remove the existing poc/detonate keys in `build_evidence`. EXTEND
+  it — derive the source keys AFTER the existing logic and BEFORE `return ev`. The
+  existing `poc_source` / `target_import_names` / `target_source` / `expected_signature`
+  / `sink_name` / `call_sites` / `detonation_report` emission stays VERBATIM.
+- Do NOT set `source_ready = bool(state.get('prior_findings'))` or
+  `bool(... findings ...)`. At the `source->hunt` transition the repo is cloned but
+  hunt has not run yet, so `prior_findings == []` — gating `source_ready` on findings
+  is a PERMANENT deadlock at transition #1. The ONLY correct derivation is
+  `source_ready = bool(state.get('repo'))`. `source` is a setup/clone step; the only
+  honest "source complete" signal is `state['repo']` presence. The committed oracle's
+  `test_oracle_source_ready_is_from_repo_not_findings` pins this exactly.
+- Do NOT use the word "structural" or invent a key named `structural`/`pre_existing`.
+  Name each of the 8 source-derived keys EXACTLY as in the table above.
+- Do NOT emit any boolean flag as `None`, and do NOT emit `detonation_report_raw`. A
+  boolean flag that is in NEITHER `state['evidence']` NOR present as a real artifact MUST
+  be OMITTED (absent). A present-`None` bypasses `run_gates`' missing-key guard (breaks
+  fail-closed) and an extra key breaks the exactly-8 assertion. An artifacts-scan may be
+  a SECONDARY, NON-OVERWRITING fallback for a flag only — it must never overwrite a value
+  already in `state['evidence']` and must never inject `None`.
+- The committed oracle test file
+  `tests/ngv2/test_p11_build_evidence_perphase.py` is the authoritative contract —
+  the impl MUST conform to it EXACTLY: the 8 source-derived keys computed from `state`,
+  the boolean flags threaded from `state['evidence']` (omitted when absent).
+
+# Non-Goals
+Integration is out of scope for both tasks (the literal word `integration` appears
+here to excuse the integration-test requirement, and TASK 2's non_goals MUST also
+contain the literal word `integration`). TASK 1 changes NO production file. TASK 2
+EDITS ONLY `ngv2/conductor_seams.py` — it does NOT touch `ngv2/gate_executor.py`,
+`ngv2/transition_planner.py`, `ngv2/hunt_conductor.py`, or any phase worker. TASK 2
+does NOT change `build_default_seams`'s signature, the seam dict's keys, the nested
+`advance`/`persist`/`load_state` closures, or any module-level helper. It changes ONLY
+the body of the nested `build_evidence` closure (deriving the 8 source keys + threading
+the boolean flags from `state['evidence']`).
+
+LIVE-PATH NOTE (applies to BOTH tasks): the impl must make a live-shaped state advance
+all the per-phase gates — the committed oracle's `STATE`-with-positive-`evidence`
+fixture must go GREEN, driving the same translating implementation the live conductor
+exercises (source-derived keys computed from `state`; boolean flags threaded from
+`state['evidence']`). The boolean flags are threaded from `state['evidence']` when
+present (an artifacts-scan is at most a non-overwriting secondary fallback) and OMITTED
+when absent; never `None`.
+
+Until TASK 2 lands, TASK 1's oracle is RED-BY-ASSERTION (the
+full-state `advances 10/10` assertion FAILS because `build_evidence` does not yet
+translate the evidence → `run_gates` blocks → `advance is False`), NEVER RED-BY-
+ImportError. The oracle MUST collect and import cleanly today: it imports only live
+symbols (`build_default_seams`, `PHASE_ORDER`) and obtains `build_evidence` at RUNTIME
+from the seam dict — it does NOT import the nested closure directly (it is not
+importable). Do NOT use `exec`/`eval`/`compile`/`__import__` (AST-banned). Do NOT add
+network, subprocess, clock, randomness, or sleeps. Do NOT monkeypatch/stub
+`build_evidence` or `run_gates` — drive the REAL ones.
+
+# Deliverables
+
+## TASK 1 — author `tests/ngv2/test_p11_build_evidence_perphase.py`
+Module docstring and any in-test docstrings use `"""` triple-double-quotes, NEVER
+`'''`. Emit real runnable code, NO large embedded listings beyond the two fixtures.
+
+MODULE-SCOPE imports are RESTRICTED to live symbols + stdlib:
+`from ngv2.conductor_seams import build_default_seams`,
+`from ngv2.transition_planner import PHASE_ORDER`, plus stdlib (`json`, `pytest`).
+Do NOT import `build_evidence`, `run_gates`, or `gate_executor` at module scope — the
+oracle obtains both `build_evidence` and `run_gates` from the seam dict at runtime.
+
+A module-level helper that builds the seams and returns the live closures:
+```python
+def _seams():
+    s = build_default_seams('s1', None, None, {})
+    return s['build_evidence'], s['run_gates']
+```
+(`build_default_seams` is PURE with `db=None` — it does no DB/subprocess/LLM call at
+build time; calling the returned `build_evidence`/`run_gates` is likewise pure.)
+
+A module-level helper enumerating the consecutive transitions:
+```python
+def _consecutive_transitions():
+    return [(PHASE_ORDER[i], PHASE_ORDER[i + 1]) for i in range(len(PHASE_ORDER) - 1)]
+```
+
+NOTE: the oracle `tests/ngv2/test_p11_build_evidence_perphase.py` is ALREADY COMMITTED,
+faithful, and UNCHANGED (oracle `fa6a069`). The shapes below describe what that committed
+oracle does — they are the authoritative contract; TASK 2's impl conforms to them EXACTLY.
+
+★★ FIXTURE SHAPE (as the committed oracle expresses it): the positive fixtures carry the
+leaving-phase boolean flags INSIDE `state['evidence']` (e.g.
+`'evidence': {'findings': [...], 'triage_result': True, 'verify_result': True,
+'novelty_result': True, 'report_artifact': True, 'approval': True,
+'submission_result': True, 'detonation_report_raw': {...}}`), NOT via top-level
+`state[...]` keys and NOT via an `artifacts` list. `source_ready` derives from
+`state['repo']` (a real `tmp_path` dir in the oracle); `parked_package['poc']` carries the
+PoC source; `prior_findings` carries the finding. The eight-keys fixture carries ONLY
+`detonation_report_raw` inside `state['evidence']` (no boolean flags), so the output is
+EXACTLY the 8 source-derived keys. The empty fixture is `{'evidence': {}}`.
+
+Required test functions (the committed oracle's actual assertions — DO NOT alter the
+committed file; this describes what it checks so TASK 2 conforms):
+
+1. `test_oracle_imports_and_seam_shape` — build the seams via `build_default_seams` and
+   assert the seam dict exposes `'build_evidence'` and `'run_gates'` (both callable) and
+   that `seams['run_gates'] is run_gates`.
+2. `test_oracle_phase_order_consecutive_count` — `PHASE_ORDER` is a len-11 tuple of 11
+   unique phases; there are 10 consecutive transitions.
+3. `test_oracle_build_evidence_emits_eight_keys` — with `state['evidence']` holding ONLY
+   `detonation_report_raw`, `set(ev.keys())` is EXACTLY
+   `{poc_source, target_import_names, target_source, expected_signature, sink_name,
+   call_sites, detonation_report, source_ready}` — the 8 source-derived keys. The boolean
+   flags are ABSENT here (this is the assertion that the impl must NOT clobber/inject
+   flag keys when `state['evidence']` has none).
+4. `test_oracle_source_ready_is_from_repo_not_findings` — with a `repo` set and EMPTY
+   `prior_findings`, `ev['source_ready'] is True`; with `repo: None` (even with findings),
+   `ev['source_ready'] is not True`. Proves `source_ready == bool(state['repo'])`.
+5. `test_oracle_full_state_advances_all_transitions` — with `state['evidence']` ALSO
+   carrying positive `findings, triage_result, verify_result, novelty_result,
+   report_artifact, approval, submission_result` (plus `detonation_report_raw`), EVERY
+   consecutive transition advances (`res['advance'] is True`, `res['blocked_by'] == []`).
+   This is the assertion that requires the impl to THREAD those flags forward from
+   `state['evidence']` (not overwrite them to `None` via an artifacts-scan).
+6. `test_oracle_empty_state_fails_closed_all_transitions` — with `{'evidence': {}}`,
+   EVERY transition returns `advance: False` with a non-empty `blocked_by`.
+7. `test_oracle_build_evidence_determinism` — calling `build_evidence` repeatedly on the
+   same state yields `==` results and identical `json.dumps(..., sort_keys=True)`.
+
+NESTED-QUOTE HAZARD: emit all docstrings as `"""..."""`, NEVER `'''...'''`.
+
+Edge cases (each backed by a NAMED regression test above, so `missing_edge_case_tests`
+is satisfied): source->hunt derives from repo not findings →
+`test_oracle_source_ready_is_from_repo_not_findings`; empty state fails closed on every
+transition → `test_oracle_empty_state_fails_closed_all_transitions`.
+
+## TASK 2 — extend the nested `build_evidence` closure in `ngv2/conductor_seams.py`
+
+IMPLEMENTATION_NOTES — BUILD_EVIDENCE → RUN_GATES CONTRACT (the impl MUST satisfy this
+exact cross-module interface):
+
+`build_evidence(state)` must return a FLAT evidence dict consumed by
+`run_gates(from_phase, to_phase, evidence)` in `ngv2/gate_executor.py`. `run_gates`
+reads per-transition keys; a MISSING key fails closed (`<gate>:missing_evidence`); a
+PRESENT key lets the gate's `may_confirm` decide advance. `build_evidence` must
+TRANSLATE state into this vocabulary — it must NOT copy `state['evidence']` forward
+verbatim.
+
+Per-transition required key(s) → advance condition:
+- `source→hunt`: `source_ready` → advance when `bool(source_ready)` is True
+- `hunt→triage`: `findings` → advance when a non-empty list
+- `triage→verify`: `triage_result` → advance when truthy
+- `verify→poc`: `verify_result` → advance when truthy
+- `poc→detonate`: `poc_source`, `target_import_names` → advance when
+  `classify_poc_authenticity` yields `mode != self_contained_mock`
+- `detonate→novelty`: `detonation_report`, `target_source`, `expected_signature`,
+  `sink_name`, `call_sites` → advance when detonation `live_execution` AND sink present
+  AND sink reachable
+- `novelty→report`: `novelty_result` → truthy
+- `report→awaiting_submission`: `report_artifact` → truthy
+- `awaiting_submission→submitted`: `approval` → truthy
+- `submitted→done`: `submission_result` → truthy
+
+EXACTLY 8 source-derived keys (and ONLY these when `state['evidence']` carries no
+boolean flags — this is asserted by the oracle's eight-keys test): `poc_source` (from
+`state['parked_package']['poc']`), `target_import_names`, `target_source`,
+`expected_signature`, `sink_name`, `call_sites`, `detonation_report` (computed by
+mapping `state['evidence']['detonation_report_raw']` through the detonation gate),
+`source_ready` (= `bool(state['repo'])`, ALWAYS emitted, derived from repo presence —
+NOT from findings).
+
+MANDATORY rules (each one is load-bearing for a specific oracle assertion):
+1. An underivable key MUST be OMITTED entirely, never set to `None` — a present-`None`
+   value bypasses the missing-key guard and crashes the source gates, breaking
+   fail-closed behavior.
+2. NEVER copy `detonation_report_raw` into the output. Compute `detonation_report` from
+   it, then drop the raw key.
+3. `target_import_names` MUST include package names AST-parsed from `poc_source`, so a
+   PoC that imports the target package matches even when `state['target']` differs from
+   the import name.
+4. `target_source` MUST contain `expected_signature`. If the repo source file does not
+   contain the sink signature, fall back to using `expected_signature` as the
+   `target_source`.
+5. Thread the leaving-phase boolean flags (`findings`, `triage_result`,
+   `verify_result`, `novelty_result`, `report_artifact`, `approval`,
+   `submission_result`) from `state['evidence']` into the output ONLY when present in
+   `state['evidence']`. They are NOT among the 8 source-derived keys and MUST be absent
+   from the output when `state['evidence']` lacks them.
+
+IMPLEMENTATION NOTES (LOAD-BEARING — patch shape):
+- `build_evidence` is a NESTED closure inside the top-level function
+  `build_default_seams`. A `kind:symbol` patch keyed on `build_evidence` raises a
+  TYPED error (nested symbols are not patchable). Therefore the patch MUST target the
+  ENCLOSING top-level symbol `build_default_seams`: emit a `__JANUSMASK_PATCHES__`
+  `kind:symbol` patch with `name: 'build_default_seams'`, R-ANCHORED on an existing
+  top-level symbol (anchor on `_spawn_stage` or `_PHASE_COUNT_KEY`), reproducing
+  `build_default_seams` VERBATIM with ONLY the nested `build_evidence` closure body
+  extended.
+- Inside `build_evidence`, KEEP the existing poc/detonate logic byte-for-byte. AFTER
+  it (right before `return ev`) derive the 8 source-derived keys from `state` and thread
+  the leaving-phase boolean flags from `state['evidence']`, per the
+  BUILD_EVIDENCE → RUN_GATES CONTRACT and the 5 MANDATORY rules above. Specifically:
+  `source_ready = bool(state.get('repo'))`; `poc_source` from
+  `state['parked_package']['poc']`; `target_import_names` includes names AST-parsed from
+  `poc_source`; `target_source` contains `expected_signature` (fall back to
+  `expected_signature` if the repo file lacks the sink); `expected_signature`/`sink_name`/
+  `call_sites` from the finding; `detonation_report` computed from
+  `state['evidence']['detonation_report_raw']` (drop the raw key). Thread
+  `findings`/`triage_result`/`verify_result`/`novelty_result`/`report_artifact`/
+  `approval`/`submission_result` from `state['evidence']` ONLY when present there; OMIT
+  each when absent (never `None`). An artifacts-scan-by-phase (`state['artifacts']`
+  discriminated by `art['data']['phase']`) is allowed ONLY as a NON-OVERWRITING secondary
+  fallback for a flag — it must never overwrite a value already in `state['evidence']` and
+  must never inject `None`. Do NOT hand-derive a full replacement body here; let the
+  synthesizer satisfy this spec against the committed oracle.
+- LIVE-SHAPE REQUIREMENT: the impl must make the committed oracle's positive fixture
+  (boolean flags inside `state['evidence']`, `repo`, `prior_findings`, `parked_package`)
+  advance ALL ten per-phase gates, driving the same translating implementation the live
+  conductor exercises (source-derived keys computed from `state`; flags threaded from
+  `state['evidence']`). When `state['evidence']` carries no flags, the output is EXACTLY
+  the 8 source-derived keys.
+- Reproduce the rest of `build_default_seams` (`load_state`, `persist`, `advance`, the
+  return-dict) UNCHANGED — the return dict's keys stay exactly as today.
+
+The committed oracle file `tests/ngv2/test_p11_build_evidence_perphase.py` EXISTS on
+disk and is the authoritative contract — conform to it EXACTLY.
+
+`non_goals` MUST contain the literal word `integration`; `regression_tests >= 2`.
+
+The impl task's `test_spec` MUST declare AT LEAST TWO edge cases, each covered by a
+named regression_test (so `missing_edge_case_tests` is satisfied):
+  - `test_oracle_source_ready_is_from_repo_not_findings` — `source_ready` derives from
+    `state['repo']`, NOT findings, so source->hunt advances with a cloned repo but no
+    findings yet, and fails closed with no repo.
+  - `test_oracle_empty_state_fails_closed_all_transitions` — over an empty state every
+    consecutive transition returns `advance:False`.
+
+Do NOT declare any edge_case not reflected in at least one regression_test.
+
+# Required plan shape
+Emit EXACTLY TWO tasks (pin BOTH via `required_task_ids`:
+`p11-build-evidence-oracle-perphase`, `p11-build-evidence-perphase-impl`) in
+dependency order — oracle FIRST, impl DEPENDS ON it. PRIORITY on BOTH tasks MUST be
+canonical lowercase `critical` (NEVER P0/P1/ints/Capitalized).
+
+- TASK 1 (oracle, `test_authoring`):
+  - `task_id: p11-build-evidence-oracle-perphase`
+  - `priority: critical`
+  - `dependencies: []`
+  - `meta_task_type: test_authoring`
+  - `files_touched: ["tests/ngv2/test_p11_build_evidence_perphase.py"]`
+  - `mutation_target: ngv2.conductor_seams` (REQUIRED — a BARE DOTTED MODULE path, no
+    slashes, no `.py`; maps to `<working_dir>/ngv2/conductor_seams.py`, which EXISTS)
+  - `spec_author: null`
+  - `verification_command: python -m pytest tests/ngv2/test_p11_build_evidence_perphase.py -q`
+
+- TASK 2 (impl, `state_machine`):
+  - `task_id: p11-build-evidence-perphase-impl`
+  - `priority: critical`
+  - `dependencies: ["p11-build-evidence-oracle-perphase"]` (REQUIRED — makes TASK 2
+    the discoverable red-pair sibling via the oracle's reverse-dependency edge)
+  - `meta_task_type: state_machine`
+  - `files_touched: ["ngv2/conductor_seams.py"]` (MUST include
+    `ngv2/conductor_seams.py` — the oracle's `mutation_target` file)
+  - OMIT `mutation_target`. `spec_author: null`.
+  - `non_goals` MUST contain the literal word `integration`; `regression_tests >= 2`.
+  - Emit a `__JANUSMASK_PATCHES__` payload for `ngv2/conductor_seams.py` (a
+    `kind:symbol` patch with `name: 'build_default_seams'` R-ANCHORED on an existing
+    top-level symbol — see implementation notes; do NOT patch the nested
+    `build_evidence` directly).
+  - `verification_command: python -m pytest tests/ngv2/test_p11_build_evidence_perphase.py -q`
+    — emit this string EXACTLY. LOAD-BEARING: TASK 2's vcmd MUST CONTAIN the oracle
+    test path `tests/ngv2/test_p11_build_evidence_perphase.py` — without it
+    `plan_normalizer._drop_redundant_precommitted_oracles` silently drops the REQUIRED
+    oracle → `missing_required_task`.
+
+Both vcmds run with NO `cd` prefix and select >=1 real test. Do NOT use a broad
+`pytest tests/adversarial/ -q` vcmd (non-hermetic, flaky-blocks).
+
+REDPAIR RATIONALE (`harness/redpair_acceptance.py::is_fix_forward_redpair`): the oracle
+is `test_authoring` (cond 1), declares `mutation_target: ngv2.conductor_seams` mapping
+to an on-disk file (conds 2+3), with non-empty `files_touched` (cond 4). The impl is
+discoverable because it DEPENDS ON the oracle, is NOT `test_authoring`, its
+`files_touched` includes `ngv2/conductor_seams.py`, AND its vcmd CONTAINS the oracle's
+test path `tests/ngv2/test_p11_build_evidence_perphase.py` (cond 5). All five hold, so
+the RED oracle lands without needing exit 0 pre-impl.
+
+Do NOT include any gate-table task — the per-phase gate table in `ngv2/gate_executor.py`
+already landed and is a separate, file-disjoint concern. This brief touches
+`ngv2/conductor_seams.py` ONLY.
+
+# RE-DISPATCH NOTE (2026-06-21)
+Prior impl attempts failed in TWO ways: (a) copying `state['evidence']` forward
+verbatim instead of TRANSLATING it into the `run_gates` per-phase gate vocabulary
+(`ngv2/gate_executor.py`); and (b) UNCONDITIONALLY overwriting the leaving-phase boolean
+flags with an artifacts-scan that returned `None`, clobbering positive
+`state['evidence']` values and emitting extra keys. The correct impl derives the 8
+source keys from `state` and THREADS the boolean flags from `state['evidence']` (omitting
+absent ones; an artifacts-scan is at most a non-overwriting secondary fallback). This was
+root-caused by an analytic satisfiability probe run
+against the REAL `run_gates`: a passing implementation provably EXISTS (the real oracle
+reports 7 passed with a correct candidate). The orphaned attempt `61e1098e` does NOT
+satisfy the new oracle — it is a NEW failure pattern, not present anywhere in git
+history. The oracle `fa6a069` is faithful and satisfiable and is UNCHANGED. The
+BUILD_EVIDENCE → RUN_GATES CONTRACT block added to the TASK 2 implementation notes
+above was authored to guide the blind-draft synthesis so it produces the translating
+implementation rather than the verbatim copy.

@@ -1,0 +1,64 @@
+=== D3: what _inject_oracle_sources injects today (post 3f9af36) ===
+Injected block present: True
+Injected block length (chars): 1173
+
+--- Answer-key VALUE tokens: present in raw oracle vs in injected notes ---
+  "'jail_unavailable'"     raw=True  injected=False  -> withheld
+  '--unshare-net'          raw=True  injected=False  -> withheld
+  '--unshare-ipc'          raw=True  injected=False  -> withheld
+  '--unshare-pid'          raw=True  injected=False  -> withheld
+  "'jail_build'"           raw=True  injected=False  -> withheld
+  '/home/user/repo'        raw=True  injected=False  -> withheld
+
+--- Test BODY leakage check ---
+  injected contains the word "assert": False
+  injected contains "def test_": True
+  injected contains "..." stub bodies: True
+
+--- Sample of the injected block (first 1400 chars) ---
+COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):
+
+## tests/ngv2/test_fsm_jail_build.py
+```python
+import importlib
+import hashlib
+import json
+import pytest
+def get_valid_prev_artifact() -> dict:
+    ...
+def get_valid_input_data() -> dict:
+    ...
+def test_oracle_wiring_reachability(monkeypatch):
+    ...
+def test_oracle_positive_advance():
+    ...
+def test_oracle_positive_advance_no_paths():
+    ...
+def test_oracle_fail_closed_bwrap_absent():
+    ...
+def test_oracle_fail_closed_under_isolated():
+    ...
+def test_oracle_fail_closed_under_isolated_missing_ipc():
+    ...
+def test_oracle_fail_closed_under_isolated_missing_pid():
+    ...
+def test_oracle_fail_closed_missing_binds():
+    ...
+def test_oracle_fail_closed_missing_binds_repo_only():
+    ...
+def test_oracle_fail_closed_missing_binds_work_only():
+    ...
+def test_oracle_inherited_fail_closed_invariant():
+    ...
+def test_oracle_inherited_fail_closed_invariant_tampered():
+    ...
+def test_oracle_determinism():
+    ...
+def test_oracle_determinism_reordered_keys():
+    ...
+```
+
+
+=== VERDICT ===
+VALUE-LEAK CLOSED: no assertion values injected; only redacted structure (imports/signatures).
+Verbatim-source paste: REMOVED (bodies replaced by "...")

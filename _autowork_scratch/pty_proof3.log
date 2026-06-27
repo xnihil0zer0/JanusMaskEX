@@ -1,0 +1,55 @@
+[proof] work_dir=/tmp/ptyproof_kowzcv70
+[proof] jailed[:10]=['/usr/bin/bwrap', '--die-with-parent', '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--ro-bind', '/usr']
+[run] READY reached at 1s; sending seed
+[run] t=10s at_idle=False seen_work=True consec=0 file=True
+[run] t=20s at_idle=False seen_work=True consec=0 file=True
+[run] t=30s at_idle=False seen_work=True consec=0 file=True
+[run] t=40s at_idle=False seen_work=True consec=0 file=True
+[run] t=50s at_idle=False seen_work=True consec=0 file=True
+[run] t=60s at_idle=False seen_work=True consec=0 file=True
+[run] t=70s at_idle=False seen_work=True consec=0 file=True
+[run] t=80s at_idle=False seen_work=True consec=0 file=True
+[run] t=90s at_idle=False seen_work=True consec=0 file=True
+[run] t=101s at_idle=False seen_work=True consec=0 file=True
+[run] t=111s at_idle=False seen_work=True consec=0 file=True
+[run] t=121s at_idle=False seen_work=True consec=0 file=True
+[run] t=131s at_idle=False seen_work=True consec=0 file=True
+[run] t=141s at_idle=False seen_work=True consec=0 file=True
+[run] t=151s at_idle=False seen_work=True consec=0 file=True
+[run] t=161s at_idle=False seen_work=True consec=0 file=True
+[run] t=171s at_idle=False seen_work=True consec=0 file=True
+[run] t=181s at_idle=False seen_work=True consec=0 file=True
+[run] t=191s at_idle=False seen_work=True consec=0 file=True
+[run] t=201s at_idle=False seen_work=True consec=0 file=True
+[run] t=211s at_idle=False seen_work=True consec=0 file=True
+[run] t=221s at_idle=False seen_work=True consec=0 file=True
+[run] t=231s at_idle=False seen_work=True consec=0 file=True
+[proof] ready=True idle=False dead_early=None in 242s
+[proof] === final screen tail ===
+
+
+
+
+
+2 MCP servers failed · /mcp
+●Done. Created outbox/submission.pywithexactlythespecifiedcontents.✢ Spinning… (9s · ↓ 195 tokens)❯  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt               14086tokens
+globalVersion:2.1.156·latestVersion:2.1.177✗Auto-updatefailed·Try/doctor ornpmi-g@anthropic-ai/claude-code
+2MCPserversfailed ·/mcp
+*6
+
+
+
+
+
+
+
+✻Baked for 9s❯ ← for agents    111
+
+
+cat outbox/submission.py
+
+
+
+
+[proof] outbox/submission.py exists=True content="print('PTY_JAIL_OK')\n"
+[proof] PASS

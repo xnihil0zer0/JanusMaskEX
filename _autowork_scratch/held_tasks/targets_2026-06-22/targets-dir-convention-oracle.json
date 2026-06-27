@@ -1,0 +1,108 @@
+{
+  "task_id": "targets-dir-convention-oracle",
+  "title": "Oracle: targets_dir convention resolver (bare/relative -> ~/NobleGreedv2/targets, absolute unchanged)",
+  "meta_task_type": "test_authoring",
+  "mutation_target": "harness.target_bootstrap",
+  "priority": "high",
+  "dependencies": [],
+  "files_touched": [
+    "tests/harness/test_targets_dir_convention.py"
+  ],
+  "acceptance_criteria": [
+    "New file tests/harness/test_targets_dir_convention.py imports `from harness.paths import PROJECT_ROOT` and `from harness.target_bootstrap import resolve_target_path, _read_targets_dir`.",
+    "Module-level `_EXPECTED_DEFAULT = Path('~/NobleGreedv2/targets').expanduser().resolve()` is defined and used by the default/outside-repo assertions.",
+    "Exactly 10 test functions are present and the suite is RED today (the symbols resolve_target_path/_read_targets_dir do not exist yet).",
+    "Suite is hermetic: uses tmp_path only, never creates or reads the real ~/NobleGreedv2/targets, never invokes bootstrap_target, and needs no monkeypatch (no file read to redirect).",
+    "Bare name with config={'targets_dir': str(tmp)} resolves to (tmp / 'fastgpt').resolve() and is OUTSIDE the repo (PROJECT_ROOT is NOT a parent of the result).",
+    "With no config, _read_targets_dir() returns _EXPECTED_DEFAULT (absolute, no literal '~') and resolve_target_path('mem0') lands under it.",
+    "An already-absolute external path is returned as Path(<abs>).resolve() UNCHANGED (never joined under targets_dir).",
+    "Relative multi-segment 'sub/dir' nests to (tmp / 'sub' / 'dir').resolve(); resolve_target_path is pure (no mkdir, creates no fs entries).",
+    "Empty/whitespace/falsey config targets_dir falls back to _EXPECTED_DEFAULT; _read_targets_dir result is always .is_absolute() and contains no '~'.",
+    "verification_command runs the new file and the suite collects (RED) under it.",
+    "non_goals contains the literal word 'integration'."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/harness/test_targets_dir_convention.py -q",
+  "spec": {
+    "objective": "Author the single RED oracle that pins the targets_dir convention: a bare-name or relative target reference resolves under a configured targets_dir (default ~/NobleGreedv2/targets, ~-expanded, OUTSIDE the repo), while an already-absolute external path is returned unchanged. The oracle exercises ONLY the pure resolver `resolve_target_path(working_dir, config=None)` and the pure config reader `_read_targets_dir(config=None)` in harness.target_bootstrap; it never invokes bootstrap_target and never touches the real targets directory.",
+    "functional_requirements": [
+      "Import contract + fixtures: tests/harness/test_targets_dir_convention.py imports `from harness.paths import PROJECT_ROOT` (for the outside-repo assertion) and `from harness.target_bootstrap import resolve_target_path, _read_targets_dir`, and defines a module-level `_EXPECTED_DEFAULT = Path('~/NobleGreedv2/targets').expanduser().resolve()`. The suite is RED today because the imported symbols do not exist yet.",
+      "Bare name -> config targets_dir, outside repo: with config={'targets_dir': str(tmp)} (tmp a tmp_path subdir), resolve_target_path('fastgpt', config={...}) == (tmp / 'fastgpt').resolve() AND PROJECT_ROOT is NOT a parent of the result.",
+      "Default ~-expansion: with NO config, _read_targets_dir() == _EXPECTED_DEFAULT (absolute path with no literal '~') and resolve_target_path('mem0') lands under _EXPECTED_DEFAULT; default resolution does not require the dir to exist (hermetic).",
+      "Absolute external path unchanged (backward-compat): for an absolute path OUTSIDE both repo and targets_dir (e.g. tmp_path / 'somewhere_else'), resolve_target_path(<abs>) == Path(<abs>).resolve(), never rewritten under targets_dir, never joined.",
+      "Relative nesting + purity: resolve_target_path('sub/dir', config={'targets_dir': str(tmp)}) == (tmp / 'sub' / 'dir').resolve(); and calling resolve_target_path('newname', config={'targets_dir': str(tmp)}) does NOT create <tmp>/newname on disk (assert not (tmp / 'newname').exists()).",
+      "Fail-safe + always-absolute/~-free property + guards: _read_targets_dir(config={'targets_dir': ''}) == _EXPECTED_DEFAULT; for each config in [None, {}, {'targets_dir': ''}, {'targets_dir': '   '}, {'targets_dir': str(valid)}] the result .is_absolute() is True and '~' not in str(result) (first four yield _EXPECTED_DEFAULT, last yields valid.resolve()); the suite never creates/reads the real ~/NobleGreedv2/targets and never invokes bootstrap_target."
+    ],
+    "interfaces": "Tests-only. Imports: `from harness.paths import PROJECT_ROOT`; `from harness.target_bootstrap import resolve_target_path, _read_targets_dir`; `from pathlib import Path`. Module constant: `_EXPECTED_DEFAULT = Path('~/NobleGreedv2/targets').expanduser().resolve()`. Under test: resolve_target_path(working_dir, config=None) -> Path and _read_targets_dir(config=None) -> Path (both pure). Uses pytest tmp_path only; no monkeypatch (no file read to redirect).",
+    "edge_cases": [
+      "Empty string targets_dir ('') in config -> falls back to _EXPECTED_DEFAULT, not an empty Path.",
+      "Whitespace-only targets_dir ('   ') in config -> falls back to default after .strip().",
+      "config is None or {} (no targets_dir key) -> default.",
+      "Already-absolute working_dir -> returned resolved and UNCHANGED, never joined under targets_dir.",
+      "Bare name (no separator) vs relative multi-segment ('sub/dir') -> both join under targets_dir.",
+      "Default targets dir need not exist on disk for resolution (hermetic, no fs read).",
+      "resolver must not create any filesystem entries (purity)."
+    ],
+    "non_goals": [
+      "integration: no integration test or end-to-end bootstrap_target invocation; the oracle exercises only the pure resolver + pure config reader.",
+      "No config file is created or read; no config-path monkeypatching; no YAML parser.",
+      "Does not call bootstrap_target (which would run git/venv); does not touch the real ~/NobleGreedv2/targets.",
+      "Does not test harness/paths.py changes, effective_target_root, or _target_is_self."
+    ],
+    "implementation_notes": "Exactly 10 test functions, hermetic via tmp_path: (1) bare name -> config targets_dir + outside-repo (PROJECT_ROOT not a parent); (2) default ~-expansion via _read_targets_dir() == _EXPECTED_DEFAULT and resolve_target_path('mem0') under it; (3) absolute external path unchanged; (4) relative multi-segment nests under targets_dir; (5) purity no-mkdir; (6) empty config falls back to default; (7) property: resolver never mutates fs over bare/relative/absolute samples; (8) property: _read_targets_dir always absolute + ~-free across [None, {}, {'targets_dir': ''}, {'targets_dir': '   '}, {'targets_dir': str(valid)}]; (9) hermetic: default resolution does not require the real targets dir to exist; (10) guard: suite exercises only resolver + reader and never calls bootstrap_target. No monkeypatch needed. minimum_test_count is 9 (10 surviving tests satisfy >= 9)."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_bare_name_resolves_under_config_targets_dir_outside_repo"
+      },
+      {
+        "name": "test_default_targets_dir_tilde_expansion_and_resolve_under_it"
+      },
+      {
+        "name": "test_absolute_external_path_returned_unchanged"
+      },
+      {
+        "name": "test_relative_multisegment_nests_under_targets_dir"
+      },
+      {
+        "name": "test_resolve_target_path_is_pure_no_mkdir"
+      },
+      {
+        "name": "test_empty_config_falls_back_to_default"
+      },
+      {
+        "name": "test_real_targets_dir_never_touched_hermetic"
+      },
+      {
+        "name": "test_oracle_never_invokes_bootstrap_target"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [
+      {
+        "name": "test_resolver_never_mutates_fs_over_sample_inputs"
+      },
+      {
+        "name": "test_read_targets_dir_always_absolute_and_tilde_free"
+      }
+    ],
+    "regression_tests": [],
+    "minimum_test_count": 9,
+    "test_data_requirements": "pytest tmp_path only. Build a tmp targets_dir (e.g. tmp_path/'targets') and pass config={'targets_dir': str(tmp)}. For the absolute-unchanged case use tmp_path/'somewhere_else'. Define module-level _EXPECTED_DEFAULT = Path('~/NobleGreedv2/targets').expanduser().resolve(). No config file, no monkeypatch, no network, never touch the real ~/NobleGreedv2/targets."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 0,
+    "test_tokens": 100,
+    "note": "test_authoring task: no production code, all budget to authoring the 10-function hermetic oracle."
+  },
+  "attribution_metadata": {
+    "proposed_by": "reconciled",
+    "reconciled": true,
+    "diff_resolution": "reconciled"
+  },
+  "_debug_stamping_reason": "Task was divergent and resolved via reconciliation.",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+  "repair_feedback": "event=verification_failed\nexit=2\nstdout_tail:\n\n==================================== ERRORS ====================================\n________ ERROR collecting tests/harness/test_targets_dir_convention.py _________\nImportError while importing test module '/home/xnihil0zer0/JanusMaskJR_targets-dir-convention-oracle_staging/tests/harness/test_targets_dir_convention.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\n../miniconda3/lib/python3.13/importlib/__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\ntests/harness/test_targets_dir_convention.py:3: in <module>\n    from harness.target_bootstrap import resolve_target_path, _read_targets_dir\nE   ImportError: cannot import name 'resolve_target_path' from 'harness.target_bootstrap' (/home/xnihil0zer0/JanusMaskJR_targets-dir-convention-oracle_staging/harness/target_bootstrap.py)\n=========================== short test summary info ============================\nERROR tests/harness/test_targets_dir_convention.py\n!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.12s\n"
+}

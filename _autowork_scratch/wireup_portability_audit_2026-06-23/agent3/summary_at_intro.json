@@ -1,0 +1,31 @@
+{
+  "commit_cap": 120,
+  "new_callables_found": 40,
+  "deleted_before_head": 0,
+  "materialize_failed": 0,
+  "scorable_both_frames": 40,
+  "confusion": {
+    "TP_true_orphan": 8,
+    "FP_staged_false_orphan": 4,
+    "TN_wired": 28,
+    "FN_late_unwired": 0
+  },
+  "flagged_orphan_at_intro": 12,
+  "naive_intro_FP_rate_pct": 33.3,
+  "post_B7recheck_FP_rate_pct": 0.0,
+  "intro_orphan_flag_rate_pct": 30.0,
+  "permanent_orphans_flagged_TP": [
+    "harness/agy_pool.py::assert_pool_invariant",
+    "harness/agy_pool.py::effective_pool_size"
+  ],
+  "permanent_orphans_NOT_flagged": [
+    "harness/diff_fuzzer.py::_capture_golden",
+    "harness/diff_fuzzer.py::_one_sided_fuzz"
+  ],
+  "staged_build_FP_examples": [
+    "2e8f2e93f harness/wire_up.py::symbol_reachable_from_live_root",
+    "5ab79d8d5 harness/wire_up.py::validate_exemption",
+    "6fb413fde harness/wire_up.py::new_top_level_callables",
+    "d8e489986 harness/wire_up.py::detonate_oracle"
+  ]
+}

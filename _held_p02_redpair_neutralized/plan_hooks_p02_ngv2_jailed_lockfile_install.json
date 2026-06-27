@@ -1,0 +1,186 @@
+{
+  "tasks": [
+    {
+      "task_id": "p02-ngv2-jailed-install-oracle",
+      "title": "Draft and implement test oracle asserting bwrap-jailed, net-unshared, lockfile-only dependency installation",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "ngv2.poc_runner_live",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tests/ngv2/test_poc_runner_jailed_install.py"
+      ],
+      "acceptance_criteria": [
+        "Tests are placed in tests/ngv2/test_poc_runner_jailed_install.py.",
+        "Imports the module/symbols via importlib spec (loader.exec_module) from tmp_path rather than raw exec or __import__.",
+        "Correctly injects mock jail_runner and pip_installer seams to capture install arguments without actual subprocess or jail calls.",
+        "Asserts positive case: normal lockfile installation runs in jail and captures --unshare-net, and the re-run uses the installed deps dir on PYTHONPATH.",
+        "Asserts negative control: an attacker-controlled ModuleNotFoundError in stderr does NOT trigger installation of that package name, and the un-jailed host-side pip install is never called.",
+        "Asserts lockfile-only: the installer uses '-r' and the path to the resolved requirements lockfile, never a bare package name.",
+        "Asserts fail-closed: detonation fails closed and performs no host network install if no lockfile is found or if bwrap is missing.",
+        "Includes at least 2 regression tests asserting no change to existing smoke or lockfile-free detonation verdicts."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/ngv2/test_poc_runner_jailed_install.py -q",
+      "spec": {
+        "objective": "Author a non-vacuous RED test suite under tests/ngv2/test_poc_runner_jailed_install.py to verify that dependency installation during detonation is jailed, lockfile-only, net-unshared, and fail-closed, preventing remote code execution via attacker-influenced stderr package names.",
+        "functional_requirements": [
+          "Author test cases asserting (a) POSITIVE: a normal lockfile install succeeds in a net-unshared jail, and the re-run uses the installed deps dir on PYTHONPATH.",
+          "Author test cases asserting (b) NEGATIVE CONTROL: an attacker-named package appearing in the PoC's stderr is never installed, and the host subprocess.run is not called with it.",
+          "Author test cases asserting (c) LOCKFILE-ONLY: the install command runs against a lockfile via -r <lockfile>, not a bare package name.",
+          "Author test cases asserting (d) FAIL-CLOSED: if no lockfile is found or bwrap is unavailable, the installation fails and detonation does not fall back to a host network install."
+        ],
+        "interfaces": "Injectable seams: pip_installer, jail_runner callables to detonate_live. Target file imports: importlib based loading of ngv2/poc_runner_live.py.",
+        "edge_cases": [
+          "Requirements files: text/dev/lock files. The target repo_root has requirements.txt, requirements-dev.txt, or requirements.lock.",
+          "bwrap missing: shutil.which('bwrap') returns None or is unavailable, causing the installer to return False and prevent installation."
+        ],
+        "non_goals": [
+          "Do not wire this into a live run_hunt or conductor traversal. No FSM or worker changes.",
+          "Do not import JanusMask's harness.agent_jail.build_jail_argv.",
+          "Do not change success/verdict gate logic."
+        ],
+        "implementation_notes": "Imports must use importlib.util.spec_from_file_location and module_from_spec to load the target code. Real subprocess.run must be monkeypatched to raise an exception to catch any unmocked host execution."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_poc_runner_jailed_install_positive_lockfile"
+          },
+          {
+            "name": "test_poc_runner_jailed_install_negative_control"
+          },
+          {
+            "name": "test_poc_runner_jailed_install_lockfile_only_argv"
+          },
+          {
+            "name": "test_poc_runner_jailed_install_fail_closed_no_lockfile"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_jailed_installation_with_detonation_re_run_pythonpath"
+          }
+        ],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_regression_no_dependency_install_needed_unchanged_verdict"
+          },
+          {
+            "name": "test_regression_smoke_verdict_retained"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Requires mock target repository files containing requirements.txt, requirements-dev.txt, requirements.lock, or none to test lockfile resolution, plus mock stderr streams containing ModuleNotFoundError."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 200,
+        "note": "Test-only task: requires no implementation tokens; test tokens allocated to cover robust oracle authoring."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "p02-ngv2-jailed-install-impl",
+      "title": "Implement bwrap-jailed, network-unshared, lockfile-only dependency installer",
+      "meta_task_type": "io_adapter",
+      "priority": "high",
+      "dependencies": [
+        "p02-ngv2-jailed-install-oracle"
+      ],
+      "files_touched": [
+        "ngv2/poc_runner_live.py"
+      ],
+      "partial_edit": true,
+      "acceptance_criteria": [
+        "Modifies only ngv2/poc_runner_live.py.",
+        "Changes both _default_pip_installer and detonate_live to implement jailed lockfile-only dependency installs.",
+        "Ensures _default_pip_installer: (i) resolves requirements.txt, requirements-dev.txt, or requirements.lock in order from the target's repo_root, (ii) constructs the jailed pip install command utilizing build_detonation_jail_argv, unsharing network, and mapping the venv/target_dir writable, and (iii) returns False (fails closed) if no lockfile or bwrap is present.",
+        "Ensures detonate_live replaces the reactive stderr-driven loop with a single jailed lockfile installation attempt followed by a single re-run with PYTHONPATH updated to include the installed deps.",
+        "Retains injectable seams: pip_installer and jail_runner remain configurable parameters in detonate_live.",
+        "Preserves the existing 4-tuple/fs_snapshot_diff result shape and other detonation outputs."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/ngv2/test_poc_runner_jailed_install.py -q",
+      "spec": {
+        "objective": "Modify ngv2/poc_runner_live.py to replace host-side, un-jailed, stderr-driven reactive dependency installs with a secure, bwrap-jailed, network-unshared, lockfile-only dependency installer.",
+        "functional_requirements": [
+          "Rebuild _default_pip_installer to resolve requirements.txt, requirements-dev.txt, or requirements.lock from the target's repo_root, failing closed (returning False) if none is found or if bwrap is missing.",
+          "Wrap the pip install argv using the module's own build_detonation_jail_argv to run with --unshare-net, read-only mapping the lockfile directory, and targeting target_dir as the write path.",
+          "Replace the reactive dependency installation loop in detonate_live with a single lockfile installation attempt using the injected pip_installer seam when the first run fails.",
+          "Modify detonate_live to perform a single re-run with target_dir/deps_dir appended to PYTHONPATH, bypassing any stderr module parsing for reactive fetching."
+        ],
+        "interfaces": "def _default_pip_installer(name: str, target_dir: str, python_bin: str='/usr/bin/python3') -> bool; def detonate_live(..., pip_installer=_default_pip_installer, jail_runner=...) -> tuple[bool, str, dict, dict] (keeping signature and injected seams).",
+        "edge_cases": [
+          "Missing lockfile: fails closed (returns False, installs nothing).",
+          "bwrap check fails: returns False and logs warning when bwrap is not available.",
+          "Lockfile directory bindings: bind the directory containing the resolved lockfile read-only so bwrap can access it inside the jail."
+        ],
+        "non_goals": [
+          "Do not touch workers, orchestration, conductor, run_hunt, or transition_planner.",
+          "Do not add support for npm / node_modules dependency installation.",
+          "Do not alter the semantic_verdict or fs_snapshot_diff validation mechanisms."
+        ],
+        "implementation_notes": "SUBMISSION FORMAT: this is an io_adapter task. Emit a top-level __JANUSMASK_PATCHES__ list with exactly two kind:'symbol' entries: one replacing _default_pip_installer, one replacing detonate_live. You must set partial_edit: true in the task config. If a new sibling helper is added, R-anchor it on _default_pip_installer.\n\n__JANUSMASK_PATCHES__ = [\n  {\"file\": \"ngv2/poc_runner_live.py\", \"kind\": \"symbol\", \"name\": \"_default_pip_installer\"},\n  {\"file\": \"ngv2/poc_runner_live.py\", \"kind\": \"symbol\", \"name\": \"detonate_live\"}\n]\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_default_pip_installer_resolves_lockfile_and_wraps_in_jail"
+          },
+          {
+            "name": "test_default_pip_installer_fails_closed_no_lockfile_or_bwrap"
+          },
+          {
+            "name": "test_detonate_live_uses_lockfile_install_and_re_runs_with_pythonpath"
+          },
+          {
+            "name": "test_detonate_live_never_installs_stderr_named_package"
+          }
+        ],
+        "integration_tests": [
+          {
+            "name": "test_jailed_lockfile_install_integration"
+          }
+        ],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_regression_smoke_verdict_retained_when_no_dependencies_missing"
+          },
+          {
+            "name": "test_regression_successful_execution_without_deps_retains_behavior"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Requires target repository stubs containing varying configurations of requirements files (requirements.txt, requirements-dev.txt, requirements.lock) or missing requirements files to mock and verify installer resolution logic."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation touches installer and live execution loop; test tokens cover verification via the authored test suite."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_p02_ngv2_jailed_lockfile_install.md",
+  "source_brief_sha256": "c679ef2b5a52b339b2c7d326cfcd3c36723a6bbd6ff928cbaadc74bcfe2b3341",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2",
+  "required_task_ids": [
+    "p02-ngv2-jailed-install-oracle",
+    "p02-ngv2-jailed-install-impl"
+  ]
+}

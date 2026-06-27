@@ -21,8 +21,8 @@ def test_empty_or_missing_ledger_returns_none(tmp_path):
 def test_record_then_last_backed_up_sha_is_most_recent(tmp_path):
     p = tmp_path / "ledger.ndjson"
     led = BackupLedger(str(p))
-    led.record("a" * 40, "JanusMaskJR_aaaaaaa_20260612T000000Z.tar.zst", True)
-    led.record("b" * 40, "JanusMaskJR_bbbbbbb_20260612T010000Z.tar.zst", False)
+    led.record("a" * 40, "JanusMaskEX_aaaaaaa_20260612T000000Z.tar.zst", True)
+    led.record("b" * 40, "JanusMaskEX_bbbbbbb_20260612T010000Z.tar.zst", False)
     assert led.last_backed_up_sha() == "b" * 40
 
 

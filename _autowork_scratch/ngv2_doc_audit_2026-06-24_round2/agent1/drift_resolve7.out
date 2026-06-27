@@ -1,0 +1,38 @@
+=== Does symbol_reachable_from_live_root (689-781) have external reconciliation fallback? ===
+    skipped (an ``OSError``/``SyntaxError`` on one file never aborts the scan or
+    raises); only filesystem reads under ``repo_root`` -- no spawn, network,
+    model, subprocess, or oracle execution. Deterministic over a fixed tree.
+    """
+    import ast
+    root = Path(repo_root)
+    modules, _tests, _seeds = discover_modules(root)
+    modules = list(modules)
+    module_set = set(modules)
+    graph = _resolved_graph(root, modules)
+    seeded_roots = {r for r in roots if r in module_set}
+    reachable_modules: set[str] = set()
+    queue: deque[str] = deque()
+    for r in seeded_roots:
+        if r not in reachable_modules:
+            reachable_modules.add(r)
+            queue.append(r)
+    while queue:
+        cur = queue.popleft()
+        for dep in graph.get(cur, ()):
+            if dep not in reachable_modules:
+                reachable_modules.add(dep)
+                queue.append(dep)
+    if module_rel not in reachable_modules:
+        return False
+    dotted = module_rel[:-3] if module_rel.endswith('.py') else module_rel
+    dotted = dotted.replace('/', '.')
+    for mprime in sorted(reachable_modules):
+        try:
+            tree = ast.parse((root / mprime).read_text(encoding='utf-8', errors='ignore'))
+        except (OSError, SyntaxError):
+
+=== build_evidence span: cited :86-117. build_evidence def at 112, ends? ===
+awk: cannot open /home/xnihil0zer0/JanusMaskJR/harness/conductor_seams.py (No such file or directory)
+line 86 belongs to:
+awk: cannot open /home/xnihil0zer0/JanusMaskJR/harness/conductor_seams.py (No such file or directory)
+awk: cannot open /home/xnihil0zer0/JanusMaskJR/harness/conductor_seams.py (No such file or directory)

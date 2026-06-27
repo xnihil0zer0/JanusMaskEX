@@ -1,0 +1,91 @@
+====================================================================================================
+LIVE META_TASK_POLICY DUMP (harness/planner/taxonomies.py @ HEAD)
+====================================================================================================
+meta_task_type         bypass_fuzzer skip_smoke  skip_decomp  stateful  skip_ifz 
+----------------------------------------------------------------------------------------------------
+cli_tooling            False         False       False        False     False    
+config_schema          True          True        False        False     False    
+data_model             False         False       True         False     False    
+docs_writing           True          True        False        False     False    
+epic_planning          True          True        True         False     False    
+harness_plumbing       False         True        True         False     False    
+harness_self_fix       False         True        True         False     False    
+hooks_integration      True          True        False        False     False    
+io_adapter             False         False       True         False     False    
+logging_observability  False         False       False        False     False    
+mcp_plumbing           True          False       True         False     False    
+mcp_server_change      True          True        False        False     False    
+orchestration          False         False       True         False     False    
+planner_tooling        False         False       True         False     False    
+refactor               False         False       False        False     False    
+sandbox_infra          False         False       True         False     False    
+state_machine          False         False       True         True      False    
+test_acceptance        True          True        False        False     False    
+test_authoring         False         False       True         False     True     
+test_e2e               True          True        False        False     False    
+test_integration       True          True        False        False     False    
+test_unit              True          True        False        False     False    
+validation             False         False       False        False     False    
+----------------------------------------------------------------------------------------------------
+BYPASS_FUZZER_TYPES (NOT diff-fuzzed): ['config_schema', 'docs_writing', 'epic_planning', 'hooks_integration', 'mcp_plumbing', 'mcp_server_change', 'test_acceptance', 'test_e2e', 'test_integration', 'test_unit']
+data_model in BYPASS_FUZZER_TYPES?     False   (ac505d7 made it False => data_model IS diff-fuzzed)
+
+====================================================================================================
+CLASSIFICATION: intent (should-diff-fuzz?) vs empirical policy
+====================================================================================================
+meta_task_type         INTENT     POLICY-fuzzes?  best-useful gate if NO-FUZZ
+----------------------------------------------------------------------------------------------------
+cli_tooling            FUZZ       True            (diff-fuzz)
+config_schema          NO-FUZZ    False           oracle + NO-smoke + embedded + narrow-fuzz + wire-up
+data_model             FUZZ       True            (diff-fuzz)
+docs_writing           NO-FUZZ    False           oracle + NO-smoke + embedded + narrow-fuzz + wire-up
+epic_planning          NO-FUZZ    False           oracle + NO-smoke + embedded + narrow-fuzz + wire-up
+harness_plumbing       NO-FUZZ?   True            oracle + NO-smoke + embedded + narrow-fuzz + wire-up   <== INTENT/POLICY DIVERGE
+harness_self_fix       NO-FUZZ?   True            oracle + NO-smoke + embedded + narrow-fuzz + wire-up   <== INTENT/POLICY DIVERGE
+hooks_integration      NO-FUZZ    False           oracle + NO-smoke + embedded + narrow-fuzz + wire-up
+io_adapter             FUZZ*      True            (diff-fuzz)
+logging_observability  FUZZ       True            (diff-fuzz)
+mcp_plumbing           NO-FUZZ    False           oracle + smoke + embedded + narrow-fuzz + wire-up
+mcp_server_change      NO-FUZZ    False           oracle + NO-smoke + embedded + narrow-fuzz + wire-up
+orchestration          NO-FUZZ?   True            oracle + smoke + embedded + narrow-fuzz + wire-up   <== INTENT/POLICY DIVERGE
+planner_tooling        NO-FUZZ?   True            oracle + smoke + embedded + narrow-fuzz + wire-up   <== INTENT/POLICY DIVERGE
+refactor               FUZZ       True            (diff-fuzz)
+sandbox_infra          NO-FUZZ?   True            oracle + smoke + embedded + narrow-fuzz + wire-up   <== INTENT/POLICY DIVERGE
+state_machine          FUZZ*      True            (diff-fuzz)
+test_acceptance        NO-FUZZ    False           oracle + NO-smoke + embedded + narrow-fuzz + wire-up
+test_authoring         NO-FUZZ    False           oracle + smoke + embedded + narrow-fuzz + wire-up
+test_e2e               NO-FUZZ    False           oracle + NO-smoke + embedded + narrow-fuzz + wire-up
+test_integration       NO-FUZZ    False           oracle + NO-smoke + embedded + narrow-fuzz + wire-up
+test_unit              NO-FUZZ    False           oracle + NO-smoke + embedded + narrow-fuzz + wire-up
+validation             FUZZ       True            (diff-fuzz)
+
+====================================================================================================
+ROUTING PROOF: current escape-hatch vs proposed (orthogonal smoke_gated)
+====================================================================================================
+
+-- L1 pure data_model impl: MUST stay diff-fuzzed (reliability guarantee) --
+  [PASS] L1 current route == diff-fuzz
+  [PASS] L1 proposed route == diff-fuzz (unchanged)
+
+-- L2 network-listener external survivor --
+     CURRENT escape-hatch retypes -> data_model, then routes:
+        retyped mtt='data_model'  route='diff-fuzz'
+  [PASS] CURRENT: retyped-to-data_model survivor is WRONGLY diff-fuzzed
+     PROPOSED escape-hatch keeps semantic type + sets smoke_gated:
+        kept   mtt='io_adapter'  smoke_gated=True  route='smoke+embedded+narrow (smoke_gated)'
+  [PASS] PROPOSED: survivor routes to smoke (NOT fuzzed)
+  [PASS] PROPOSED: survivor keeps its HONEST semantic type io_adapter (no data_model lie)
+
+-- L3 normal internal cli_tooling impl: MUST stay diff-fuzzed --
+  [PASS] L3 current route == diff-fuzz
+  [PASS] L3 proposed route == diff-fuzz (unchanged)
+
+-- GLOBAL INVARIANT: proposed fix NEVER reduces fuzz coverage for a task that is NOT explicitly smoke_gated --
+  [PASS] proposed_route == current_route for EVERY mtt when smoke_gated absent
+
+====================================================================================================
+RESULT: ALL ASSERTIONS PASSED
+  - data_model & cli_tooling impls STAY diff-fuzzed (guarantee intact)
+  - network-listener survivor: CURRENT=wrongly-fuzzed, PROPOSED=smoke-gated w/ honest type
+  - proposed flag is a strict superset: zero coverage change when smoke_gated is absent
+====================================================================================================

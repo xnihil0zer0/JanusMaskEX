@@ -1,0 +1,36 @@
+P1.2 DOC AUDIT @ HEAD e4280e1 (NGv2). All empirical, scripts in this dir.
+
+CLAIM A -> PARTIALLY-STALE
+ A1 (bare attr ref flips mock->real_target/may_confirm): STALE/FIXED by 5ab82c2.
+   classify_poc_authenticity now requires has_target_call (a real ast.Call on a
+   target-bound name); a bare `acmecorp_app.__name__` ref no longer flips it.
+   Proof: A1 -> mode=self_contained_mock may_confirm=False ; A1c (real call)
+   -> real_target may_confirm=True.
+ A2 (network_live confirms non-localhost HTTP PoC w/ NO target import): STILL-TRUE.
+   Proof: A2 remote-host requests.get, no target import -> mode=network_live
+   may_confirm=True. (New guards added: localhost A2b and local-vuln A2c both
+   downgrade to self_contained_mock, but a plain remote network PoC still
+   confirms with zero target import.)
+
+CLAIM B -> STILL-TRUE
+ detonate->novelty gates (detonation_evidence, sink_presence, sink_reachability)
+ + poc->detonate (poc_authenticity) require fields: call_sites, detonation_report,
+ expected_signature, poc_source, sink_name, target_import_names, target_source.
+ ZERO of {source_meta, provenance, faithful, baseline, nonce, origin} appear.
+ No source-meta filter, no baseline differential in the wired gate path.
+ aa718c9 added a `nonce` param to semantic_verdict, BUT it defaults to '' and is
+ OPT-IN; and NEITHER wired caller passes it:
+   - DetonationChamber.detonate -> semantic_verdict kwargs = {success_marker,
+     expected_fs_signature} only.
+   - poc_runner_live.detonate_live:357 -> same, no nonce.
+ => nonce-bound provenance check is dead code on every wired detonation path.
+ (The SSRF nonce/LoopbackListener confirmation in workers/_runner.py is a
+ separate ssrf_channel/loopback_hits path, NOT the semantic_verdict nonce check.)
+
+CLAIM C -> STILL-TRUE (still absent)
+ No positive "effect originated in target code" check exists in the wired verdict:
+ no sink instrumentation, no target-owned-file provenance, no real-entrypoint
+ response assertion gating confirmation. detonation_evidence_gate only checks
+ evidence_kind=='live_execution' from a self-reported report dict
+ (ran_target & observed_runtime_effect flags), which is caller-asserted, not
+ proven to originate in target code.

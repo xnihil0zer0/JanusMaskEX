@@ -1,0 +1,34 @@
+[proof] work_dir=/tmp/ptyproof_w4fn4izq
+[proof] jailed[:10]=['/usr/bin/bwrap', '--die-with-parent', '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--ro-bind', '/usr']
+[run] READY reached at 1s; sending seed
+[dbg] rfind ready=6531 in_flight=5906 len=6693
+[dbg] tail compact: ...'───────────────❯────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────⏵⏵bypasspermissionson(shift+tabtocycle)·←foragents14145tokensglobalversion:2.1.156·latestversion:2.1.177✗auto-updatefailed·try/doctorornpmi-g@anthropic-ai/claude-code●high·/effortrunit'
+[proof] ready=True idle=True dead_early=None in 11s
+[proof] === final screen tail ===
+
+
+
+
+*90
+
+
+
+
+
+
+
+●Done. I created outbox/submission.pywithexactlythespecifiedcontents:────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────❯  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt                                                                                                           14035 tokensglobalVersion: 2.1.156 · latestVersion: 2.1.177✗ Auto-update failed · Try /doctor or npm i -g @anthropic-ai/claude-code
+●high·/effort
+print('PTY_JAIL_OK')  Nootherfileswerecreated.✻Cogitated for 6s────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⏵⏵bypasspermissionson (shift+tabtocycle)·←foragents14145tokens
+globalVersion:2.1.156·latestVersion:2.1.177✗Auto-updatefailed·Try/doctor ornpmi-g@anthropic-ai/claude-code
+●high·/effort
+run it
+
+
+
+
+[proof] outbox/submission.py exists=True content="print('PTY_JAIL_OK')\n"
+[proof] PASS

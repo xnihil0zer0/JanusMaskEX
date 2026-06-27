@@ -1,0 +1,50 @@
+{
+  "B1_detonate_novelty_gates": [
+    {
+      "name": "detonation_evidence",
+      "req_fields": [
+        "detonation_report"
+      ]
+    },
+    {
+      "name": "sink_presence",
+      "req_fields": [
+        "target_source",
+        "expected_signature"
+      ]
+    },
+    {
+      "name": "sink_reachability",
+      "req_fields": [
+        "sink_name",
+        "call_sites"
+      ]
+    }
+  ],
+  "B1_provenance_tokens_in_gate_evidence_keys": [],
+  "B1_all_gate_required_fields": [
+    "call_sites",
+    "detonation_report",
+    "expected_signature",
+    "poc_source",
+    "sink_name",
+    "target_import_names",
+    "target_source"
+  ],
+  "B2_detonate_passes_nonce_to_semantic_verdict": false,
+  "B2_detonate_calls_semantic_verdict": true,
+  "B2_semantic_verdict_call_kwargs_in_chamber": [
+    "expected_fs_signature",
+    "success_marker"
+  ],
+  "B3_semantic_verdict_signature": "(exit_code, stdout: str, stderr: str, fs_snapshot_diff: str, *, success_marker: str, expected_fs_signature: str, nonce: str = '') -> str",
+  "B3_nonce_default": "''",
+  "B4_verdict_default_no_nonce": "confirmed",
+  "B4_verdict_explicit_nonce_absent": "refuted",
+  "B4_verdict_explicit_nonce_present": "confirmed"
+}
+
+=== CLAIM B/C VERDICT ===
+detonate->novelty gates consult provenance/source_meta/baseline?  False (hits=[])
+DetonationChamber.detonate plumbs nonce into semantic_verdict?  False (sv kwargs in chamber=['expected_fs_signature', 'success_marker'])
+nonce check OPT-IN (default '' skips it)?  True

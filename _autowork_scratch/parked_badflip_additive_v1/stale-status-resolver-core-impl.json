@@ -1,0 +1,116 @@
+{
+  "task_id": "stale-status-resolver-core-impl",
+  "title": "Implement shared classify_product in harness/state_reconciler.py via additive patches",
+  "meta_task_type": "harness_self_fix",
+  "priority": "high",
+  "dependencies": [],
+  "files_touched": [
+    "harness/state_reconciler.py"
+  ],
+  "acceptance_criteria": [
+    "Add classify_product(root, product_path, *, now=None) -> ProductStatus to harness/state_reconciler.py.",
+    "Must use the R-ANCHOR additive __JANUSMASK_PATCHES__ pattern to append the new symbol; never reproduce harness/state_reconciler.py whole.",
+    "LIVE must be classified FIRST and short-circuit before any json.loads or read_text.",
+    "Return FOREIGN for symlinks and plans lacking JM provenance (no top-level source_brief_sha256 string and tasks list).",
+    "Return UNPLANNED only when os.path.lexists(plan_path) is False.",
+    "Return CORRUPT for settled-unparseable, wrong-schema, or directory-named plans after grace.",
+    "Reads the RAW plan file directly, NOT the has_plan boolean.",
+    "Correctly classify PLANNED_FRESH, PLANNED_STALE, and SPENT status using computed brief SHA-256 and state_dir/impl_progress.jsonl accepted tasks.",
+    "All tests in tests/harness/test_status_resolver_core.py are green."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/harness/test_status_resolver_core.py tests/test_brief_status.py tests/harness/test_brief_status_completeness.py -q",
+  "spec": {
+    "objective": "Implement the shared classify_product status resolver in harness/state_reconciler.py using additive edits, making the red oracle green.",
+    "functional_requirements": [
+      "Check for UNPLANNED status via os.path.lexists(plan_path) is False.",
+      "Perform symlink checks without following the symlink, returning FOREIGN status if True.",
+      "Check for LIVE status first: check if mtime is within grace (default 60s), sibling .processing/.json.processing exists, or a task ID has a live pidfile in running/.",
+      "Read and parse the raw plan file to check JM provenance, schema, and tasks.",
+      "Read and parse state_dir/impl_progress.jsonl to build the accepted task list.",
+      "Map the plan to PLANNED_FRESH, PLANNED_STALE, or SPENT based on current brief SHA-256 and task acceptance status."
+    ],
+    "interfaces": "classify_product(root, product_path, *, now=None) -> ProductStatus",
+    "edge_cases": [
+      "Mid-write plan file that fails to parse but is within settle-grace: must be classified as LIVE and not CORRUPT.",
+      "Plan file is a directory: classified as CORRUPT after grace.",
+      "Plan file has no tasks list: classified as CORRUPT.",
+      "Plan file has no source_brief_sha256 and no tasks: classified as FOREIGN.",
+      "Plan file has tasks but no source_brief_sha256: treated as PLANNED_FRESH (unstamped)."
+    ],
+    "non_goals": [
+      "integration \u2014 no live-daemon run; verification uses the unit tests.",
+      "Do not perform moves, deletes, or actual state-cleaning actions.",
+      "Do not reproduce state_reconciler.py whole \u2014 append via __JANUSMASK_PATCHES__ only."
+    ],
+    "implementation_notes": "Read the plan file using Path.read_text. Parse impl_progress.jsonl line-by-line, handling json.JSONDecodeError. Check pidfile liveness using os.kill(pid, 0) on parsed PIDs under root/state/running/.\n\n# COMMITTED ORACLE CONTRACT (authoritative; you cannot read these files at synthesis time so they are reproduced verbatim -- your code MUST make them pass):\n\n## tests/test_brief_status.py\n```python\nimport json\nimport pytest\nfrom harness.brief_status import compute_brief_status\n\ndef test_brief_no_plan_is_unplanned(tmp_path):\n    repo_root = tmp_path / 'repo'\n    repo_root.mkdir()\n    state_dir = tmp_path / 'state'\n    state_dir.mkdir()\n    (repo_root / 'brief_hooks_test1.md').write_text('content')\n    rows = compute_brief_status(repo_root, state_dir)\n    assert len(rows) == 1\n    assert rows[0]['state'] == 'unplanned'\n    assert rows[0]['has_plan'] is False\n    assert rows[0]['plan_filename'] is None\n    assert rows[0]['slug'] == 'test1'\n\ndef test_brief_plan_no_queue_no_ledger_is_queued(tmp_path):\n    repo_root = tmp_path / 'repo'\n    repo_root.mkdir()\n    state_dir = tmp_path / 'state'\n    state_dir.mkdir()\n    (repo_root / 'brief_hooks_test2.md').write_text('content')\n    plan = {'tasks': [{'task_id': 'task_1'}, {'task_id': 'task_2'}]}\n    (repo_root / 'plan_hooks_test2.json').write_text(json.dumps(plan))\n    rows = compute_brief_status(repo_root, state_dir)\n    assert len(rows) == 1\n    assert rows[0]['state'] == 'queued'\n    assert rows[0]['has_plan'] is True\n    assert rows[0]['task_ids'] == ['task_1', 'task_2']\n\ndef test_brief_plan_all_accepted_is_complete(tmp_path):\n    repo_root = tmp_path / 'repo'\n    repo_root.mkdir()\n    state_dir = tmp_path / 'state'\n    state_dir.mkdir()\n    (repo_root / 'brief_hooks_test3.md').write_text('content')\n    plan = {'tasks': [{'task_id': 'task_1'}]}\n    (repo_root / 'plan_hooks_test3.json').write_text(json.dumps(plan))\n    ledger = {'phase': 'accepted', 'event': 'auto_commit', 'task_id': 'task_1', 'commit_sha': 'abc', 'ts': 123}\n    (state_dir / 'impl_progress.jsonl').write_text(json.dumps(ledger) + '\\n')\n    rows = compute_brief_status(repo_root, state_dir)\n    assert len(rows) == 1\n    assert rows[0]['state'] == 'complete'\n    assert rows[0]['remaining'] == []\n    assert len(rows[0]['accepted']) == 1\n\ndef test_brief_one_accepted_one_queued_is_in_flight(tmp_path):\n    repo_root = tmp_path / 'repo'\n    repo_root.mkdir()\n    state_dir = tmp_path / 'state'\n    state_dir.mkdir()\n    (state_dir / 'tasks').mkdir(parents=True)\n    (repo_root / 'brief_hooks_test4.md').write_text('content')\n    plan = {'tasks': [{'task_id': 'task_1'}, {'task_id': 'task_2'}]}\n    (repo_root / 'plan_hooks_test4.json').write_text(json.dumps(plan))\n    ledger = {'phase': 'accepted', 'event': 'auto_commit', 'task_id': 'task_1', 'commit_sha': 'abc', 'ts': 123}\n    (state_dir / 'impl_progress.jsonl').write_text(json.dumps(ledger) + '\\n')\n    (state_dir / 'tasks' / 'task_2.json').write_text('{}')\n    rows = compute_brief_status(repo_root, state_dir)\n    assert len(rows) == 1\n    assert rows[0]['state'] == 'in_flight'\n\ndef test_plan_with_empty_tasks_is_planned(tmp_path):\n    repo_root = tmp_path / 'repo'\n    repo_root.mkdir()\n    state_dir = tmp_path / 'state'\n    state_dir.mkdir()\n    (repo_root / 'brief_hooks_test5.md').write_text('content')\n    plan = {'tasks': []}\n    (repo_root / 'plan_hooks_test5.json').write_text(json.dumps(plan))\n    rows = compute_brief_status(repo_root, state_dir)\n    assert len(rows) == 1\n    assert rows[0]['state'] == 'planned'\n\ndef test_malformed_ledger_row_skipped_silently(tmp_path):\n    repo_root = tmp_path / 'repo'\n    repo_root.mkdir()\n    state_dir = tmp_path / 'state'\n    state_dir.mkdir()\n    (repo_root / 'brief_hooks_test6.md').write_text('content')\n    plan = {'tasks': [{'task_id': 'task_1'}]}\n    (repo_root / 'plan_hooks_test6.json').write_text(json.dumps(plan))\n    ledger = 'not json\\n' + json.dumps({'phase': 'accepted', 'event': 'auto_commit', 'task_id': 'task_1', 'commit_sha': 'abc', 'ts': 123}) + '\\n'\n    (state_dir / 'impl_progress.jsonl').write_text(ledger)\n    rows = compute_brief_status(repo_root, state_dir)\n    assert len(rows) == 1\n    assert rows[0]['state'] == 'complete'\n\ndef _write_ledger(state_dir, rows):\n    state_dir.joinpath('impl_progress.jsonl').write_text(\n        ''.join(json.dumps(r) + '\\n' for r in rows))\n\n\ndef test_accepted_then_blocked_is_not_complete(tmp_path):\n    \"\"\"ROOT CAUSE (RED on HEAD): the worker logs ``accepted/auto_commit`` at\n    COMMIT time, but if the later push/merge fails the task is routed to\n    ``blocked`` (a ``task_blocked`` ledger row) and never lands. The stale\n    accepted row must NOT keep counting the task as done, or the daemon never\n    re-stages it. (Observed live: leaf-4a-payload-bank \u2014 accept@04:20,\n    merge_failed/blocked@04:50, commit 8ba86be orphaned.)\"\"\"\n    repo_root = tmp_path / 'repo'; repo_root.mkdir()\n    state_dir = tmp_path / 'state'; state_dir.mkdir()\n    (repo_root / 'brief_hooks_t8.md').write_text('c')\n    (repo_root / 'plan_hooks_t8.json').write_text(json.dumps({'tasks': [{'task_id': 'task_1'}]}))\n    _write_ledger(state_dir, [\n        {'phase': 'accepted', 'event': 'auto_commit', 'task_id': 'task_1', 'commit_sha': 'abc', 'ts': 100},\n        {'phase': 'autowork', 'event': 'task_blocked', 'task_id': 'task_1', 'outcome': 'auto_commit_failed', 'ts': 200},\n    ])\n    rows = compute_brief_status(repo_root, state_dir)\n    assert rows[0]['accepted'] == []\n    assert 'task_1' in rows[0]['unstaged_task_ids']\n    assert rows[0]['state'] != 'complete'\n\n\ndef test_accepted_then_reject_rollback_is_not_complete(tmp_path):\n    repo_root = tmp_path / 'repo'; repo_root.mkdir()\n    state_dir = tmp_path / 'state'; state_dir.mkdir()\n    (repo_root / 'brief_hooks_t9.md').write_text('c')\n    (repo_root / 'plan_hooks_t9.json').write_text(json.dumps({'tasks': [{'task_id': 'task_1'}]}))\n    _write_ledger(state_dir, [\n        {'phase': 'accepted', 'event': 'auto_commit', 'task_id': 'task_1', 'commit_sha': 'abc', 'ts': 100},\n        {'event': 'reject_rollback', 'task_id': 'task_1', 'files': ['x.py'], 'ts': 200},\n    ])\n    rows = compute_brief_status(repo_root, state_dir)\n    assert rows[0]['accepted'] == []\n    assert 'task_1' in rows[0]['unstaged_task_ids']\n\n\ndef test_blocked_then_reaccepted_is_complete(tmp_path):\n    \"\"\"Anti-regression: a task that was blocked on an earlier attempt and then\n    LATER successfully accepted (accept is the most-recent terminal event) is\n    DONE \u2014 chronological order, last terminal event wins.\"\"\"\n    repo_root = tmp_path / 'repo'; repo_root.mkdir()\n    state_dir = tmp_path / 'state'; state_dir.mkdir()\n    (repo_root / 'brief_hooks_t10.md').write_text('c')\n    (repo_root / 'plan_hooks_t10.json').write_text(json.dumps({'tasks': [{'task_id': 'task_1'}]}))\n    _write_ledger(state_dir, [\n        {'phase': 'autowork', 'event': 'task_blocked', 'task_id': 'task_1', 'outcome': 'auto_commit_failed', 'ts': 100},\n        {'phase': 'accepted', 'event': 'auto_commit', 'task_id': 'task_1', 'commit_sha': 'abc', 'ts': 200},\n    ])\n    rows = compute_brief_status(repo_root, state_dir)\n    assert rows[0]['state'] == 'complete'\n    assert len(rows[0]['accepted']) == 1\n    assert 'task_1' not in rows[0]['unstaged_task_ids']\n\n\ndef test_critique_sibling_not_treated_as_plan(tmp_path):\n    repo_root = tmp_path / 'repo'\n    repo_root.mkdir()\n    state_dir = tmp_path / 'state'\n    state_dir.mkdir()\n    (repo_root / 'brief_hooks_test7_critique.md').write_text('content')\n    plan = {'tasks': [{'task_id': 'task_1'}]}\n    (repo_root / 'plan_hooks_test7_critique.json').write_text(json.dumps(plan))\n    rows = compute_brief_status(repo_root, state_dir)\n    assert len(rows) == 1\n    assert rows[0]['has_plan'] is False\n    assert rows[0]['state'] == 'unplanned'\n```\n\n## tests/harness/test_brief_status_completeness.py\n```python\n\"\"\"RED oracle for harness.brief_status completeness.\n\nPins the desired post-fix behaviour of ``compute_brief_status`` and\n``compute_epic_status``:\n\n* an exhausted-but-unaccepted task (``tasks/blocked/<tid>.exhausted`` only) reads\n  ``blocked``;\n* a self-heal-evicted task (``control/autowork/selfheal_skip/<tid>`` only) reads\n  ``blocked``;\n* an accepted task with a *stale* ``.exhausted`` stays ``complete`` (the\n  not-accepted gate prevents a false ``blocked``);\n* an epic whose child has a self-heal marker but no brief does NOT roll up as\n  ``complete``;\n* the existing ``tasks/blocked/<tid>.json`` path keeps blocking;\n* markers for task ids that are not in the brief's plan are ignored.\n\nEvery test builds its own hermetic ``tmp_path`` repo_root + state_dir and never\ntouches the live repository ``state/`` directory. Plans are stamped with a FRESH\n``source_brief_sha256`` so they are not treated as stale and dropped.\n\"\"\"\nimport hashlib\nimport json\nfrom pathlib import Path\nimport pytest\nfrom harness.brief_status import compute_brief_status, compute_epic_status\n\ndef _make_roots(tmp_path: Path):\n    repo_root = tmp_path / 'repo'\n    state_dir = tmp_path / 'state'\n    repo_root.mkdir()\n    state_dir.mkdir()\n    return (repo_root, state_dir)\n\ndef _ensure_state_dirs(state_dir: Path) -> None:\n    (state_dir / 'tasks' / 'blocked').mkdir(parents=True, exist_ok=True)\n    (state_dir / 'control' / 'autowork' / 'selfheal_skip').mkdir(parents=True, exist_ok=True)\n\ndef _write_brief_and_plan(repo_root: Path, slug: str, task_ids, plan_kind='leaf'):\n    \"\"\"Write brief_hooks_<slug>.md + a FRESH plan_hooks_<slug>.json.\"\"\"\n    brief_text = f'# Brief {slug}\\n\\nbody for {slug}\\n'\n    brief_bytes = brief_text.encode('utf-8')\n    brief_path = repo_root / f'brief_hooks_{slug}.md'\n    brief_path.write_bytes(brief_bytes)\n    fresh_sha = hashlib.sha256(brief_bytes).hexdigest()\n    plan = {'plan_kind': plan_kind, 'slug': slug, 'source_brief_sha256': fresh_sha, 'tasks': [{'task_id': tid} for tid in task_ids]}\n    plan_path = repo_root / f'plan_hooks_{slug}.json'\n    plan_path.write_text(json.dumps(plan), encoding='utf-8')\n    return (brief_path, plan_path)\n\ndef _write_epic_plan(repo_root: Path, epic_slug: str, child_slugs):\n    plan = {'plan_kind': 'epic', 'epic_slug': epic_slug, 'child_slugs': list(child_slugs)}\n    plan_path = repo_root / f'plan_hooks_{epic_slug}.json'\n    plan_path.write_text(json.dumps(plan), encoding='utf-8')\n    return plan_path\n\ndef _write_ledger(state_dir: Path, rows) -> None:\n    path = state_dir / 'impl_progress.jsonl'\n    with open(path, 'w', encoding='utf-8') as f:\n        for row in rows:\n            f.write(json.dumps(row) + '\\n')\n\ndef _accept_row(tid, ts=100):\n    return {'task_id': tid, 'phase': 'accepted', 'event': 'auto_commit', 'commit_sha': f'sha-{tid}', 'ts': ts}\n\ndef _mark_exhausted(state_dir: Path, tid: str) -> None:\n    (state_dir / 'tasks' / 'blocked' / f'{tid}.exhausted').write_text('', encoding='utf-8')\n\ndef _mark_blocked_json(state_dir: Path, tid: str) -> None:\n    (state_dir / 'tasks' / 'blocked' / f'{tid}.json').write_text('{}', encoding='utf-8')\n\ndef _mark_selfheal(state_dir: Path, tid: str) -> None:\n    (state_dir / 'control' / 'autowork' / 'selfheal_skip' / tid).write_text('', encoding='utf-8')\n\ndef _mark_queued(state_dir: Path, tid: str) -> None:\n    (state_dir / 'tasks' / f'{tid}.json').write_text('{}', encoding='utf-8')\n\ndef _record_for(records, slug):\n    for r in records:\n        if r['slug'] == slug:\n            return r\n    raise AssertionError(f'no brief record for slug {slug!r}; got {[r['slug'] for r in records]}')\n\ndef _epic_record_for(records, epic_slug):\n    for r in records:\n        if r['epic_slug'] == epic_slug:\n            return r\n    raise AssertionError(f'no epic record for {epic_slug!r}; got {[r['epic_slug'] for r in records]}')\n\ndef test_exhausted_not_accepted_reads_blocked(tmp_path):\n    repo_root, state_dir = _make_roots(tmp_path)\n    slug = 'c1'\n    _write_brief_and_plan(repo_root, slug, ['t1', 't2'])\n    _ensure_state_dirs(state_dir)\n    _mark_exhausted(state_dir, 't1')\n    record = _record_for(compute_brief_status(repo_root, state_dir), slug)\n    assert 't1' in record['blocked']\n    assert record['state'] == 'blocked'\n\ndef test_selfheal_skip_marker_only_reads_blocked(tmp_path):\n    repo_root, state_dir = _make_roots(tmp_path)\n    slug = 'c2'\n    _write_brief_and_plan(repo_root, slug, ['t1', 't2'])\n    _ensure_state_dirs(state_dir)\n    _mark_selfheal(state_dir, 't1')\n    record = _record_for(compute_brief_status(repo_root, state_dir), slug)\n    assert 't1' in record['blocked']\n    assert record['state'] == 'blocked'\n\ndef test_accepted_with_stale_exhausted_stays_complete(tmp_path):\n    repo_root, state_dir = _make_roots(tmp_path)\n    slug = 'c3'\n    _write_brief_and_plan(repo_root, slug, ['t1'])\n    _ensure_state_dirs(state_dir)\n    _write_ledger(state_dir, [_accept_row('t1')])\n    _mark_exhausted(state_dir, 't1')\n    record = _record_for(compute_brief_status(repo_root, state_dir), slug)\n    assert 't1' not in record['blocked']\n    assert record['state'] == 'complete'\n\ndef test_epic_absent_brief_child_marker_not_complete(tmp_path):\n    repo_root, state_dir = _make_roots(tmp_path)\n    epic_slug = 'epic_alpha'\n    child_slug = 'child_x'\n    _write_epic_plan(repo_root, epic_slug, [child_slug])\n    _ensure_state_dirs(state_dir)\n    _mark_selfheal(state_dir, child_slug)\n    record = _epic_record_for(compute_epic_status(repo_root, state_dir), epic_slug)\n    assert record['state'] != 'complete'\n    assert record['state'] == 'blocked'\n\ndef test_both_blocked_json_and_exhausted_reads_blocked(tmp_path):\n    repo_root, state_dir = _make_roots(tmp_path)\n    slug = 'c5'\n    _write_brief_and_plan(repo_root, slug, ['t1', 't2'])\n    _ensure_state_dirs(state_dir)\n    _mark_blocked_json(state_dir, 't1')\n    _mark_exhausted(state_dir, 't1')\n    record = _record_for(compute_brief_status(repo_root, state_dir), slug)\n    assert 't1' in record['blocked']\n    assert record['state'] == 'blocked'\n\ndef test_non_plan_marker_ignored(tmp_path):\n    repo_root, state_dir = _make_roots(tmp_path)\n    slug = 'c6'\n    _write_brief_and_plan(repo_root, slug, ['t1'])\n    _ensure_state_dirs(state_dir)\n    _mark_queued(state_dir, 't1')\n    _mark_selfheal(state_dir, 't_outside')\n    _mark_exhausted(state_dir, 't_outside')\n    record = _record_for(compute_brief_status(repo_root, state_dir), slug)\n    assert 't_outside' not in record['blocked']\n    assert record['state'] != 'blocked'\n    assert record['state'] == 'in_flight'\n\ndef test_accepted_with_stale_exhausted_stays_complete_regression(tmp_path):\n    repo_root, state_dir = _make_roots(tmp_path)\n    slug = 'r7'\n    _write_brief_and_plan(repo_root, slug, ['t1'])\n    _ensure_state_dirs(state_dir)\n    _write_ledger(state_dir, [{'task_id': 't1', 'phase': 'impl', 'event': 'task_blocked', 'ts': 1}, _accept_row('t1', ts=2)])\n    _mark_exhausted(state_dir, 't1')\n    _mark_selfheal(state_dir, 't1')\n    record = _record_for(compute_brief_status(repo_root, state_dir), slug)\n    assert 't1' not in record['blocked']\n    assert record['state'] == 'complete'\n\ndef test_existing_blocked_json_path_still_blocks(tmp_path):\n    repo_root, state_dir = _make_roots(tmp_path)\n    slug = 'r8'\n    _write_brief_and_plan(repo_root, slug, ['t1', 't2'])\n    _ensure_state_dirs(state_dir)\n    _mark_blocked_json(state_dir, 't1')\n    record = _record_for(compute_brief_status(repo_root, state_dir), slug)\n    assert 't1' in record['blocked']\n    assert record['state'] == 'blocked'\n\ndef test_marker_for_unplanned_task_does_not_flip_state(tmp_path):\n    repo_root, state_dir = _make_roots(tmp_path)\n    slug = 'r9'\n    _write_brief_and_plan(repo_root, slug, ['t1'])\n    _ensure_state_dirs(state_dir)\n    _write_ledger(state_dir, [_accept_row('t1')])\n    _mark_selfheal(state_dir, 't_ghost')\n    _mark_exhausted(state_dir, 't_ghost')\n    record = _record_for(compute_brief_status(repo_root, state_dir), slug)\n    assert 't_ghost' not in record['blocked']\n    assert 't1' not in record['blocked']\n    assert record['state'] == 'complete'\n```\n"
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_unplanned_when_path_not_exists"
+      },
+      {
+        "name": "test_foreign_when_symlink"
+      },
+      {
+        "name": "test_foreign_when_no_provenance"
+      },
+      {
+        "name": "test_live_when_within_mtime_grace"
+      },
+      {
+        "name": "test_live_when_sibling_processing_exists"
+      },
+      {
+        "name": "test_live_when_task_id_has_live_pidfile"
+      },
+      {
+        "name": "test_corrupt_when_directory"
+      },
+      {
+        "name": "test_corrupt_when_unparseable"
+      },
+      {
+        "name": "test_corrupt_when_wrong_schema"
+      },
+      {
+        "name": "test_planned_fresh_matching_sha"
+      },
+      {
+        "name": "test_planned_fresh_unstamped"
+      },
+      {
+        "name": "test_planned_stale_mismatched_sha"
+      },
+      {
+        "name": "test_spent_all_tasks_accepted"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [],
+    "regression_tests": [
+      {
+        "name": "tests/test_brief_status.py"
+      },
+      {
+        "name": "tests/harness/test_brief_status_completeness.py"
+      }
+    ],
+    "minimum_test_count": 10,
+    "test_data_requirements": "Synthesized brief and plan files in tmp_path. Dummy pidfiles in a temporary state/running/ directory. No live state/ or network dependencies."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 100,
+    "test_tokens": 150,
+    "note": "Implementation of classify_product in state_reconciler.py, verified by the new test suite."
+  },
+  "attribution_metadata": {
+    "proposed_by": "gemini",
+    "reconciled": false,
+    "diff_resolution": null
+  },
+  "_debug_stamping_reason": "Task was only proposed by Gemini.",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR"
+}

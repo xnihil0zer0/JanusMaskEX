@@ -1,0 +1,325 @@
+{
+  "items": [
+    {
+      "candidate_near_miss": "test_acceptance_dispatch_fix",
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "When run_both_agents returns (claude=None, gemini=submitted) for a meta_task_type=='test_acceptance' task with empty files_touched, the orchestrator accepts the lone gemini candidate and runs its verification_command (pytest) rather than re-prompting and ultimately rejecting/orphaning.",
+          "The symmetric case (claude=submitted, gemini=None) is accepted identically.",
+          "Ordinary code-synthesis tasks (non-empty files_touched, or meta_task_type != test_acceptance) retain the existing dual-agent retry/reconcile behaviour and are NOT single-candidate-accepted.",
+          "When BOTH agents (and the claude_fallback) yield None, the task is still rejected (no spurious acceptance).",
+          "An adversarial test reproduces the claude=NONE, gemini=submitted single-candidate acceptance for a test_acceptance task and asserts acceptance (not orphan/reject)."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "harness/orchestrator.py",
+          "tests/adversarial/test_single_candidate_acceptance_adversarial.py"
+        ],
+        "meta_task_type": "harness_self_fix",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "Symmetric submitter: claude=submitted, gemini=None must accept the claude candidate identically to the gemini-only case.",
+            "Both agents plus claude_fallback yield None -> existing reject/retry path preserved (no acceptance).",
+            "A code-synthesis task with non-empty files_touched and only one submitter -> existing retry behaviour preserved (single-candidate acceptance must NOT fire)."
+          ],
+          "functional_requirements": [
+            "Detect the single-valid-candidate condition in the synthesis loop (harness/orchestrator.py:1722-1734): exactly one of (claude_code, gemini_code) is truthy after run_both_agents (which already includes the serial claude_fallback phase).",
+            "When the task is a single-candidate-eligible test_acceptance task, route the lone candidate through the existing validate -> save_final_output -> control_gate -> verification/auto_commit acceptance path rather than incrementing ast_retries and re-prompting.",
+            "Gate single-candidate acceptance strictly to meta_task_type=='test_acceptance' AND empty files_touched, leaving dual-agent reconciliation for all other tasks unchanged."
+          ],
+          "implementation_notes": "In the single-submitter branch at orchestrator.py:1722, before incrementing ast_retries, check the new predicate. If eligible, set the surviving candidate as the accepted code (validate it via _validate_submission; if valid, break out of the synthesis loop with synthesis_success=True using only the lone candidate so downstream save/verify/auto_commit runs). Both-None branch (:1716) is untouched. Keep the gate narrow: meta_task_type test_acceptance with empty files_touched only. The accepted candidate must still pass its verification_command (pytest) via the existing acceptance path so a non-green candidate is rejected normally.",
+          "interfaces": "Modifies the synthesis/reconcile control flow inside the main round loop of harness/orchestrator.py (the block beginning at the run_both_agents call ~:1708 and the single-submitter branch ~:1722). Introduce a small predicate helper (e.g. _is_single_candidate_acceptable(task) -> bool) reading task['meta_task_type'] (or constraints.meta_task_type) and task['files_touched']. No changes to run_both_agents signature, _validate_submission, _auto_commit_accepted, or control_gate.await_decision.",
+          "non_goals": [
+            "Do not modify any production module verified by the acceptance test (depth_validator, rebuild/target, safe_subpath, ast_enforcer, hooks).",
+            "Do not weaken dual-agent reconciliation for ordinary code-synthesis tasks.",
+            "Do not change auto-promote safety boundary semantics.",
+            "Integration coverage here is limited to a stubbed-orchestrator harness test; do not write integration tests that spawn real Claude/Gemini CLIs."
+          ],
+          "objective": "Make the synthesis reconcile path in harness/orchestrator.py resilient to a single valid agent submission for test_acceptance meta-tasks: a lone candidate produced when the other agent and its serial claude_fallback both yield NONE must be accepted (its verification_command pytest executed against the candidate) instead of being re-prompted into a reject/orphan terminal state."
+        },
+        "spec_author": null,
+        "task_id": "ACCEPT_SINGLE_CANDIDATE_TEST_ACCEPTANCE",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_synthesis_reconcile_accepts_single_candidate_with_stubbed_agents"
+            }
+          ],
+          "minimum_test_count": 10,
+          "property_tests": [],
+          "regression_tests": [
+            {
+              "name": "test_symmetric_claude_only_candidate_accepted_for_test_acceptance"
+            },
+            {
+              "name": "test_both_agents_none_still_rejected_no_spurious_accept"
+            },
+            {
+              "name": "test_files_touched_single_submitter_still_retries_not_accepted"
+            }
+          ],
+          "test_data_requirements": "A fabricated test_acceptance task dict (meta_task_type=test_acceptance, files_touched=[], verification_command=pytest) plus stubbed run_both_agents returns: (None, '<valid submission>'), ('<valid submission>', None), (None, None). A control code-synthesis task dict with non-empty files_touched. Use the real gemini_round1_full_suite_acceptance_test_submission.json shape as the valid candidate fixture.",
+          "unit_tests": [
+            {
+              "name": "test_is_single_candidate_acceptable_true_for_test_acceptance_empty_files"
+            },
+            {
+              "name": "test_is_single_candidate_acceptable_false_for_files_touched_task"
+            },
+            {
+              "name": "test_is_single_candidate_acceptable_false_for_non_test_acceptance_type"
+            },
+            {
+              "name": "test_lone_candidate_routed_to_validate_and_accept_path"
+            }
+          ]
+        },
+        "title": "Accept a lone valid agent candidate for test_acceptance tasks instead of orphaning",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Narrow control-flow change; test budget dominates to lock down the gating matrix (symmetric, both-none, files_touched control).",
+          "test_tokens": 200
+        },
+        "verification_command": "pytest tests/adversarial/test_single_candidate_acceptance_adversarial.py"
+      },
+      "diff_item_id": "4ddc3dfc17229e52b8bab7ada5e5820228a13f19",
+      "field_divergences": [],
+      "gemini_task": null,
+      "kind": "claude_only",
+      "match_reason": null
+    },
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "The sequential worker watchdog_timeout computed in autowork_daemon.py (~:1286) demonstrably accounts for the Claude primary phase PLUS the serial claude_fallback phase PLUS reconciliation/finalize, not just a single agent timeout.",
+          "For the full_suite_acceptance_test profile (synthesis.timeout_seconds=1200), the computed budget exceeds the prior fixed floor so a slow-but-completing run that includes a serial fallback is not SIGKILLed mid-finalize.",
+          "A unit test asserts the computed watchdog budget >= primary + fallback + reconcile margin for representative timeout_seconds values.",
+          "Builds on WATCHDOG_TIMEOUT_INCREASE / ORCHESTRATOR_TIMEOUT_FIXES / SYNTHESIS_TIMEOUT_UPGRADE without regressing their guarantees."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "low",
+        "files_touched": [
+          "harness/autowork_daemon.py",
+          "tests/test_worker_watchdog_budget.py"
+        ],
+        "meta_task_type": "harness_self_fix",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "Malformed/non-numeric synthesis.timeout_seconds -> budget falls back to the safe floor (no exception).",
+            "antigravity_mode sequential vs parallel both incur the serial claude_fallback phase, so the budget must cover the fallback allowance in either mode."
+          ],
+          "functional_requirements": [
+            "Recompute watchdog_timeout to include an explicit serial-fallback allowance plus a reconcile/finalize margin on top of synthesis.timeout_seconds (currently watchdog_timeout = max(1800.0, timeout_val + 300.0)).",
+            "Keep the change config-driven and backward-compatible: derive the fallback/reconcile allowance from synthesis config (and degrade to a safe floor when timeout_val is malformed), never shrinking below the existing 1800s floor."
+          ],
+          "implementation_notes": "Replace the bare max(1800.0, timeout_val + 300.0) with a budget that adds a fallback allowance (e.g. a configurable fraction/multiple of timeout_val representing the serial second agent phase) plus the existing reconcile margin, still clamped to the 1800s floor and guarded against TypeError/ValueError. Keep the helper pure (takes a synthesis config dict, returns float) so the unit test can assert the formula directly. Reference the prior commits in a comment so the rationale chain is preserved.",
+          "interfaces": "Modifies the watchdog_timeout derivation inside the sequential-launch block of autowork_daemon.py (~:1282-1296). Optionally extract a pure helper (e.g. _sequential_watchdog_budget(synthesis_cfg) -> float) so the budget formula is unit-testable without spawning a subprocess. No change to _kill_process_group, _reclaim_orphan_processing, or the pidfile/launch plumbing.",
+          "non_goals": [
+            "Do not modify production modules verified by the acceptance test (depth_validator, rebuild/target, safe_subpath, ast_enforcer, hooks).",
+            "Do not alter the G-ORPHAN reclaim or _kill_process_group semantics; only the timeout budget changes.",
+            "Integration coverage is limited to the pure budget-helper unit/regression tests; do not write integration tests that launch a real orchestrator_worker subprocess."
+          ],
+          "objective": "Adjust the sequential worker watchdog budget in harness/autowork_daemon.py so a test_acceptance run that takes the serial claude_fallback path (Claude primary None -> fallback -> Gemini -> validate/verify/auto_commit) completes inside the window instead of being killed by _kill_process_group and reclaimed as orphaned by _reclaim_orphan_processing."
+        },
+        "spec_author": null,
+        "task_id": "WATCHDOG_BUDGET_COVERS_FALLBACK_RECONCILE",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_sequential_launch_uses_extended_budget_no_premature_kill"
+            }
+          ],
+          "minimum_test_count": 6,
+          "property_tests": [],
+          "regression_tests": [
+            {
+              "name": "test_budget_never_below_prior_floor_regression"
+            },
+            {
+              "name": "test_budget_covers_fallback_in_both_antigravity_modes_regression"
+            }
+          ],
+          "test_data_requirements": "Synthesis config dicts: {timeout_seconds: 1200}, {timeout_seconds: 60}, {timeout_seconds: 'oops'}, and configs toggling antigravity_mode true/false. No subprocess spawning; assert the pure budget helper's return value.",
+          "unit_tests": [
+            {
+              "name": "test_watchdog_budget_includes_fallback_and_reconcile_for_1200s"
+            },
+            {
+              "name": "test_watchdog_budget_clamped_to_1800_floor_for_small_timeout"
+            },
+            {
+              "name": "test_watchdog_budget_malformed_timeout_falls_back_safely"
+            }
+          ]
+        },
+        "title": "Extend sequential worker watchdog budget to cover primary + serial claude_fallback + reconcile",
+        "token_budget_ratio": {
+          "implementation_tokens": 60,
+          "note": "Small arithmetic/budget change; tests pin the formula and the no-regression floor.",
+          "test_tokens": 120
+        },
+        "verification_command": "pytest tests/test_worker_watchdog_budget.py"
+      },
+      "diff_item_id": "b0f397a2eab526941d6818868caa81930e1b5f98",
+      "field_divergences": [],
+      "gemini_task": null,
+      "kind": "claude_only",
+      "match_reason": null
+    },
+    {
+      "candidate_near_miss": "ACCEPT_SINGLE_CANDIDATE_TEST_ACCEPTANCE",
+      "candidates": null,
+      "claude_task": null,
+      "diff_item_id": "6b555ac54f8af3c9d98f4e77a0f4feb5b3acaa27",
+      "field_divergences": [],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "A test_acceptance task with only one valid agent submission is successfully accepted instead of being orphaned.",
+          "Dual-agent reconciliation logic is not weakened for other meta_task_types.",
+          "Verification command (pytest) is run against the lone valid candidate in a staging worktree."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [
+          "watchdog_timeout_increase"
+        ],
+        "estimated_complexity": "medium",
+        "files_touched": [
+          "harness/orchestrator.py",
+          "harness/orchestrator_worker.py"
+        ],
+        "meta_task_type": "harness_self_fix",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [],
+          "functional_requirements": [
+            "Detect if the task is a test_acceptance task with empty files_touched.",
+            "When one agent yields NONE, swap the missing candidate code and status with the valid agent candidate.",
+            "Ensure that when files_touched is empty, the verification command runs in a staging worktree during auto-commit."
+          ],
+          "implementation_notes": "Update run_pipeline and run_both_agents in orchestrator.py and orchestrator_worker.py to allow single-agent acceptance. Update _auto_commit_accepted to handle empty files_touched for test_acceptance.",
+          "interfaces": "Orchestrator pipeline execution and auto-commit interfaces.",
+          "non_goals": [
+            "Do not weaken dual-agent fuzzing/reconciliation for other tasks.",
+            "Do not write integration tests for this dispatch fix."
+          ],
+          "objective": "Make orchestrator and orchestrator_worker resilient to single-agent submissions for test_acceptance tasks with empty files_touched."
+        },
+        "spec_author": null,
+        "task_id": "test_acceptance_dispatch_fix",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 10,
+          "property_tests": [],
+          "regression_tests": [],
+          "test_data_requirements": "None",
+          "unit_tests": [
+            {
+              "name": "test_single_agent_acceptance_for_test_acceptance"
+            },
+            {
+              "name": "test_no_bypass_for_non_test_acceptance_tasks"
+            },
+            {
+              "name": "test_auto_commit_with_empty_files_touched_runs_pytest"
+            }
+          ]
+        },
+        "title": "Accept lone valid candidate for test_acceptance tasks when one agent yields NONE",
+        "token_budget_ratio": {
+          "implementation_tokens": 200,
+          "note": "Requires unit/adversarial testing of orchestrator dispatch flow with one NONE submission.",
+          "test_tokens": 300
+        },
+        "verification_command": "pytest tests/test_console_generated.py"
+      },
+      "kind": "gemini_only",
+      "match_reason": null
+    },
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": null,
+      "diff_item_id": "e79687ecb8e6614f18edc08c169bf43459b33c28",
+      "field_divergences": [],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "Worker watchdog timeout in autowork_daemon.py covers Claude primary + fallback + reconciliation.",
+          "Minimum watchdog timeout is at least 3600 seconds (1 hour).",
+          "Formula for watchdog_timeout dynamically uses max(3600.0, 2.0 * float(timeout_val) + 600.0)."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "low",
+        "files_touched": [
+          "harness/autowork_daemon.py"
+        ],
+        "meta_task_type": "harness_self_fix",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [],
+          "functional_requirements": [
+            "Read the synthesis.timeout_seconds configuration value.",
+            "Set the sequential worker watchdog timeout to 2 * synthesis.timeout_seconds + 600s, with a floor of 3600s."
+          ],
+          "implementation_notes": "Update line 1286 in harness/autowork_daemon.py to calculate watchdog_timeout using max(3600.0, 2.0 * float(timeout_val) + 600.0).",
+          "interfaces": "Internal autowork daemon sequential worker spawn interface.",
+          "non_goals": [
+            "Do not modify other files under harness/.",
+            "Do not write integration tests for the daemon timeout logic."
+          ],
+          "objective": "Update the watchdog timeout calculation in autowork_daemon.py to prevent slow-but-completing test_acceptance tasks from being prematurely SIGKILLed."
+        },
+        "spec_author": null,
+        "task_id": "watchdog_timeout_increase",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 10,
+          "property_tests": [],
+          "regression_tests": [],
+          "test_data_requirements": "None",
+          "unit_tests": [
+            {
+              "name": "test_watchdog_timeout_calculation_with_default_synthesis_timeout"
+            },
+            {
+              "name": "test_watchdog_timeout_calculation_with_custom_synthesis_timeout"
+            }
+          ]
+        },
+        "title": "Increase worker watchdog timeout budget for slow-but-completing test_acceptance runs",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Watchdog calculation change requires brief verification testing.",
+          "test_tokens": 200
+        },
+        "verification_command": "pytest tests/test_autowork_parallelism_generated.py"
+      },
+      "kind": "gemini_only",
+      "match_reason": null
+    }
+  ]
+}

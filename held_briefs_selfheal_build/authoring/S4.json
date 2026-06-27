@@ -1,0 +1,105 @@
+{
+  "task_id": "selfheal_04_restage_same_task_corrective",
+  "title": "Re-stage the SAME task id with a corrective constraint (edit the diagnosing-agent prompt)",
+  "meta_task_type": "harness_self_fix",
+  "priority": "high",
+  "dependencies": [
+    "selfheal_02_module_and_flag",
+    "selfheal_03_wire_harvest_and_eligibility"
+  ],
+  "files_touched": [
+    "harness/autowork_daemon.py"
+  ],
+  "acceptance_criteria": [
+    "The _escalate_to_autobrief diagnosing-agent prompt (harness/autowork_daemon.py ~:700, the `prompt = f\"...\"` near :827) instructs the agent to produce a CORRECTED specification for the ORIGINAL task_id, preserving the same task_id and its dependency edges (so dependents like method_d_06_cross_examiner_wiring resolve on the same id) -- it must contain a marker such as 'original task_id' / 'corrected spec' / 'keep the original' / 'same task_id'.",
+    "The prompt embeds a corrective constraint addressing the diagnosed failure: for a banned-construct AST rejection it must forbid eval/exec/decorators (the prompt text must contain both the substrings 'eval' and 'exec' in a forbidding context).",
+    "The harvest+promote path (S2+S3) re-stages the ORIGINAL task_id via the deterministic selfheal_<task_id> slug rather than a parallel <id>_fix task, so dependents unblock on acceptance.",
+    "Re-staged self-heal tasks run the FULL pipeline (synthesis -> AST validation -> gates -> verification_command) and remain subject to the operator decision-JSON gate; the runaway ceiling (autowork.max_total_selfheal_escalations) and deterministic=>1-retry budget continue to bound cascades.",
+    "harness/autowork_daemon.py remains importable; the self-heal escalation still must NOT write the auto_promote.allowlist (test_allowlist_promotion_guard.py stays green).",
+    "python -m pytest tests/adversarial/test_selfheal_restage_same_id.py tests/adversarial/test_allowlist_promotion_guard.py -q passes."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/adversarial/test_selfheal_restage_same_id.py tests/adversarial/test_allowlist_promotion_guard.py -q",
+  "spec": {
+    "objective": "Make the closed loop re-run the ORIGINAL rejected task with a better spec: the diagnosing agent emits a corrected specification keyed to the same task_id, with a corrective constraint derived from the diagnosed AST failure, so the full pipeline retries that id and its dependents unblock on acceptance.",
+    "functional_requirements": [
+      "Update the _escalate_to_autobrief diagnosing-agent prompt to instruct producing a corrected specification for the ORIGINAL task_id, explicitly preserving the task id and its dependency edges (no parallel <id>_fix id).",
+      "Embed in the prompt a corrective constraint derived from the diagnosed cause (surfaced via the ast_validation_failed lifecycle reason from S1 through _get_errors_for_task): for a banned-construct AST rejection, 'edit the target directly; do NOT use eval/exec/decorators'.",
+      "Keep the brief filename pattern brief_hooks_<task_id>_fix.md so the S2 harvest (slug selfheal_<task_id>) maps deterministically back to the original task_id; re-staging flows through the existing _auto_promote -> compute_brief_status -> planner -> stage_task path.",
+      "Preserve all guardrails: the re-staged task runs the FULL pipeline, remains subject to the operator decision-JSON gate, and stays bounded by autowork.max_total_selfheal_escalations and the deterministic=>1-retry budget."
+    ],
+    "interfaces": "Edits ONLY the prompt string (the f-string assigned to `prompt` around autowork_daemon.py:827) inside _escalate_to_autobrief. The harvest+promote/re-stage mechanics are already provided by S2/S3; no new staging code here.",
+    "edge_cases": [
+      "Original task has dependents -> dependency edges preserved (same task_id) so dependents unblock only on acceptance.",
+      "Diagnosed cause is not a banned-construct case -> the prompt still asks for a corrective constraint generically from the failure reason; the eval/exec wording is the banned-construct exemplar.",
+      "Escalation ceiling reached -> _escalate_to_autobrief returns before prompting (existing bound wins).",
+      "Flag false (S3) -> brief is written to the outbox but never harvested/re-staged (byte-identical to today)."
+    ],
+    "non_goals": [
+      "Do NOT create a parallel <id>_fix task id.",
+      "Do NOT weaken the AST AND-gate or relax validation.",
+      "Do NOT bypass the decision-JSON gate or the runaway ceiling.",
+      "Do NOT write or read the auto_promote.allowlist.",
+      "Do NOT set a working_dir front-matter key."
+    ],
+    "implementation_notes": "Single EXISTING-function partial-edit: rewrite the `prompt` f-string inside _escalate_to_autobrief (harness/autowork_daemon.py, near :827). The current prompt only asks for a free-form 'self-healing plan'; it must (a) direct a CORRECTED specification for the ORIGINAL {task_id} (keep the same id so dependents resolve) and (b) forbid eval/exec/decorators in the corrective constraint. Keep the existing OUTBOX-only / no-git / no-allowlist guardrail sentences intact. The motivating case is method_d_05_taxonomy_flip rejected for Gemini's banned eval(); pull the concrete cause from the ast_validation_failed lifecycle row (S1) via _get_errors_for_task (already called as errors_str above the prompt). Inline string edit in an existing function -> pipeline-viable as partial_edit.\n\n[ORACLE CONTRACT - test_selfheal_restage_same_id.py] ast.get_source_segment of _escalate_to_autobrief lowercased MUST contain both 'eval' AND 'exec', AND at least one of: 'same task_id','same task id','original task_id','original task id','corrected spec','keep the original','preserve the task_id'."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_prompt_targets_original_task_id"
+      },
+      {
+        "name": "test_prompt_forbids_eval_exec"
+      },
+      {
+        "name": "test_prompt_preserves_dependency_edges"
+      },
+      {
+        "name": "test_restage_uses_original_id_not_fix_suffix"
+      }
+    ],
+    "integration_tests": [
+      {
+        "name": "test_restaged_task_runs_full_pipeline"
+      },
+      {
+        "name": "test_dependent_unblocks_on_acceptance"
+      },
+      {
+        "name": "test_flag_false_no_restage"
+      }
+    ],
+    "property_tests": [
+      {
+        "name": "test_restage_bounded_by_escalation_ceiling"
+      }
+    ],
+    "regression_tests": [
+      {
+        "name": "test_allowlist_promotion_guard_stays_green"
+      },
+      {
+        "name": "test_autowork_daemon_module_importable"
+      }
+    ],
+    "minimum_test_count": 6,
+    "test_data_requirements": "A simulated rejected task (method_d_05_taxonomy_flip style) with an ast_validation_failed reason, a dependent task, config with the flag true, and a harness double capturing the staged task id and embedded constraint."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 130,
+    "test_tokens": 220,
+    "note": "Single inline prompt-string edit; tests assert original-id preservation, no-eval/exec wording, and guardrail preservation."
+  },
+  "attribution_metadata": {
+    "proposed_by": "claude",
+    "reconciled": false,
+    "diff_resolution": null
+  },
+  "_debug_stamping_reason": "Task was only proposed by Claude.",
+  "partial_edit": true,
+  "constraints": {
+    "no_new_module_level_imports": true
+  }
+}

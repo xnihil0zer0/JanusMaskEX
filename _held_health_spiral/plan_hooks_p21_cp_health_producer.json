@@ -1,0 +1,216 @@
+{
+  "tasks": [
+    {
+      "task_id": "p21-cp-health-producer-oracle",
+      "title": "P2.1 env-readiness-FSM health_probe PRODUCER Oracle Test Suite",
+      "meta_task_type": "test_authoring",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tests/ngv2/test_health_producer.py"
+      ],
+      "mutation_target": "ngv2.health_producer",
+      "acceptance_criteria": [
+        "Create the tests/ngv2/test_health_producer.py oracle test file.",
+        "Import the generated ngv2.health_producer via importlib.import_module dynamically without using banned exec, eval, or __import__.",
+        "Ensure no real subprocess, clock, or socket is used by injecting fakes for import_fn, start_fn, and probe_fn.",
+        "Build a valid round-tripping jail_artifact via fsm_evidence.phase_artifact_hash.",
+        "Assert contract and reachability: with positive seams, returns dict with expected keys.",
+        "Assert positive service path: fsm_health_probe.health_probe advances (result['advance'] is True, no terminal).",
+        "Assert positive library path: advances without requiring bind.",
+        "Assert fail-closed service never binds: returns service_bound=False, health_probe yields terminal 'service_no_bind'.",
+        "Assert fail-closed import fails: returns import_ok=False, health_probe yields terminal 'service_no_bind'.",
+        "Assert fail-closed absent/forged prior: health_probe refuses (advance is False, terminal is missing_evidence or hash_mismatch).",
+        "Assert determinism: identical inputs yield identical output and side effects are quarantined."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/ngv2/test_health_producer.py -q",
+      "spec": {
+        "objective": "Verify the contract, positive cases, fail-closed negatives, inherited invariants, and determinism of ngv2.health_producer.",
+        "functional_requirements": [
+          "Create a test suite in tests/ngv2/test_health_producer.py.",
+          "Import ngv2.health_producer using importlib dynamically.",
+          "Assert contract / reachability: service target returns expected positive keys.",
+          "Assert positive service path advances fsm_health_probe.health_probe.",
+          "Assert positive library path advances fsm_health_probe.health_probe without requiring bind.",
+          "Assert service never binds fails closed in health_probe with service_no_bind.",
+          "Assert import fails fails closed in health_probe with service_no_bind.",
+          "Assert absent/forged prior fails closed in health_probe.",
+          "Assert determinism: identical inputs yield byte-identical serialized output."
+        ],
+        "interfaces": "Test module interface importing and executing ngv2.health_producer.produce_health_input.",
+        "edge_cases": [
+          "Seams raising exceptions (ImportError, SubprocessError, etc.) are handled gracefully.",
+          "Prior artifact is None, empty, or tampered."
+        ],
+        "non_goals": [
+          "Integration of the health_producer with run_hunt or the conductor phases is out of scope.",
+          "Direct clock or socket calls are out of scope."
+        ],
+        "implementation_notes": "Uses fsm_evidence.phase_artifact_hash to construct valid jail artifacts in-test."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_oracle_wiring_reachability"
+          },
+          {
+            "name": "test_oracle_positive_service_advance"
+          },
+          {
+            "name": "test_oracle_positive_library_advance"
+          },
+          {
+            "name": "test_oracle_fail_closed_service_never_binds"
+          },
+          {
+            "name": "test_oracle_fail_closed_import_fails"
+          },
+          {
+            "name": "test_oracle_fail_closed_absent_prior"
+          },
+          {
+            "name": "test_oracle_fail_closed_forged_prior"
+          },
+          {
+            "name": "test_oracle_determinism"
+          },
+          {
+            "name": "test_oracle_seam_isolation"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_regression_service_never_binds_terminal"
+          },
+          {
+            "name": "test_regression_absent_forged_prior_refusal"
+          }
+        ],
+        "minimum_test_count": 15,
+        "test_data_requirements": "None. Fakes injected."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 200,
+        "note": "Test authoring task with zero implementation tokens."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "p21-cp-health-producer-impl",
+      "title": "P2.1 env-readiness-FSM health_probe PRODUCER Implementation",
+      "meta_task_type": "validation",
+      "priority": "high",
+      "dependencies": [
+        "p21-cp-health-producer-oracle"
+      ],
+      "files_touched": [
+        "ngv2/health_producer.py"
+      ],
+      "acceptance_criteria": [
+        "Create ngv2/health_producer.py which defines produce_health_input.",
+        "Standard library only at module top, no new subpackage, no module-level side effects.",
+        "Quarantine import side effects behind import_fn seam, default does target import.",
+        "Quarantine service-start side effects behind start_fn seam, default starts service subprocess.",
+        "Quarantine loopback bind health-poll side effects behind probe_fn seam, default does socket connect/poll.",
+        "For library targets, do not require bind or start.",
+        "For service targets, run start_fn and probe_fn; set service_bound, health_route_ok, bound_addr, and start_cmd.",
+        "Exceptions in seams are caught and fail-closed.",
+        "Returns the exact dict shape required by fsm_health_probe.health_probe."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/ngv2/test_health_producer.py -q",
+      "spec": {
+        "objective": "Implement produce_health_input function in ngv2/health_producer.py.",
+        "functional_requirements": [
+          "Define produce_health_input(jail_artifact, provision_artifact, *, import_fn=..., start_fn=..., probe_fn=...) -> dict in ngv2/health_producer.py.",
+          "Standard library only imports at module top level, no module-level side effects.",
+          "Fail closed with import_ok=False and return immediately if import_fn fails or raises.",
+          "Identify library targets and return import_ok=True, is_service=False without invoking service logic.",
+          "For service targets, call start_fn and probe_fn to start and verify bind.",
+          "Fail closed on service start or probe failures/exceptions.",
+          "Return the exact keys required by fsm_health_probe.health_probe for both paths."
+        ],
+        "interfaces": "Function signature: produce_health_input(jail_artifact: dict, provision_artifact: dict | None, *, import_fn: Callable = ..., start_fn: Callable = ..., probe_fn: Callable = ...) -> dict",
+        "edge_cases": [
+          "import_fn raises ImportError or returns False.",
+          "start_fn or probe_fn raises exceptions.",
+          "Target is classified as a service but fails to bind loopback."
+        ],
+        "non_goals": [
+          "Integration of the health_producer into run_hunt or the conductor is out of scope.",
+          "Mutating live FSM phases or lists is out of scope."
+        ],
+        "implementation_notes": "No third-party packages allowed. Implement real defaults using standard library socket and subprocess/thread modules. For credentials/secrets, avoid hardcoding strings. Use deterministic helper parameters if clock or randomness is needed.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_produce_health_input_signature"
+          },
+          {
+            "name": "test_produce_health_input_seams_wiring"
+          },
+          {
+            "name": "test_produce_health_input_library_path"
+          },
+          {
+            "name": "test_produce_health_input_service_path_positive"
+          },
+          {
+            "name": "test_produce_health_input_import_fail_closed"
+          },
+          {
+            "name": "test_produce_health_input_service_bind_fail_closed"
+          },
+          {
+            "name": "test_produce_health_input_returned_keys_shape"
+          },
+          {
+            "name": "test_produce_health_input_exceptions_caught"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_regression_service_never_binds_terminal"
+          },
+          {
+            "name": "test_regression_absent_forged_prior_refusal"
+          }
+        ],
+        "minimum_test_count": 12,
+        "test_data_requirements": "Mock structures for jail_artifact and provision_artifact."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Test tokens >= 1.5 * implementation_tokens"
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_p21_cp_health_producer.md",
+  "source_brief_sha256": "bda768c5adedfc6214c4fa583b4bf009d0246148a5a514b8a9800e220fd44c69",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2",
+  "required_task_ids": [
+    "p21-cp-health-producer-impl",
+    "p21-cp-health-producer-oracle"
+  ]
+}

@@ -1,0 +1,15 @@
+=== wire_up gate config (re-confirm X13-X16 status) ===
+87:  wire_up_gate: true
+88:  wire_up_runtime_gate: false
+89:  wire_up_runtime_gate_enforce: false
+=== any wireup_symbol_verdict ledger rows (X14 soak) ? ===
+0
+=== orphan_unwired rejection rows (module gate LIVE evidence) ===
+32
+=== symbol_reachable_from_live_root + roots= in orchestrator ===
+2340:                    from harness.wire_up import symbol_reachable_from_live_root, detonate_oracle, validate_exemption
+2347:                                _floor_reachable = bool(symbol_reachable_from_live_root(staging_path, rel, _vsym))
+
+=== Tier-0 source-root/exclude landed? (any commit) ===
+67986bb Integrate validated code for RB_JR_p0_batch_discover_modules
+(empty above = none of the P-WIREUP tier work has landed since the audit)

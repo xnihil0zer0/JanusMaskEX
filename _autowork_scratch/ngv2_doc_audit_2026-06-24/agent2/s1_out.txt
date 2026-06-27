@@ -1,0 +1,40 @@
+========================================================================
+s1: X1 cross-process wiring — does the doc's 'still 3-of-7 / X1 unclosed'
+    claim (§8 2026-06-23) still hold against live NGv2 source?
+========================================================================
+
+--- (a) persist() intermediate-count bumps ---
+count_fields literal in persist(): count_fields = {'triage': 'triaged', 'verify': 'verified', 'novelty': 'novelties', 'report': 'report_count'}
+  persist sets phase-count 'triaged': True
+  persist sets phase-count 'verified': True
+  persist sets phase-count 'novelties': True
+  persist sets phase-count 'report_count': True
+
+--- (b) build_evidence() intermediate gate-key emission ---
+  build_evidence emits ev['triage_result'] = ...: True
+  build_evidence emits ev['verify_result'] = ...: True
+  build_evidence emits ev['novelty_result'] = ...: True
+  build_evidence emits ev['report_artifact'] = ...: True
+
+  _PHASE_COUNT_KEY literal: _PHASE_COUNT_KEY = {'hunt': 'findings', 'poc': 'pocs', 'detonate': 'reports'}
+  _PHASE_COUNT_KEY size: 3 keys (doc says 'still 3-of-7')
+  NOTE: the doc's gap-1 was that persist did NOT bump the OTHER 4 phases;
+        check whether a SEPARATE count_fields dict now covers them (above).
+
+--- (c) git log: did the impl + P1.2 + P1.3 land? ---
+  grep 'build-evidence-perphase-impl':
+    ed91619 Integrate validated code for p11-build-evidence-perphase-impl
+  grep 'build-evidence-perphase':
+    ed91619 Integrate validated code for p11-build-evidence-perphase-impl
+  grep 'p12-classify-poc-authenticity-provenance':
+    5ab82c2 Integrate validated code for p12-classify-poc-authenticity-provenance
+  grep 'p12-detonation-verdict-provenance-impl':
+    aa718c9 Integrate validated code for p12-detonation-verdict-provenance-impl
+  grep 'wire-loopback-per-cwe-channels-impl':
+    80722d6 Integrate validated code for wire-loopback-per-cwe-channels-impl
+
+=== VERDICT ===
+persist bumps all 4 intermediate counts (count_fields): True
+build_evidence emits all 4 intermediate gate keys:       True
+>>> The §8 2026-06-23 'still 3-of-7 / build_evidence omits / X1 unclosed'
+>>> claim is STALE. Both cross-process gaps are CLOSED in live source.

@@ -61,7 +61,7 @@ class RaisingRunner:
         raise FileNotFoundError("rclone")
 
 
-def _make_archive_result(tmp_path, repo="JanusMaskJR"):
+def _make_archive_result(tmp_path, repo="JanusMaskEX"):
     arc = tmp_path / f"{repo}_aaaaaaa_20260612T231500Z.tar.zst"
     dif = tmp_path / f"{repo}_aaaaaaa_20260612T231500Z.diff"
     arc.write_bytes(b"ARCHIVE")
@@ -80,8 +80,8 @@ def test_default_remote_constant():
 
 def test_remote_dir_for_path_construction():
     assert (
-        remote_dir_for("JanusMaskJR")
-        == "gdrive:repo-push-backups/JanusMaskJR/"
+        remote_dir_for("JanusMaskEX")
+        == "gdrive:repo-push-backups/JanusMaskEX/"
     )
     assert (
         remote_dir_for("NobleGreedv2", remote="other:")
@@ -102,7 +102,7 @@ def test_upload_success_marks_uploaded_and_calls_rclone_copyto(tmp_path):
     assert res.uploaded is True
     assert res.queued is False
     assert res.error is None
-    assert "repo-push-backups/JanusMaskJR/" in res.remote_path
+    assert "repo-push-backups/JanusMaskEX/" in res.remote_path
     # Both archive and diff are copied via rclone copyto through the runner.
     assert len(runner.calls) >= 2
     flat = [tok for call in runner.calls for tok in call]

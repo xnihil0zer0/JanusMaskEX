@@ -1,0 +1,55 @@
+======================================================================
+2(a) CRUX: impl in base/queued => accept; impl in blocked/ => reject
+======================================================================
+[PASS] impl in base: load_sibling_tasks finds impl: got=['targets-dir-convention-impl'] expected=['targets-dir-convention-impl']
+[PASS] impl in base: is_fix_forward_redpair accepts oracle RED: got=True expected=True
+[PASS] impl in processed: load_sibling_tasks finds impl: got=['targets-dir-convention-impl'] expected=['targets-dir-convention-impl']
+[PASS] impl in processed: is_fix_forward_redpair accepts oracle RED: got=True expected=True
+[PASS] impl in blocked: load_sibling_tasks returns NO sibling: got=[] expected=[]
+[PASS] impl in blocked: is_fix_forward_redpair REJECTS oracle: got=False expected=False
+
+======================================================================
+2(b) Each of the 5 is_fix_forward_redpair conditions, real values, impl in base
+======================================================================
+[PASS] baseline all-5-met accepts: got=True expected=True
+[PASS] cond1 non-test_authoring meta => reject: got=False expected=False
+[PASS] cond2 path-style mutation_target => reject: got=False expected=False
+[PASS] cond2b mutation_target .py absent in worktree => reject: got=False expected=False
+[PASS] cond3 empty oracle files_touched => reject: got=False expected=False
+[PASS] cond4 impl does NOT touch target_rel => reject: got=False expected=False
+[PASS] cond5 impl vcmd lacks oracle test file => reject: got=False expected=False
+[PASS] sibling that is itself test_authoring => not counted => reject: got=False expected=False
+
+======================================================================
+3(a) DEDUP: does file-overlap dedup conflict oracle vs impl?
+    Diagnosis claims mutation_target collides with impl files_touched.
+======================================================================
+can_run_parallel(oracle, impl) with REAL files_touched = False
+[PASS] 3a _files_overlap(oracle.files, impl.files) is FALSE (test vs source, no overlap): got=False expected=False
+[PASS] 3a autowork_parallelism does NOT reference mutation_target: got=False expected=False
+[PASS] 3a impl depends on oracle => can_run_parallel returns False (dep block, NOT file overlap): got=False expected=False
+    => They CANNOT run in parallel, but the REASON is the DEPENDENCY edge,
+       not a files_touched overlap and not mutation_target. Diagnosis's stated
+       mechanism (mutation_target collision) is the WRONG mechanism.
+
+======================================================================
+3(b) PERMANENT FIX: simulate load_sibling_tasks ALSO scanning blocked/
+======================================================================
+[PASS] 3b REAL loader with impl in blocked => no sibling: got=[] expected=[]
+[PASS] 3b REAL loader => reject: got=False expected=False
+[PASS] 3b PATCHED loader (scans blocked) => finds impl: got=['targets-dir-convention-impl'] expected=['targets-dir-convention-impl']
+[PASS] 3b PATCHED loader => ACCEPTS oracle RED: got=True expected=True
+
+======================================================================
+3(b)-downside: would scanning blocked/ WRONGLY accept against a DEAD sibling?
+    e.g. an .exhausted-marked blocked impl. Does redpair/loader exclude it?
+======================================================================
+[PASS] 3b-downside naive blocked-scan INCLUDES exhausted dead sibling: got=['targets-dir-convention-impl'] expected=['targets-dir-convention-impl']
+[PASS] 3b-downside => would ACCEPT oracle against a DEAD impl (BAD if impl never lands): got=True expected=True
+    => A naive blocked/-scan that ignores .exhausted CAN green-light an oracle
+       whose impl is permanently dead. The permanent fix MUST exclude
+       .exhausted-marked (and any terminally-dead) blocked tasks.
+
+======================================================================
+SUMMARY: 23/23 checks passed
+======================================================================

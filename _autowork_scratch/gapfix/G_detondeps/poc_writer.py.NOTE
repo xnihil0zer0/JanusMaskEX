@@ -1,0 +1,1 @@
+unchanged -- see EDITS.md '## poc_writer.py -- UNCHANGED' for rationale (import error already propagates uncaught to stderr; no edit needed)

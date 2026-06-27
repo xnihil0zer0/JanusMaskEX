@@ -1,0 +1,29 @@
+=== g6: §6 language-coverage cheap checks ===
+--- (i) autocompiler.js ON? (config/autocompiler.yaml) ---
+1:# Dynamic-wiring registration for the autocompiler package (Phase A, epic
+2:# brief_hooks_autocompiler.md). The wire-up accept gate classifies a new module
+10:# RUNTIME FLAG GATE (default-ON, owner-enabled 2026-06-10): this is the file
+11:# that autocompiler/flags.py::ac_enabled actually reads (<cwd>/config/autocompiler.yaml).
+13:# population/determinism/decode/js hooks are LIVE. ac_enabled stays fail-closed
+15:# to disable the whole layer set autocompiler.enabled false.
+16:autocompiler:
+17:  enabled: true
+21:  js: true               # JS differential dispatch (only fires for language: js tasks)
+22:package: autocompiler
+24:  - autocompiler.flags
+25:  - autocompiler.population
+26:  - autocompiler.fitness
+27:  - autocompiler.elo
+28:  - autocompiler.selection
+/home/xnihil0zer0/JanusMaskJR/config/autocompiler.yaml
+
+--- (ii) js_inputs populated anywhere? (constraints.js_inputs producer) ---
+harness/diff_fuzzer.py:882:    inputs = constraints.get('js_inputs')
+harness/diff_fuzzer.py:884:        return FuzzResult(equivalent=False, error='js task carries no usable constraints.js_inputs vectors')
+
+--- (iii) _maybe_js_fuzz starve point ---
+harness/diff_fuzzer.py:868:def _maybe_js_fuzz(code_a: str, code_b: str, task, config, session_id: str):
+harness/diff_fuzzer.py:882:    inputs = constraints.get('js_inputs')
+harness/diff_fuzzer.py:884:        return FuzzResult(equivalent=False, error='js task carries no usable constraints.js_inputs vectors')
+harness/diff_fuzzer.py:1216:    _js = _maybe_js_fuzz(code_a, code_b, task, config, session_id)
+harness/diff_fuzzer.py:1345:_DICT_CORPUS_TASK: tuple[dict, ...] = ({'task_id': 't1', 'meta_task_type': 'harness_self_fix', 'constraints': {'function_signature': 'def f(x: int) -> int'}}, {'task_id': 't2', 'priority': 'high', 'constraints': {}}, {'task_id': 't3', 'meta_task_type': 'rebuild_unit', 'fuzz_str_ascii': True}, {'task_id': 't4', 'dependencies': ['t1'], 'constraints': {'function_signature': 'def g(s: str) -> str'}}, {'task_id': 't5', 'language': 'js', 'constraints': {'js_inputs': [[1, 2]]}}, {'task_id': 't6', 'meta_task_type': 'test_authoring', 'estimated_complexity': 'medium'})

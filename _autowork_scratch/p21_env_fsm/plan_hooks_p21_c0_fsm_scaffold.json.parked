@@ -1,0 +1,183 @@
+{
+  "tasks": [
+    {
+      "task_id": "p21-c0-fsm-scaffold-oracle",
+      "title": "Oracle: Author tests/ngv2/test_p21_c0_fsm_scaffold.py to verify content-hashed evidence schema",
+      "meta_task_type": "test_authoring",
+      "mutation_target": "ngv2.fsm_evidence",
+      "priority": "high",
+      "dependencies": [
+        "p21-c0-fsm-evidence-scaffold"
+      ],
+      "files_touched": [
+        "tests/ngv2/test_p21_c0_fsm_scaffold.py"
+      ],
+      "acceptance_criteria": [
+        "The new test file tests/ngv2/test_p21_c0_fsm_scaffold.py is authored.",
+        "Verify wiring: import PHASE_ORDER from fsm_evidence, transition_planner, and gate_executor, asserting identical object/value and equality to 11-tuple hunt FSM order. Assert ENV_PHASE_ORDER is the 6-tuple env phases in order.",
+        "Verify positive: phase_artifact_hash(d) yields a stable, content-addressed hex string. Same values and keys -> same hash; any value or key changed -> different hash. No answer-key hardcoded literal hash in tests.",
+        "Verify fail-closed negative: advance_gate(prev_artifact) returns advance=False and terminal='missing_evidence' on None, empty dict, non-dict, or tampered artifact.",
+        "Verify positive: advance_gate(prev_artifact) returns advance=True and terminal='' when the artifact is non-empty and its carried hash matches the recomputed hash.",
+        "Verify serialisation determinism: advance_gate output is stable under byte-identical json.dumps across repeated calls.",
+        "Verification command: python -m pytest tests/ngv2/test_p21_c0_fsm_scaffold.py -q passes (GREEN) when implemented."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/ngv2/test_p21_c0_fsm_scaffold.py -q",
+      "spec": {
+        "objective": "Author the RED-pair verification test suite for the env-FSM evidence schema and PHASE_ORDER refactor.",
+        "functional_requirements": [
+          "Assert wiring and constants: imports PHASE_ORDER from ngv2.fsm_evidence, ngv2.transition_planner, and ngv2.gate_executor, verifying they are the same object and equal the 11-tuple hunt FSM order. Assert ENV_PHASE_ORDER equals the 6 env-phase names in order.",
+          "Assert positive determinism: phase_artifact_hash(d) yields a stable, unique hex string. Same dict values and keys -> same hash; any value or key changed -> different hash. No answer-key hardcoded literal hash in tests.",
+          "Assert fail-closed negative advance_gate: returns advance=False and terminal='missing_evidence' on None, empty dict, non-dict, or tampered artifact (matching hash missing or mismatched).",
+          "Assert positive advance_gate: returns advance=True and terminal='' when the artifact is non-empty and its carried hash matches the recomputed hash.",
+          "Assert serialisation determinism: advance_gate output is stable under byte-identical json.dumps across repeated calls."
+        ],
+        "interfaces": "Tests the new module ngv2.fsm_evidence, and imports from ngv2.transition_planner and ngv2.gate_executor.",
+        "edge_cases": [
+          "Handling of nested values or non-standard types in evidence dict gracefully by using canonical json.dumps with default=str.",
+          "Unordered sets or dictionary key ordering does not impact hash value due to sort_keys=True."
+        ],
+        "non_goals": [
+          "No live integration test: this is a pure argv/predicate unit change; no real claude/PTY/subprocess spawn (integration is out of scope).",
+          "Do not define a hardcoded hash mapping in tests; dynamically compute and verify relationships."
+        ],
+        "implementation_notes": "The test must import ngv2.fsm_evidence dynamically or via importlib to verify the module's presence, check constants and function behavior, and assert outcomes. Must verify single source of truth across all three importing modules."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_phase_order_and_env_phase_order_wiring"
+          },
+          {
+            "name": "test_phase_artifact_hash_positive_determinism"
+          },
+          {
+            "name": "test_advance_gate_fail_closed_negatives"
+          },
+          {
+            "name": "test_advance_gate_positive_control"
+          },
+          {
+            "name": "test_serialization_determinism"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_wiring_single_source_truth_enumeration"
+          },
+          {
+            "name": "test_fail_closed_negative_handling"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "No external test data. Stubs exists and listdir, and creates temporary directories/files for transcript checking."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 0,
+        "test_tokens": 300,
+        "note": "Pure test authoring task, implementation is in the next task."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    },
+    {
+      "task_id": "p21-c0-fsm-evidence-scaffold",
+      "title": "Implement content-hashed evidence schema and refactor PHASE_ORDER",
+      "meta_task_type": "validation",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "ngv2/fsm_evidence.py",
+        "ngv2/transition_planner.py",
+        "ngv2/gate_executor.py"
+      ],
+      "acceptance_criteria": [
+        "The new file ngv2/fsm_evidence.py is implemented.",
+        "Definitions of phase_artifact_hash, advance_gate, ENV_PHASE_ORDER, and PHASE_ORDER exist in fsm_evidence.py.",
+        "Refactored transition_planner.py and gate_executor.py replace local PHASE_ORDER literals with imports from ngv2.fsm_evidence.",
+        "All tests run with pytest tests/ngv2/test_p21_c0_fsm_scaffold.py -q pass (GREEN)."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/ngv2/test_p21_c0_fsm_scaffold.py -q",
+      "spec": {
+        "objective": "Implement the new fsm_evidence.py module and refactor the PHASE_ORDER literals in the planner and executor to consume the shared constant, resolving the desync footgun.",
+        "functional_requirements": [
+          "Implement phase_artifact_hash(artifact) producing deterministic, collision-sensitive sha256 hex hashes of dict using canonical json.dumps.",
+          "Implement advance_gate(prev_artifact) which is fail-closed, returning advance=False and terminal='missing_evidence' on invalid/empty/non-dict/tampered artifacts, and advance=True, terminal='' on non-empty artifacts whose recomputed hash matches the carried hash.",
+          "Define ENV_PHASE_ORDER as the ordered env readiness 6-tuple.",
+          "Define PHASE_ORDER as the verbatim 11-tuple hunt FSM order.",
+          "Import PHASE_ORDER from ngv2.fsm_evidence in transition_planner.py and gate_executor.py to replace module-level literals."
+        ],
+        "interfaces": "Provides ngv2.fsm_evidence.phase_artifact_hash, ngv2.fsm_evidence.advance_gate, ngv2.fsm_evidence.ENV_PHASE_ORDER, and ngv2.fsm_evidence.PHASE_ORDER. Transition planner and gate executor consume this module.",
+        "edge_cases": [
+          "Deterministic hashing across processes by avoiding id(), repr() of unordered sets, or the hash() builtin.",
+          "Canonical serialization in phase_artifact_hash: json.dumps(artifact, sort_keys=True, separators=(',',':'), default=str).",
+          "Robust advance_gate logic that never raises and fail-closes on None, empty dict, or non-dict inputs."
+        ],
+        "non_goals": [
+          "No integration with live state machine, worker phases, gates, or stage_command_map in this task. Integration is out of scope.",
+          "No modification to ngv2/session_api.py (third PHASE_ORDER copy is separately tracked).",
+          "No introduction of clock, uuid, random, network, or subprocess modules."
+        ],
+        "implementation_notes": "ngv2/fsm_evidence.py is a NEW module -> use a whole-file __JANUSMASK_MANIFEST__ for it; the two edited files use __JANUSMASK_PATCHES__ (replace the existing module-level PHASE_ORDER = (...) line with the import).\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_evidence_exports"
+          },
+          {
+            "name": "test_phase_artifact_hash_determinism"
+          },
+          {
+            "name": "test_advance_gate_fails_closed"
+          },
+          {
+            "name": "test_advance_gate_passes_valid"
+          },
+          {
+            "name": "test_phase_order_verbatim_equality"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_gate_executor_imports_shared_constant"
+          },
+          {
+            "name": "test_transition_planner_imports_shared_constant"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Uses inline constructed dictionaries for evidence and artifact validation."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation token budget for fsm_evidence and refactoring, test budget for verification."
+      },
+      "attribution_metadata": {
+        "proposed_by": "gemini",
+        "reconciled": false,
+        "diff_resolution": null
+      },
+      "_debug_stamping_reason": "Task was only proposed by Gemini."
+    }
+  ],
+  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_p21_c0_fsm_scaffold.md",
+  "source_brief_sha256": "a6f47b1ddb63a6a3eed5292bad389a409ae9de46c41dfb6b1f6f21776625c494",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2",
+  "required_task_ids": [
+    "p21-c0-fsm-evidence-scaffold",
+    "p21-c0-fsm-scaffold-oracle"
+  ]
+}

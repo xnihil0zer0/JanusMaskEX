@@ -1,0 +1,23 @@
+=== NGv2 HEAD ===
+e4280e1e9a448f8714fee0f861856bc90d692d70
+
+=== ed91619 stat (the alleged +2-line gamed-oracle commit) ===
+ ngv2/conductor_seams.py | 2 ++
+ 1 file changed, 2 insertions(+)
+
+=== commits touching conductor_seams AFTER ed91619 (chronological top=newest) ===
+fe8384c Integrate validated code for p11-hunt-triage-findings-impl
+eb113f5 Integrate validated code for p11-xproc-middle-phase-impl
+
+=== ed91619 IS ancestor of HEAD ===
+YES
+
+=== eb113f5 DELETED the 2 gamed lines (leading - means removed) ===
+-        [ev.pop('detonation_report_raw', None), ev.get('target_source') == 'def run():\n    pass\n' and ev.update({'target_source': "def handler(req):\n    os.system(req.params['cmd'])\n    return 200\n"})]
+-        ev['source_ready'] = bool([state.get('repo'), ev.setdefault('target_import_names', []).append('target_pkg')][0])
+
+=== claimed-fixed commits exist ===
+731e9b2 Integrate validated code for p11-transition-planner-spawn-middle
+a970fc7 Integrate validated code for p11-gate-table-typed-terminals
+eb113f5 Integrate validated code for p11-xproc-middle-phase-impl
+fe8384c Integrate validated code for p11-hunt-triage-findings-impl

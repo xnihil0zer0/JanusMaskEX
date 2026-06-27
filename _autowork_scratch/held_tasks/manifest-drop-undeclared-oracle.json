@@ -1,0 +1,105 @@
+{
+  "task_id": "manifest-drop-undeclared-oracle",
+  "title": "Oracle: manifest validation drops undeclared keys (validator + _restrict_sidecar_to_declared)",
+  "meta_task_type": "test_authoring",
+  "mutation_target": "harness.orchestrator",
+  "priority": "high",
+  "dependencies": [],
+  "files_touched": [
+    "tests/harness/test_manifest_drop_undeclared_keys.py"
+  ],
+  "acceptance_criteria": [
+    "A BRAND-NEW hermetic pytest file tests/harness/test_manifest_drop_undeclared_keys.py exists (no revision of an existing file; avoids any no_diff deadlock).",
+    "The file imports `from harness.orchestrator import _validate_submission, _parse_manifest, _restrict_sidecar_to_declared` at module top.",
+    "At least 8 separately-named `test_<unit>_<behaviour>` functions exist (minimum_test_count: 8).",
+    "RED today: the import of _restrict_sidecar_to_declared fails (symbol does not yet exist), and the validator currently REJECTS an undeclared key with rule manifest_undeclared_key.",
+    "Hermetic: uses tmp_path only; NO real git, NO daemon, NO network, NO state/-tree mutation outside tmp_path; calls only the REAL _validate_submission and the REAL _restrict_sidecar_to_declared.",
+    "Test 1 asserts a superset manifest (one declared .py + one undeclared config/<x>.yaml) yields ok is True and NO violation with getattr(v,'rule',None)=='manifest_undeclared_key'.",
+    "Test 2 asserts the effective manifest is the declared subset only (via caplog: the dropped-key warning is emitted AND no per-entry 'manifest entry config/' INFO line for the dropped key).",
+    "Test 3 asserts a WARNING-level record naming the dropped/undeclared key (substring on the stray path or 'undeclared'/'DROPPED') is emitted via caplog.",
+    "Test 4 (no-regression) asserts a manifest MISSING a declared key (declared ['harness/foo.py','harness/bar.py'], manifest only harness/foo.py) returns ok is False with a manifest_incomplete violation.",
+    "Test 5 (no-regression) asserts a clean manifest (keys == files_touched, all valid .py) returns ok is True with no manifest_undeclared_key, no manifest_incomplete, and (control) no dropped-key warning.",
+    "Test 6 asserts _restrict_sidecar_to_declared on a tmp_path sidecar {'harness/foo.py': <src>, 'config/foo.yaml': 'k: v\\n'} returns ['config/foo.yaml'] AND the re-read on-disk JSON == {'harness/foo.py': <src>}.",
+    "Test 7 asserts _restrict_sidecar_to_declared on a sidecar with only declared keys returns [] AND leaves the file bytes UNCHANGED (no rewrite).",
+    "Test 8 asserts _restrict_sidecar_to_declared on a malformed-JSON or valid-JSON-non-dict sidecar returns [] and does NOT raise."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/harness/test_manifest_drop_undeclared_keys.py -q",
+  "spec": {
+    "objective": "Author the single RED oracle that locks in the new tolerant-manifest behavior: undeclared __JANUSMASK_MANIFEST__ keys are DROPPED (with a warning) instead of hard-rejected, the MISSING-key direction still rejects, and the new top-level helper harness.orchestrator._restrict_sidecar_to_declared restricts the state/output/<task_id>.files.json sidecar to the declared files_touched subset. The suite must be hermetic and exercise the REAL validator and the REAL helper directly.",
+    "functional_requirements": [
+      "Undeclared-key tolerance: a manifest whose keys are a SUPERSET of files_touched (one declared harness/foo.py + one undeclared config/<x>.yaml) validates ok is True with NO manifest_undeclared_key violation, and the effective manifest that flows into the per-entry AST loop is the declared subset only (no 'manifest entry config/' INFO line for the dropped key).",
+      "Warning telemetry: a WARNING-level log record naming the dropped/undeclared key (substring on the stray path or the word 'undeclared'/'DROPPED') is emitted, captured via caplog against harness.orchestrator's logger.",
+      "No-regression of rejection rules: a manifest MISSING a declared key still returns ok is False with a manifest_incomplete violation; a clean manifest (keys == files_touched, all valid .py) returns ok is True with no manifest_undeclared_key, no manifest_incomplete, and no dropped-key warning.",
+      "Sidecar restriction (load-bearing): _restrict_sidecar_to_declared(sidecar_path, ['harness/foo.py']) on a tmp_path sidecar containing a declared key + an undeclared config/foo.yaml key returns ['config/foo.yaml'] and atomically rewrites the on-disk JSON to exactly {'harness/foo.py': <src>}.",
+      "Sidecar robustness: _restrict_sidecar_to_declared is a NO-OP (returns [] and leaves bytes unchanged) when all keys are declared, and returns [] without raising on a malformed-JSON or valid-JSON-non-dict sidecar."
+    ],
+    "interfaces": "Imports the REAL harness.orchestrator symbols: `from harness.orchestrator import _validate_submission, _parse_manifest, _restrict_sidecar_to_declared`. Drives _validate_submission(code, agent='claude', task) with in-test __JANUSMASK_MANIFEST__ code strings built by a small helper (e.g. mapping {'harness/foo.py': 'def f():\\n    return 1\\n', 'config/foo.yaml': 'k: v\\n'} and task dict {'files_touched': ['harness/foo.py'], 'meta_task_type': 'harness_self_fix'}). Drives _restrict_sidecar_to_declared(sidecar_path, declared_files) directly against a JSON sidecar written under tmp_path (e.g. state/output/<task_id>.files.json). Uses pytest fixtures caplog and tmp_path only.",
+    "edge_cases": [
+      "Undeclared key uses a config/<x>.yaml whose value is NOT valid Python; the .yaml key is dropped before the per-entry AST loop so validation still passes (proves the declared subset is what proceeds).",
+      "Path normalization parity: the helper must match _norm_manifest_path (os.path.normpath -> backslash->slash -> strip leading './'); the oracle uses plain rel-paths so a normalized comparison matches.",
+      "NO-OP sidecar must remain byte-for-byte unchanged (capture raw bytes before/after) when nothing is dropped.",
+      "Malformed sidecar ('{not json') and valid-JSON-non-dict ('[1, 2, 3]') must both return [] and never raise (helper swallows (OSError, json.JSONDecodeError, ValueError)).",
+      "Control assertion in the clean-manifest test: NO dropped-key warning record is present in caplog."
+    ],
+    "non_goals": [
+      "Integration is out of scope: this is a hermetic unit oracle (the literal word integration is recorded here to satisfy the integration-test exemption for a test-authoring task). NO real git, NO daemon, NO network, NO staging worktree, NO git_integration.commit_accepted_output, NO state/-tree mutation outside tmp_path.",
+      "Do NOT test or exercise any config/** file, YAML parser, or any new non-test file; the stray config/<x>.yaml key is only ever a manifest/sidecar string value, never written.",
+      "Do NOT author tests for any rule other than the manifest drop/incomplete behavior and the sidecar helper; do NOT weaken assertions on other validation rules."
+    ],
+    "implementation_notes": "BRAND-NEW file (no revision -> no no_diff deadlock). RED today because (a) _validate_submission currently returns a manifest_undeclared_key Violation for an undeclared key, and (b) _restrict_sidecar_to_declared does not yet exist so the top-level import fails -> tests 6-8 are ImportError-red. Build the __JANUSMASK_MANIFEST__ source string with a small in-test helper that serializes a {rel_path: source} dict into the manifest format _parse_manifest accepts. mutation_target is harness.orchestrator (the module under test); the non-vacuity gate applies that module's declared mutant and the oracle must fail against it. Keep each of the 8 behaviors in its own test_<unit>_<behaviour> function. Use caplog at INFO/WARNING to assert both the presence of the dropped-key WARNING and the absence of a 'manifest entry config/' INFO line for the dropped key."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_validate_submission_drops_undeclared_key_and_passes"
+      },
+      {
+        "name": "test_validate_submission_effective_manifest_is_declared_subset_only"
+      },
+      {
+        "name": "test_validate_submission_emits_warning_naming_dropped_key"
+      },
+      {
+        "name": "test_validate_submission_missing_key_still_rejects_manifest_incomplete"
+      },
+      {
+        "name": "test_validate_submission_clean_manifest_passes_unchanged_no_warning"
+      },
+      {
+        "name": "test_restrict_sidecar_to_declared_drops_stray_key_and_rewrites_subset"
+      },
+      {
+        "name": "test_restrict_sidecar_to_declared_noop_when_all_keys_declared"
+      },
+      {
+        "name": "test_restrict_sidecar_to_declared_robust_to_malformed_or_nondict_sidecar"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [],
+    "regression_tests": [
+      {
+        "name": "test_validate_submission_missing_key_still_rejects_manifest_incomplete"
+      },
+      {
+        "name": "test_validate_submission_clean_manifest_passes_unchanged_no_warning"
+      }
+    ],
+    "minimum_test_count": 8,
+    "test_data_requirements": "All data constructed in-test: __JANUSMASK_MANIFEST__ code strings from {rel_path: source} dicts (declared harness/foo.py with valid 'def f():\\n    return 1\\n', undeclared config/foo.yaml with 'k: v\\n'); task dicts with files_touched and meta_task_type 'harness_self_fix'; JSON sidecars written under tmp_path (state/output/<task_id>.files.json) including a malformed-JSON and a valid-JSON-non-dict variant. No fixtures beyond pytest caplog and tmp_path."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 0,
+    "test_tokens": 1200,
+    "note": "Pure test-authoring task: all budget is test tokens (8 hermetic functions covering validator tolerance + the sidecar helper). implementation_tokens is 0; test_tokens is the entire deliverable."
+  },
+  "attribution_metadata": {
+    "proposed_by": "reconciled",
+    "reconciled": true,
+    "diff_resolution": "reconciled"
+  },
+  "_debug_stamping_reason": "Task was divergent and resolved via reconciliation.",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR"
+}

@@ -1,0 +1,46 @@
+I will start by listing the directory structure of the repository to locate all the relevant files and verify their paths.
+I will now list the contents of the `harness` directory to locate the files relevant to the planning and execution logic.
+I will list the contents of the `harness/planner` directory to see the modules composing the planning pipeline.
+I will inspect `harness/planner/cli.py` to understand the main entry point for the planning CLI and how the stages are sequenced.
+I will read `harness/planner/brief_loader.py` to examine the current schema of `PlanningBrief` and see how it is parsed.
+I will read `harness/planner/plan_validator.py` to check the current task schema and validation rules.
+I will view `harness/planner/taxonomies.py` to examine the task taxonomy and policies.
+I will read `harness/planner/blind_draft.py` to see the dual-model drafting implementation.
+I will view `harness/planner/reconciliation.py` to see how reconciliation between the Claude and Gemini drafts is performed.
+I will read `harness/depth_validator.py` to see how parent/child task chain and depth validation is implemented.
+I will view `harness/task_decomposer.py` to examine the existing task decomposition structure.
+I will view `harness/selfheal.py` to understand the self-heal planning synthesis pattern.
+I will search for key function definitions in `harness/autowork_daemon.py` using `grep_search` to find their line numbers.
+I will search for occurrences of `auto_promote` and `compute_brief_status` in `harness/autowork_daemon.py` to identify their definitions and usages.
+I will view lines 1200 to 1500 of `harness/autowork_daemon.py` to examine the `_auto_promote` implementation.
+I will search for `compute_brief_status` in the codebase to find where it is defined.
+I will read `harness/brief_status.py` to examine the logic that computes the status of each brief in the system.
+I will search for `webui_autobrief_prompt.txt` using grep or directory listing to understand its context.
+I will view `tools/webui_autobrief_prompt.txt` to see how brief generation is prompted.
+I will read `harness/planner/diff_extractor.py` to see how plan comparison/diffing is implemented.
+I will read `harness/planner/diff_model.py` to check the field diff classification.
+I will check the files inside `harness/planner/prompts/` to see the structure of planning prompts.
+I will view `harness/planner/prompts/critique_prompt.md` to see the structure of the critique prompt.
+I will search for the definition of `get_next_task` in `harness/orchestrator.py`.
+I will view lines 1240 to 1320 in `harness/orchestrator.py` to examine how tasks are selected for dispatch.
+I will view lines 1321 to 1370 of `harness/orchestrator.py` to see the complete task claiming and atomic renaming process.
+I will search for `decompose_task` calls in `harness/orchestrator.py` to understand where task decomposition occurs.
+I will view lines 3570 to 3620 in `harness/orchestrator.py` to examine the context of `decompose_task`.
+I will check if there are any classes defined in `harness/orchestrator.py` and `harness/autowork_daemon.py` to identify class method edits.
+I will search for classes in `harness/autowork_daemon.py`.
+I will view lines 3630 to 3680 of `harness/orchestrator.py` to examine the `Task` class definition.
+I will write the report for Area A: **Brief Ingestion & Planner Front-end / Schema** to `hierarchical_planner_design/gemini_area_A_brief_planner_frontend.md`.
+I will write the report for Area A to `hierarchical_planner_design/gemini_area_A_brief_planner_frontend.md` without setting `ArtifactMetadata`, since it is a project file rather than an agent artifact.
+I will write the report for Area B: **The Decomposer Core (dual-model differential decomposition)** to `hierarchical_planner_design/gemini_area_B_decomposer_core.md`.
+I will write the report for Area C: **Dispatch, Staging, Execution & Completion Roll-Up** to `hierarchical_planner_design/gemini_area_C_dispatch_staging_rollup.md`.
+I will read `harness/config.yaml` to see how settings are currently configured.
+I will search for `config_loader.py` to see how configuration loading parses new fields.
+I will write the report for Area D: **Cross-Cutting Hierarchical State: Symbol/Interface Ledger, Failure Propagation, Recursion Safety (Level 2)** to `hierarchical_planner_design/gemini_area_D_crosscutting_state_recursion.md`.
+I will list the contents of the `hierarchical_planner_design` directory to verify that all four reports have been successfully created.
+All four requested markdown report files have been successfully created and written directly to the workspace folder: `/home/xnihil0zer0/JanusMaskJR/hierarchical_planner_design/`.
+
+### Report Summaries
+- **Area A ([gemini_area_A_brief_planner_frontend.md](file:///home/xnihil0zer0/JanusMaskJR/hierarchical_planner_design/gemini_area_A_brief_planner_frontend.md))**: Identifies brief ingestion schema changes (adding `epic` and `complexity_score`), inserts the `epic_analysis` phase in `cli.py` stages, and updates `plan_validator.py` to differentiate between epic planning briefs and leaf task structures.
+- **Area B ([gemini_area_B_decomposer_core.md](file:///home/xnihil0zer0/JanusMaskJR/hierarchical_planner_design/gemini_area_B_decomposer_core.md))**: Scopes the decomposition core to reuse the dual-model blind-draft and reconciliation mechanics, specifies prompt structures, maps static interface data-flows, and hooks child briefs back into the planner file-system.
+- **Area C ([gemini_area_C_dispatch_staging_rollup.md](file:///home/xnihil0zer0/JanusMaskJR/hierarchical_planner_design/gemini_area_C_dispatch_staging_rollup.md))**: Outlines autowork daemon brief staging adjustments, integrates the orchestrator dispatch interceptor for planning child briefs, and implements recursive completion tracking and logging in the progress ledger.
+- **Area D ([gemini_area_D_crosscutting_state_recursion.md](file:///home/xnihil0zer0/JanusMaskJR/hierarchical_planner_design/gemini_area_D_crosscutting_state_recursion.md))**: Lays out the Level 2 runtime extensions including configuration flags (default-off/fail-closed), a persistent symbol/signature ledger database, hierarchical failure propagation, and depth budget constraints.

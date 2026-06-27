@@ -1,0 +1,106 @@
+{
+  "task_id": "targets-dir-convention-impl",
+  "title": "Impl: add _DEFAULT_TARGETS_DIR + _read_targets_dir + resolve_target_path and wire into bootstrap_target line 297",
+  "meta_task_type": "harness_self_fix",
+  "priority": "high",
+  "dependencies": [
+    "targets-dir-convention-oracle"
+  ],
+  "files_touched": [
+    "harness/target_bootstrap.py"
+  ],
+  "acceptance_criteria": [
+    "harness/target_bootstrap.py gains a module-level `_DEFAULT_TARGETS_DIR = '~/NobleGreedv2/targets'` constant.",
+    "New pure helper `_read_targets_dir(config=None) -> Path`: if config is a dict and config.get('targets_dir') is a truthy string after .strip(), use it as raw, else raw = _DEFAULT_TARGETS_DIR; returns Path(raw).expanduser().resolve(). No file read, no file open, no config-path literal, no parser import, no try/except for parse errors.",
+    "New pure helper `resolve_target_path(working_dir, config=None) -> Path`: if Path(working_dir).is_absolute() return Path(working_dir).resolve() UNCHANGED; otherwise return (_read_targets_dir(config) / working_dir).resolve(). No mkdir, no git, no marker writes.",
+    "bootstrap_target line 297 changed from `root = Path(working_dir).resolve()` to `root = resolve_target_path(working_dir).resolve()`; everything downstream (the _working_dir_allowed gate, marker/ownership checks, git init, venv, marker write) stays byte-for-byte unchanged.",
+    "Module docstring, all imports, and every existing function (_git, _marker_path, _read_valid_marker, _working_dir_allowed, _has_git, _is_dirty, external_staging_root, _ensure_*, _resolve_target_interpreter, _external_venv_dir, _jailed_install_argv, _write_marker) are byte-for-byte unchanged except the single line 297 edit.",
+    "__JANUSMASK_MANIFEST__ contains EXACTLY ONE key, the literal 'harness/target_bootstrap.py', mapped to the FULL module contents (whole-file, not __JANUSMASK_PATCHES__). No other manifest key (avoid manifest_undeclared_key). No config file created or read.",
+    "The synthesized module references no config-file path literal, no config-directory constant, and no YAML parser import anywhere.",
+    "Does not edit harness/paths.py, effective_target_root, _target_is_self, brief_loader.py, or planner/cli.py::_effective_repo_root; does not auto-clone; does not weaken the _working_dir_allowed deny-all allowlist; uses no exec/eval/compile/__import__.",
+    "GREEN under the scoped verification_command and no regression in existing target_bootstrap tests.",
+    "non_goals contains the literal word 'integration'."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "low",
+  "verification_command": "python -m pytest tests/harness/test_targets_dir_convention.py -q",
+  "spec": {
+    "objective": "Make bare-name / relative target references resolve under a configured targets_dir (default ~/NobleGreedv2/targets, ~-expanded, OUTSIDE the repo) instead of CWD/repo-root-relative, while leaving an already-absolute external working_dir byte-identical to today. Implement this by editing EXACTLY ONE harness/** file (harness/target_bootstrap.py): add a module constant + two pure helpers and re-point the single resolution line in bootstrap_target. Whole-file manifest with exactly one key.",
+    "functional_requirements": [
+      "Add module-level constant `_DEFAULT_TARGETS_DIR = '~/NobleGreedv2/targets'`.",
+      "Add pure `_read_targets_dir(config=None) -> Path`: dict-only config source \u2014 if config is a dict AND config.get('targets_dir') is a truthy string after .strip(), raw = that value, else raw = _DEFAULT_TARGETS_DIR; return Path(raw).expanduser().resolve(). No file read, no open, no config-path literal, no parser import, no try/except for parse errors; always absolute, ~-expanded, ~-free.",
+      "Add pure `resolve_target_path(working_dir, config=None) -> Path`: if Path(working_dir).is_absolute() return Path(working_dir).resolve() unchanged; else return (_read_targets_dir(config) / working_dir).resolve() (bare 'fastgpt' -> <targets_dir>/fastgpt, relative 'foo/bar' -> <targets_dir>/foo/bar). No filesystem mutation, no git, no mkdir; do not special-case '.'/'..' beyond what .resolve() normalizes.",
+      "Edit bootstrap_target: change line 297 from `root = Path(working_dir).resolve()` to `root = resolve_target_path(working_dir).resolve()`; keep all downstream logic (allowlist gate, marker/ownership checks, git init, venv, marker write), the module docstring, all imports, and every existing helper byte-for-byte unchanged. Ship whole-file via __JANUSMASK_MANIFEST__ with EXACTLY ONE key 'harness/target_bootstrap.py'."
+    ],
+    "interfaces": "Public/new in harness.target_bootstrap: `_DEFAULT_TARGETS_DIR: str = '~/NobleGreedv2/targets'`; `_read_targets_dir(config=None) -> pathlib.Path` (pure, dict-or-constant lookup); `resolve_target_path(working_dir, config=None) -> pathlib.Path` (pure). Modified: `bootstrap_target(working_dir)` line 297 now `root = resolve_target_path(working_dir).resolve()`. ~-expansion via Path(raw).expanduser() (allowed here per selfheal.py:157/164-166 precedent; NOT added to harness/paths.py). No new module created.",
+    "edge_cases": [
+      "config None or {} or missing 'targets_dir' -> _DEFAULT_TARGETS_DIR.",
+      "targets_dir empty '' or whitespace '   ' (falsey after .strip()) -> _DEFAULT_TARGETS_DIR.",
+      "Already-absolute external working_dir -> Path(working_dir).resolve() unchanged, never joined under targets_dir (backward-compat, byte-identical).",
+      "Bare name vs relative multi-segment both join under targets_dir; '.'/'..' handled only by .resolve() normalization.",
+      "Self-targeted flows never reach bootstrap_target (daemon _target_is_self guard short-circuits) \u2014 unchanged.",
+      "Result is always absolute and ~-free; resolution does not require the targets dir to exist."
+    ],
+    "non_goals": [
+      "integration: integration wiring/end-to-end is out of scope; this is a single .py edit verified by the paired oracle.",
+      "Do NOT create or read ANY config/** file; the only config source is the passed config dict, else _DEFAULT_TARGETS_DIR. A config/** rel riding along with a harness/** change fails the auto-approve gate (auto_commit_failed).",
+      "Do NOT edit harness/paths.py (trust-core, home-free); do NOT add expanduser/Path.home() to paths.py; do NOT change effective_target_root, _target_is_self, brief_loader.py, or planner/cli.py::_effective_repo_root.",
+      "Do NOT auto-clone targets (cloning stays a manual operator step); do NOT weaken/bypass the _working_dir_allowed deny-all allowlist; do NOT mutate the filesystem inside resolve_target_path; do NOT use exec/eval/compile/__import__ (AST-banned)."
+    ],
+    "implementation_notes": "READ harness/target_bootstrap.py in full (~325 lines): bootstrap_target at ~:289-325, the target line `root = Path(working_dir).resolve()` at :297, the lazy `from harness.paths import STATE_DIR` pattern at :93/:229, and the module docstring :1-36. READ harness/paths.py to confirm effective_target_root/_target_is_self (:73-187) already classify an absolute external path correctly, so once bootstrap_target resolves to an absolute external path the rest of the pipeline is unchanged. Place _DEFAULT_TARGETS_DIR + _read_targets_dir + resolve_target_path at module level (e.g. near the top after imports) so they are importable by the oracle. MANIFEST: __JANUSMASK_MANIFEST__ MUST contain EXACTLY ONE key, the literal 'harness/target_bootstrap.py', mapped to the FULL module text (whole-file, NOT __JANUSMASK_PATCHES__, because new top-level symbols are introduced). Any extra/undeclared manifest key triggers manifest_undeclared_key and rejection. The synthesized module MUST NOT contain any config-file path literal, config-directory constant, or YAML parser import. This is harness_self_fix editing exactly one harness/** file; target_bootstrap.py is NOT in _NEVER_AUTO_APPROVE (orchestrator.py:2424) and the single harness/** rel keeps _auto_approve_sensitive_eligible passing with no operator decision file. spec_author is null (oracle pre-committed via the test_authoring task)."
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_bare_name_resolves_under_config_targets_dir_outside_repo (oracle, passes after impl)"
+      },
+      {
+        "name": "test_default_targets_dir_tilde_expansion_and_resolve_under_it"
+      },
+      {
+        "name": "test_absolute_external_path_returned_unchanged"
+      },
+      {
+        "name": "test_relative_multisegment_nests_under_targets_dir"
+      },
+      {
+        "name": "test_empty_config_falls_back_to_default"
+      },
+      {
+        "name": "test_read_targets_dir_always_absolute_and_tilde_free"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [
+      {
+        "name": "test_resolve_target_path_is_pure_no_mkdir"
+      },
+      {
+        "name": "test_resolver_never_mutates_fs_over_sample_inputs"
+      }
+    ],
+    "regression_tests": [
+      {
+        "name": "test_existing_target_bootstrap_suite_still_green (tests/**/test_target_bootstrap*.py exercising bootstrap_target with an absolute external working_dir: allowlist gate, marker/ownership, git init, venv, marker write unchanged)"
+      },
+      {
+        "name": "test_working_dir_allowed_deny_all_allowlist_unchanged (tests/**/test_*bootstrap*.py exercising _working_dir_allowed remain green; gate not weakened/bypassed)"
+      }
+    ],
+    "minimum_test_count": 8,
+    "test_data_requirements": "Verified by the paired oracle tests/harness/test_targets_dir_convention.py (tmp_path-only, hermetic, no config file, no monkeypatch). Regression coverage from existing tests/**/test_target_bootstrap*.py and tests/**/test_*bootstrap*.py. No network; never touch the real ~/NobleGreedv2/targets."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 100,
+    "test_tokens": 200,
+    "note": "Small surgical edit (one constant, two pure helpers, one re-pointed line) shipped whole-file; tests are the pre-committed oracle plus existing bootstrap regression suites."
+  },
+  "attribution_metadata": {
+    "proposed_by": "reconciled",
+    "reconciled": true,
+    "diff_resolution": "reconciled"
+  },
+  "_debug_stamping_reason": "Task was divergent and resolved via reconciliation.",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+  "repair_feedback": "event=verification_failed\nexit=4\nstdout_tail:\n\nno tests ran in 0.00s\n\nstderr_tail:\nERROR: file or directory not found: tests/harness/test_targets_dir_convention.py\n\n"
+}

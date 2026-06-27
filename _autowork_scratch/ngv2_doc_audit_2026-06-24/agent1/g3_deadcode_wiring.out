@@ -1,0 +1,57 @@
+=== loopback_listener  (doc: dead code -> must wire (P1.3/G3)) ===
+  PRODUCTION importers (non-test, non-self): ['./ngv2/poc_runner_live.py', './ngv2/_loopback_netns.py', './ngv2/workers/_runner.py']
+  test-only importers: ['./tests/ngv2/test_wire_loopback_per_cwe_channels.py', './tests/test_loopback_listener.py']
+  self/defining file:  []
+  VERDICT: doc 'dead code' claim is STALE/FALSE -> loopback_listener now has 3 production importer(s)
+
+=== auth_bootstrap  (doc: dead code (G3/P3.1)) ===
+  PRODUCTION importers (non-test, non-self): []
+  test-only importers: ['./tests/test_auth_bootstrap.py']
+  self/defining file:  []
+  VERDICT: doc 'dead code' claim STILL TRUE -> auth_bootstrap has 0 production importers
+
+=== sink_instrument  (doc: dead code (G3/P2.1 REACHABILITY)) ===
+  PRODUCTION importers (non-test, non-self): []
+  test-only importers: ['./tests/test_sink_instrument.py']
+  self/defining file:  []
+  VERDICT: doc 'dead code' claim STILL TRUE -> sink_instrument has 0 production importers
+
+=== LoopbackListener instantiation in workers/_runner.py ===
+236:        from ngv2.loopback_listener import LoopbackListener
+276:        listener = LoopbackListener(host='127.0.0.1', port=0)
+
+=== loopback_listener reference in poc_runner_live.py ===
+54:__all__ = ('LiveRunnerError', 'bwrap_available', 'build_detonation_jail_argv', 'snapshot_tree', 'diff_snapshots', 'make_live_runner', 'detonate_live', 'run_jailed_poc_with_loopback')
+69:def build_detonation_jail_argv(cmd: Sequence[str], *, repo_root: Optional[str | Path], work_dir: str | Path, extra_ro: Iterable[str | Path]=(), shared_loopback_netns: bool=False) -> list[str]:
+78:    **Network isolation knob (``shared_loopback_netns``).** Both modes give the PoC a
+85:      * ``True`` (P1.3 leaf-2 shared-loopback path): the jail itself OWNS a fresh
+89:        :mod:`ngv2._loopback_netns` bootstrap -- can bring ``lo`` UP and bind the
+90:        loopback listener *inside* this same netns, which the jailed PoC then reaches
+91:        over one shared loopback stack. We let ``bwrap`` own the userns (rather than
+102:        (only ``lo``; no ``eth*``/route). Taken only when a loopback listener is in play
+109:    if shared_loopback_netns:
+233:def detonate_live(poc: PoC, target_spec: object=None, *, timeout_s: Optional[float]=None, success_marker: str=DEFAULT_SUCCESS_MARKER, expected_fs_signature: Optional[str]=None, pip_installer: Optional[Callable[[str, str], bool]]=None, jail_runner: Optional[Callable[..., dict]]=None, loopback: bool=False) -> dict:
+264:    if jail_runner is None and (not loopback):
+296:        loopback_hits: list = []
+298:        if loopback and _injected_jail_runner is None:
+299:            # Shared-loopback-netns path: the listener lives INSIDE the jail's netns.
+305:                return run_jailed_poc_with_loopback(_cmd, repo_root=repo_root, work_dir=work_dir, extra_ro=extra_ro, child_env=child_env, timeout_s=timeout_s, fs_signature=_lb_sig, callback_env_keys=('NGV2_SSRF_CALLBACK',), poc_path=poc_path)
+306:        elif loopback and _injected_jail_runner is not None:
+312:            # Exclude the _jmdeps install dir AND the leaf-2 loopback config artifact so
+325:                loopback_hits[:] = list(hits)
+353:        if loopback:
+354:            result['loopback_hits'] = list(loopback_hits)
+463:_LOOPBACK_BOOTSTRAP_MODULE: str = 'ngv2._loopback_netns'
+464:LOOPBACK_CFG_FILENAME: str = '_loopback_cfg.json'
+469:    :mod:`ngv2._loopback_netns` + :mod:`ngv2.loopback_listener` (both stdlib-only)."""
+472:def run_jailed_poc_with_loopback(cmd: Sequence[str], *, repo_root: Optional[str | Path], work_dir: str, extra_ro: Sequence[str], child_env: Mapping[str, str], timeout_s: float, fs_signature: str='', callback_env_keys: Sequence[str]=('NGV2_SSRF_CALLBACK',), poc_path: Optional[str]=None) -> dict:
+473:    """Detonate ``cmd`` in a jail that SHARES one isolated loopback netns with the
+474:    ``LoopbackListener`` -- the P1.3 leaf-2 SSRF/loopback path.
+482:    process is the :mod:`ngv2._loopback_netns` bootstrap, which brings ``lo`` up, binds
+485:    reaches the listener over a shared loopback while outbound stays blocked.
+505:    argv = build_detonation_jail_argv(boot_cmd, repo_root=repo_root, work_dir=work_dir, extra_ro=boot_extra_ro, shared_loopback_netns=True)
+515:    payload = _parse_loopback_result(stdout)
+520:        raise LiveRunnerError('shared-loopback-netns detonation produced no result sentinel ' f'(jail/listener setup failed; refusing to degrade to host-netns). bootstrap stderr: {stderr[-500:]!r}')
+523:def _parse_loopback_result(stdout: str) -> Optional[dict]:
+530:    from ngv2._loopback_netns import RESULT_SENTINEL
+

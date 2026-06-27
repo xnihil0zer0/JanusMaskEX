@@ -1,0 +1,213 @@
+You are the LEAD analysis agent for a read-only codebase investigation of the
+JanusMaskJR self-building harness at /home/xnihil0zer0/JanusMaskJR.
+
+YOUR JOB: Spawn FOUR (4) sub-agents. Assign each one of the four AREAS below.
+Each sub-agent performs deep CODE EXPLORATION of the repository (read-only — DO
+NOT modify any source file) and writes ONE markdown report to the directory
+/home/xnihil0zer0/JanusMaskJR/hierarchical_planner_design/ at the exact filename
+given for its area. After all four sub-agents finish, verify the four report
+files exist and print a one-line summary of each. Do not write code. Do not run
+tests. This is an analysis-only task.
+
+============================================================
+WHAT IS BEING DESIGNED (read carefully — this is the feature the reports must scope)
+============================================================
+JanusMaskJR turns a "brief" (a markdown spec) into a "plan" (a DAG of tasks),
+then dispatches each task to a DUAL-MODEL (Claude + Gemini) differential
+synthesis pipeline that auto-commits validated code. Today the planner is FLAT:
+one brief -> one DAG of leaf tasks. There is no planned hierarchy.
+
+We are adding a HIERARCHICAL PLANNER with PLAN DECOMPOSITION, in three levels:
+
+  - LEVEL 0 (exists, manual): a human authors the top-level decomposition by hand.
+  - LEVEL 1 (the near-term build): a brief can be tagged "epic". An epic brief is
+    blind-drafted by BOTH models into a set of CHILD BRIEFS (not leaf tasks),
+    reconciled (dual-model agreement MUST hold at the decomposition layer too,
+    or we recreate the bug this project exists to fix), and each child brief
+    re-enters the EXISTING planner unchanged. One automated layer of hierarchy.
+    Child briefs carry FROZEN INTERFACES authored at decomposition time into
+    their spec.interfaces, and sibling ordering via the existing `dependencies`
+    DAG — so cross-child symbol contracts are STATIC TEXT, not runtime state.
+  - LEVEL 2 (the hard tier, later): fully recursive (child briefs spawn
+    grandchildren) PLUS the runtime cross-cutting machinery: an interface/symbol
+    REGISTRY/LEDGER that flows produced symbols/signatures downward across
+    subtrees, a PARENT/CHILD-AWARE COMPLETION LEDGER (a parent epic is "done"
+    only when all descendants verify), and FAILURE PROPAGATION (a failed
+    grandchild fails its epic without deadlocking siblings), plus
+    recursion-depth budgets to prevent infinite decomposition.
+
+The reports must scope the COMPLETE system (all of Level 1 AND Level 2), with
+concrete file:line anchors, so a downstream session can compile an ordered
+implementation sequence from them.
+
+============================================================
+PIPELINE CONSTRAINTS — every proposed change MUST be tagged with its viability
+============================================================
+The harness builds ITSELF through its own pipeline, which can reliably land only
+certain change shapes. For EVERY change a report proposes, tag it with one of:
+  - [GREEN single-symbol]  one top-level function/assignment, <=~150 lines,
+    applied as a single-symbol partial-edit. ~85% reliable. PREFERRED.
+  - [GREEN new-file]       one brand-new single-file module. ~80% reliable.
+  - [YELLOW multi-symbol]  touches several top-level symbols / multi-file. 60-70%,
+    often must be SPLIT into multiple single-symbol briefs.
+  - [RED class-method]     edits a method body inside an existing class (dotted
+    Class.method qualname). ~0% reliable — the synthesis layer AST-fails on these.
+    Must be re-shaped (new top-level helper the method calls, or whole-class
+    replacement) or flagged as a mandatory HAND-EDIT.
+  - [RED nested]           deeply nested try/except edits. Deterministic failure.
+  - [HAND] pure config/declarative (requirements, ini, small consts) — trivially
+    hand-landed, no value in routing through the pipeline.
+Also note for each change: does it need an ORACLE-FIRST failing test (new files
+and behavior changes do); and whether it touches the protected harness/ path.
+
+============================================================
+KNOWN SUBSTRATE (already verified by a prior pass — RE-VERIFY against the actual
+code, do not blindly trust; line numbers may have drifted)
+============================================================
+Planner package: /home/xnihil0zer0/JanusMaskJR/harness/planner/
+  - cli.py : main() runs an ordered pipeline. STAGES ~=
+    ['load_brief','blind_drafts','diff','reconciliation','attribution_stamp',
+     'adversarial_review','auto_amend_gate','persist_plan']. persist_plan ~:86.
+  - brief_loader.py : @dataclass(frozen=True) PlanningBrief(title, scope,
+    non_goals, inputs, deliverables, raw_text, source_path, sha256,
+    working_dir=None). load_brief() ~:122-212 parses YAML frontmatter + md sections.
+  - plan_validator.py : check_missing_fields() ~:19-58 defines required task
+    schema (task_id,title,meta_task_type,priority,dependencies,files_touched,
+    acceptance_criteria,spec{objective,functional_requirements,interfaces,
+    edge_cases,non_goals,implementation_notes},test_spec{...},token_budget_ratio,
+    attribution_metadata). Cycle detection on `dependencies` ~:146-190. No
+    parent/child or epic fields today.
+  - blind_draft.py, diff_extractor.py, diff_model.py, reconciliation.py
+    (run_reconciliation ~:57-100), attribution.py, adversarial_review.py,
+    auto_amend.py, staging.py (stage_task ~:16-112), taxonomies.py
+    (META_TASK_POLICY, META_TASK_TYPES), prompts/ .
+Dispatch / execution:
+  - harness/autowork_daemon.py : _auto_promote() ~:1204-1402 (calls
+    compute_brief_status(), stage_task() per unstaged task),
+    collect_dispatchable_tasks() ~:174-264 (a dep must be in accepted_ids),
+    _harvest_selfheal_briefs() ~:1243-1249.
+  - harness/orchestrator.py : get_next_task() ~:1250-1318 (claims task, checks
+    parent_task chain via check_true_depth, max_depth=3), decompose_task() call
+    site ~:3594.
+  - harness/depth_validator.py : check_true_depth() ~:6-75 walks parent chain.
+  - harness/task_decomposer.py : EXISTING fuzz-failure-driven decomposition.
+    @dataclass Subtask(task_id, parent_task_id, specification, constraints,
+    depends_on, depth) ~:34-41; decompose_task() ~:281-328; enqueue_subtasks()
+    ~:330-347 writes state/tasks/<id>.json; update_parent_state() ~:349-359
+    writes STATE.json children list. config decomposition.max_subtasks=5,
+    max_depth=3. THIS IS THE CLOSEST EXISTING ANALOG — but it is triggered by
+    fuzz divergence inside the orchestrator, NOT by briefs in the planner.
+  - harness/selfheal.py : _synthesize_selfheal_plan() ~:50-131 reads a diagnosis
+    brief + blocked sidecar and SYNTHESIZES a new plan_hooks_selfheal_<id>.json
+    keyed on the original task_id, then stages it through the normal pipeline.
+    THIS IS THE PROVEN "analyze something -> synthesize a new plan -> stage it"
+    PATTERN that epic decomposition should mirror. _harvest_selfheal_briefs in
+    autowork_daemon.py drives it.
+  - Ledger of record: state/impl_progress.jsonl (accepted / auto_commit rows).
+    Currently flat-DAG-shaped (no parent/child awareness).
+
+============================================================
+THE FOUR AREAS (assign one sub-agent each)
+============================================================
+
+AREA A — BRIEF INGESTION & PLANNER FRONT-END / SCHEMA
+Report file: hierarchical_planner_design/gemini_area_A_brief_planner_frontend.md
+Cover: how a brief gets tagged "epic" and how hierarchy fields enter the plan.
+  - PlanningBrief schema changes (epic flag, complexity_score) in brief_loader.py;
+    how load_brief parses them; brief markdown/YAML format impact; autobrief
+    prompt at tools/webui_autobrief_prompt.txt implications.
+  - The new epic-detection / complexity-analysis pipeline STAGE and exactly where
+    it inserts into cli.py main()'s STAGES list and how persist_plan must change.
+  - plan_validator.py schema extensions: parent_epic, epic_part, child-brief
+    artifact validation, and how the validator must treat an epic plan (emits
+    child briefs) vs a leaf plan (emits tasks).
+  - taxonomies.py: any new meta_task_type for epic / sub-brief and policy.
+  - Enumerate EVERY symbol to add/modify with file:line anchor + viability tag +
+    oracle-first need.
+
+AREA B — THE DECOMPOSER CORE (dual-model differential decomposition)
+Report file: hierarchical_planner_design/gemini_area_B_decomposer_core.md
+Cover: the heart — turning one epic brief into N coherent, dual-model-verified
+child briefs.
+  - The new decomposer module/function: inputs (epic brief), outputs (set of
+    child briefs). How it REUSES blind_draft.py / diff_extractor.py /
+    diff_model.py / reconciliation.py / attribution.py / adversarial_review.py so
+    the SAME dual-model blind-draft + reconcile guarantee applies to the
+    DECOMPOSITION (this is non-negotiable — single-model decomposition is the
+    failure mode to avoid). What in those modules assumes "task" artifacts and
+    must be generalized to "child brief" artifacts.
+  - Prompts: what new prompt(s) under harness/planner/prompts/ are needed to make
+    each model draft child briefs (not leaf tasks).
+  - STATIC INTERFACE AUTHORING: how the decomposer freezes an upstream child's
+    produced signatures into a downstream child's spec.interfaces, and wires
+    sibling order via `dependencies`, at decomposition time (Level 1, no runtime
+    registry). Show the exact data flow.
+  - The child-brief RE-ENTRY seam: how a child brief is written to disk and
+    re-enters the existing planner/queue. Reconcile with selfheal.py's synth+stage
+    pattern.
+  - Enumerate EVERY symbol/file/prompt to add/modify with anchors + viability +
+    oracle-first need.
+
+AREA C — DISPATCH, STAGING, EXECUTION & COMPLETION ROLL-UP
+Report file: hierarchical_planner_design/gemini_area_C_dispatch_staging_rollup.md
+Cover: getting decomposed child briefs/tasks staged, dispatched, depth-guarded,
+and rolled up.
+  - autowork_daemon.py: how _auto_promote / compute_brief_status /
+    collect_dispatchable_tasks / get_next_task must change to recognize epic
+    briefs, stage child briefs, and respect parent/child ordering. What is
+    reusable as-is (the `dependencies` accepted_ids gate) vs what needs new logic.
+  - orchestrator.py: the dispatch hook that recognizes "this queue item is a
+    sub-brief, re-enter planning instead of synthesizing code"; interaction with
+    get_next_task and check_true_depth.
+  - depth_validator.py: extending check_true_depth (or a sibling) for the
+    epic/parent_epic chain.
+  - COMPLETION ROLL-UP: how a parent epic becomes "complete" only when all child
+    briefs/tasks are accepted; what compute_brief_status must learn; how
+    state/impl_progress.jsonl must gain parent/child awareness WITHOUT breaking
+    the existing flat consumers.
+  - task_decomposer.py: precisely what to REUSE vs leave alone (it already writes
+    state/tasks/<id>.json with parent_task_id/depth and updates STATE.json).
+  - Enumerate EVERY symbol to add/modify with anchors + viability + oracle-first.
+    Flag class-method RED-ZONE edits in orchestrator.py/autowork_daemon.py
+    explicitly and propose a re-shape for each.
+
+AREA D — CROSS-CUTTING HIERARCHICAL STATE: SYMBOL/INTERFACE LEDGER, FAILURE
+PROPAGATION, RECURSION SAFETY (Level 2)
+Report file: hierarchical_planner_design/gemini_area_D_crosscutting_state_recursion.md
+Cover: the hard runtime tier that Level 1 deliberately defers.
+  - The interface/symbol REGISTRY/LEDGER: a runtime store of symbols/signatures
+    each subtree PRODUCES, so descendant subtrees can bind to them without drift.
+    Design its data model, where it lives on disk, who writes/reads it, and how it
+    relates to the static spec.interfaces approach of Level 1 (Level 2 generalizes
+    Level 1). Be concrete about the seam.
+  - PARENT/CHILD-AWARE COMPLETION LEDGER (deeper than Area C's one-level roll-up):
+    arbitrary-depth roll-up, and how it extends impl_progress.jsonl / STATE.json.
+  - FAILURE PROPAGATION: a failed descendant fails its ancestor epic WITHOUT
+    deadlocking siblings; reconcile with existing zombie-reclamation / cascade
+    logic (which is single-level today). Anchor that logic.
+  - RECURSION SAFETY: depth budgets, epic->epic guards, infinite-decomposition
+    prevention; how config decomposition.max_depth/max_subtasks generalize.
+  - The owner requires this tier be DEFAULT-OFF / FAIL-CLOSED behind config flags
+    (it touches autonomous self-build). Identify the flags and the gates.
+  - Enumerate EVERY symbol/file to add/modify with anchors + viability + oracle.
+
+============================================================
+REPORT STRUCTURE (each sub-agent uses this skeleton)
+============================================================
+# Area <X> — <title>
+## 1. Summary (5-10 lines: what this area must deliver end-to-end)
+## 2. Existing substrate (what already exists, with file:line anchors; note what
+   is reusable as-is vs must change)
+## 3. Required changes (a TABLE: change | file:line anchor | new or modify |
+   viability tag | oracle-first? | touches harness/? | notes)
+## 4. New symbols / new files (signatures + one-line purpose each)
+## 5. Data-flow / sequence (how the pieces connect at runtime)
+## 6. Dependencies & ordering (what must land before what; which items are
+   Level 1 vs Level 2)
+## 7. Risks, red-zones, and open questions (class-method edits, nondeterminism,
+   anything you could not verify)
+## 8. Anchor appendix (every file:line you relied on, so a reviewer can re-check)
+
+Be concrete and verify claims by actually reading the code. Prefer exact
+file:line anchors over prose. Do not modify any source file. Write only your one
+report markdown file into hierarchical_planner_design/.

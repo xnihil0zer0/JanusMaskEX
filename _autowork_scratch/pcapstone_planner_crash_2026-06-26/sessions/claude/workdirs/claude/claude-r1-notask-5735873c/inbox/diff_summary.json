@@ -1,0 +1,332 @@
+{
+  "items": [
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "fuzz_from_task returns FuzzResult(equivalent=True, skipped_reason=<non-empty string>, error=None) whenever func_name resolves to None, regardless of the task's meta_task_type.",
+          "The prior FuzzResult(equivalent=False, error='Could not determine target function name from task or code') outcome for the func_name is None branch is removed.",
+          "The skip path emits an informational log message on the existing 'janusmask.diff_fuzzer' logger that explains the skip and includes the skip reason.",
+          "fuzz_from_task behaviour for every path where func_name is successfully resolved to a non-empty string is preserved unchanged \u2014 including the downstream a_has/b_has checks and the existing FUZZ_BYPASS_META_TYPES handling for one-sided / two-sided missing function cases when func_name IS known.",
+          "Module-level imports, FuzzResult dataclass shape, and the public fuzz_from_task signature are unchanged."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "low",
+        "files_touched": [
+          "harness/diff_fuzzer.py"
+        ],
+        "meta_task_type": "refactor",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [
+            "task.constraints carries a function_signature string that does not match the 'def\\s+(\\w+)\\s*\\(' regex AND neither code_a nor code_b defines any function \u2014 func_name still resolves to None and the new skip path must fire.",
+            "Both code_a and code_b contain syntax errors so _get_primary_function returns None for each, while task.constraints has no function_signature \u2014 func_name resolves to None and the new skip path must fire."
+          ],
+          "functional_requirements": [
+            "In harness/diff_fuzzer.py fuzz_from_task, when func_name is None after attempting both (a) regex extraction from task.constraints['function_signature'] and (b) the _get_primary_function fallback against code_a/code_b, return FuzzResult(equivalent=True, skipped_reason=<reason string>) instead of FuzzResult(equivalent=False, error='Could not determine target function name from task or code').",
+            "The new skip path must fire unconditionally for every task when func_name is None \u2014 it must NOT be gated on _extract_meta_task_type being in FUZZ_BYPASS_META_TYPES; the existing meta_task_type / FUZZ_BYPASS_META_TYPES conditional inside the func_name is None branch is removed so all tasks share the same skip behaviour.",
+            "When the skip is taken, an informational log message is emitted via the existing module logger 'janusmask.diff_fuzzer' (logger.info) that records the skip and the reason string returned in skipped_reason."
+          ],
+          "implementation_notes": "Locate the func_name is None branch in fuzz_from_task (harness/diff_fuzzer.py around lines 670-676). Replace the existing 'if meta_type in FUZZ_BYPASS_META_TYPES: ... return FuzzResult(equivalent=True, skipped_reason=...) ... return FuzzResult(equivalent=False, error='Could not determine target function name from task or code')' structure with an unconditional skip: construct a reason string such as 'No target function name resolvable from task constraints or submissions; skipping differential fuzz', call logger.info('fuzz_from_task skipping: %s', reason), and return FuzzResult(equivalent=True, skipped_reason=reason). Do not delete the FUZZ_BYPASS_META_TYPES import or the downstream a_has/b_has block; those remain in use for the case where func_name IS known.",
+          "interfaces": "fuzz_from_task(code_a: str, code_b: str, task: dict[str, Any], config: dict[str, Any], session_id: str='default') -> FuzzResult. The function signature, parameters, and the FuzzResult dataclass are unchanged. Only the value returned by the func_name is None branch changes: equivalent becomes True, skipped_reason is set to a human-readable non-empty string, error remains None.",
+          "non_goals": [
+            "Do not alter the fuzzing logic, strategy building, sandbox execution, or batch execution path for tasks where func_name is successfully resolved to a non-empty string.",
+            "Do not modify how input generation strategies or Hypothesis mappings are built (build_input_strategy, _strategy_for_annotation, _ast_node_to_strategy, and friends remain untouched).",
+            "Do not change the existing FUZZ_BYPASS_META_TYPES handling for the downstream a_has/b_has branches \u2014 those branches are only reached when func_name is already known and must keep their current bypass semantics.",
+            "Do not change the FuzzResult dataclass or its fields; only the values returned in the func_name is None branch change."
+          ],
+          "objective": "Make fuzz_from_task gracefully skip \u2014 rather than return an error result \u2014 when neither the task constraints nor the submissions yield a target function name to fuzz, and have that skip apply to all tasks regardless of meta_task_type."
+        },
+        "spec_author": null,
+        "task_id": "RB_JR_fixes_fuzzer_skip_missing_func_name",
+        "test_spec": {
+          "integration_tests": [
+            {
+              "name": "test_fuzz_from_task_resolved_function_happy_path_still_runs_full_differential_fuzz_after_skip_refactor"
+            }
+          ],
+          "minimum_test_count": 6,
+          "property_tests": [],
+          "regression_tests": [
+            {
+              "name": "test_fuzz_from_task_skip_with_malformed_signature_string_and_no_function_in_either_submission"
+            },
+            {
+              "name": "test_fuzz_from_task_skip_when_both_code_samples_have_syntax_errors_and_no_constraints"
+            }
+          ],
+          "test_data_requirements": "Inline Python source strings (with and without function definitions, with and without syntax errors), inline task dicts with empty constraints, with malformed function_signature, and with assorted meta_task_type values both inside and outside FUZZ_BYPASS_META_TYPES. Reuse the existing fast_config fixture pattern from tests/test_diff_fuzzer.py for the integration-style happy-path test. Use pytest's caplog (with caplog.set_level(logging.INFO, logger='janusmask.diff_fuzzer')) to assert the informational log message.",
+          "unit_tests": [
+            {
+              "name": "test_fuzz_from_task_skips_when_no_function_resolvable_returns_equivalent_true_with_skipped_reason"
+            },
+            {
+              "name": "test_fuzz_from_task_skip_for_missing_function_name_applies_to_arbitrary_non_bypass_meta_task_type"
+            },
+            {
+              "name": "test_fuzz_from_task_skip_for_missing_function_name_emits_info_log_on_janusmask_diff_fuzzer_logger"
+            }
+          ]
+        },
+        "title": "Skip differential fuzzing when target function name cannot be resolved",
+        "token_budget_ratio": {
+          "implementation_tokens": 300,
+          "note": "Implementation is a small, localized refactor of one branch in fuzz_from_task. Testing covers the three functional requirements (skip outcome, unconditional-on-meta-task-type, info log) plus an integration sanity test for the unchanged resolved-function path and two regression tests for the edge cases, hence the >=1.5x test budget.",
+          "test_tokens": 500
+        },
+        "verification_command": "pytest tests/test_diff_fuzzer.py -v -k \"skip\" --tb=short"
+      },
+      "diff_item_id": "e7ce09e7a3dabd2d7483d3104f79effa73e5a72d",
+      "field_divergences": [
+        [
+          "scope",
+          [
+            "Make fuzz_from_task gracefully skip \u2014 rather than return an error result \u2014 when neither the task constraints nor the submissions yield a target function name to fuzz, and have that skip apply to all tasks regardless of meta_task_type.",
+            [
+              "In harness/diff_fuzzer.py fuzz_from_task, when func_name is None after attempting both (a) regex extraction from task.constraints['function_signature'] and (b) the _get_primary_function fallback against code_a/code_b, return FuzzResult(equivalent=True, skipped_reason=<reason string>) instead of FuzzResult(equivalent=False, error='Could not determine target function name from task or code').",
+              "The new skip path must fire unconditionally for every task when func_name is None \u2014 it must NOT be gated on _extract_meta_task_type being in FUZZ_BYPASS_META_TYPES; the existing meta_task_type / FUZZ_BYPASS_META_TYPES conditional inside the func_name is None branch is removed so all tasks share the same skip behaviour.",
+              "When the skip is taken, an informational log message is emitted via the existing module logger 'janusmask.diff_fuzzer' (logger.info) that records the skip and the reason string returned in skipped_reason."
+            ]
+          ],
+          [
+            "Modify differential fuzzer to gracefully skip fuzzing and return equivalent=True when the target function name cannot be determined, and update associated unit tests.",
+            [
+              "Return FuzzResult(equivalent=True, skipped_reason='...') when func_name is None inside fuzz_from_task.",
+              "Log an informational message via logger.info when fuzzing is skipped due to a missing function name.",
+              "Ensure that the skip behavior applies to all tasks, regardless of their meta_task_type.",
+              "Update test_f69_no_function_in_code_and_no_signature assertions to expect equivalent=True and skipped_reason is not None."
+            ]
+          ]
+        ],
+        [
+          "files_touched",
+          [
+            "harness/diff_fuzzer.py"
+          ],
+          [
+            "/home/xnihil0zer0/JanusMaskJR/harness/diff_fuzzer.py",
+            "/home/xnihil0zer0/JanusMaskJR/tests/test_diff_fuzzer.py"
+          ]
+        ],
+        [
+          "edge_cases",
+          [
+            "task.constraints carries a function_signature string that does not match the 'def\\s+(\\w+)\\s*\\(' regex AND neither code_a nor code_b defines any function \u2014 func_name still resolves to None and the new skip path must fire.",
+            "Both code_a and code_b contain syntax errors so _get_primary_function returns None for each, while task.constraints has no function_signature \u2014 func_name resolves to None and the new skip path must fire."
+          ],
+          []
+        ],
+        [
+          "non_goals",
+          [
+            "Do not alter the fuzzing logic, strategy building, sandbox execution, or batch execution path for tasks where func_name is successfully resolved to a non-empty string.",
+            "Do not modify how input generation strategies or Hypothesis mappings are built (build_input_strategy, _strategy_for_annotation, _ast_node_to_strategy, and friends remain untouched).",
+            "Do not change the existing FUZZ_BYPASS_META_TYPES handling for the downstream a_has/b_has branches \u2014 those branches are only reached when func_name is already known and must keep their current bypass semantics.",
+            "Do not change the FuzzResult dataclass or its fields; only the values returned in the func_name is None branch change."
+          ],
+          [
+            "Do not alter the fuzzing logic for tasks where a target function is successfully resolved.",
+            "Do not modify how input generation strategies or Hypothesis mappings are built.",
+            "Do not add or modify integration tests."
+          ]
+        ],
+        [
+          "tests",
+          {
+            "integration_tests": [
+              {
+                "name": "test_fuzz_from_task_resolved_function_happy_path_still_runs_full_differential_fuzz_after_skip_refactor"
+              }
+            ],
+            "minimum_test_count": 6,
+            "property_tests": [],
+            "regression_tests": [
+              {
+                "name": "test_fuzz_from_task_skip_with_malformed_signature_string_and_no_function_in_either_submission"
+              },
+              {
+                "name": "test_fuzz_from_task_skip_when_both_code_samples_have_syntax_errors_and_no_constraints"
+              }
+            ],
+            "test_data_requirements": "Inline Python source strings (with and without function definitions, with and without syntax errors), inline task dicts with empty constraints, with malformed function_signature, and with assorted meta_task_type values both inside and outside FUZZ_BYPASS_META_TYPES. Reuse the existing fast_config fixture pattern from tests/test_diff_fuzzer.py for the integration-style happy-path test. Use pytest's caplog (with caplog.set_level(logging.INFO, logger='janusmask.diff_fuzzer')) to assert the informational log message.",
+            "unit_tests": [
+              {
+                "name": "test_fuzz_from_task_skips_when_no_function_resolvable_returns_equivalent_true_with_skipped_reason"
+              },
+              {
+                "name": "test_fuzz_from_task_skip_for_missing_function_name_applies_to_arbitrary_non_bypass_meta_task_type"
+              },
+              {
+                "name": "test_fuzz_from_task_skip_for_missing_function_name_emits_info_log_on_janusmask_diff_fuzzer_logger"
+              }
+            ]
+          },
+          {
+            "integration_tests": [],
+            "minimum_test_count": 10,
+            "property_tests": [],
+            "regression_tests": [],
+            "test_data_requirements": "Uses existing dummy code inputs and task dictionary fixtures within tests/test_diff_fuzzer.py.",
+            "unit_tests": [
+              {
+                "name": "test_f69_no_function_in_code_and_no_signature"
+              },
+              {
+                "name": "test_fuzz_from_task_logs_info_on_skip"
+              },
+              {
+                "name": "test_fuzz_from_task_skips_regardless_of_meta_task_type"
+              },
+              {
+                "name": "test_fuzz_from_task_retains_normal_behavior"
+              }
+            ]
+          }
+        ]
+      ],
+      "gemini_task": {
+        "acceptance_criteria": [
+          "In harness/diff_fuzzer.py:fuzz_from_task, when func_name is None, log an info message and return FuzzResult(equivalent=True, skipped_reason='...') rather than an error result.",
+          "This skip behavior applies to all tasks regardless of their meta_task_type.",
+          "Update test_f69_no_function_in_code_and_no_signature in tests/test_diff_fuzzer.py to expect equivalent=True and a non-None skipped_reason."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [],
+        "estimated_complexity": "low",
+        "files_touched": [
+          "/home/xnihil0zer0/JanusMaskJR/harness/diff_fuzzer.py",
+          "/home/xnihil0zer0/JanusMaskJR/tests/test_diff_fuzzer.py"
+        ],
+        "meta_task_type": "refactor",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [],
+          "functional_requirements": [
+            "Return FuzzResult(equivalent=True, skipped_reason='...') when func_name is None inside fuzz_from_task.",
+            "Log an informational message via logger.info when fuzzing is skipped due to a missing function name.",
+            "Ensure that the skip behavior applies to all tasks, regardless of their meta_task_type.",
+            "Update test_f69_no_function_in_code_and_no_signature assertions to expect equivalent=True and skipped_reason is not None."
+          ],
+          "implementation_notes": "In harness/diff_fuzzer.py, modify fuzz_from_task's 'if func_name is None:' branch to unconditionally log and return FuzzResult(equivalent=True, skipped_reason=...). In tests/test_diff_fuzzer.py, modify test_f69_no_function_in_code_and_no_signature to assert equivalent=True and that skipped_reason is not None.",
+          "interfaces": "fuzz_from_task returns FuzzResult(equivalent=True, skipped_reason='...') instead of FuzzResult(equivalent=False, error='...') when func_name is None.",
+          "non_goals": [
+            "Do not alter the fuzzing logic for tasks where a target function is successfully resolved.",
+            "Do not modify how input generation strategies or Hypothesis mappings are built.",
+            "Do not add or modify integration tests."
+          ],
+          "objective": "Modify differential fuzzer to gracefully skip fuzzing and return equivalent=True when the target function name cannot be determined, and update associated unit tests."
+        },
+        "spec_author": null,
+        "task_id": "skip_fuzzing_when_no_func_name",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 10,
+          "property_tests": [],
+          "regression_tests": [],
+          "test_data_requirements": "Uses existing dummy code inputs and task dictionary fixtures within tests/test_diff_fuzzer.py.",
+          "unit_tests": [
+            {
+              "name": "test_f69_no_function_in_code_and_no_signature"
+            },
+            {
+              "name": "test_fuzz_from_task_logs_info_on_skip"
+            },
+            {
+              "name": "test_fuzz_from_task_skips_regardless_of_meta_task_type"
+            },
+            {
+              "name": "test_fuzz_from_task_retains_normal_behavior"
+            }
+          ]
+        },
+        "title": "Skip differential fuzzing when no target function name can be resolved",
+        "token_budget_ratio": {
+          "implementation_tokens": 100,
+          "note": "Modification is small, tests are straightforward updates.",
+          "test_tokens": 200
+        },
+        "verification_command": "pytest /home/xnihil0zer0/JanusMaskJR/tests/test_diff_fuzzer.py"
+      },
+      "kind": "divergent",
+      "match_reason": "title_ratio_solo"
+    },
+    {
+      "candidate_near_miss": null,
+      "candidates": null,
+      "claude_task": {
+        "acceptance_criteria": [
+          "tests/test_diff_fuzzer.py::TestDifferentialFuzzExtended::test_f69_no_function_in_code_and_no_signature asserts result.equivalent is True.",
+          "The same test asserts result.skipped_reason is not None and is a non-empty string.",
+          "The prior assertions on result.error (the 'assert result.error is not None' line and the substring assertion on result.error) are removed because the new code path leaves result.error as None.",
+          "The test's docstring is updated to reflect the new expectation (skip rather than error).",
+          "No other test in tests/test_diff_fuzzer.py is modified by this task."
+        ],
+        "attribution_metadata": {
+          "diff_resolution": "",
+          "proposed_by": "agent",
+          "reconciled": false
+        },
+        "dependencies": [
+          "RB_JR_fixes_fuzzer_skip_missing_func_name"
+        ],
+        "estimated_complexity": "trivial",
+        "files_touched": [
+          "tests/test_diff_fuzzer.py"
+        ],
+        "meta_task_type": "test_unit",
+        "priority": "high",
+        "spec": {
+          "edge_cases": [],
+          "functional_requirements": [
+            "Modify TestDifferentialFuzzExtended.test_f69_no_function_in_code_and_no_signature in tests/test_diff_fuzzer.py so its assertions match the new fuzz_from_task behaviour: assert result.equivalent is True, assert result.skipped_reason is not None and truthy (non-empty string), and remove the existing assertions on result.error (both the 'is not None' check and the substring check on 'function'/'Could not determine')."
+          ],
+          "implementation_notes": "Open tests/test_diff_fuzzer.py at TestDifferentialFuzzExtended.test_f69_no_function_in_code_and_no_signature (currently around lines 640-651). Replace the three trailing assertions ('assert result.equivalent is False', 'assert result.error is not None', and the substring assertion on result.error) with the new pair: 'assert result.equivalent is True' and 'assert result.skipped_reason and isinstance(result.skipped_reason, str)'. Update the docstring from the current '-> error.' wording to reflect that the call now produces a skipped equivalent result.",
+          "interfaces": "Edits are confined to the body and docstring of TestDifferentialFuzzExtended.test_f69_no_function_in_code_and_no_signature in tests/test_diff_fuzzer.py. The inputs passed to fuzz_from_task (the inline 'x = 42\\ny = x + 1\\n' code, the {'task_id': 't3', 'constraints': {}} task dict, the fast_config fixture, the session_id) remain unchanged.",
+          "non_goals": [
+            "Do not modify any other test in tests/test_diff_fuzzer.py beyond test_f69_no_function_in_code_and_no_signature.",
+            "Do not modify harness/diff_fuzzer.py \u2014 that production code change is owned by the dependency task RB_JR_fixes_fuzzer_skip_missing_func_name.",
+            "No new integration tests are added in this task; the assertion update is a pure unit-test maintenance change and integration coverage is out of scope here.",
+            "Do not change the test fixture fast_config or the test class structure."
+          ],
+          "objective": "Align the assertions in the existing test_f69_no_function_in_code_and_no_signature unit test with the new fuzz_from_task skip-on-missing-function behaviour introduced by the companion harness task, so the full test suite passes after the behaviour change."
+        },
+        "spec_author": null,
+        "task_id": "RB_JR_fixes_test_f69_assertions_update",
+        "test_spec": {
+          "integration_tests": [],
+          "minimum_test_count": 2,
+          "property_tests": [],
+          "regression_tests": [],
+          "test_data_requirements": "Reuse the existing inline code string 'x = 42\\ny = x + 1\\n' and the inline task dict {'task_id': 't3', 'constraints': {}} already present in the test, together with the existing fast_config fixture on TestDifferentialFuzzExtended. No new test data is required.",
+          "unit_tests": [
+            {
+              "name": "test_f69_no_function_in_code_and_no_signature"
+            }
+          ]
+        },
+        "title": "Update test_f69_no_function_in_code_and_no_signature to expect skipped equivalent result",
+        "token_budget_ratio": {
+          "implementation_tokens": 0,
+          "note": "This is a pure test-assertion-update task; no production code is touched (implementation_tokens=0), so the full budget is spent on editing the existing unit test to assert the new equivalent=True / skipped_reason outcome.",
+          "test_tokens": 200
+        },
+        "verification_command": "pytest tests/test_diff_fuzzer.py::TestDifferentialFuzzExtended::test_f69_no_function_in_code_and_no_signature -v --tb=short"
+      },
+      "diff_item_id": "7fcfe6d02768533cc58278981d9e83cc4170d079",
+      "field_divergences": [],
+      "gemini_task": null,
+      "kind": "claude_only",
+      "match_reason": null
+    }
+  ]
+}

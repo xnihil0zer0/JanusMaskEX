@@ -1,0 +1,7 @@
+===== RESTART+MEASURE run starting =====
+T_kill_epoch=1782147781 (2026-06-22T13:03:01-04:00) OLDPID=191039
+sent SIGTERM to daemon child 191039
+T0_restart_epoch=1782147783 (2026-06-22T13:03:03-04:00) NEWPID=404904 waited=2s
+    PID    PPID ELAPSED %CPU COMMAND
+ 404904  179596       1 68.0 python
+--- watching state/impl_progress.jsonl for planner draft (cap 1950s) ---

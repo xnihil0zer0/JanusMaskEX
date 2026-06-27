@@ -4,7 +4,7 @@ degenerate-escalation guard, control_gate (approval/pause), agent isolation
 
 Every test MOCKS ``subprocess.Popen`` at the module under test — NO real agy /
 claude / daemon is ever launched. ``JANUSMASK_AGENT_WORKROOT`` is pinned to a
-tmp dir so the real ``../JanusMaskJR_agentwork`` sibling is never touched. The
+tmp dir so the real ``../JanusMaskEX_agentwork`` sibling is never touched. The
 real ``state/control/`` (full_stop=halted, deny-all allowlist) is never written;
 all allowlist/queue reads use a per-test tmp ``state_dir``.
 

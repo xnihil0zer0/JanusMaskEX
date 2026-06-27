@@ -1,0 +1,24 @@
+{
+  "responses": [
+    {
+      "diff_item_id": "d508d72e26138e6508c6d42502f3b253f95eb619",
+      "stance": "defend"
+    },
+    {
+      "diff_item_id": "a9654e12ab48195eaedd64e8249a119efe0e3434",
+      "stance": "defend"
+    },
+    {
+      "diff_item_id": "2ffad0e88ddbd30c9bbcdfd308ebad00195fa145",
+      "stance": "defend"
+    },
+    {
+      "diff_item_id": "c9574461c53171f1fb4bd89dc60894324a9cbad7",
+      "stance": "defend"
+    },
+    {
+      "diff_item_id": "ca6759cbc12de3e1a86893e41a55fff34fd19d53",
+      "stance": "defend"
+    }
+  ]
+}

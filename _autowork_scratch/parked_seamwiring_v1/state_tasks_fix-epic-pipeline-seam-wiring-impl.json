@@ -1,0 +1,83 @@
+{
+  "task_id": "fix-epic-pipeline-seam-wiring-impl",
+  "title": "Impl: full-symbol replacement of _run_epic_pipeline applying Edit 1 (state_dir wiring) + Edit 2 (advisory severity guard)",
+  "meta_task_type": "harness_self_fix",
+  "priority": "high",
+  "dependencies": [
+    "fix-epic-pipeline-seam-wiring-oracle"
+  ],
+  "files_touched": [
+    "harness/planner/cli.py"
+  ],
+  "acceptance_criteria": [
+    "Emits ONE __JANUSMASK_PATCHES__ SYMBOL patch (name == '_run_epic_pipeline') that EDITS the existing top-level symbol harness.planner.cli._run_epic_pipeline as a full-symbol replacement; does NOT reproduce cli.py whole and touches NO other symbol.",
+    "Edit 1 (CLASS D): the _finalize_epic_children call becomes merged = _finalize_epic_children(merged, epic_wd, child_epics, state_dir=state_dir) \u2014 a one-kwarg addition; nothing else on that line changes.",
+    "Edit 2 (CLASS C): the violation partition loop adds vsev = getattr(v, 'severity', 'error') or 'error' and gates the hard-fail branch on vsev != 'advisory' and (vpath == 'plan' or vpath.startswith('plan.') or vcode == 'missing_required_child'); advisory-severity violations fall to child_advisories.",
+    "Every other line of the body is byte-identical to HEAD (no reordering, no new imports, no behavior change to the six existing steps, no new journal writes).",
+    "Structural plan.* and missing_required_child violations remain severity='error' and STILL hard-fail exactly as before; only severity='advisory' violations (today B5's coverage_gap_warning) are demoted.",
+    "The paired oracle tests/harness/test_epic_pipeline_seam_wiring.py is GREEN after this patch. non_goals contains the literal word 'integration'; test_spec.regression_tests >= 2.",
+    "Docstrings/body emitted with triple-double-quotes, never backslash-escaped."
+  ],
+  "spec_author": null,
+  "estimated_complexity": "medium",
+  "verification_command": "python -m pytest tests/harness/test_epic_pipeline_seam_wiring.py -q",
+  "spec": {
+    "objective": "Make the sibling RED oracle GREEN by replacing the entire harness.planner.cli._run_epic_pipeline symbol with one full-symbol __JANUSMASK_PATCHES__ patch that applies ONLY Edit 1 (thread state_dir into _finalize_epic_children) and Edit 2 (a severity guard so advisory violations never hard-fail), leaving every other line byte-identical.",
+    "functional_requirements": [
+      "Edit 1 \u2014 CLASS D: change merged = _finalize_epic_children(merged, epic_wd, child_epics) to merged = _finalize_epic_children(merged, epic_wd, child_epics, state_dir=state_dir) so dropped duplicate children are journaled as epic_child_dropped rows (B4 already accepts the state_dir kwarg). state_dir is the pipeline parameter already in scope.",
+      "Edit 2 \u2014 CLASS C: in the for v in violations partition loop add vsev = getattr(v, 'severity', 'error') or 'error' and change the hard-fail condition to vsev != 'advisory' and (vpath == 'plan' or vpath.startswith('plan.') or vcode == 'missing_required_child'); advisory-severity violations (B5 coverage_gap_warning at plan.coverage_warnings) join child_advisories and never hard-fail."
+    ],
+    "interfaces": "Preserve signature _run_epic_pipeline(brief_obj, config, state_dir, output_plan) -> int. Call (do NOT edit) run_blind_drafts, extract_diff, run_reconciliation, _finalize_epic_children, validate_plan, compute_epic_coverage, serialize_child_brief_to_markdown, persist_plan, _parse_frontmatter. repo_root = state_dir.parent; planning journal under state_dir as the existing code does.",
+    "edge_cases": [
+      "Both agents fail -> return 2 (preserved); reconciliation yields no children -> return 1 (preserved).",
+      "A structural plan.* or missing_required_child violation is severity='error' and STILL hard-fails (return 1, no child files, no plan persisted).",
+      "Only violations explicitly stamped severity='advisory' are demoted; the B6 validate-gate / partition oracles are unaffected.",
+      "All journal writes are already state_dir-relative and try/except OSError-wrapped \u2014 do NOT add new ones."
+    ],
+    "non_goals": [
+      "integration",
+      "Do not edit any other symbol of cli.py (B4 _finalize_epic_children / B7 persist_plan own disjoint symbols); emit ONLY the _run_epic_pipeline patch.",
+      "Do not change validate_plan, compute_epic_coverage, _finalize_epic_children, or persist_plan \u2014 the fix is entirely inside _run_epic_pipeline (one kwarg + one severity guard).",
+      "Do NOT reproduce cli.py whole; edit additively via the full-symbol SYMBOL patch."
+    ],
+    "implementation_notes": "Emit ONE __JANUSMASK_PATCHES__ SYMBOL patch, name='_run_epic_pipeline', EDIT (full-symbol replacement). Reproduce the CURRENT body VERBATIM and apply ONLY Edit 1 and Edit 2. NESTED-QUOTE HAZARD: triple-double-quotes only, never backslash-escape quotes. OMIT mutation_target (impl leaf). cli.py is serialized against B4/B7 on files_touched overlap so the patch is additive with no clobber. The exact post-edit body (the two changed lines are the _finalize_epic_children call and the partition loop) is:\n\n```python\ndef _run_epic_pipeline(brief_obj, config, state_dir, output_plan) -> int:\n    from harness.planner.blind_draft import run_blind_drafts\n    from harness.planner.diff_extractor import extract_diff\n    from harness.planner.reconciliation import run_reconciliation\n    from harness.planner.brief_generator import serialize_child_brief_to_markdown\n    from harness.planner.plan_validator import validate_plan, compute_epic_coverage\n\n    def _journal_row(row):\n        try:\n            jp = Path(state_dir) / 'planning' / 'planner_progress.jsonl'\n            jp.parent.mkdir(parents=True, exist_ok=True)\n            with jp.open('a', encoding='utf-8') as f:\n                f.write(json.dumps(row) + '\\n')\n        except OSError:\n            pass\n\n    drafts = run_blind_drafts(brief_obj, config, state_dir)\n    if not drafts.claude_draft and (not drafts.gemini_draft):\n        print('Both agents failed to produce a valid epic draft.', file=sys.stderr)\n        return 2\n    c = drafts.claude_draft or {'plan_kind': 'epic', 'child_briefs': []}\n    g = drafts.gemini_draft or {'plan_kind': 'epic', 'child_briefs': []}\n    diff_obj = extract_diff(c, g)\n    recon = run_reconciliation(diff_obj, c, g, config, state_dir, mode='epic')\n\n    # Step 1: journal reconciliation drops (unresolved items) -- advisory only.\n    policy = getattr(recon, 'resolution_policy', None)\n    for item in getattr(recon, 'unresolved_items', None) or []:\n        _journal_row({\n            'phase': 'planning',\n            'event': 'epic_child_unresolved',\n            'diff_item_id': getattr(item, 'diff_item_id', None),\n            'policy': policy,\n        })\n\n    merged = list(recon.merged_tasks)\n    if not merged:\n        print('Epic reconciliation produced no child briefs.', file=sys.stderr)\n        return 1\n\n    from harness.planner.brief_loader import _parse_frontmatter\n    fm, _ = _parse_frontmatter(getattr(brief_obj, 'raw_text', '') or '')\n    _ce = fm.get('child_epics') if isinstance(fm, dict) else None\n    if _ce is True:\n        child_epics = True\n    elif isinstance(_ce, str):\n        child_epics = _ce.strip().lower() in {'true', '1', 'yes', 'on'}\n    else:\n        child_epics = bool(_ce)\n    repo_root = state_dir.parent\n    epic_wd = getattr(brief_obj, 'working_dir', None)\n    merged = _finalize_epic_children(merged, epic_wd, child_epics, state_dir=state_dir)\n\n    # Step 2: inherit parent required_task_ids onto each merged child BEFORE any\n    # child file is written.\n    for child in merged:\n        child.setdefault('required_task_ids', list(getattr(brief_obj, 'required_task_ids', ()) or []))\n\n    child_slugs = [child['slug'] for child in merged]\n\n    # Step 3: build + stamp the epic record.\n    epic_record = {'plan_kind': 'epic', 'epic': True, 'child_briefs': merged, 'child_slugs': child_slugs}\n    rcs = getattr(brief_obj, 'required_child_slugs', ()) or ()\n    if isinstance(rcs, (list, tuple)) and rcs:\n        epic_record['required_child_slugs'] = list(rcs)\n    source = getattr(brief_obj, 'source_path', None)\n    if isinstance(source, str) and source:\n        stem = Path(source).stem\n        epic_record['epic_slug'] = stem[len('brief_hooks_'):] if stem.startswith('brief_hooks_') else stem\n\n    # Step 4: coverage check.\n    epic_record['coverage_check'] = compute_epic_coverage(getattr(brief_obj, 'deliverables', ''), merged)\n\n    # Step 5: validate BEFORE writing children; partition strictly by .path.\n    violations = validate_plan(epic_record)\n    hard_violations = []\n    child_advisories = []\n    for v in violations:\n        vpath = getattr(v, 'path', '') or ''\n        vcode = getattr(v, 'code', '') or ''\n        vsev = getattr(v, 'severity', 'error') or 'error'\n        if vsev != 'advisory' and (vpath == 'plan' or vpath.startswith('plan.') or vcode == 'missing_required_child'):\n            hard_violations.append(v)\n        else:\n            # advisory-severity violations (e.g. B5 coverage_gap_warning at\n            # plan.coverage_warnings) and child_briefs[...] paths are advisory, never hard-fail.\n            child_advisories.append(v)\n\n    for v in child_advisories:\n        _journal_row({\n            'phase': 'planning',\n            'event': 'epic_child_advisory',\n            'path': getattr(v, 'path', ''),\n            'code': getattr(v, 'code', ''),\n            'message': getattr(v, 'message', ''),\n            'violation': repr(v),\n        })\n\n    if hard_violations:\n        # Print hard-fail violation reprs to stderr LAST so the code= substring\n        # lands in the daemon's trailing stderr_tail; write NO child files / plan.\n        for v in hard_violations:\n            print(repr(v), file=sys.stderr)\n        return 1\n\n    # Step 6: clean validation -- write children, journal coverage gaps, persist.\n    for child in merged:\n        (repo_root / ('brief_hooks_' + child['slug'] + '.md')).write_text(serialize_child_brief_to_markdown(child), encoding='utf-8')\n\n    coverage_check = epic_record.get('coverage_check')\n    uncovered = coverage_check.get('uncovered', []) if isinstance(coverage_check, dict) else []\n    if uncovered:\n        _journal_row({'phase': 'planning', 'event': 'epic_coverage_gap', 'uncovered': list(uncovered)})\n\n    persist_plan(epic_record, output_plan, brief_obj=brief_obj)\n    return 0\n```"
+  },
+  "test_spec": {
+    "unit_tests": [
+      {
+        "name": "test_uncovered_deliverable_advisory_is_exit_zero"
+      },
+      {
+        "name": "test_duplicate_child_emits_epic_child_dropped_row"
+      }
+    ],
+    "integration_tests": [],
+    "property_tests": [],
+    "regression_tests": [
+      {
+        "name": "test_structural_plan_path_error_still_hard_fails"
+      },
+      {
+        "name": "test_both_agents_failed_still_returns_2"
+      },
+      {
+        "name": "test_reconciliation_no_children_still_returns_1"
+      }
+    ],
+    "minimum_test_count": 4,
+    "test_data_requirements": "Re-uses the sibling oracle's single test file (same verification command) driving the REAL patched _run_epic_pipeline against hermetic tmp repo_root/state_dir trees; stubbed drafts via run_blind_drafts; deliverables with an uncovered line and duplicate child slugs."
+  },
+  "token_budget_ratio": {
+    "implementation_tokens": 200,
+    "test_tokens": 300,
+    "note": "Single full-symbol replacement applying two surgical edits, verified by re-running the sibling oracle file."
+  },
+  "attribution_metadata": {
+    "proposed_by": "claude",
+    "reconciled": false,
+    "diff_resolution": null
+  },
+  "_debug_stamping_reason": "Task was only proposed by Claude.",
+  "working_dir": "/home/xnihil0zer0/JanusMaskJR",
+  "repair_feedback": "event=verification_failed\nexit=1\nstdout_tail:\n..F                                                                      [100%]\n=================================== FAILURES ===================================\n_________________ test_oracle_is_hermetic_no_live_state_writes _________________\n\ntmp_path = PosixPath('/tmp/pytest-of-xnihil0zer0/pytest-0/test_oracle_is_hermetic_no_liv0')\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x758740e7be30>\n\n    def test_oracle_is_hermetic_no_live_state_writes(tmp_path, monkeypatch):\n        repo_root, state_dir = _dirs(tmp_path)\n        isolated_cwd = tmp_path / 'cwd'\n        isolated_cwd.mkdir(parents=True, exist_ok=True)\n        monkeypatch.chdir(isolated_cwd)\n        children = [_child('alpha-feature'), _child('beta-feature')]\n        _patch_seam(monkeypatch, _drafts(children))\n        brief = _brief(repo_root, required_child_slugs=('alpha-feature', 'beta-feature'), deliverables='- alpha feature delivery\\n- beta feature delivery\\n')\n        output_plan = state_dir / 'planning' / 'merged_plan.json'\n        rc = cli._run_epic_pipeline(brief, CONFIG, state_dir, output_plan)\n        assert rc == 0\n        assert output_plan.exists()\n        assert state_dir in output_plan.parents\n>       assert not (isolated_cwd / 'state').exists()\nE       AssertionError: assert not True\nE        +  where True = exists()\nE        +    where exists = (PosixPath('/tmp/pytest-of-xnihil0zer0/pytest-0/test_oracle_is_hermetic_no_liv0/cwd') / 'state').exists\n\n/home/xnihil0zer0/JanusMaskJR_fix-epic-pipeline-seam-wiring-impl_staging/tests/harness/test_epic_pipeline_seam_wiring.py:92: AssertionError\n=========================== short test summary info ============================\nFAILED tests/harness/test_epic_pipeline_seam_wiring.py::test_oracle_is_hermetic_no_live_state_writes\n1 failed, 2 passed in 0.20s\n"
+}

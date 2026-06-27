@@ -1,0 +1,419 @@
+=== RESOLUTION SUMMARY ===
+total: 145
+file resolved: 134
+file DEAD (unresolved): 11
+
+=== DEAD FILE CITATIONS ===
+  [DOC-A:89] _adversarial_audit2/r01/poc_import_analysis.py  ctx: > **[AUDIT]** Round-2 script analysis (`_adversarial_audit2/r01/poc_import_analysis.py`) t
+  [DOC-A:102] gptcache/utils/dependency_control.py  ctx: > > `gptcache/utils/dependency_control.py` (`co_filename` == the real clone path) and call
+  [DOC-A:160] fp_rate.py  ctx: | **G13** | **The wire-up reachability gate is JM-hardcoded / not portable to external tre
+  [DOC-A:482] test_p11_build_evidence_perphase.py  ctx: committed RED oracle `fa6a069` (`test_p11_build_evidence_perphase.py`, **oracle-only**, no
+  [DOC-B:121] fp_rate.py  ctx: | **X13** | **The wire-up reachability gate is PORTABLE to arbitrary trees** — the per-sym
+  [DOC-B:122] scorer_at_intro.py  ctx: | **X14** | **Static-floor soak FP threshold met on JM-self** — with `wire_up_runtime_gate
+  [DOC-B:178] /.gemini/oauth_creds.json  ctx: - A candidate running `open(os.path.expanduser('~/.gemini/oauth_creds.json')).read()` unde
+  [DOC-B:180] /.claude/.credentials.json  ctx: - `~/.claude/.credentials.json` stat → not present in jail.
+  [DOC-B:211] setup.py  ctx: - A dep with a malicious `setup.py`/build hook cannot write outside the jail scratch (asse
+  [DOC-B:490] discover.py  ctx: **Tasks (leaves):** T0 source-root+exclude (`wire_up.py`/`discover.py`) · T1 `resolve_root
+  [DOC-B:688] state/impl_progress.json  ctx: (from the live JM ledger `state/impl_progress.jsonl`).
+
+=== CITATIONS WITH LINE NUMBERS (content dump) ===
+
+--- [DOC-A:49] narrow_fuzz/validation.py:292  -> /home/xnihil0zer0/JanusMaskJR/harness/narrow_fuzz/validation.py
+    DOC CTX: > **cred-free** (used in 5 files incl. `narrow_fuzz/validation.py:292`, `orchestrator.py:2969/3072/3104/3126`);
+    SRC:
+      292:             argv = build_jail_argv(['python3', 'driver.py'], repo_root=repo_root, work_dir=work_dir, state_dir=state_dir, dbus_proxy_socket=_dbus_sock, bind_credentials=False)
+
+--- [DOC-A:49] orchestrator.py:2969  -> /home/xnihil0zer0/JanusMaskJR/harness/orchestrator.py
+    DOC CTX: > **cred-free** (used in 5 files incl. `narrow_fuzz/validation.py:292`, `orchestrator.py:2969/3072/3104/3126`);
+    SRC:
+      2969:                     logger.warning('verification_missing: ledger append failed for %s: %s', task_id, exc)
+
+--- [DOC-A:54] config/autocompiler.yaml:21  -> /home/xnihil0zer0/JanusMaskJR/config/autocompiler.yaml
+    DOC CTX: > ON** (`config/autocompiler.yaml:21` `js: true`, `ac_enabled('js')==True`) — "flip the flag" is a no-op; the
+    SRC:
+      21:   js: true               # JS differential dispatch (only fires for language: js tasks)
+
+--- [DOC-A:59] sandbox.py:892  -> /home/xnihil0zer0/JanusMaskJR/harness/sandbox.py
+    DOC CTX: > (`sandbox.py:892`, `:1077`, `:1281`), not two; and three version-sensitive OSS facts (Firecracker
+    SRC:
+      892:             "PYTHONHASHSEED": self.config.python_hash_seed,
+
+--- [DOC-A:76] _e2e_run/w2a_out/onyx_connector_bola_poc.py:43-46  -> /home/xnihil0zer0/NobleGreedv2/_e2e_run/w2a_out/onyx_connector_bola_poc.py
+    DOC CTX: > against an **in-memory model**"* (`_e2e_run/w2a_out/onyx_connector_bola_poc.py:43-46`); it imports only
+    SRC:
+      43: Deterministic, offline, no network. Prints VULNERABLE and drops `pwned_marker`
+      44: when the cross-principal leak succeeds (jail fs-effect signature).
+      45: """
+      46: from __future__ import annotations
+
+--- [DOC-A:126] poc_writer.py:315-327  -> /home/xnihil0zer0/NobleGreedv2/ngv2/poc_writer.py
+    DOC CTX: | **`is_source_driving` / `source_meta`** | **Absent** from `harness/`/`autocompiler/`; `codeql_lead_source` exists only under `_autowork_scratch/`. [VERIFIED r
+    SRC:
+      315: def is_source_driving(grounding: Grounding, cwe: str) -> bool:
+      316:     if grounding.source_kind != 'http':
+      317:         return False
+      318:     if grounding.framework not in SOURCE_DRIVING_FRAMEWORKS:
+      319:         return False
+      320:     if not (grounding.app_object or grounding.app_factory):
+      321:         return False
+      322:     try:
+      323:         canonical_cwe = _bank_cwe(cwe)
+      324:         from ngv2 import payload_bank
+      325:         return canonical_cwe in payload_bank.supported_cwes()
+      326:     except KeyError:
+      327:         return False
+
+--- [DOC-A:126] hunt_lead_client.py:294-298  -> /home/xnihil0zer0/NobleGreedv2/ngv2/hunt_lead_client.py
+    DOC CTX: | **`is_source_driving` / `source_meta`** | **Absent** from `harness/`/`autocompiler/`; `codeql_lead_source` exists only under `_autowork_scratch/`. [VERIFIED r
+    SRC:
+      294:             from ngv2.source_localize import localize_source as _localize_source
+      295:             abs_src = os.path.join(repo, path) if not os.path.isabs(path) else path
+      296:             _smeta = _localize_source(abs_src, line or 0)
+      297:             if isinstance(_smeta, dict) and _smeta.get('kind') == 'http':
+      298:                 cand['source_meta'] = _smeta
+
+--- [DOC-A:147] workers/_runner.py:267  -> /home/xnihil0zer0/NobleGreedv2/ngv2/workers/_runner.py
+    DOC CTX: | **G1** | **No environment stand-up stage anywhere.** No upfront dep install, no venv-per-target on the hunt path, no service/DB startup, no reachability bring
+    SRC:
+      267:             nonce = 'ssrf_F_hunt'
+
+--- [DOC-A:149] auth_bootstrap.py:25-37  -> /home/xnihil0zer0/NobleGreedv2/ngv2/auth_bootstrap.py
+    DOC CTX: | **G3** | **Faithful triggering is narrow:** in-process `app.test_client()` source-driving works but is **flask/fastapi-only, injection-CWE-only, unauth-only.*
+    SRC:
+      25: def is_auth_required(spec: AuthSpec | None) -> bool:
+      26:     """True iff spec is not None and has a non-empty login_route."""
+      27:     return spec is not None and bool(getattr(spec, 'login_route', ''))
+      28: 
+      29: def _build_client(app, framework: str) -> object:
+      30:     """Build a plain framework test client for app (function-local imports)."""
+      31:     fw = (framework or 'flask').lower()
+      32:     if fw in ('fastapi', 'starlette'):
+      33:         from starlette.testclient import TestClient
+      34:         return TestClient(app)
+      35:     return app.test_client()
+      36: 
+      37: def bootstrap_auth(app, spec: AuthSpec | None=None) -> object:
+
+--- [DOC-A:150] poc_writer.py:377  -> /home/xnihil0zer0/NobleGreedv2/ngv2/poc_writer.py
+    DOC CTX: | **G4** | **No detection or template for authz/IDOR/BOLA (CWE-285/639/862/863)** — the financially-viable class that *all 8 mock PoCs* targeted but could only 
+    SRC:
+      377: _TEMPLATE_LIST: List[CWETemplate] = [CWETemplate('CWE-502', ('insecure_deserialization', 'deserialization', 'unsafe_deserialization', 'pickle', 'deser'), _py_deserialization, _make_js('CWE-502', 'func')), CWETemplate('CWE-95', ('eval_usage', 'code_injection', 'eval', 'python_eval'), _py_eval_usage, _make_js('CWE-95', 'func')), CWETemplate('CWE-94', ('improper_code_generation', 'code_generation', 'codeinjection', 'code_inj', 'sandbox_escape', 'restrictedpython', 'blacklist_bypass', 'rce', 'remote_code_execution'), _py_code_injection, _make_js('CWE-94', 'func')), CWETemplate('CWE-22', ('path_traversal', 'directory_traversal', 'path_trav', 'dir_traversal', 'lfi', 'arbitrary_file_read', 'arbitrary_file_write', 'file_disclosure'), _py_path_traversal, _make_js('CWE-22', 'func')), CWETemplate('CWE-918', ('ssrf', 'server_side_request_forgery'), _py_ssrf, _make_js('CWE-918', 'func')), CWETemplate('CWE-78', ('command_injection', 'os_command_injection', 'cmd_injection', 'command_inj'), _py_command_injection, _make_js('CWE-78', 'func')), CWETemplate('CWE-89', ('sql_injection', 'sqli', 'sql_inj'), _py_sql_injection, _make_js('CWE-89', 'func')), CWETemplate('CWE-798', ('hardcoded_secret', 'hardcoded_credentials', 'hardcoded_credential', 'hardcoded_password'), _py_hardcoded_secret, _make_js('CWE-798', 'const')), CWETemplate('CWE-327', ('weak_crypto', 'weak_cryptography', 'weak_hash', 'broken_crypto'), _py_weak_crypto, _make_js('CWE-327', 'func'))]
+
+--- [DOC-A:151] gate_executor.py:24  -> /home/xnihil0zer0/NobleGreedv2/ngv2/gate_executor.py
+    DOC CTX: | **G5** | **Autonomous FSM skips its own middle phases** (`triage/verify/novelty/report` never spawned; `source` unreachable). The 8 "confirmations" came from 
+    SRC:
+      24: 
+
+--- [DOC-A:151] transition_planner.py:64-72  -> /home/xnihil0zer0/NobleGreedv2/ngv2/transition_planner.py
+    DOC CTX: | **G5** | **Autonomous FSM skips its own middle phases** (`triage/verify/novelty/report` never spawned; `source` unreachable). The 8 "confirmations" came from 
+    SRC:
+      64: <OUT OF RANGE (file has 61 lines)>
+      65: <OUT OF RANGE (file has 61 lines)>
+      66: <OUT OF RANGE (file has 61 lines)>
+      67: <OUT OF RANGE (file has 61 lines)>
+      68: <OUT OF RANGE (file has 61 lines)>
+      69: <OUT OF RANGE (file has 61 lines)>
+      70: <OUT OF RANGE (file has 61 lines)>
+      71: <OUT OF RANGE (file has 61 lines)>
+      72: <OUT OF RANGE (file has 61 lines)>
+
+--- [DOC-A:151] gate_executor.py:39  -> /home/xnihil0zer0/NobleGreedv2/ngv2/gate_executor.py
+    DOC CTX: | **G5** | **Autonomous FSM skips its own middle phases** (`triage/verify/novelty/report` never spawned; `source` unreachable). The 8 "confirmations" came from 
+    SRC:
+      39: _TRANSITION_GATES: Dict[Tuple[str, str], Tuple[_GateSpec, ...]] = {('source', 'hunt'): (('source_ready', ('source_ready',), lambda ev: {'may_confirm': bool(ev.get('source_ready')), 'terminal': TypedTerminal.NO_SOURCE}),), ('hunt', 'triage'): (('findings', ('findings',), lambda ev: {'may_confirm': bool(ev.get('findings')), 'terminal': TypedTerminal.NO_FINDINGS}),), ('triage', 'verify'): (('triage_result', ('triage_result',), lambda ev: {'may_confirm': bool(ev.get('triage_result')), 'terminal': TypedTerminal.NO_TRIAGE}),), ('verify', 'poc'): (('verify_result', ('verify_result',), lambda ev: {'may_confirm': bool(ev.get('verify_result')), 'terminal': TypedTerminal.NO_VERIFY}),), ('poc', 'detonate'): (('poc_authenticity', ('poc_source', 'target_import_names'), lambda ev: classify_poc_authenticity(ev['poc_source'], ev['target_import_names'])),), ('detonate', 'novelty'): (('detonation_evidence', ('detonation_report',), lambda ev: classify_detonation_evidence(ev['detonation_report'])), ('sink_presence', ('target_source', 'expected_signature'), lambda ev: verify_sink_present(ev['target_source'], ev['expected_signature'])), ('sink_reachability', ('sink_name', 'call_sites'), lambda ev: assess_sink_reachability(ev['sink_name'], ev['call_sites']))), ('novelty', 'report'): (('novelty_result', ('novelty_result',), lambda ev: {'may_confirm': bool(ev.get('novelty_result')), 'terminal': TypedTerminal.NO_NOVELTY}),), ('report', 'awaiting_submission'): (('report_artifact', ('report_artifact',), lambda ev: {'may_confirm': bool(ev.get('report_artifact')), 'terminal': TypedTerminal.NO_REPORT}),), ('awaiting_submission', 'submitted'): (('approval', ('approval',), lambda ev: {'may_confirm': bool(ev.get('approval')), 'terminal': TypedTerminal.NO_APPROVAL}),), ('submitted', 'done'): (('submission_result', ('submission_result',), lambda ev: {'may_confirm': bool(ev.get('submission_result')), 'terminal': TypedTerminal.NO_SUBMISSION}),)}
+
+--- [DOC-A:151] conductor_seams.py:20  -> /home/xnihil0zer0/NobleGreedv2/ngv2/conductor_seams.py
+    DOC CTX: | **G5** | **Autonomous FSM skips its own middle phases** (`triage/verify/novelty/report` never spawned; `source` unreachable). The 8 "confirmations" came from 
+    SRC:
+      20: _PHASE_COUNT_KEY = {'hunt': 'findings', 'poc': 'pocs', 'detonate': 'reports'}
+
+--- [DOC-A:152] gate_executor.py:25-38  -> /home/xnihil0zer0/NobleGreedv2/ngv2/gate_executor.py
+    DOC CTX: | **G6** | **Opaque `blocked` terminals.** All stops collapse to a generic `blocked`; no typed reason code (empty-hunt / no-template / refuted / missing-evidenc
+    SRC:
+      25: class TypedTerminal:
+      26:     EMPTY_HUNT = 'empty_hunt'
+      27:     NO_TEMPLATE = 'no_template'
+      28:     REFUTED = 'refuted'
+      29:     MISSING_EVIDENCE = 'missing_evidence'
+      30:     SERVICE_NO_BIND = 'service_no_bind'
+      31:     NO_SOURCE = 'no_source'
+      32:     NO_FINDINGS = 'no_findings'
+      33:     NO_TRIAGE = 'no_triage'
+      34:     NO_VERIFY = 'no_verify'
+      35:     NO_NOVELTY = 'no_novelty'
+      36:     NO_REPORT = 'no_report'
+      37:     NO_APPROVAL = 'no_approval'
+      38:     NO_SUBMISSION = 'no_submission'
+
+--- [DOC-A:153] sandbox.py:892  -> /home/xnihil0zer0/JanusMaskJR/harness/sandbox.py
+    DOC CTX: | **G7** | **Diff-fuzz sandbox reads host credentials.** `sandbox.py:892` is a plain `Popen` with **no mount namespace**; the seccomp blocklist (`:435-437`) cov
+    SRC:
+      892:             "PYTHONHASHSEED": self.config.python_hash_seed,
+
+--- [DOC-A:153] harness/sandbox.py:892  -> /home/xnihil0zer0/JanusMaskJR/harness/sandbox.py
+    DOC CTX: | **G7** | **Diff-fuzz sandbox reads host credentials.** `sandbox.py:892` is a plain `Popen` with **no mount namespace**; the seccomp blocklist (`:435-437`) cov
+    SRC:
+      892:             "PYTHONHASHSEED": self.config.python_hash_seed,
+
+--- [DOC-A:154] poc_runner_live.py:322-343  -> /home/xnihil0zer0/NobleGreedv2/ngv2/poc_runner_live.py
+    DOC CTX: | **G8** | **Host-networked, un-jailed dependency install.** Dep install runs as a host subprocess with full network *outside* the `--unshare-net` jail, in both
+    SRC:
+      322:             fs_snapshot_diff = diff_snapshots(before, after)
+      323:             hits = run.get('hits')
+      324:             if hits:
+      325:                 loopback_hits[:] = list(hits)
+      326:             return {'exit_code': run.get('exit_code'), 'stdout': run.get('stdout') or '', 'stderr': run.get('stderr') or '', 'duration_ms': duration_ms, 'fs_snapshot_diff': fs_snapshot_diff, 'timed_out': bool(run.get('timed_out'))}
+      327:         result = _run_once(child_env, extra_ro)
+      328:         installed: set = set()
+      329:         deps_extra_ro = list(extra_ro)
+      330:         deps_env = dict(child_env)
+      331:         for _round in range(MAX_DEP_INSTALL_ROUNDS):
+      332:             if result.get('exit_code') == 0 or result.get('timed_out'):
+      333:                 break
+      334:             missing = [m for m in _missing_modules_from_stderr(result.get('stderr') or '') if m not in target_top and m not in installed]
+      335:             if not missing:
+      336:                 break
+      337:             any_installed = False
+      338:             for name in missing:
+      339:                 installed.add(name)
+      340:                 try:
+      341:                     ok = pip_installer(name, deps_dir)
+      342:                 except Exception:
+      343:                     ok = False
+
+--- [DOC-A:155] diff_fuzzer.py:808  -> /home/xnihil0zer0/JanusMaskJR/harness/diff_fuzzer.py
+    DOC CTX: | **G9** | **Pipeline is Python-only; 38% of the corpus (13/34 JS/TS) is unhuntable.** AST validity, fuzz input-gen, pytest oracle, symbol-patch, wire-up are al
+    SRC:
+      808: 
+
+--- [DOC-A:155] config/autocompiler.yaml:21  -> /home/xnihil0zer0/JanusMaskJR/config/autocompiler.yaml
+    DOC CTX: | **G9** | **Pipeline is Python-only; 38% of the corpus (13/34 JS/TS) is unhuntable.** AST validity, fuzz input-gen, pytest oracle, symbol-patch, wire-up are al
+    SRC:
+      21:   js: true               # JS differential dispatch (only fires for language: js tasks)
+
+--- [DOC-A:157] hunt_lead_client.py:36-38  -> /home/xnihil0zer0/NobleGreedv2/ngv2/hunt_lead_client.py
+    DOC CTX: | **G11** | **Sourcing/recall hardening:** eligibility never checked in `run_hunt` (GAP 7); refresh failure swallowed; LLM-absence degrades to regex silently; h
+    SRC:
+      36: _MAX_FILE_BYTES = 20000
+      37: _MAX_TOTAL_BYTES = 180000
+      38: _SKIP_DIRS = {'.git', '.venv', 'venv', 'node_modules', '__pycache__', 'tests', 'test', 'docs', 'examples', 'build', 'dist', '.tox'}
+
+--- [DOC-A:158] transition_planner.py:36  -> /home/xnihil0zer0/NobleGreedv2/ngv2/transition_planner.py
+    DOC CTX: | **G12** | **Parked-for-approval sessions never page a human** (no notification artifact). Correctly human-gated, but invisible. | **CONFIRMED** | parks at `aw
+    SRC:
+      36:     def _count(field_name: str) -> int:
+
+--- [DOC-A:160] wire_up.py:689  -> /home/xnihil0zer0/JanusMaskJR/harness/wire_up.py
+    DOC CTX: | **G13** | **The wire-up reachability gate is JM-hardcoded / not portable to external trees.** The per-symbol static floor `symbol_reachable_from_live_root` se
+    SRC:
+      689: def symbol_reachable_from_live_root(repo_root, module_rel: str, symbol: str, *, roots: Sequence[str]=LIVE_ROOTS) -> bool:
+
+--- [DOC-A:160] config.yaml:88-89  -> /home/xnihil0zer0/JanusMaskJR/harness/config.yaml
+    DOC CTX: | **G13** | **The wire-up reachability gate is JM-hardcoded / not portable to external trees.** The per-symbol static floor `symbol_reachable_from_live_root` se
+    SRC:
+      88:   wire_up_runtime_gate: false
+      89:   wire_up_runtime_gate_enforce: false
+
+--- [DOC-A:231] sandbox.py:892  -> /home/xnihil0zer0/JanusMaskJR/harness/sandbox.py
+    DOC CTX: 1. **G7 — wrap the diff-fuzz `Popen` (all three sites: `sandbox.py:892`, `:1077`, `:1281`) in a bwrap mount
+    SRC:
+      892:             "PYTHONHASHSEED": self.config.python_hash_seed,
+
+--- [DOC-A:234] narrow_fuzz/validation.py:292  -> /home/xnihil0zer0/JanusMaskJR/harness/narrow_fuzz/validation.py
+    DOC CTX: is argv-proven cred-free and is *already* the production fuzz/detonation seam (`narrow_fuzz/validation.py:292`,
+    SRC:
+      292:             argv = build_jail_argv(['python3', 'driver.py'], repo_root=repo_root, work_dir=work_dir, state_dir=state_dir, dbus_proxy_socket=_dbus_sock, bind_credentials=False)
+
+--- [DOC-A:235] orchestrator.py:2969  -> /home/xnihil0zer0/JanusMaskJR/harness/orchestrator.py
+    DOC CTX: `orchestrator.py:2969/3072/3104/3126`); the NGv2-side `build_detonation_jail_argv` template is the
+    SRC:
+      2969:                     logger.warning('verification_missing: ledger append failed for %s: %s', task_id, exc)
+
+--- [DOC-A:326] sandbox.py:892  -> /home/xnihil0zer0/JanusMaskJR/harness/sandbox.py
+    DOC CTX: - **P0.1 (G7)** Wrap **all three** diff-fuzz `Popen` sites (`sandbox.py:892`, `:1077`, `:1281`) in a **bwrap mount namespace** via a **cred-free** seam — `agent
+    SRC:
+      892:             "PYTHONHASHSEED": self.config.python_hash_seed,
+
+--- [DOC-A:447] sandbox.py:892  -> /home/xnihil0zer0/JanusMaskJR/harness/sandbox.py
+    DOC CTX: (`sandbox.py:892/:1077/:1281`, now `Sandbox.execute`/`BatchRunner.execute_batch`/`BatchWorkerPool._spawn_worker`)
+    SRC:
+      892:             "PYTHONHASHSEED": self.config.python_hash_seed,
+
+--- [DOC-A:465] ngv2/gate_executor.py:39  -> /home/xnihil0zer0/NobleGreedv2/ngv2/gate_executor.py
+    DOC CTX: `a970fc7` (Jun 21) rewrote `ngv2/gate_executor.py:39` `_TRANSITION_GATES` to register a gate for **all 10**
+    SRC:
+      39: _TRANSITION_GATES: Dict[Tuple[str, str], Tuple[_GateSpec, ...]] = {('source', 'hunt'): (('source_ready', ('source_ready',), lambda ev: {'may_confirm': bool(ev.get('source_ready')), 'terminal': TypedTerminal.NO_SOURCE}),), ('hunt', 'triage'): (('findings', ('findings',), lambda ev: {'may_confirm': bool(ev.get('findings')), 'terminal': TypedTerminal.NO_FINDINGS}),), ('triage', 'verify'): (('triage_result', ('triage_result',), lambda ev: {'may_confirm': bool(ev.get('triage_result')), 'terminal': TypedTerminal.NO_TRIAGE}),), ('verify', 'poc'): (('verify_result', ('verify_result',), lambda ev: {'may_confirm': bool(ev.get('verify_result')), 'terminal': TypedTerminal.NO_VERIFY}),), ('poc', 'detonate'): (('poc_authenticity', ('poc_source', 'target_import_names'), lambda ev: classify_poc_authenticity(ev['poc_source'], ev['target_import_names'])),), ('detonate', 'novelty'): (('detonation_evidence', ('detonation_report',), lambda ev: classify_detonation_evidence(ev['detonation_report'])), ('sink_presence', ('target_source', 'expected_signature'), lambda ev: verify_sink_present(ev['target_source'], ev['expected_signature'])), ('sink_reachability', ('sink_name', 'call_sites'), lambda ev: assess_sink_reachability(ev['sink_name'], ev['call_sites']))), ('novelty', 'report'): (('novelty_result', ('novelty_result',), lambda ev: {'may_confirm': bool(ev.get('novelty_result')), 'terminal': TypedTerminal.NO_NOVELTY}),), ('report', 'awaiting_submission'): (('report_artifact', ('report_artifact',), lambda ev: {'may_confirm': bool(ev.get('report_artifact')), 'terminal': TypedTerminal.NO_REPORT}),), ('awaiting_submission', 'submitted'): (('approval', ('approval',), lambda ev: {'may_confirm': bool(ev.get('approval')), 'terminal': TypedTerminal.NO_APPROVAL}),), ('submitted', 'done'): (('submission_result', ('submission_result',), lambda ev: {'may_confirm': bool(ev.get('submission_result')), 'terminal': TypedTerminal.NO_SUBMISSION}),)}
+
+--- [DOC-A:468] gate_executor.py:25-38  -> /home/xnihil0zer0/NobleGreedv2/ngv2/gate_executor.py
+    DOC CTX: - **Typed-terminal enum (refutes §2 G6 "opaque blocked"):** `gate_executor.py:25-38` `class TypedTerminal` =
+    SRC:
+      25: class TypedTerminal:
+      26:     EMPTY_HUNT = 'empty_hunt'
+      27:     NO_TEMPLATE = 'no_template'
+      28:     REFUTED = 'refuted'
+      29:     MISSING_EVIDENCE = 'missing_evidence'
+      30:     SERVICE_NO_BIND = 'service_no_bind'
+      31:     NO_SOURCE = 'no_source'
+      32:     NO_FINDINGS = 'no_findings'
+      33:     NO_TRIAGE = 'no_triage'
+      34:     NO_VERIFY = 'no_verify'
+      35:     NO_NOVELTY = 'no_novelty'
+      36:     NO_REPORT = 'no_report'
+      37:     NO_APPROVAL = 'no_approval'
+      38:     NO_SUBMISSION = 'no_submission'
+
+--- [DOC-A:470] ngv2/transition_planner.py:64-72  -> /home/xnihil0zer0/NobleGreedv2/ngv2/transition_planner.py
+    DOC CTX: - **Full spawn set:** `731e9b2` set `ngv2/transition_planner.py:64-72` to spawn
+    SRC:
+      64: <OUT OF RANGE (file has 61 lines)>
+      65: <OUT OF RANGE (file has 61 lines)>
+      66: <OUT OF RANGE (file has 61 lines)>
+      67: <OUT OF RANGE (file has 61 lines)>
+      68: <OUT OF RANGE (file has 61 lines)>
+      69: <OUT OF RANGE (file has 61 lines)>
+      70: <OUT OF RANGE (file has 61 lines)>
+      71: <OUT OF RANGE (file has 61 lines)>
+      72: <OUT OF RANGE (file has 61 lines)>
+
+--- [DOC-A:476] conductor_seams.py:20  -> /home/xnihil0zer0/NobleGreedv2/ngv2/conductor_seams.py
+    DOC CTX: (1) `conductor_seams.py:20` `_PHASE_COUNT_KEY = {'hunt':'findings','poc':'pocs','detonate':'reports'}` maps
+    SRC:
+      20: _PHASE_COUNT_KEY = {'hunt': 'findings', 'poc': 'pocs', 'detonate': 'reports'}
+
+--- [DOC-A:478] transition_planner.py:66  -> /home/xnihil0zer0/NobleGreedv2/ngv2/transition_planner.py
+    DOC CTX: planner advances on (`transition_planner.py:66,67,70,71`) → the autonomous FSM **dead-ends re-spawning
+    SRC:
+      66: <OUT OF RANGE (file has 61 lines)>
+
+--- [DOC-A:489] ngv2/detonation.py:3  -> /home/xnihil0zer0/NobleGreedv2/ngv2/detonation.py
+    DOC CTX: incomplete. **G10** vacuous-confirm footgun still live (`ngv2/detonation.py:3` `semantic_verdict`;
+    SRC:
+      3: 
+
+--- [DOC-A:518] conductor_seams.py:20  -> /home/xnihil0zer0/NobleGreedv2/ngv2/conductor_seams.py
+    DOC CTX: NOT close X1**: `conductor_seams.py:20` `_PHASE_COUNT_KEY` is **still 3-of-7** and `build_evidence` still omits
+    SRC:
+      20: _PHASE_COUNT_KEY = {'hunt': 'findings', 'poc': 'pocs', 'detonate': 'reports'}
+
+--- [DOC-A:560] ngv2/detonation.py:21  -> /home/xnihil0zer0/NobleGreedv2/ngv2/detonation.py
+    DOC CTX: **M2 — G10 vacuous-confirm footgun is CLOSED.** `semantic_verdict` (`ngv2/detonation.py:21`) now returns `'refuted'` on an empty/whitespace `expected_fs_signatu
+    SRC:
+      21:     if not expected_fs_signature or not expected_fs_signature.strip():
+
+--- [DOC-B:229] ngv2/gate_executor.py:39  -> /home/xnihil0zer0/NobleGreedv2/ngv2/gate_executor.py
+    DOC CTX: > `ngv2/gate_executor.py:39` `_TRANSITION_GATES` now registers a gate for **all 10** `PHASE_ORDER`
+    SRC:
+      39: _TRANSITION_GATES: Dict[Tuple[str, str], Tuple[_GateSpec, ...]] = {('source', 'hunt'): (('source_ready', ('source_ready',), lambda ev: {'may_confirm': bool(ev.get('source_ready')), 'terminal': TypedTerminal.NO_SOURCE}),), ('hunt', 'triage'): (('findings', ('findings',), lambda ev: {'may_confirm': bool(ev.get('findings')), 'terminal': TypedTerminal.NO_FINDINGS}),), ('triage', 'verify'): (('triage_result', ('triage_result',), lambda ev: {'may_confirm': bool(ev.get('triage_result')), 'terminal': TypedTerminal.NO_TRIAGE}),), ('verify', 'poc'): (('verify_result', ('verify_result',), lambda ev: {'may_confirm': bool(ev.get('verify_result')), 'terminal': TypedTerminal.NO_VERIFY}),), ('poc', 'detonate'): (('poc_authenticity', ('poc_source', 'target_import_names'), lambda ev: classify_poc_authenticity(ev['poc_source'], ev['target_import_names'])),), ('detonate', 'novelty'): (('detonation_evidence', ('detonation_report',), lambda ev: classify_detonation_evidence(ev['detonation_report'])), ('sink_presence', ('target_source', 'expected_signature'), lambda ev: verify_sink_present(ev['target_source'], ev['expected_signature'])), ('sink_reachability', ('sink_name', 'call_sites'), lambda ev: assess_sink_reachability(ev['sink_name'], ev['call_sites']))), ('novelty', 'report'): (('novelty_result', ('novelty_result',), lambda ev: {'may_confirm': bool(ev.get('novelty_result')), 'terminal': TypedTerminal.NO_NOVELTY}),), ('report', 'awaiting_submission'): (('report_artifact', ('report_artifact',), lambda ev: {'may_confirm': bool(ev.get('report_artifact')), 'terminal': TypedTerminal.NO_REPORT}),), ('awaiting_submission', 'submitted'): (('approval', ('approval',), lambda ev: {'may_confirm': bool(ev.get('approval')), 'terminal': TypedTerminal.NO_APPROVAL}),), ('submitted', 'done'): (('submission_result', ('submission_result',), lambda ev: {'may_confirm': bool(ev.get('submission_result')), 'terminal': TypedTerminal.NO_SUBMISSION}),)}
+
+--- [DOC-B:233] transition_planner.py:64-72  -> /home/xnihil0zer0/NobleGreedv2/ngv2/transition_planner.py
+    DOC CTX: > transition_planner.py:64-72` (`731e9b2`) spawns the full `hunt→triage→verify→poc→detonate→novelty→
+    SRC:
+      64: <OUT OF RANGE (file has 61 lines)>
+      65: <OUT OF RANGE (file has 61 lines)>
+      66: <OUT OF RANGE (file has 61 lines)>
+      67: <OUT OF RANGE (file has 61 lines)>
+      68: <OUT OF RANGE (file has 61 lines)>
+      69: <OUT OF RANGE (file has 61 lines)>
+      70: <OUT OF RANGE (file has 61 lines)>
+      71: <OUT OF RANGE (file has 61 lines)>
+      72: <OUT OF RANGE (file has 61 lines)>
+
+--- [DOC-B:358] workers/_runner.py:267  -> /home/xnihil0zer0/NobleGreedv2/ngv2/workers/_runner.py
+    DOC CTX: **Intent:** Replace `_make_detonation_seam`'s `{'repo_root'}` payload (`workers/_runner.py:267`) with the
+    SRC:
+      267:             nonce = 'ssrf_F_hunt'
+
+--- [DOC-B:395] config/autocompiler.yaml:21  -> /home/xnihil0zer0/JanusMaskJR/config/autocompiler.yaml
+    DOC CTX: **[Correction]** `autocompiler.js` is **already ON** (`config/autocompiler.yaml:21`) — there is **no flag
+    SRC:
+      21:   js: true               # JS differential dispatch (only fires for language: js tasks)
+
+--- [DOC-B:402] diff_fuzzer.py:813  -> /home/xnihil0zer0/JanusMaskJR/harness/diff_fuzzer.py
+    DOC CTX: `diff_fuzzer.py:813`). *Testable:* `js_inputs` non-empty for a JS task; JS diff-fuzz runs ≥1 input.
+    SRC:
+      813:     import subprocess
+
+--- [DOC-B:481] orchestrator.py:2347  -> /home/xnihil0zer0/JanusMaskJR/harness/orchestrator.py
+    DOC CTX: **Intent:** Make the per-SYMBOL wire-up reachability gate work in any project (the owner's original general-coding intent), soak it to a low FP rate on JM-self,
+    SRC:
+      2347:                                 _floor_reachable = bool(symbol_reachable_from_live_root(staging_path, rel, _vsym))
+
+--- [DOC-B:482] orchestrator.py:2323  -> /home/xnihil0zer0/JanusMaskJR/harness/orchestrator.py
+    DOC CTX: **★ Audit-corrected scope (4-agent, scripted, 2026-06-23):** "declared roots fixes the FP storm" is **FALSE** — measured FP on NGv2 only drops 100% → **62.5%** 
+    SRC:
+      2323:                     uncovered = sorted((_s for _s in new_syms if _s not in _exempt and (not (_contract_valid and _s in _csymbols))))
+
+--- [DOC-B:625] conductor_seams.py:86  -> /home/xnihil0zer0/NobleGreedv2/ngv2/conductor_seams.py
+    DOC CTX: top-level `build_default_seams` (`conductor_seams.py:86`), so a `kind:symbol` patch keyed on it raises a bare
+    SRC:
+      86:                 state['parked_package'] = pkg
+
+--- [DOC-B:658] ngv2/gate_executor.py:39  -> /home/xnihil0zer0/NobleGreedv2/ngv2/gate_executor.py
+    DOC CTX: - `a970fc7` (Jun 21 10:06) `p11-gate-table-typed-terminals` — `ngv2/gate_executor.py:39` `_TRANSITION_GATES`
+    SRC:
+      39: _TRANSITION_GATES: Dict[Tuple[str, str], Tuple[_GateSpec, ...]] = {('source', 'hunt'): (('source_ready', ('source_ready',), lambda ev: {'may_confirm': bool(ev.get('source_ready')), 'terminal': TypedTerminal.NO_SOURCE}),), ('hunt', 'triage'): (('findings', ('findings',), lambda ev: {'may_confirm': bool(ev.get('findings')), 'terminal': TypedTerminal.NO_FINDINGS}),), ('triage', 'verify'): (('triage_result', ('triage_result',), lambda ev: {'may_confirm': bool(ev.get('triage_result')), 'terminal': TypedTerminal.NO_TRIAGE}),), ('verify', 'poc'): (('verify_result', ('verify_result',), lambda ev: {'may_confirm': bool(ev.get('verify_result')), 'terminal': TypedTerminal.NO_VERIFY}),), ('poc', 'detonate'): (('poc_authenticity', ('poc_source', 'target_import_names'), lambda ev: classify_poc_authenticity(ev['poc_source'], ev['target_import_names'])),), ('detonate', 'novelty'): (('detonation_evidence', ('detonation_report',), lambda ev: classify_detonation_evidence(ev['detonation_report'])), ('sink_presence', ('target_source', 'expected_signature'), lambda ev: verify_sink_present(ev['target_source'], ev['expected_signature'])), ('sink_reachability', ('sink_name', 'call_sites'), lambda ev: assess_sink_reachability(ev['sink_name'], ev['call_sites']))), ('novelty', 'report'): (('novelty_result', ('novelty_result',), lambda ev: {'may_confirm': bool(ev.get('novelty_result')), 'terminal': TypedTerminal.NO_NOVELTY}),), ('report', 'awaiting_submission'): (('report_artifact', ('report_artifact',), lambda ev: {'may_confirm': bool(ev.get('report_artifact')), 'terminal': TypedTerminal.NO_REPORT}),), ('awaiting_submission', 'submitted'): (('approval', ('approval',), lambda ev: {'may_confirm': bool(ev.get('approval')), 'terminal': TypedTerminal.NO_APPROVAL}),), ('submitted', 'done'): (('submission_result', ('submission_result',), lambda ev: {'may_confirm': bool(ev.get('submission_result')), 'terminal': TypedTerminal.NO_SUBMISSION}),)}
+
+--- [DOC-B:663] ngv2/transition_planner.py:64-72  -> /home/xnihil0zer0/NobleGreedv2/ngv2/transition_planner.py
+    DOC CTX: - `731e9b2` (Jun 19 23:59) `p11-transition-planner-spawn-middle` — `ngv2/transition_planner.py:64-72`
+    SRC:
+      64: <OUT OF RANGE (file has 61 lines)>
+      65: <OUT OF RANGE (file has 61 lines)>
+      66: <OUT OF RANGE (file has 61 lines)>
+      67: <OUT OF RANGE (file has 61 lines)>
+      68: <OUT OF RANGE (file has 61 lines)>
+      69: <OUT OF RANGE (file has 61 lines)>
+      70: <OUT OF RANGE (file has 61 lines)>
+      71: <OUT OF RANGE (file has 61 lines)>
+      72: <OUT OF RANGE (file has 61 lines)>
+
+--- [DOC-B:674] conductor_seams.py:20  -> /home/xnihil0zer0/NobleGreedv2/ngv2/conductor_seams.py
+    DOC CTX: 1. **`conductor_seams.py:20` `_PHASE_COUNT_KEY = {'hunt':'findings','poc':'pocs','detonate':'reports'}`**
+    SRC:
+      20: _PHASE_COUNT_KEY = {'hunt': 'findings', 'poc': 'pocs', 'detonate': 'reports'}
+
+--- [DOC-B:676] transition_planner.py:66  -> /home/xnihil0zer0/NobleGreedv2/ngv2/transition_planner.py
+    DOC CTX: `transition_planner` (`transition_planner.py:66,67,70,71`) advances on `triaged / verified / novelties /
+    SRC:
+      66: <OUT OF RANGE (file has 61 lines)>
+
+--- [DOC-B:679] workers/triage.py:244  -> /home/xnihil0zer0/NobleGreedv2/ngv2/workers/triage.py
+    DOC CTX: `workers/triage.py:244` and `status_label='verified'` in `workers/verify.py:131` are worker artifact
+    SRC:
+      244:     body['status'] = 'triaged'
+
+--- [DOC-B:679] workers/verify.py:131  -> /home/xnihil0zer0/NobleGreedv2/ngv2/workers/verify.py
+    DOC CTX: `workers/triage.py:244` and `status_label='verified'` in `workers/verify.py:131` are worker artifact
+    SRC:
+      131:     status_label = 'verified' if reproduced else 'not_reproduced'
+
+--- [DOC-B:695] ngv2/detonation.py:3  -> /home/xnihil0zer0/NobleGreedv2/ngv2/detonation.py
+    DOC CTX: provenance** incomplete (P1.2 unlanded). **G10 vacuous-confirm footgun** still live (`ngv2/detonation.py:3`
+    SRC:
+      3: 
+
+--- [DOC-B:743] conductor_seams.py:20  -> /home/xnihil0zer0/NobleGreedv2/ngv2/conductor_seams.py
+    DOC CTX: `conductor_seams.py:20` `_PHASE_COUNT_KEY` is **still 3-of-7** and `build_evidence` still omits
+    SRC:
+      20: _PHASE_COUNT_KEY = {'hunt': 'findings', 'poc': 'pocs', 'detonate': 'reports'}
+
+=== ::SYMBOL CITATIONS ===
+  [DOC-A:472] ngv2/conductor_seams.py::build_evidence -> /home/xnihil0zer0/NobleGreedv2/ngv2/conductor_seams.py
+     symbol_hits: ['112:    def build_evidence(state: Dict[str, Any]) -> Dict[str, Any]:']
+  [DOC-B:173] harness/sandbox.py::_jailed_popen -> /home/xnihil0zer0/JanusMaskJR/harness/sandbox.py
+     symbol_hits: ['796:def _jailed_popen(cmd: list[str], *, cwd: str, env: dict[str, str], repo_root: Path | None=None, state_dir: Path | None=None, **popen_kwargs) -> subprocess.Popen:']
+  [DOC-B:202] harness/target_bootstrap.py::_ensure_venv -> /home/xnihil0zer0/JanusMaskJR/harness/target_bootstrap.py
+     symbol_hits: ['232:def _ensure_venv(root: Path) -> None:']
+  [DOC-B:264] ngv2/poc_authenticity_gate.py::classify_poc_authenticity -> /home/xnihil0zer0/NobleGreedv2/ngv2/poc_authenticity_gate.py
+     symbol_hits: ['92:def classify_poc_authenticity(poc_source: str, target_import_names: List[str]) -> dict:']
+  [DOC-B:268] ngv2/detonation.py::semantic_verdict -> /home/xnihil0zer0/NobleGreedv2/ngv2/detonation.py
+     symbol_hits: ["4:def semantic_verdict(exit_code, stdout: str, stderr: str, fs_snapshot_diff: str, *, success_marker: str, expected_fs_signature: str, nonce: str='') -> str:"]
+  [DOC-B:291] ngv2/loopback_listener.py::LoopbackListener -> /home/xnihil0zer0/NobleGreedv2/ngv2/loopback_listener.py
+     symbol_hits: ['7:class LoopbackListener:']
+  [DOC-B:360] ngv2/workers/_runner.py::_make_detonation_seam -> /home/xnihil0zer0/NobleGreedv2/ngv2/workers/_runner.py
+     symbol_hits: ['221:def _make_detonation_seam():']
+  [DOC-B:377] ngv2/poc_writer.py::_TEMPLATE_LIST -> /home/xnihil0zer0/NobleGreedv2/ngv2/poc_writer.py
+     symbol_hits: []
+  [DOC-B:635] harness/git_integration.py::_apply_symbol_patch -> /home/xnihil0zer0/JanusMaskJR/harness/git_integration.py
+     symbol_hits: ['1206:def _apply_symbol_patch(source: str, qualname: str, new_block: str) -> str:']
+  [DOC-B:665] ngv2/conductor_seams.py::build_default_seams -> /home/xnihil0zer0/NobleGreedv2/ngv2/conductor_seams.py
+     symbol_hits: ['39:def build_default_seams(session_id: str, db: Any, llm_client: Any, ctx: dict) -> dict:']

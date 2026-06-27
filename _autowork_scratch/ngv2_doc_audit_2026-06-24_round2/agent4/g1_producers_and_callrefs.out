@@ -1,0 +1,27 @@
+=== g1: PRODUCER SEAMS — do any ngv2/ modules BUILD the handler input dicts? ===
+--- detect_input / provision_input / jail_input / detect_frameworks assignments (non-test) ---
+ngv2/entrypoint_scan.py:50:        result = detect_frameworks(clone_path)
+
+--- any caller passing a dict literal into detect()/provision_gate()/jail_build_gate() in ngv2/ (non-handler-file) ---
+  (zero CALL sites outside handler def files)
+
+=== g1b: CALL references from the LIVE conductor (run_hunt/transition_planner/conductor_seams/gate_executor/workers) ===
+--- 'detect\b' in run_hunt.py / transition_planner.py / conductor_seams.py / gate_executor.py / workers/ ---
+  (no reference)
+--- 'provision_gate' in run_hunt.py / transition_planner.py / conductor_seams.py / gate_executor.py / workers/ ---
+  (no reference)
+--- 'jail_build_gate' in run_hunt.py / transition_planner.py / conductor_seams.py / gate_executor.py / workers/ ---
+  (no reference)
+--- 'fsm_detect' in run_hunt.py / transition_planner.py / conductor_seams.py / gate_executor.py / workers/ ---
+  (no reference)
+--- 'fsm_provision' in run_hunt.py / transition_planner.py / conductor_seams.py / gate_executor.py / workers/ ---
+  (no reference)
+--- 'fsm_jail_build' in run_hunt.py / transition_planner.py / conductor_seams.py / gate_executor.py / workers/ ---
+  (no reference)
+--- 'fsm_evidence' in run_hunt.py / transition_planner.py / conductor_seams.py / gate_executor.py / workers/ ---
+ngv2/transition_planner.py:60:from ngv2.fsm_evidence import PHASE_ORDER
+ngv2/gate_executor.py:107:from ngv2.fsm_evidence import PHASE_ORDER
+--- 'advance_gate' in run_hunt.py / transition_planner.py / conductor_seams.py / gate_executor.py / workers/ ---
+  (no reference)
+--- 'phase_artifact_hash' in run_hunt.py / transition_planner.py / conductor_seams.py / gate_executor.py / workers/ ---
+  (no reference)
