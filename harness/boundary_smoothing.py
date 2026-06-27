@@ -357,7 +357,7 @@ def has_unmatched_ancestor(p_def: Dict[str, Any], patch_defs: List[Dict[str, Any
                 return True
     return False
 
-def align_and_deduplicate_patches(source: str, patch: str) -> str:
+def align_and_deduplicate_patches(source: str, patch: str, offset: int = 0) -> str:
     if not source.strip():
         return patch
     if not patch.strip():
@@ -378,7 +378,14 @@ def align_and_deduplicate_patches(source: str, patch: str) -> str:
                 matched_patch_defs.add(p_def['qualname'])
                 diff_len = len(s_def['indent']) - len(p_def['indent'])
                 lines = normalized_patch_lines[p_def['start_line'] - 1:p_def['end_line']]
-                edits.append({'start': s_def['start_line'], 'end': s_def['end_line'], 'lines': adjust_indentation(lines, diff_len, indent_char), 'patch_idx': all_patch_defs.index(p_def)})
+                start_shifted = max(1, min(len(source_lines) + 1, s_def['start_line'] + offset))
+                end_shifted = max(0, min(len(source_lines), s_def['end_line'] + offset))
+                edits.append({
+                    'start_shifted': start_shifted,
+                    'end_shifted': end_shifted,
+                    'lines': adjust_indentation(lines, diff_len, indent_char),
+                    'patch_idx': all_patch_defs.index(p_def)
+                })
     for p_def in patch_defs:
         if not is_leaf(p_def, patch_defs):
             s_def = find_best_match(p_def, source_defs)
@@ -386,7 +393,14 @@ def align_and_deduplicate_patches(source: str, patch: str) -> str:
                 matched_patch_defs.add(p_def['qualname'])
                 diff_len = len(s_def['indent']) - len(p_def['indent'])
                 lines = normalized_patch_lines[p_def['start_line'] - 1:p_def['def_line']]
-                edits.append({'start': s_def['start_line'], 'end': s_def['def_line'], 'lines': adjust_indentation(lines, diff_len, indent_char), 'patch_idx': all_patch_defs.index(p_def)})
+                start_shifted = max(1, min(len(source_lines) + 1, s_def['start_line'] + offset))
+                end_shifted = max(0, min(len(source_lines), s_def['def_line'] + offset))
+                edits.append({
+                    'start_shifted': start_shifted,
+                    'end_shifted': end_shifted,
+                    'lines': adjust_indentation(lines, diff_len, indent_char),
+                    'patch_idx': all_patch_defs.index(p_def)
+                })
     for p_def in patch_defs:
         if p_def['qualname'] in matched_patch_defs:
             continue
@@ -403,11 +417,129 @@ def align_and_deduplicate_patches(source: str, patch: str) -> str:
         if ancestor_s_def is not None:
             diff_len = len(get_child_indent(ancestor_s_def['indent'])) - len(p_def['indent'])
             lines = normalized_patch_lines[p_def['start_line'] - 1:p_def['end_line']]
-            edits.append({'start': ancestor_s_def['end_line'] + 1, 'end': ancestor_s_def['end_line'], 'lines': adjust_indentation(lines, diff_len, indent_char), 'patch_idx': all_patch_defs.index(p_def)})
+            start_shifted = max(1, min(len(source_lines) + 1, ancestor_s_def['end_line'] + 1 + offset))
+            end_shifted = max(0, min(len(source_lines), ancestor_s_def['end_line'] + offset))
+            edits.append({
+                'start_shifted': start_shifted,
+                'end_shifted': end_shifted,
+                'lines': adjust_indentation(lines, diff_len, indent_char),
+                'patch_idx': all_patch_defs.index(p_def)
+            })
         else:
             diff_len = -len(p_def['indent'])
             lines = normalized_patch_lines[p_def['start_line'] - 1:p_def['end_line']]
-            edits.append({'start': len(source_lines) + 1, 'end': len(source_lines), 'lines': adjust_indentation(lines, diff_len, indent_char), 'patch_idx': all_patch_defs.index(p_def)})
+            start_shifted = max(1, min(len(source_lines) + 1, len(source_lines) + 1 + offset))
+            end_shifted = max(0, min(len(source_lines), len(source_lines) + offset))
+            edits.append({
+                'start_shifted': start_shifted,
+                'end_shifted': end_shifted,
+                'lines': adjust_indentation(lines, diff_len, indent_char),
+                'patch_idx': all_patch_defs.index(p_def)
+            })
+    covered_patch_lines = set()
+    for d in all_patch_defs:
+        for idx in range(d['start_line'], d['end_line'] + 1):
+            covered_patch_lines.add(idx)
+    extra_imports = []
+    extra_statements = []
+    for idx, line in enumerate(normalized_patch_lines):
+        line_num = idx + 1
+        if line_num in covered_patch_lines:
+            continue
+        if not line.strip():
+            continue
+        if line.strip().startswith('#'):
+            extra_statements.append(line)
+            continue
+        if re.match(r'^\s*(?:import\s+|from\s+\S+\s+import\s+)', line):
+            extra_imports.append(line)
+        else:
+            extra_statements.append(line)
+    if extra_imports:
+        edits.append({
+            'start_shifted': 1,
+            'end_shifted': 0,
+            'lines': extra_imports,
+            'patch_idx': -1
+        })
+    if extra_statements:
+        edits.append({
+            'start_shifted': len(source_lines) + 1,
+            'end_shifted': len(source_lines),
+            'lines': extra_statements,
+            'patch_idx': 999999
+        })
+    edits.sort(key=lambda e: (e['start_shifted'], e['patch_idx']), reverse=True)
+    current_lines = list(source_lines)
+    for edit in edits:
+        start = edit['start_shifted']
+        end = edit['end_shifted']
+        new_lines = [ensure_newline(l) for l in edit['lines']]
+        if new_lines and start - 2 >= 0 and (start - 2 < len(current_lines)):
+            if not current_lines[start - 2].endswith('\n'):
+                current_lines[start - 2] = current_lines[start - 2] + '\n'
+        current_lines[start - 1:end] = new_lines
+    result = ''.join(current_lines)
+    if (source.endswith('\n') or patch.endswith('\n')) and (not result.endswith('\n')):
+        result += '\n'
+    return result
+def get_edits_with_offset(source: str, patch: str, offset: int=0) -> Tuple[List[Dict[str, Any]], List[str], set]:
+    if not source.strip():
+        return ([{'start': 1, 'end': 0, 'start_shifted': 1, 'end_shifted': 0, 'lines': patch.splitlines(keepends=True), 'is_definition_edit': False}], [], set())
+    indent_char, _ = detect_indentation(source)
+    normalized_patch = normalize_patch_indentation(source, patch)
+    source_defs = get_definitions(source)
+    all_patch_defs = get_definitions(normalized_patch)
+    patch_defs = [d for d in all_patch_defs if not has_unmatched_ancestor(d, all_patch_defs, source_defs)]
+    source_lines = source.splitlines(keepends=True)
+    normalized_patch_lines = normalized_patch.splitlines(keepends=True)
+    edits = []
+    matched_patch_defs = set()
+    for p_def in patch_defs:
+        if is_leaf(p_def, patch_defs):
+            s_def = find_best_match(p_def, source_defs)
+            if s_def:
+                matched_patch_defs.add(p_def['qualname'])
+                diff_len = len(s_def['indent']) - len(p_def['indent'])
+                lines = normalized_patch_lines[p_def['start_line'] - 1:p_def['end_line']]
+                start_shifted = max(1, min(len(source_lines) + 1, s_def['start_line'] + offset))
+                end_shifted = max(0, min(len(source_lines), s_def['end_line'] + offset))
+                edits.append({'start': s_def['start_line'], 'end': s_def['end_line'], 'start_shifted': start_shifted, 'end_shifted': end_shifted, 'lines': adjust_indentation(lines, diff_len, indent_char), 'patch_idx': all_patch_defs.index(p_def), 'is_definition_edit': True})
+    for p_def in patch_defs:
+        if not is_leaf(p_def, patch_defs):
+            s_def = find_best_match(p_def, source_defs)
+            if s_def:
+                matched_patch_defs.add(p_def['qualname'])
+                diff_len = len(s_def['indent']) - len(p_def['indent'])
+                lines = normalized_patch_lines[p_def['start_line'] - 1:p_def['def_line']]
+                start_shifted = max(1, min(len(source_lines) + 1, s_def['start_line'] + offset))
+                end_shifted = max(0, min(len(source_lines), s_def['def_line'] + offset))
+                edits.append({'start': s_def['start_line'], 'end': s_def['def_line'], 'start_shifted': start_shifted, 'end_shifted': end_shifted, 'lines': adjust_indentation(lines, diff_len, indent_char), 'patch_idx': all_patch_defs.index(p_def), 'is_definition_edit': True})
+    for p_def in patch_defs:
+        if p_def['qualname'] in matched_patch_defs:
+            continue
+        parts = p_def['path']
+        ancestor_s_def = None
+        for length in range(len(parts) - 1, 0, -1):
+            prefix_path = parts[:length]
+            prefix_p_def = next((d for d in all_patch_defs if d['path'] == prefix_path), None)
+            if prefix_p_def:
+                match = find_best_match(prefix_p_def, source_defs)
+                if match:
+                    ancestor_s_def = match
+                    break
+        if ancestor_s_def is not None:
+            diff_len = len(get_child_indent(ancestor_s_def['indent'])) - len(p_def['indent'])
+            lines = normalized_patch_lines[p_def['start_line'] - 1:p_def['end_line']]
+            start_shifted = max(1, min(len(source_lines) + 1, ancestor_s_def['end_line'] + 1 + offset))
+            end_shifted = max(0, min(len(source_lines), ancestor_s_def['end_line'] + offset))
+            edits.append({'start': ancestor_s_def['end_line'] + 1, 'end': ancestor_s_def['end_line'], 'start_shifted': start_shifted, 'end_shifted': end_shifted, 'lines': adjust_indentation(lines, diff_len, indent_char), 'patch_idx': all_patch_defs.index(p_def), 'is_definition_edit': True})
+        else:
+            diff_len = -len(p_def['indent'])
+            lines = normalized_patch_lines[p_def['start_line'] - 1:p_def['end_line']]
+            start_shifted = max(1, min(len(source_lines) + 1, len(source_lines) + 1 + offset))
+            end_shifted = max(0, min(len(source_lines), len(source_lines) + offset))
+            edits.append({'start': len(source_lines) + 1, 'end': len(source_lines), 'start_shifted': start_shifted, 'end_shifted': end_shifted, 'lines': adjust_indentation(lines, diff_len, indent_char), 'patch_idx': all_patch_defs.index(p_def), 'is_definition_edit': True})
     covered_patch_lines = set()
     for d in all_patch_defs:
         for idx in range(d['start_line'], d['end_line'] + 1):
@@ -428,22 +560,193 @@ def align_and_deduplicate_patches(source: str, patch: str) -> str:
         else:
             extra_statements.append(line)
     if extra_imports:
-        edits.append({'start': 1, 'end': 0, 'lines': extra_imports, 'patch_idx': -1})
+        edits.append({'start': 1, 'end': 0, 'start_shifted': 1, 'end_shifted': 0, 'lines': extra_imports, 'patch_idx': -1, 'is_definition_edit': False})
     if extra_statements:
-        edits.append({'start': len(source_lines) + 1, 'end': len(source_lines), 'lines': extra_statements, 'patch_idx': 999999})
-    edits.sort(key=lambda e: (e['start'], e['patch_idx']), reverse=True)
-    current_lines = list(source_lines)
-    for edit in edits:
-        start = edit['start']
-        end = edit['end']
-        new_lines = [ensure_newline(l) for l in edit['lines']]
-        if new_lines and start - 2 >= 0 and (start - 2 < len(current_lines)):
-            if not current_lines[start - 2].endswith('\n'):
-                current_lines[start - 2] = current_lines[start - 2] + '\n'
-        current_lines[start - 1:end] = new_lines
-    result = ''.join(current_lines)
-    if (source.endswith('\n') or patch.endswith('\n')) and (not result.endswith('\n')):
-        result += '\n'
+        edits.append({'start': len(source_lines) + 1, 'end': len(source_lines), 'start_shifted': len(source_lines) + 1, 'end_shifted': len(source_lines), 'lines': extra_statements, 'patch_idx': 999999, 'is_definition_edit': False})
+    source_semantic_indices = get_semantic_line_indices(source)
+    return (edits, source_lines, source_semantic_indices)
+
+def clean_and_normalize_line(line: str) -> str:
+    in_quotes = None
+    comment_idx = -1
+    for idx, char in enumerate(line):
+        if in_quotes is None:
+            if char in ('"', "'"):
+                in_quotes = char
+            elif char == '#':
+                comment_idx = idx
+                break
+        elif in_quotes == char:
+            escaped = False
+            k = idx - 1
+            while k >= 0 and line[k] == chr(92):
+                escaped = not escaped
+                k -= 1
+            if not escaped:
+                in_quotes = None
+    if comment_idx != -1:
+        line = line[:comment_idx]
+    return ''.join(line.split())
+
+def get_semantic_line_indices(code: str) -> set:
+    import tokenize
+    import io
+    lines = code.splitlines()
+    semantic_lines = set()
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(code).readline))
+    except Exception:
+        for idx, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped and (not stripped.startswith('#')):
+                is_doc = False
+                for prefix in ('', 'r', 'f', 'b', 'u', 'fr', 'rf', 'F', 'R', 'B', 'U', 'FR', 'RF'):
+                    if stripped.startswith(prefix + '"' * 3) or stripped.startswith(prefix + "'" * 3):
+                        is_doc = True
+                        break
+                if not is_doc:
+                    semantic_lines.add(idx + 1)
+        return semantic_lines
+    line_tokens = {}
+    for tok in tokens:
+        for l in range(tok.start[0], tok.end[0] + 1):
+            line_tokens.setdefault(l, []).append(tok)
+    for l, toks in line_tokens.items():
+        has_semantic = False
+        for tok in toks:
+            if tok.type in (tokenize.NL, tokenize.NEWLINE, tokenize.COMMENT, tokenize.INDENT, tokenize.DEDENT, tokenize.ENDMARKER):
+                continue
+            if tok.type == tokenize.STRING:
+                val = tok.string
+                is_triple = False
+                for prefix in ('', 'r', 'f', 'b', 'u', 'fr', 'rf', 'F', 'R', 'B', 'U', 'FR', 'RF'):
+                    if val.startswith(prefix + '"' * 3) or val.startswith(prefix + "'" * 3):
+                        is_triple = True
+                        break
+                if is_triple:
+                    other_semantic = False
+                    for t in line_tokens[l]:
+                        if t.type in (tokenize.NAME, tokenize.NUMBER, tokenize.OP):
+                            other_semantic = True
+                            break
+                        if t.type == tokenize.STRING and t.string != val:
+                            other_semantic = True
+                            break
+                    if not other_semantic:
+                        continue
+            has_semantic = True
+            break
+        if has_semantic:
+            semantic_lines.add(l)
+    return semantic_lines
+
+def get_semantic_lines_from_block(lines: List[str]) -> List[str]:
+    content = ''.join(lines)
+    indices = get_semantic_line_indices(content)
+    result = []
+    for i in sorted(indices):
+        if 1 <= i <= len(lines):
+            result.append(clean_and_normalize_line(lines[i - 1]))
     return result
+
+def get_adjacent_semantic_line(source_lines: List[str], semantic_indices: set, start_idx: int, step: int) -> Optional[str]:
+    idx = start_idx
+    n = len(source_lines)
+    while 0 <= idx < n:
+        if idx + 1 in semantic_indices:
+            return clean_and_normalize_line(source_lines[idx])
+        idx += step
+    return None
+
+def apply_with_sliding_retry(source: str, patch: str, delta: int) -> str:
+    if not isinstance(source, str) or not isinstance(patch, str):
+        raise TypeError('source and patch must be strings')
+    if delta < 0:
+        delta = 0
+    if not source.strip():
+        candidate = align_and_deduplicate_patches(source, patch, 0)
+        try:
+            compile(candidate, '<string>', 'exec')
+            return candidate
+        except SyntaxError as e:
+            raise e
+        except Exception as e:
+            raise SyntaxError(str(e))
+    if not patch.strip():
+        return source
+    source_defs = get_definitions(source)
+    all_patch_defs = get_definitions(normalize_patch_indentation(source, patch))
+    source_names = {d['name'] for d in source_defs}
+    patch_semantic_names = {d['name'] for d in all_patch_defs}
+    patch_lines = patch.splitlines()
+    patch_semantic_indices = get_semantic_line_indices(patch)
+    for idx, line in enumerate(patch_lines):
+        if idx + 1 not in patch_semantic_indices:
+            cleaned = line.strip().lstrip('#').lstrip('"' + "'").strip()
+            class_match = re.match('^class\\s+([a-zA-Z_][a-zA-Z0-9_]*)', cleaned)
+            func_match = re.match('^(?:async\\s+)?def\\s+([a-zA-Z_][a-zA-Z0-9_]*)', cleaned)
+            if class_match or func_match:
+                name = class_match.group(1) if class_match else func_match.group(1)
+                if name in source_names and name not in patch_semantic_names:
+                    raise SyntaxError(f"Comment injection attempt detected for '{name}'")
+    if delta == 0:
+        offsets = [0]
+    else:
+        offsets = [0]
+        for d in range(1, delta + 1):
+            offsets.append(-d)
+            offsets.append(d)
+    last_syntax_error = None
+    for offset in offsets:
+        try:
+            edits, source_lines, source_semantic_indices = get_edits_with_offset(source, patch, offset)
+        except Exception as e:
+            last_syntax_error = SyntaxError(f'Error parsing source/patch: {e}')
+            continue
+        valid_anchors = True
+        for edit in edits:
+            if not edit['is_definition_edit']:
+                continue
+            start = edit['start']
+            end = edit['end']
+            start_shifted = edit['start_shifted']
+            end_shifted = edit['end_shifted']
+            lines = edit['lines']
+            if start <= end and start_shifted > end_shifted:
+                valid_anchors = False
+                break
+            nominal_source_semantic = get_semantic_lines_from_block(source_lines[start - 1:end])
+            shifted_source_semantic = get_semantic_lines_from_block(source_lines[start_shifted - 1:end_shifted])
+            if len(nominal_source_semantic) > 0:
+                if len(shifted_source_semantic) == 0:
+                    valid_anchors = False
+                    break
+                if shifted_source_semantic[0] != nominal_source_semantic[0]:
+                    valid_anchors = False
+                    break
+            nominal_preceding = get_adjacent_semantic_line(source_lines, source_semantic_indices, start - 2, -1)
+            shifted_preceding = get_adjacent_semantic_line(source_lines, source_semantic_indices, start_shifted - 2, -1)
+            if shifted_preceding != nominal_preceding:
+                valid_anchors = False
+                break
+            nominal_succeeding = get_adjacent_semantic_line(source_lines, source_semantic_indices, end, 1)
+            shifted_succeeding = get_adjacent_semantic_line(source_lines, source_semantic_indices, end_shifted, 1)
+            if shifted_succeeding != nominal_succeeding:
+                valid_anchors = False
+                break
+        if not valid_anchors:
+            continue
+        candidate_source = align_and_deduplicate_patches(source, patch, offset)
+        try:
+            compile(candidate_source, '<string>', 'exec')
+            return candidate_source
+        except SyntaxError as e:
+            last_syntax_error = e
+        except Exception as e:
+            last_syntax_error = SyntaxError(str(e))
+    if last_syntax_error is not None:
+        raise last_syntax_error
+    else:
+        raise SyntaxError('No valid sliding window retry offset within delta found that compiles and passes semantic anchor verification.')
 def smooth_boundaries(*args, **kwargs):
     pass
