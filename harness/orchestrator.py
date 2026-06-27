@@ -234,6 +234,7 @@ def _seed_claude_config_dir(agent, work_dir, task_id=None):
         return {'CLAUDE_CONFIG_DIR': str(Path(work_dir) / '.claude_config')}
     except Exception:
         return {}
+
 def _apply_agy_pool_env(agent, env, config=None):
     """Pool a private $HOME onto an agy agent's spawn env when the worker pool
     is enabled and this worker was assigned a slot (JANUSMASK_AGY_SLOT). Only
@@ -255,7 +256,7 @@ def _apply_agy_pool_env(agent, env, config=None):
     except (TypeError, ValueError):
         return env
     from harness import agy_pool
-    home = os.environ.get('HOME') or os.path.expanduser('~')  # home-free: allow
+    home = os.environ.get('HOME') or os.path.expanduser('~')
     try:
         agy_pool.ensure_seeded(str(PROJECT_DIR), slot, home=home, copy=shutil.copy2, exists=os.path.exists, makedirs=lambda d: os.makedirs(d, exist_ok=True))
     except OSError:
@@ -292,6 +293,7 @@ def _pinned_session_slug(agent: str, round_number: int, task_id: str) -> str:
     sanitized = ''.join((c if c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-' else '_' for c in task_id))
     digest8 = hashlib.sha1(task_id.encode('utf-8')).hexdigest()[:8]
     return f'{agent}-r{round_number}-{sanitized or 'notask'}-{digest8}'
+
 def _build_agent_env(agent: str, state_dir: str, round_number: int=1) -> dict[str, str]:
     """Build the environment for an agent process.
 
@@ -337,7 +339,7 @@ def _build_agent_env(agent: str, state_dir: str, round_number: int=1) -> dict[st
     return env
 
 def _boost_antigravity_mcp_config(state_dir: Path) -> None:
-    home_dir = os.environ['HOME']  # home-free: allow
+    home_dir = os.environ['HOME']
     mcp_path = Path(home_dir) / '.gemini' / 'antigravity-cli' / 'mcp_config.json'
     mcp_path.parent.mkdir(parents=True, exist_ok=True)
     py_exe = sys.executable
@@ -932,7 +934,7 @@ def _path_b_outbox_fallback(work_dir: Path, sub_path: Path, task_id: str) -> str
     return content
 _MODE_OUTBOX_ARTIFACT: dict[str, str] = {'planning': 'plan_draft.json', 'reconciliation': 'reconciliation.json'}
 
-def _poll_mode_artifact(work_dir: Path | None, mode: str, spawn_start_epoch: float | None = None) -> str | None:
+def _poll_mode_artifact(work_dir: Path | None, mode: str, spawn_start_epoch: float | None=None) -> str | None:
     """Return the planning/reconciliation outbox artifact text, or None.
 
     A1: without this, ``poll_for_submission`` only recognizes the synthesis
@@ -991,7 +993,7 @@ def _submission_target_path(state_dir: Path, task_id: str) -> str | None:
         pass
     return None
 
-def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: subprocess.Popen, timeout: int, spawn_start_epoch: float | None = None) -> str | None:
+def poll_for_submission(agent: str, state_dir: Path, round_number: int, proc: subprocess.Popen, timeout: int, spawn_start_epoch: float | None=None) -> str | None:
     """Poll for an agent's submission file. Returns the code or None.
 
     Watches for the submission file (name from session_namer.generate_submission_filename) while the agent
@@ -1477,87 +1479,13 @@ def prepare_task_prompt(task: dict[str, Any]) -> str:
     from harness.paths import effective_target_root
     _target_root = effective_target_root(task.get('working_dir'))
     _targets_exist = bool(_pe_candidates) and all((isinstance(p, str) and (_target_root / p).exists() for p in _pe_candidates))
-    if (task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES or mtt == 'harness_self_fix' or mtt != 'test_authoring') and (not use_manifest) and _targets_exist:
+    if (task.get('partial_edit') or mtt in BYPASS_FUZZER_TYPES or mtt == 'harness_self_fix' or (mtt != 'test_authoring')) and (not use_manifest) and _targets_exist:
         pe_files = files_touched if isinstance(files_touched, list) else [files_touched]
         pe_repr = ', '.join((repr(p) for p in pe_files)) if pe_files else '<see current_task.json>'
         prompt += '\nPARTIAL-EDIT DISPATCH (__JANUSMASK_PATCHES__) for ' + pe_repr + f":\n\nThis task edits one or more LARGE existing files IN PLACE. DO NOT\nreproduce the whole file. Read each target's CURRENT on-disk content\n(read-only) from {{WORK_DIR}}/inbox/targets/<rel> -- do not look for the\nfiles by repo-relative path. Emit a single top-level Python list assigned\nto ``__JANUSMASK_PATCHES__`` whose elements each replace exactly ONE\nnamed block. Two entry kinds:\n\n  # replace a top-level def/async def/class (or dotted Outer.method):\n  {{'file': '<rel/path>', 'kind': 'symbol', 'name': '<qualified.Name>',\n   'code': r{tsq}<full replacement def/class source>{tsq}}}\n\n  # replace only the lines between a pair of sentinel comments:\n  {{'file': '<rel/path>', 'kind': 'region', 'marker': '<SENTINEL>',\n   'code': r{tsq}<replacement region body>{tsq}}}\n\nThe exact shape:\n\n    __JANUSMASK_PATCHES__ = [\n        {{'file': '...', 'kind': 'symbol', 'name': '...', 'code': r{tsq}...{tsq}}},\n    ]\n\nRules:\n- Use raw triple-quoted strings (r{tsq}...{tsq}) for ``code`` so newlines,\n  quotes, and backslash escape sequences survive verbatim.\n- For kind 'symbol', ``code`` MUST be exactly ONE def/async def/class\n  whose name matches the leaf of ``name``; every byte outside that block\n  is preserved by the harness.\n- For kind 'region', the file must already contain the sentinel pair\n  ``# JANUSMASK_REGION:<SENTINEL>`` ... ``# JANUSMASK_ENDREGION:<SENTINEL>``;\n  only the lines strictly between them are replaced (sentinels kept).\n- The submission file MUST contain ONLY this ``__JANUSMASK_PATCHES__``\n  assignment at top level (no other statements, imports, or decorators).\n- Replace ONLY the named symbols/regions you must change. Never emit a\n  whole-file manifest for a partial edit.\n\nADDING A NEW TOP-LEVEL SYMBOL (R-ANCHOR):\n- A 'symbol' patch can ONLY replace a top-level def/async def/class that\n  must already exist in the file; naming a symbol that does not yet exist\n  fails the patch-apply path with KeyError. To ADD brand-new top-level\n  symbol(s), use the R-ANCHOR additive pattern: pick an EXISTING top-level\n  symbol as the anchor and emit ONE 'symbol' entry whose ``name`` is that\n  anchor and whose ``code`` reproduces the anchor VERBATIM plus the new\n  symbol(s) as extras. The harness inserts the extras immediately before\n  the anchor and preserves the rest of the file.\n- Worked example -- add brand-new functions foo and bar by anchoring them\n  on the existing top-level symbol baz:\n\n    __JANUSMASK_PATCHES__ = [\n        {{'file': '<rel/path>', 'kind': 'symbol', 'name': 'baz',\n         'code': r{tsq}def foo() -> int:\n    return 1\n\ndef bar() -> int:\n    return 2\n\ndef baz() -> int:  # existing anchor, reproduced verbatim\n    return 3\n{tsq}}},\n    ]\n"
     elif use_manifest:
         files_repr = ', '.join((repr(p) for p in files_touched))
-        prompt += f"""\nMULTI-FILE DISPATCH ({len(files_touched)} files: {files_repr}):
-
-This task touches more than one file. The CURRENT on-disk content of each
-existing target is staged read-only at {{WORK_DIR}}/inbox/targets/<rel>;
-read it there rather than by repo-relative path. Instead of writing
-single-file source, emit a single top-level Python dict literal assigned to
-``__JANUSMASK_MANIFEST__`` that maps each rel-path above to that file's
-full source as a string. The exact shape:
-
-    __JANUSMASK_MANIFEST__ = {{
-        '<rel/path/to/file>': r{tsq}<file source here>{tsq},
-        '<rel/path/to/other>': r{tsq}<file source here>{tsq},
-    }}
-
-VERBATIM file content rule:
-- Each value MUST be the VERBATIM file content as it currently appears on
-  disk -- not a paraphrase, not a summary, not a fragment.
-- {tsq} (triple-single-quote) and \"\"\" (triple-double-quote) are DIFFERENT
-  Python string-delimiter tokens; they do NOT conflict with each other.
-  When you wrap the file content in r{tsq}...{tsq}, any \"\"\" inside the file
-  (e.g. the module docstring markers at the top of the file) MUST be
-  preserved byte-for-byte. Do not strip, rewrite, or convert them.
-
-Raw-string wrapping rule:
-- The recommended wrapping is r{tsq}...{tsq} (raw triple-single-quote). The r
-  prefix makes the string LITERAL, so backslash escape sequences inside
-  the file content (e.g. \\n, \\t, \\\\, \\x41, \\u0041, and regex literals
-  such as r'\\d+\\.\\d+') survive verbatim instead of being re-interpreted
-  by the Python lexer when the orchestrator parses the manifest. Using a
-  non-raw {tsq} would silently convert each \\n in the file content into a
-  real newline and reject \\d / \\. as invalid escape sequences, corrupting
-  the round-tripped source.
-
-Concrete example (a short file beginning with a Module docstring and a
-regex literal whose pattern contains backslash escape sequences):
-
-    __JANUSMASK_MANIFEST__ = {{
-        'pkg/example.py': r{tsq}\"\"\"Module docstring.\"\"\"\\nimport re\\n\\nVERSION_RE = re.compile(r'\\d+\\.\\d+')\\n\\ndef f() -> int:\\n    return 1\\n{tsq},
-    }}
-
-Note how the inner \"\"\"Module docstring.\"\"\" markers AND the backslash
-escape sequences inside the regex literal r'\\d+\\.\\d+' appear INSIDE the
-raw triple-single-quote manifest value, completely unchanged from the
-source file -- the outer r{tsq} raw-string prefix keeps every backslash
-byte-for-byte, so the orchestrator parses the manifest into the exact
-bytes that are on disk.
-
-DO NOT (common error modes that will fail validation):
-- DO NOT strip or rewrite the file's existing triple-double-quote (\"\"\")
-  docstring markers. They are part of the file's content and must round-trip
-  verbatim inside the raw triple-single-quote manifest value.
-- DO NOT wrap a file that contains backslash escape sequences in a non-raw
-  {tsq} value (i.e. plain triple-single-quote without the leading r prefix).
-  Without the r prefix, Python's string lexer interprets every backslash at
-  parse time -- \\n collapses to a real newline, \\d raises an invalid escape
-  sequence warning / error, and the manifest source itself can become
-  unparseable. Use r{tsq}...{tsq} instead so the backslashes survive.
-- DO NOT add an f-string prefix f{tsq}, concatenate multiple string fragments
-  with ``+``, manually escape inner quotes with backslashes, or truncate the
-  file with ellipses (``...``) instead of including the whole source.
-- If the file's source itself contains a literal triple-single-quote ({tsq})
-  sequence at module scope, fall back to r\"\"\"...\"\"\" (raw triple-double-quote)
-  for that one entry so the outer delimiter does not clash with the inner
-  {tsq} tokens.
-
-Requirements:
-- Provide WHOLE-FILE source for every entry (no diffs, no fragments).
-- Use raw triple-quoted strings (r{tsq}...{tsq} or r\"\"\"...\"\"\") for values so
-  embedded newlines, quotes, and backslash escape sequences survive
-  verbatim.
-- The submission file MUST contain only this assignment at top level
-  (no other top-level statements, no imports, no decorators).
-- Include every path listed above as a manifest key, using the exact
-  relative paths shown.
-"""
+        prompt += f'''\nMULTI-FILE DISPATCH ({len(files_touched)} files: {files_repr}):\n\nThis task touches more than one file. The CURRENT on-disk content of each\nexisting target is staged read-only at {{WORK_DIR}}/inbox/targets/<rel>;\nread it there rather than by repo-relative path. Instead of writing\nsingle-file source, emit a single top-level Python dict literal assigned to\n``__JANUSMASK_MANIFEST__`` that maps each rel-path above to that file's\nfull source as a string. The exact shape:\n\n    __JANUSMASK_MANIFEST__ = {{\n        '<rel/path/to/file>': r{tsq}<file source here>{tsq},\n        '<rel/path/to/other>': r{tsq}<file source here>{tsq},\n    }}\n\nVERBATIM file content rule:\n- Each value MUST be the VERBATIM file content as it currently appears on\n  disk -- not a paraphrase, not a summary, not a fragment.\n- {tsq} (triple-single-quote) and """ (triple-double-quote) are DIFFERENT\n  Python string-delimiter tokens; they do NOT conflict with each other.\n  When you wrap the file content in r{tsq}...{tsq}, any """ inside the file\n  (e.g. the module docstring markers at the top of the file) MUST be\n  preserved byte-for-byte. Do not strip, rewrite, or convert them.\n\nRaw-string wrapping rule:\n- The recommended wrapping is r{tsq}...{tsq} (raw triple-single-quote). The r\n  prefix makes the string LITERAL, so backslash escape sequences inside\n  the file content (e.g. \\n, \\t, \\\\, \\x41, \\u0041, and regex literals\n  such as r'\\d+\\.\\d+') survive verbatim instead of being re-interpreted\n  by the Python lexer when the orchestrator parses the manifest. Using a\n  non-raw {tsq} would silently convert each \\n in the file content into a\n  real newline and reject \\d / \\. as invalid escape sequences, corrupting\n  the round-tripped source.\n\nConcrete example (a short file beginning with a Module docstring and a\nregex literal whose pattern contains backslash escape sequences):\n\n    __JANUSMASK_MANIFEST__ = {{\n        'pkg/example.py': r{tsq}"""Module docstring."""\\nimport re\\n\\nVERSION_RE = re.compile(r'\\d+\\.\\d+')\\n\\ndef f() -> int:\\n    return 1\\n{tsq},\n    }}\n\nNote how the inner """Module docstring.""" markers AND the backslash\nescape sequences inside the regex literal r'\\d+\\.\\d+' appear INSIDE the\nraw triple-single-quote manifest value, completely unchanged from the\nsource file -- the outer r{tsq} raw-string prefix keeps every backslash\nbyte-for-byte, so the orchestrator parses the manifest into the exact\nbytes that are on disk.\n\nDO NOT (common error modes that will fail validation):\n- DO NOT strip or rewrite the file's existing triple-double-quote (""")\n  docstring markers. They are part of the file's content and must round-trip\n  verbatim inside the raw triple-single-quote manifest value.\n- DO NOT wrap a file that contains backslash escape sequences in a non-raw\n  {tsq} value (i.e. plain triple-single-quote without the leading r prefix).\n  Without the r prefix, Python's string lexer interprets every backslash at\n  parse time -- \\n collapses to a real newline, \\d raises an invalid escape\n  sequence warning / error, and the manifest source itself can become\n  unparseable. Use r{tsq}...{tsq} instead so the backslashes survive.\n- DO NOT add an f-string prefix f{tsq}, concatenate multiple string fragments\n  with ``+``, manually escape inner quotes with backslashes, or truncate the\n  file with ellipses (``...``) instead of including the whole source.\n- If the file's source itself contains a literal triple-single-quote ({tsq})\n  sequence at module scope, fall back to r"""...""" (raw triple-double-quote)\n  for that one entry so the outer delimiter does not clash with the inner\n  {tsq} tokens.\n\nRequirements:\n- Provide WHOLE-FILE source for every entry (no diffs, no fragments).\n- Use raw triple-quoted strings (r{tsq}...{tsq} or r"""...""") for values so\n  embedded newlines, quotes, and backslash escape sequences survive\n  verbatim.\n- The submission file MUST contain only this assignment at top level\n  (no other top-level statements, no imports, no decorators).\n- Include every path listed above as a manifest key, using the exact\n  relative paths shown.\n'''
     if mtt == 'test_authoring':
         prompt += '\nTEST-AUTHORING DISPATCH:\n\nYou are authoring a pytest TEST FILE (a verification oracle), NOT an implementation function. Write the COMPLETE contents of the test file as ordinary Python source to the submission.py path given above -- a whole .py file. DO NOT emit a patches list and DO NOT emit a manifest dict; submit the test file source directly.\n\nThe test MUST import the module(s) under test by name and exercise their REAL observable behaviour per the spec. It MUST be NON-VACUOUS: the harness re-runs it against a deliberately broken mutant of the code and REJECTS it unless it FAILS on the mutant -- so a test that asserts trivially (e.g. assert True) or never exercises the behaviour will be rejected. Follow EVERY required test property and safety constraint in the spec / acceptance_criteria (fixtures, monkeypatch + teardown, redirected paths, skip markers, negative and positive controls) exactly, and name each test function test_<unit>_<behaviour>.\n'
         from harness.wire_up import LIVE_ROOTS
@@ -1567,7 +1495,7 @@ Requirements:
             syms = contract.get('symbols')
             ro = contract.get('runtime_oracle')
             if isinstance(eps, list) and eps and all((e in LIVE_ROOTS for e in eps)) and syms and isinstance(ro, str) and ro.strip():
-                prompt += ("\nLIVE-ROOT DETONATION ORACLE (this task carries an integration_contract): " f"instead of a hermetic unit test, author a pytest module that, for EACH contract symbol in {syms}, " f"drives the declared LIVE_ROOT entrypoint (one of {eps}) for ONE bounded iteration with the symbol " "left UNMOCKED, under `with observe_symbol_execution([symbol]) as obs:` (from harness.wire_up), and " "asserts `obs.executed_with_live_root_ancestor(symbol, LIVE_ROOTS) is True`. Use the canonical driver " "scaffold `_drive_run_pipeline` from tests/harness/test_wire_up_runtime_observe.py VERBATIM (patch every " "spawn collaborator at its source module, return the task once then None, bound the loop with a _StopLoop " "sentinel, and LEAVE THE TARGET SYMBOL UNMOCKED so its real body runs via a production call edge). DO NOT " "call the symbol directly. DETONATION NON-VACUITY: declare the symbol's module as mutation_target so the " "harness re-runs this oracle against a stubbed mutant -- the assertion MUST fail when the symbol body is " "replaced by raise NotImplementedError; assert observed execution, never a bare True. For any symbol that " "genuinely cannot detonate from a LIVE_ROOT in one bounded iteration, do NOT fabricate a driver -- declare " "a `pure_helper` wire_exempt claim (validated by harness.wire_up.validate_exemption against the static floor).\n")
+                prompt += f"\nLIVE-ROOT DETONATION ORACLE (this task carries an integration_contract): instead of a hermetic unit test, author a pytest module that, for EACH contract symbol in {syms}, drives the declared LIVE_ROOT entrypoint (one of {eps}) for ONE bounded iteration with the symbol left UNMOCKED, under `with observe_symbol_execution([symbol]) as obs:` (from harness.wire_up), and asserts `obs.executed_with_live_root_ancestor(symbol, LIVE_ROOTS) is True`. Use the canonical driver scaffold `_drive_run_pipeline` from tests/harness/test_wire_up_runtime_observe.py VERBATIM (patch every spawn collaborator at its source module, return the task once then None, bound the loop with a _StopLoop sentinel, and LEAVE THE TARGET SYMBOL UNMOCKED so its real body runs via a production call edge). DO NOT call the symbol directly. DETONATION NON-VACUITY: declare the symbol's module as mutation_target so the harness re-runs this oracle against a stubbed mutant -- the assertion MUST fail when the symbol body is replaced by raise NotImplementedError; assert observed execution, never a bare True. For any symbol that genuinely cannot detonate from a LIVE_ROOT in one bounded iteration, do NOT fabricate a driver -- declare a `pure_helper` wire_exempt claim (validated by harness.wire_up.validate_exemption against the static floor).\n"
     if spec_summary:
         prompt += f'\nBrief overview (full details in current_task.json):\n{spec_summary}\n'
     repair_feedback = task.get('repair_feedback')
@@ -1739,16 +1667,15 @@ def _validate_submission(code: str, agent: str, task: dict[str, Any]) -> tuple[b
     if manifest is not None:
         _ft_raw = task.get('files_touched')
         _declared = [str(f) for f in _ft_raw] if isinstance(_ft_raw, list) else []
+
         def _norm_manifest_path(p):
             n = os.path.normpath(str(p)).replace('\\', '/')
             return n[2:] if n.startswith('./') else n
         _manifest_norm = {_norm_manifest_path(k) for k in manifest}
         _missing = [f for f in _declared if _norm_manifest_path(f) not in _manifest_norm]
-        if (not manifest) or _missing:
+        if not manifest or _missing:
             _need = _missing or _declared or ['<none declared>']
-            msg = ('__JANUSMASK_MANIFEST__ is empty or missing declared files '
-                   f'{_need}: every files_touched entry must appear as a manifest '
-                   'key mapped to its full source. Resubmit a complete manifest.')
+            msg = f'__JANUSMASK_MANIFEST__ is empty or missing declared files {_need}: every files_touched entry must appear as a manifest key mapped to its full source. Resubmit a complete manifest.'
             logger.warning('%s manifest submission empty/incomplete (declared=%r, manifest_keys=%r)', agent, _declared, list(manifest.keys()))
             return (False, [Violation(rule='manifest_incomplete', severity='error', line=0, message=msg)])
         if _declared:
@@ -1899,6 +1826,7 @@ def _promote_fallback_candidate(state_dir: Path, task_id: str) -> bool:
     fb_path.unlink(missing_ok=True)
     logger.info('Promoted fallback candidate for %s into primary output', task_id)
     return True
+
 def _save_final_output(state_dir: Path, task_id: str, code: str, *, fallback_code: str | None=None) -> None:
     """Save the final accepted code to the permanent output directory.
 
@@ -2043,6 +1971,7 @@ def _last_failure_tail(state_dir: Path, task_id: str) -> str:
     if not parts:
         return ''
     return '\n'.join(parts)[-2000:]
+
 def _write_retry_sidecar(blocked_dir: Path, task_id: str, outcome: str) -> int:
     """Bump the {attempts,last_outcome,ts} retry sidecar for a blocked task.
 
@@ -2258,7 +2187,8 @@ def _new_module_red_by_absence(task, worktree_root, verify_exit, verify_out) -> 
         return True
     except Exception:
         return False
-from harness.wire_up import new_top_level_callables, LIVE_ROOTS
+from harness.wire_up import new_top_level_callables
+from harness.wire_up import LIVE_ROOTS
 
 def _wire_up_runtime_gate_enforce_enabled(state_dir=None) -> bool:
     """WIRE_UP_RUNTIME_GATE_ENFORCE: return
@@ -2284,6 +2214,7 @@ def _wire_up_runtime_gate_enforce_enabled(state_dir=None) -> bool:
         return bool(autowork.get('wire_up_runtime_gate_enforce', False))
     except Exception:
         return False
+
 def _wire_up_runtime_gate_enabled(state_dir=None) -> bool:
     """WIRE_UP_RUNTIME_GATE: return ``config['autowork']['wire_up_runtime_gate']``
     (default False).
@@ -2305,6 +2236,7 @@ def _wire_up_runtime_gate_enabled(state_dir=None) -> bool:
         return bool(autowork.get('wire_up_runtime_gate', False))
     except Exception:
         return False
+
 def _wire_up_gate_enabled(state_dir=None) -> bool:
     """WIRE_UP_GATE: return ``config['autowork']['wire_up_gate']`` (default False).
 
@@ -2448,7 +2380,7 @@ def _run_wire_up_gate(task, files_touched, state_dir, task_id, staging_path, wor
                                 _exempt_honored = bool(validate_exemption('pure_helper', _vsym, rel, staging_path).honored)
                             except Exception:
                                 _exempt_honored = False
-                            _would_be_orphan = (not _floor_reachable) and (not _contract_detonated) and (not _exempt_honored)
+                            _would_be_orphan = not _floor_reachable and (not _contract_detonated) and (not _exempt_honored)
                             try:
                                 write_jsonl_row(state_dir / 'impl_progress.jsonl', {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'phase': 'report', 'task_id': task_id, 'event': 'wireup_symbol_verdict', 'commit_sha': result.get('sha'), 'file': rel, 'symbol': _vsym, 'floor_reachable': _floor_reachable, 'contract_detonated': _contract_detonated, 'exempt_honored': _exempt_honored, 'would_be_orphan': _would_be_orphan})
                             except OSError as _exc:
@@ -2630,7 +2562,6 @@ def _auto_approve_sensitive_eligible(state_dir, task, task_id, rel_paths, config
                 saw_harness = True
             elif _matches_sensitive(rel, _SENSITIVE_APPLY_GLOBS):
                 return False
-            # else: non-sensitive path (tests/**, docs, ...) rides along
         if not saw_harness:
             return False
         if not _widened:
@@ -2855,6 +2786,7 @@ def _restrict_sidecar_to_declared(sidecar_path, declared_files):
         os.fsync(f.fileno())
     tmp_path.replace(sidecar_path)
     return _dropped
+
 def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -> bool:
     """Copy accepted output to its target and create a scoped git commit.
 
@@ -3151,16 +3083,12 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                 raise
             _nm_oracle = _new_module_red_by_absence(task, worktree_root, verify_exit, (verify_stdout or '') + '\n' + (verify_stderr or ''))
             if not _nm_oracle and verify_exit not in (None, 0):
-                # Fix-forward red-pair: accept a RED test_authoring oracle for an EXISTING
-                # module when a paired impl in the plan is verified by the oracle's OWN
-                # authored test file. RED-before is proven by the verify_exit guard; the
-                # paired impl must later pass the normal gate (GREEN-after) on its own.
                 try:
                     from harness.redpair_acceptance import is_fix_forward_redpair, load_sibling_tasks
                     _nm_oracle = is_fix_forward_redpair(task, worktree_root, load_sibling_tasks(state_dir, task, task_id))
                 except Exception:
                     pass
-            if verify_exit != 0 and not _nm_oracle:
+            if verify_exit != 0 and (not _nm_oracle):
                 cmd_preview = vcmd if len(vcmd) <= 200 else vcmd[:200] + '...(truncated)'
                 logger.warning('verification_failed: task=%s exit=%s timeout=%s cmd=%s', task_id, verify_exit, timed_out, cmd_preview)
                 _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'verification_failed')
@@ -3175,7 +3103,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
             logger.info('auto-commit: SUCCESS in staging for %s -> %s (sha=%s)', task_id, target_rel, result.get('sha'))
             _mut_specs = list(task.get('mutations') or [])
             _mut_target = task.get('mutation_target')
-            if (_mtt == 'test_authoring' or _mut_specs or _mut_target) and not _nm_oracle:
+            if (_mtt == 'test_authoring' or _mut_specs or _mut_target) and (not _nm_oracle):
                 if not _mut_specs and (not _mut_target):
                     logger.warning('mutation_gate_missing: task=%s declares no mutant -- rejected fail-closed', task_id)
                     _rollback_rejected_commit(staging_path, result.get('sha'), target_rel, task_id, 'mutation_gate_missing')
@@ -3311,7 +3239,7 @@ def _auto_commit_accepted(state_dir: Path, task: dict[str, Any], task_id: str) -
                 None on any error / no match / no stamped sha and NEVER raises so the
                 accepted-row write below cannot fail on a malformed/absent plan."""
                 try:
-                    for _plan_path in sorted((state_dir.parent).glob('plan_hooks_*.json')):
+                    for _plan_path in sorted(state_dir.parent.glob('plan_hooks_*.json')):
                         try:
                             _plan = json.loads(_plan_path.read_text(encoding='utf-8', errors='replace'))
                         except Exception:
@@ -3524,302 +3452,359 @@ def run_pipeline(config: dict[str, Any], state_dir: Path) -> None:
         else:
             os.environ.pop('JANUSMASK_WORKING_DIR', None)
         try:
-            logger.info('=== Round %d | Task %s ===', round_number, task_id)
-            synthesis_success = False
-            claude_code = None
-            gemini_code = None
-            base_prompt = prepare_task_prompt(task)
+            try:
+                logger.info('=== Round %d | Task %s ===', round_number, task_id)
+                synthesis_success = False
+                claude_code = None
+                gemini_code = None
+                base_prompt = prepare_task_prompt(task)
 
-            def _set_task_state(state: dict[str, Any]) -> dict[str, Any]:
-                state['task_id'] = task_id
-                state['round'] = round_number
-                state['phase'] = 'synthesis'
-                for agent_name in active_agents:
-                    state[f'{agent_name}_status'] = 'running'
-                state['status_updated_at_epoch'] = time.time()
-                state['fuzz_results'] = None
-                state['cross_exam_round'] = 0
-                return state
-            if use_retry_module:
-                locked_read_modify_write(_set_task_state, state_dir)
-                logger.info('Phase -> synthesis (ast_retry per-agent module)')
-                results: dict[str, tuple[bool, str | None]] = {}
-                if config.get('synthesis', {}).get('antigravity_mode', True):
-                    for agent_name in (agent_a, agent_b):
-                        try:
-                            ok, code, _violations = synthesize_with_retries(agent_name, base_prompt, config, state_dir, round_number, task, run_agent_phase, (lambda a: lambda code, t: _validate_submission(code, a, t))(agent_name))
-                        except Exception as e:
-                            logger.exception('ast_retry failed for %s', agent_name)
-                            ok, code = (False, None)
-                        results[agent_name] = (ok, code)
-                else:
-                    with ThreadPoolExecutor(max_workers=2) as executor:
-                        futures = {executor.submit(synthesize_with_retries, agent_name, base_prompt, config, state_dir, round_number, task, run_agent_phase, (lambda a: lambda code, t: _validate_submission(code, a, t))(agent_name)): agent_name for agent_name in (agent_a, agent_b)}
-                        for future in as_completed(futures):
-                            agent_name = futures[future]
+                def _set_task_state(state: dict[str, Any]) -> dict[str, Any]:
+                    state['task_id'] = task_id
+                    state['round'] = round_number
+                    state['phase'] = 'synthesis'
+                    for agent_name in active_agents:
+                        state[f'{agent_name}_status'] = 'running'
+                    state['status_updated_at_epoch'] = time.time()
+                    state['fuzz_results'] = None
+                    state['cross_exam_round'] = 0
+                    return state
+                if use_retry_module:
+                    locked_read_modify_write(_set_task_state, state_dir)
+                    logger.info('Phase -> synthesis (ast_retry per-agent module)')
+                    results: dict[str, tuple[bool, str | None]] = {}
+                    if config.get('synthesis', {}).get('antigravity_mode', True):
+                        for agent_name in (agent_a, agent_b):
                             try:
-                                ok, code, _violations = future.result()
-                            except Exception:
+                                ok, code, _violations = synthesize_with_retries(agent_name, base_prompt, config, state_dir, round_number, task, run_agent_phase, (lambda a: lambda code, t: _validate_submission(code, a, t))(agent_name))
+                            except Exception as e:
                                 logger.exception('ast_retry failed for %s', agent_name)
                                 ok, code = (False, None)
                             results[agent_name] = (ok, code)
-                claude_ok, claude_code = results.get(agent_a, (False, None))
-                gemini_ok, gemini_code = results.get(agent_b, (False, None))
-                for agent_name, code in [(agent_a, claude_code), (agent_b, gemini_code)]:
-                    if code is None:
-                        set_agent_status(state_dir, agent=agent_name, status='timeout')
-                        _emit_lifecycle(state_dir, event='agent_status', agent=agent_name, status='timeout', task_id=task_id)
                     else:
-                        set_agent_status(state_dir, agent=agent_name, status='submitted')
-                        _emit_lifecycle(state_dir, event='agent_status', agent=agent_name, status='submitted', task_id=task_id)
-                set_phase(state_dir, phase='ast_validation')
-                _emit_lifecycle(state_dir, event='phase_transition', phase='ast_validation', task_id=task_id, phase_transition={'to': 'ast_validation'})
-                logger.info('Phase -> ast_validation (validated inline by ast_retry)')
-                synthesis_success = bool(claude_ok and gemini_ok and claude_code and gemini_code)
-            else:
-                ast_retries = 0
-                claude_prompt = base_prompt
-                gemini_prompt = base_prompt
-                while ast_retries < max_ast_retries:
-                    locked_read_modify_write(_set_task_state, state_dir)
-                    logger.info('Phase -> synthesis')
-                    claude_code, gemini_code = run_both_agents(claude_prompt, gemini_prompt, config, state_dir, round_number, phase_name='synthesis')
-                    for agent, code in [(agent_a, claude_code), (agent_b, gemini_code)]:
+                        with ThreadPoolExecutor(max_workers=2) as executor:
+                            futures = {executor.submit(synthesize_with_retries, agent_name, base_prompt, config, state_dir, round_number, task, run_agent_phase, (lambda a: lambda code, t: _validate_submission(code, a, t))(agent_name)): agent_name for agent_name in (agent_a, agent_b)}
+                            for future in as_completed(futures):
+                                agent_name = futures[future]
+                                try:
+                                    ok, code, _violations = future.result()
+                                except Exception:
+                                    logger.exception('ast_retry failed for %s', agent_name)
+                                    ok, code = (False, None)
+                                results[agent_name] = (ok, code)
+                    claude_ok, claude_code = results.get(agent_a, (False, None))
+                    gemini_ok, gemini_code = results.get(agent_b, (False, None))
+                    for agent_name, code in [(agent_a, claude_code), (agent_b, gemini_code)]:
                         if code is None:
-                            set_agent_status(state_dir, agent=agent, status='timeout')
-                            _emit_lifecycle(state_dir, event='agent_status', agent=agent, status='timeout', task_id=task_id)
+                            set_agent_status(state_dir, agent=agent_name, status='timeout')
+                            _emit_lifecycle(state_dir, event='agent_status', agent=agent_name, status='timeout', task_id=task_id)
                         else:
-                            set_agent_status(state_dir, agent=agent, status='submitted')
-                            _emit_lifecycle(state_dir, event='agent_status', agent=agent, status='submitted', task_id=task_id)
-                    if not claude_code and (not gemini_code):
-                        logger.error('Neither agent submitted code. Retrying.')
-                        ast_retries += 1
-                        claude_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
-                        gemini_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
-                        continue
-                    if not claude_code or not gemini_code:
-                        submitter = agent_a if claude_code else agent_b
-                        logger.warning('Only %s submitted code. Retrying.', submitter)
-                        ast_retries += 1
-                        if not claude_code:
-                            claude_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
-                        else:
-                            claude_prompt = base_prompt
-                        if not gemini_code:
-                            gemini_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
-                        else:
-                            gemini_prompt = base_prompt
-                        continue
+                            set_agent_status(state_dir, agent=agent_name, status='submitted')
+                            _emit_lifecycle(state_dir, event='agent_status', agent=agent_name, status='submitted', task_id=task_id)
                     set_phase(state_dir, phase='ast_validation')
                     _emit_lifecycle(state_dir, event='phase_transition', phase='ast_validation', task_id=task_id, phase_transition={'to': 'ast_validation'})
-                    logger.info('Phase -> ast_validation')
-                    claude_valid, claude_violations = _validate_submission(claude_code, agent_a, task)
-                    gemini_valid, gemini_violations = _validate_submission(gemini_code, agent_b, task)
-                    if not claude_valid:
-                        repaired_claude = _try_auto_repair(claude_code, claude_violations, agent_a, task_id)
-                        if repaired_claude is not None:
-                            revalid_ok, revalid_violations = _validate_submission(repaired_claude, agent_a, task)
-                            if revalid_ok:
-                                logger.info('auto_repair: %s submission re-validated after repair (task=%s)', agent_a, task_id)
-                                claude_code = repaired_claude
-                                claude_valid = True
-                                claude_violations = revalid_violations
+                    logger.info('Phase -> ast_validation (validated inline by ast_retry)')
+                    synthesis_success = bool(claude_ok and gemini_ok and claude_code and gemini_code)
+                else:
+                    ast_retries = 0
+                    claude_prompt = base_prompt
+                    gemini_prompt = base_prompt
+                    while ast_retries < max_ast_retries:
+                        locked_read_modify_write(_set_task_state, state_dir)
+                        logger.info('Phase -> synthesis')
+                        claude_code, gemini_code = run_both_agents(claude_prompt, gemini_prompt, config, state_dir, round_number, phase_name='synthesis')
+                        for agent, code in [(agent_a, claude_code), (agent_b, gemini_code)]:
+                            if code is None:
+                                set_agent_status(state_dir, agent=agent, status='timeout')
+                                _emit_lifecycle(state_dir, event='agent_status', agent=agent, status='timeout', task_id=task_id)
                             else:
-                                logger.info('auto_repair: %s repair re-validation still failed (task=%s)', agent_a, task_id)
-                    if not gemini_valid:
-                        repaired_gemini = _try_auto_repair(gemini_code, gemini_violations, agent_b, task_id)
-                        if repaired_gemini is not None:
-                            revalid_ok, revalid_violations = _validate_submission(repaired_gemini, agent_b, task)
-                            if revalid_ok:
-                                logger.info('auto_repair: %s submission re-validated after repair (task=%s)', agent_b, task_id)
-                                gemini_code = repaired_gemini
-                                gemini_valid = True
-                                gemini_violations = revalid_violations
+                                set_agent_status(state_dir, agent=agent, status='submitted')
+                                _emit_lifecycle(state_dir, event='agent_status', agent=agent, status='submitted', task_id=task_id)
+                        if not claude_code and (not gemini_code):
+                            logger.error('Neither agent submitted code. Retrying.')
+                            ast_retries += 1
+                            claude_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
+                            gemini_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
+                            continue
+                        if not claude_code or not gemini_code:
+                            submitter = agent_a if claude_code else agent_b
+                            logger.warning('Only %s submitted code. Retrying.', submitter)
+                            ast_retries += 1
+                            if not claude_code:
+                                claude_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
                             else:
-                                logger.info('auto_repair: %s repair re-validation still failed (task=%s)', agent_b, task_id)
-                    if not (claude_valid and gemini_valid):
-                        ast_retries += 1
-                        logger.warning('AST validation failed (%s=%s, %s=%s). Retry %d/%d.', agent_a, claude_valid, agent_b, gemini_valid, ast_retries, max_ast_retries)
+                                claude_prompt = base_prompt
+                            if not gemini_code:
+                                gemini_prompt = base_prompt + '\n\nError: Your previous submission timed out or was missing. Please try again.'
+                            else:
+                                gemini_prompt = base_prompt
+                            continue
+                        set_phase(state_dir, phase='ast_validation')
+                        _emit_lifecycle(state_dir, event='phase_transition', phase='ast_validation', task_id=task_id, phase_transition={'to': 'ast_validation'})
+                        logger.info('Phase -> ast_validation')
+                        claude_valid, claude_violations = _validate_submission(claude_code, agent_a, task)
+                        gemini_valid, gemini_violations = _validate_submission(gemini_code, agent_b, task)
                         if not claude_valid:
-                            error_msgs = '\n'.join((f'- {v.rule} (Line {v.line}): {v.message}' for v in claude_violations if v.severity == 'error'))
-                            claude_prompt = base_prompt + f'\n\nYour previous submission failed AST validation:\n{error_msgs}\n\nPlease fix these errors and resubmit.'
-                        else:
-                            claude_prompt = base_prompt
+                            repaired_claude = _try_auto_repair(claude_code, claude_violations, agent_a, task_id)
+                            if repaired_claude is not None:
+                                revalid_ok, revalid_violations = _validate_submission(repaired_claude, agent_a, task)
+                                if revalid_ok:
+                                    logger.info('auto_repair: %s submission re-validated after repair (task=%s)', agent_a, task_id)
+                                    claude_code = repaired_claude
+                                    claude_valid = True
+                                    claude_violations = revalid_violations
+                                else:
+                                    logger.info('auto_repair: %s repair re-validation still failed (task=%s)', agent_a, task_id)
                         if not gemini_valid:
-                            error_msgs = '\n'.join((f'- {v.rule} (Line {v.line}): {v.message}' for v in gemini_violations if v.severity == 'error'))
-                            gemini_prompt = base_prompt + f'\n\nYour previous submission failed AST validation:\n{error_msgs}\n\nPlease fix these errors and resubmit.'
-                        else:
-                            gemini_prompt = base_prompt
-                        continue
-                    synthesis_success = True
-                    break
-            if not synthesis_success:
-                logger.warning('Synthesis or AST validation failed after retries. Rejecting.')
-                set_phase(state_dir, phase='rejected')
-                _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                _mark_processed(state_dir, task_id)
-                _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                logger.info('=== Round %d complete (Synthesis/AST failure) ===\n', round_number)
-                continue
-            mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
-            _skip_ifz = mtt == 'test_authoring' and META_TASK_POLICY.get('test_authoring', {}).get('skip_interface_fuzz')
-            if _should_bypass_or_route_task(task, config) == 'bypass':
-                if mtt not in SKIP_SMOKE_GATE_TYPES and (not _skip_ifz):
-                    smoke_err = smoke_import('_smoke_candidate', claude_code)
-                    if smoke_err is not None:
-                        logger.error('Smoke rejected bypass-eligible %s (mtt=%s): %s', task_id, mtt, smoke_err)
-                        set_phase(state_dir, phase='rejected')
-                        _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                        _mark_processed(state_dir, task_id)
-                        _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                        logger.info('=== Round %d complete (rejected via sandbox smoke) ===\n', round_number)
-                        continue
-                    working_dir = task.get('working_dir')
-                    from harness import agent_jail
-                    from harness.paths import _target_is_self
-                    if not _target_is_self(working_dir) and (not agent_jail.sandbox_enabled(config)):
-                        raise RuntimeError('FLAG2_EMBEDDED_FUZZ (REV23 §C6): refusing to run embedded tests UNJAILED on an EXTERNAL target while agent_sandbox is disabled (working_dir=%r is outside the JanusMask tree). An external candidate MUST run inside the bubblewrap jail; enable agent_sandbox.bwrap or origin the task against self.' % (working_dir,))
-                    embedded_err = run_embedded_tests('_embedded_candidate', claude_code)
-                    if embedded_err is not None:
-                        logger.error('Embedded tests rejected bypass-eligible %s (mtt=%s): %s', task_id, mtt, embedded_err)
-                        set_phase(state_dir, phase='rejected')
-                        _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                        _mark_processed(state_dir, task_id)
-                        _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                        logger.info('=== Round %d complete (rejected via embedded tests) ===\n', round_number)
-                        continue
-                    working_dir = task.get('working_dir')
-                    from harness import agent_jail
-                    from harness.paths import _target_is_self
-                    if not _target_is_self(working_dir) and (not agent_jail.sandbox_enabled(config)):
-                        raise RuntimeError('FLAG2_EMBEDDED_FUZZ (REV23 §C6): refusing to run narrow-fuzz UNJAILED on an EXTERNAL target while agent_sandbox is disabled (working_dir=%r is outside the JanusMask tree). An external candidate MUST run inside the bubblewrap jail; enable agent_sandbox.bwrap or origin the task against self.' % (working_dir,))
-                    narrow_err = run_narrow_fuzz(mtt, '_narrow_fuzz_candidate', claude_code)
-                    if narrow_err is not None:
-                        logger.error('Narrow-fuzz rejected bypass-eligible %s (mtt=%s): %s', task_id, mtt, narrow_err)
-                        set_phase(state_dir, phase='rejected')
-                        _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                        _mark_processed(state_dir, task_id)
-                        _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                        logger.info('=== Round %d complete (rejected via narrow-fuzz) ===\n', round_number)
-                        continue
-                else:
-                    logger.info('Skipping smoke + embedded gates for %s (mtt=%s in SKIP_SMOKE_GATE_TYPES -- harness-internal code legitimately imports site-packages)', task_id, mtt)
-                logger.info('Bypassing fuzzing for %s task', mtt)
-                _save_final_output(state_dir, task_id, claude_code)
-                decision = control_gate.await_decision(state_dir, task_id, 'accepted', config, emit_pending=lambda tid, ph: _emit_pending(state_dir, tid, ph), emit_timeout=lambda tid, ph: _emit_timeout(state_dir, tid, ph))
-                if decision in ('reject', 'timeout', 'retry'):
+                            repaired_gemini = _try_auto_repair(gemini_code, gemini_violations, agent_b, task_id)
+                            if repaired_gemini is not None:
+                                revalid_ok, revalid_violations = _validate_submission(repaired_gemini, agent_b, task)
+                                if revalid_ok:
+                                    logger.info('auto_repair: %s submission re-validated after repair (task=%s)', agent_b, task_id)
+                                    gemini_code = repaired_gemini
+                                    gemini_valid = True
+                                    gemini_violations = revalid_violations
+                                else:
+                                    logger.info('auto_repair: %s repair re-validation still failed (task=%s)', agent_b, task_id)
+                        if not (claude_valid and gemini_valid):
+                            ast_retries += 1
+                            logger.warning('AST validation failed (%s=%s, %s=%s). Retry %d/%d.', agent_a, claude_valid, agent_b, gemini_valid, ast_retries, max_ast_retries)
+                            if not claude_valid:
+                                error_msgs = '\n'.join((f'- {v.rule} (Line {v.line}): {v.message}' for v in claude_violations if v.severity == 'error'))
+                                claude_prompt = base_prompt + f'\n\nYour previous submission failed AST validation:\n{error_msgs}\n\nPlease fix these errors and resubmit.'
+                            else:
+                                claude_prompt = base_prompt
+                            if not gemini_valid:
+                                error_msgs = '\n'.join((f'- {v.rule} (Line {v.line}): {v.message}' for v in gemini_violations if v.severity == 'error'))
+                                gemini_prompt = base_prompt + f'\n\nYour previous submission failed AST validation:\n{error_msgs}\n\nPlease fix these errors and resubmit.'
+                            else:
+                                gemini_prompt = base_prompt
+                            continue
+                        synthesis_success = True
+                        break
+                if not synthesis_success:
+                    logger.warning('Synthesis or AST validation failed after retries. Rejecting.')
                     set_phase(state_dir, phase='rejected')
                     _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
                     _mark_processed(state_dir, task_id)
                     _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                    logger.warning('=== Round %d complete (rejected via HITL %s) ===\n', round_number, decision)
+                    logger.info('=== Round %d complete (Synthesis/AST failure) ===\n', round_number)
                     continue
-                auto_commit_ok = _auto_commit_accepted(state_dir, task, task_id)
-                _mark_processed(state_dir, task_id)
-                _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                if auto_commit_ok:
-                    set_phase(state_dir, phase='accepted')
-                    _emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
-                    logger.info('=== Round %d complete (accepted via fuzzer bypass) ===\n', round_number)
-                else:
-                    set_phase(state_dir, phase='rejected')
-                    _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                    logger.warning('=== Round %d complete (rejected: auto-commit failed) ===\n', round_number)
-                continue
-            set_phase(state_dir, phase='fuzzing')
-            _emit_lifecycle(state_dir, event='phase_transition', phase='fuzzing', task_id=task_id, phase_transition={'to': 'fuzzing'})
-            logger.info('Phase -> fuzzing (round 1)')
-            fuzz_result = fuzz_from_task(claude_code, gemini_code, task, config, session_id=f'{task_id}_r1')
-            _persist_fuzz_results(state_dir, task_id, 'round1', fuzz_result)
-            if fuzz_result.error:
-                logger.error('Fuzzing error: %s', fuzz_result.error)
-                set_phase(state_dir, phase='rejected')
-                _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                _mark_processed(state_dir, task_id)
-                _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                continue
-            if fuzz_result.equivalent:
-                logger.info('EQUIVALENT after round 1 (%d/%d inputs matched)', fuzz_result.matching_inputs, fuzz_result.total_inputs)
-                _save_final_output(state_dir, task_id, claude_code)
-                decision = control_gate.await_decision(state_dir, task_id, 'accepted', config, emit_pending=lambda tid, ph: _emit_pending(state_dir, tid, ph), emit_timeout=lambda tid, ph: _emit_timeout(state_dir, tid, ph))
-                if decision in ('reject', 'timeout', 'retry'):
+                mtt = task.get('meta_task_type') or task.get('constraints', {}).get('meta_task_type')
+                _skip_ifz = mtt == 'test_authoring' and META_TASK_POLICY.get('test_authoring', {}).get('skip_interface_fuzz')
+                if _should_bypass_or_route_task(task, config) == 'bypass':
+                    if mtt not in SKIP_SMOKE_GATE_TYPES and (not _skip_ifz):
+                        smoke_err = smoke_import('_smoke_candidate', claude_code)
+                        if smoke_err is not None:
+                            logger.error('Smoke rejected bypass-eligible %s (mtt=%s): %s', task_id, mtt, smoke_err)
+                            set_phase(state_dir, phase='rejected')
+                            _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                            _mark_processed(state_dir, task_id)
+                            _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                            logger.info('=== Round %d complete (rejected via sandbox smoke) ===\n', round_number)
+                            continue
+                        working_dir = task.get('working_dir')
+                        from harness import agent_jail
+                        from harness.paths import _target_is_self
+                        if not _target_is_self(working_dir) and (not agent_jail.sandbox_enabled(config)):
+                            raise RuntimeError('FLAG2_EMBEDDED_FUZZ (REV23 §C6): refusing to run embedded tests UNJAILED on an EXTERNAL target while agent_sandbox is disabled (working_dir=%r is outside the JanusMask tree). An external candidate MUST run inside the bubblewrap jail; enable agent_sandbox.bwrap or origin the task against self.' % (working_dir,))
+                        embedded_err = run_embedded_tests('_embedded_candidate', claude_code)
+                        if embedded_err is not None:
+                            logger.error('Embedded tests rejected bypass-eligible %s (mtt=%s): %s', task_id, mtt, embedded_err)
+                            set_phase(state_dir, phase='rejected')
+                            _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                            _mark_processed(state_dir, task_id)
+                            _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                            logger.info('=== Round %d complete (rejected via embedded tests) ===\n', round_number)
+                            continue
+                        working_dir = task.get('working_dir')
+                        from harness import agent_jail
+                        from harness.paths import _target_is_self
+                        if not _target_is_self(working_dir) and (not agent_jail.sandbox_enabled(config)):
+                            raise RuntimeError('FLAG2_EMBEDDED_FUZZ (REV23 §C6): refusing to run narrow-fuzz UNJAILED on an EXTERNAL target while agent_sandbox is disabled (working_dir=%r is outside the JanusMask tree). An external candidate MUST run inside the bubblewrap jail; enable agent_sandbox.bwrap or origin the task against self.' % (working_dir,))
+                        narrow_err = run_narrow_fuzz(mtt, '_narrow_fuzz_candidate', claude_code)
+                        if narrow_err is not None:
+                            logger.error('Narrow-fuzz rejected bypass-eligible %s (mtt=%s): %s', task_id, mtt, narrow_err)
+                            set_phase(state_dir, phase='rejected')
+                            _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                            _mark_processed(state_dir, task_id)
+                            _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                            logger.info('=== Round %d complete (rejected via narrow-fuzz) ===\n', round_number)
+                            continue
+                    else:
+                        logger.info('Skipping smoke + embedded gates for %s (mtt=%s in SKIP_SMOKE_GATE_TYPES -- harness-internal code legitimately imports site-packages)', task_id, mtt)
+                    logger.info('Bypassing fuzzing for %s task', mtt)
+                    _save_final_output(state_dir, task_id, claude_code)
+                    decision = control_gate.await_decision(state_dir, task_id, 'accepted', config, emit_pending=lambda tid, ph: _emit_pending(state_dir, tid, ph), emit_timeout=lambda tid, ph: _emit_timeout(state_dir, tid, ph))
+                    if decision in ('reject', 'timeout', 'retry'):
+                        set_phase(state_dir, phase='rejected')
+                        _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        _mark_processed(state_dir, task_id)
+                        _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                        logger.warning('=== Round %d complete (rejected via HITL %s) ===\n', round_number, decision)
+                        continue
+                    auto_commit_ok = _auto_commit_accepted(state_dir, task, task_id)
+                    _mark_processed(state_dir, task_id)
+                    _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                    if auto_commit_ok:
+                        set_phase(state_dir, phase='accepted')
+                        _emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
+                        logger.info('=== Round %d complete (accepted via fuzzer bypass) ===\n', round_number)
+                    else:
+                        set_phase(state_dir, phase='rejected')
+                        _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        logger.warning('=== Round %d complete (rejected: auto-commit failed) ===\n', round_number)
+                    continue
+                set_phase(state_dir, phase='fuzzing')
+                _emit_lifecycle(state_dir, event='phase_transition', phase='fuzzing', task_id=task_id, phase_transition={'to': 'fuzzing'})
+                logger.info('Phase -> fuzzing (round 1)')
+                fuzz_result = fuzz_from_task(claude_code, gemini_code, task, config, session_id=f'{task_id}_r1')
+                _persist_fuzz_results(state_dir, task_id, 'round1', fuzz_result)
+                if fuzz_result.error:
+                    logger.error('Fuzzing error: %s', fuzz_result.error)
                     set_phase(state_dir, phase='rejected')
                     _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
                     _mark_processed(state_dir, task_id)
                     _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                    logger.warning('=== Round %d complete (rejected via HITL %s) ===\n', round_number, decision)
                     continue
-                auto_commit_ok = _auto_commit_accepted(state_dir, task, task_id)
-                _mark_processed(state_dir, task_id)
-                _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                if auto_commit_ok:
-                    set_phase(state_dir, phase='accepted')
-                    _emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
-                    logger.info('=== Round %d complete (accepted) ===\n', round_number)
-                else:
-                    set_phase(state_dir, phase='rejected')
-                    _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                    logger.warning('=== Round %d complete (rejected: auto-commit failed) ===\n', round_number)
-                continue
-            logger.info('DIVERGENT after round 1 (%d failures out of %d inputs)', len(fuzz_result.failures), fuzz_result.total_inputs)
-            _promote_fuzz_failures_to_tests(task, fuzz_result.failures, state_dir)
-            set_phase(state_dir, phase='cross_examination')
-            _emit_lifecycle(state_dir, event='phase_transition', phase='cross_examination', task_id=task_id, phase_transition={'to': 'cross_examination'})
-            logger.info('Phase -> cross_examination')
-            task_spec = task.get('specification') or task.get('description') or ''
-            claude_packet, gemini_packet = prepare_exam_packets(claude_code, gemini_code, task_spec, fuzz_result.failures)
-            write_feedback_files(state_dir, claude_packet, gemini_packet, round_number)
-            revised_claude, revised_gemini = run_both_agents(claude_packet.review_prompt, gemini_packet.review_prompt, config, state_dir, round_number, phase_name='cross_examination')
-            clear_feedback_files(state_dir)
-            revised_claude = revised_claude or claude_code
-            revised_gemini = revised_gemini or gemini_code
-            set_phase(state_dir, phase='fuzzing')
-            _emit_lifecycle(state_dir, event='phase_transition', phase='fuzzing', task_id=task_id, phase_transition={'to': 'fuzzing'})
-            logger.info('Phase -> fuzzing (round 2)')
-            fuzz_result_2 = fuzz_from_task(revised_claude, revised_gemini, task, config, session_id=f'{task_id}_r2')
-            _persist_fuzz_results(state_dir, task_id, 'round2', fuzz_result_2)
-            if fuzz_result_2.error:
-                logger.error('Round 2 fuzzing error: %s', fuzz_result_2.error)
-                set_phase(state_dir, phase='rejected')
-                _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                _mark_processed(state_dir, task_id)
-                _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                continue
-            if fuzz_result_2.equivalent:
-                logger.info('EQUIVALENT after round 2 (%d/%d inputs matched)', fuzz_result_2.matching_inputs, fuzz_result_2.total_inputs)
-                _save_final_output(state_dir, task_id, revised_claude)
-                decision = control_gate.await_decision(state_dir, task_id, 'accepted', config, emit_pending=lambda tid, ph: _emit_pending(state_dir, tid, ph), emit_timeout=lambda tid, ph: _emit_timeout(state_dir, tid, ph))
-                if decision in ('reject', 'timeout', 'retry'):
+                if fuzz_result.equivalent:
+                    logger.info('EQUIVALENT after round 1 (%d/%d inputs matched)', fuzz_result.matching_inputs, fuzz_result.total_inputs)
+                    _save_final_output(state_dir, task_id, claude_code)
+                    decision = control_gate.await_decision(state_dir, task_id, 'accepted', config, emit_pending=lambda tid, ph: _emit_pending(state_dir, tid, ph), emit_timeout=lambda tid, ph: _emit_timeout(state_dir, tid, ph))
+                    if decision in ('reject', 'timeout', 'retry'):
+                        set_phase(state_dir, phase='rejected')
+                        _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        _mark_processed(state_dir, task_id)
+                        _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                        logger.warning('=== Round %d complete (rejected via HITL %s) ===\n', round_number, decision)
+                        continue
+                    auto_commit_ok = _auto_commit_accepted(state_dir, task, task_id)
+                    _mark_processed(state_dir, task_id)
+                    _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                    if auto_commit_ok:
+                        set_phase(state_dir, phase='accepted')
+                        _emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
+                        logger.info('=== Round %d complete (accepted) ===\n', round_number)
+                    else:
+                        set_phase(state_dir, phase='rejected')
+                        _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        logger.warning('=== Round %d complete (rejected: auto-commit failed) ===\n', round_number)
+                    continue
+                logger.info('DIVERGENT after round 1 (%d failures out of %d inputs)', len(fuzz_result.failures), fuzz_result.total_inputs)
+                _promote_fuzz_failures_to_tests(task, fuzz_result.failures, state_dir)
+                set_phase(state_dir, phase='cross_examination')
+                _emit_lifecycle(state_dir, event='phase_transition', phase='cross_examination', task_id=task_id, phase_transition={'to': 'cross_examination'})
+                logger.info('Phase -> cross_examination')
+                task_spec = task.get('specification') or task.get('description') or ''
+                claude_packet, gemini_packet = prepare_exam_packets(claude_code, gemini_code, task_spec, fuzz_result.failures)
+                write_feedback_files(state_dir, claude_packet, gemini_packet, round_number)
+                revised_claude, revised_gemini = run_both_agents(claude_packet.review_prompt, gemini_packet.review_prompt, config, state_dir, round_number, phase_name='cross_examination')
+                clear_feedback_files(state_dir)
+                revised_claude = revised_claude or claude_code
+                revised_gemini = revised_gemini or gemini_code
+                set_phase(state_dir, phase='fuzzing')
+                _emit_lifecycle(state_dir, event='phase_transition', phase='fuzzing', task_id=task_id, phase_transition={'to': 'fuzzing'})
+                logger.info('Phase -> fuzzing (round 2)')
+                fuzz_result_2 = fuzz_from_task(revised_claude, revised_gemini, task, config, session_id=f'{task_id}_r2')
+                _persist_fuzz_results(state_dir, task_id, 'round2', fuzz_result_2)
+                if fuzz_result_2.error:
+                    logger.error('Round 2 fuzzing error: %s', fuzz_result_2.error)
                     set_phase(state_dir, phase='rejected')
                     _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
                     _mark_processed(state_dir, task_id)
                     _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                    logger.warning('=== Round %d complete (rejected via HITL %s) ===\n', round_number, decision)
                     continue
-                auto_commit_ok = _auto_commit_accepted(state_dir, task, task_id)
+                if fuzz_result_2.equivalent:
+                    logger.info('EQUIVALENT after round 2 (%d/%d inputs matched)', fuzz_result_2.matching_inputs, fuzz_result_2.total_inputs)
+                    _save_final_output(state_dir, task_id, revised_claude)
+                    decision = control_gate.await_decision(state_dir, task_id, 'accepted', config, emit_pending=lambda tid, ph: _emit_pending(state_dir, tid, ph), emit_timeout=lambda tid, ph: _emit_timeout(state_dir, tid, ph))
+                    if decision in ('reject', 'timeout', 'retry'):
+                        set_phase(state_dir, phase='rejected')
+                        _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        _mark_processed(state_dir, task_id)
+                        _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                        logger.warning('=== Round %d complete (rejected via HITL %s) ===\n', round_number, decision)
+                        continue
+                    auto_commit_ok = _auto_commit_accepted(state_dir, task, task_id)
+                    _mark_processed(state_dir, task_id)
+                    _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                    if auto_commit_ok:
+                        set_phase(state_dir, phase='accepted')
+                        _emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
+                        logger.info('=== Round %d complete (accepted after cross-exam) ===\n', round_number)
+                    else:
+                        set_phase(state_dir, phase='rejected')
+                        _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        logger.warning('=== Round %d complete (rejected: auto-commit failed) ===\n', round_number)
+                    continue
+                logger.info('DIVERGENT after round 2 (%d failures). Decomposing.', len(fuzz_result_2.failures))
+                set_phase(state_dir, phase='decomposition')
+                _emit_lifecycle(state_dir, event='phase_transition', phase='decomposition', task_id=task_id, phase_transition={'to': 'decomposition'})
+                logger.info('Phase -> decomposition')
+                decomp_result = decompose_task(task, fuzz_result_2.failures, config, code_a=revised_claude, code_b=revised_gemini, depth=task.get('depth', 0))
+                logger.info('Decomposed %s via %s strategy: %d subtasks', task_id, decomp_result.strategy, len(decomp_result.subtasks))
+                enqueue_subtasks(decomp_result.subtasks, state_dir)
+                subtask_ids = [s.task_id for s in decomp_result.subtasks]
+                update_parent_state(state_dir, task_id, subtask_ids)
                 _mark_processed(state_dir, task_id)
                 _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-                if auto_commit_ok:
-                    set_phase(state_dir, phase='accepted')
-                    _emit_lifecycle(state_dir, event='phase_transition', phase='accepted', task_id=task_id, phase_transition={'to': 'accepted'})
-                    logger.info('=== Round %d complete (accepted after cross-exam) ===\n', round_number)
+                logger.info('=== Round %d complete (decomposed into %d subtasks) ===\n', round_number, len(subtask_ids))
+            except Exception as e:
+                import traceback
+                tb_str = traceback.format_exc()
+                from harness.grounding import classify_failure_severity, validate_grounding_bundle
+                try:
+                    sev = classify_failure_severity(tb_str)
+                except Exception as class_err:
+                    logger.error('Error during failure classification: %s', class_err)
+                    sev = 'implementation_defect'
+                if sev == 'conceptual_mismatch':
+                    logger.info('Failure classified as conceptual_mismatch. Transitioning to grounding phase.')
+                    try:
+                        set_phase(state_dir, phase='grounding')
+                        _emit_lifecycle(state_dir, event='phase_transition', phase='grounding', task_id=task_id, phase_transition={'to': 'grounding'})
+                    except Exception as phase_err:
+                        logger.error('Failed to transition phase to grounding: %s', phase_err)
+                        raise e
+                    bundle_path = task.get('grounding_bundle_path') or task.get('grounding_bundle') or (config.get('grounding', {}) if isinstance(config.get('grounding'), dict) else {}).get('bundle_path')
+                    key = task.get('grounding_key') or task.get('grounding_secret') or (config.get('grounding', {}) if isinstance(config.get('grounding'), dict) else {}).get('key')
+                    if not bundle_path:
+                        bundle_path = str(state_dir / 'grounding_bundle.json')
+                    if not key:
+                        key = 'default_secret_key'
+                    validation_ok = False
+                    try:
+                        validation_ok = validate_grounding_bundle(bundle_path, key)
+                    except Exception as val_err:
+                        logger.error('Error during grounding bundle validation: %s', val_err)
+                    if validation_ok:
+                        logger.info('Grounding bundle validation succeeded. Transitioning back to synthesis.')
+                        try:
+                            set_phase(state_dir, phase='synthesis')
+                            _emit_lifecycle(state_dir, event='phase_transition', phase='synthesis', task_id=task_id, phase_transition={'to': 'synthesis'})
+                        except Exception as phase_err:
+                            logger.error('Failed to transition phase from grounding to synthesis: %s', phase_err)
+                            raise e
+                        processing_path = state_dir / 'tasks' / f'{task_id}.json.processing'
+                        if processing_path.exists():
+                            try:
+                                processing_path.rename(state_dir / 'tasks' / f'{task_id}.json')
+                            except Exception as rename_err:
+                                logger.error('Failed to rename processing path back to original: %s', rename_err)
+                        continue
+                    else:
+                        logger.warning('Grounding bundle validation failed. Rejecting task.')
+                        try:
+                            set_phase(state_dir, phase='rejected')
+                            _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
+                        except Exception as phase_err:
+                            logger.error('Failed to transition phase to rejected: %s', phase_err)
+                        _mark_processed(state_dir, task_id)
+                        _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
+                        continue
                 else:
-                    set_phase(state_dir, phase='rejected')
-                    _emit_lifecycle(state_dir, event='phase_transition', phase='rejected', task_id=task_id, phase_transition={'to': 'rejected'})
-                    logger.warning('=== Round %d complete (rejected: auto-commit failed) ===\n', round_number)
-                continue
-            logger.info('DIVERGENT after round 2 (%d failures). Decomposing.', len(fuzz_result_2.failures))
-            set_phase(state_dir, phase='decomposition')
-            _emit_lifecycle(state_dir, event='phase_transition', phase='decomposition', task_id=task_id, phase_transition={'to': 'decomposition'})
-            logger.info('Phase -> decomposition')
-            decomp_result = decompose_task(task, fuzz_result_2.failures, config, code_a=revised_claude, code_b=revised_gemini, depth=task.get('depth', 0))
-            logger.info('Decomposed %s via %s strategy: %d subtasks', task_id, decomp_result.strategy, len(decomp_result.subtasks))
-            enqueue_subtasks(decomp_result.subtasks, state_dir)
-            subtask_ids = [s.task_id for s in decomp_result.subtasks]
-            update_parent_state(state_dir, task_id, subtask_ids)
-            _mark_processed(state_dir, task_id)
-            _emit_lifecycle(state_dir, event='task_terminal', task_id=task_id)
-            logger.info('=== Round %d complete (decomposed into %d subtasks) ===\n', round_number, len(subtask_ids))
+                    logger.info('Failure classified as %s. Bypassing grounding phase.', sev)
+                    raise e
         finally:
             try:
                 if list((state_dir / 'tasks').glob(f'*{task_id}.json.processing')):
