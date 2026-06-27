@@ -153,6 +153,99 @@ def start_screencast(display: str, output_path: str) -> subprocess.Popen:
     ffmpeg_cmd = ['ffmpeg', '-y', '-f', 'x11grab', '-video_size', f'{width}x{height}', '-i', display, '-movflags', 'empty_moov+omit_tfhd_offset+frag_keyframe+default_base_moof', '-flush_packets', '1', output_path]
     proc = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return proc
+def generate_contact_sheet(video_path: str, output_image_path: str) -> None:
+    """
+    Transcodes captured video into a single 3x3 tiled contact sheet,
+    ensuring commas in FFmpeg filter lists are not backslash-escaped,
+    and falling back to a static black warning frame on 0-frame or short video (<9s) edge cases.
+    """
+    import os
+    import json
+    import subprocess
+    if not video_path or not isinstance(video_path, str):
+        raise ValueError('Missing or invalid video input path')
+    if not output_image_path or not isinstance(output_image_path, str):
+        raise ValueError('Missing or invalid output image path')
+    if not os.path.exists(video_path):
+        raise FileNotFoundError(f"Video file '{video_path}' does not exist.")
+    with open(video_path, 'rb') as f:
+        pass
+    output_dir = os.path.dirname(output_image_path)
+    if output_dir and (not os.path.exists(output_dir)):
+        raise FileNotFoundError(f"Output directory '{output_dir}' does not exist.")
+    probe_cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=nb_frames,duration,width,height,avg_frame_rate:format=duration', '-of', 'json', video_path]
+    try:
+        res = subprocess.run(probe_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10, check=True)
+    except subprocess.CalledProcessError as e:
+        raise ValueError(f'FFprobe failed to parse video file: {e.stderr}') from e
+    except subprocess.TimeoutExpired as e:
+        raise subprocess.TimeoutExpired(e.cmd, e.timeout, output=e.stdout, stderr=e.stderr)
+    try:
+        data = json.loads(res.stdout)
+    except Exception as e:
+        raise ValueError(f'Failed to parse ffprobe JSON output: {e}') from e
+    streams = data.get('streams', [])
+    fmt = data.get('format', {})
+    duration = 0.0
+    nb_frames = 0
+    width = 1280
+    height = 1024
+    duration_str = fmt.get('duration')
+    if not duration_str and streams:
+        duration_str = streams[0].get('duration')
+    if duration_str and duration_str != 'N/A':
+        try:
+            duration = float(duration_str)
+        except ValueError:
+            pass
+    if streams:
+        w_str = streams[0].get('width')
+        h_str = streams[0].get('height')
+        if w_str and h_str:
+            try:
+                width = int(w_str)
+                height = int(h_str)
+            except ValueError:
+                pass
+        nb_frames_str = streams[0].get('nb_frames')
+        if nb_frames_str and nb_frames_str != 'N/A':
+            try:
+                nb_frames = int(nb_frames_str)
+            except ValueError:
+                pass
+        if nb_frames == 0 and duration > 0:
+            fps_str = streams[0].get('avg_frame_rate')
+            if fps_str and fps_str != 'N/A':
+                if '/' in fps_str:
+                    try:
+                        num, den = fps_str.split('/')
+                        if float(den) != 0:
+                            nb_frames = int(duration * (float(num) / float(den)))
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        nb_frames = int(duration * float(fps_str))
+                    except ValueError:
+                        pass
+    if nb_frames == 0 or duration < 9.0:
+        fallback_cmd = ['ffmpeg', '-y', '-f', 'lavfi', '-i', f'color=c=black:s={width}x{height}', '-vframes', '1', output_image_path]
+        try:
+            subprocess.run(fallback_cmd, capture_output=True, text=True, check=True, timeout=15)
+        except subprocess.TimeoutExpired as e:
+            raise subprocess.TimeoutExpired(e.cmd, e.timeout, output=e.stdout, stderr=e.stderr)
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f'FFmpeg fallback failed: {e.stderr}') from e
+        return
+    N = max(1, nb_frames // 9)
+    filter_str = f'select=not(mod(n,{N})),scale={width}:{height},tile=3x3'
+    ffmpeg_cmd = ['ffmpeg', '-y', '-i', video_path, '-vf', filter_str, '-vframes', '1', output_image_path]
+    try:
+        subprocess.run(ffmpeg_cmd, capture_output=True, text=True, check=True, timeout=30)
+    except subprocess.TimeoutExpired as e:
+        raise subprocess.TimeoutExpired(e.cmd, e.timeout, output=e.stdout, stderr=e.stderr)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f'FFmpeg contact sheet generation failed: {e.stderr}') from e
 def verify_port_ready_hmac(port: int, secret_key: bytes, proc: Optional[subprocess.Popen] = None) -> bool:
     """
     Verifies local dev-server port readiness using an HMAC SHA256 challenge-response handshake
