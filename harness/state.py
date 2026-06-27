@@ -165,3 +165,31 @@ def get_agent_status(state_dir: Path | None=None, *, agent: str) -> str:
         raise InvalidAgentError(f'Invalid agent {agent!r}. Must be one of: {', '.join(sorted(VALID_AGENTS))}')
     state = read_state(state_dir)
     return state[f'{agent}_status']
+
+def save_task_state_atomic(state_path: str, data: dict) -> None:
+    try:
+        json.dumps(data)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f'Invalid/corrupted JSON state data: {exc}') from exc
+    path = Path(state_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = Path(str(state_path) + '.lock')
+    with open(lock_path, 'a') as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        tmp_path = path.with_name(f'.tmp.{path.name}.{os.getpid()}.{time.time()}')
+        try:
+            with open(tmp_path, 'w') as f:
+                json.dump(data, f, indent=2)
+                f.write('\n')
+                f.flush()
+                os.fsync(f.fileno())
+            tmp_path.replace(path)
+        except Exception as write_exc:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+            raise write_exc
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
