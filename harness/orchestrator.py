@@ -53,6 +53,10 @@ try:
     import harness.grounding
 except ImportError:
     pass
+try:
+    import harness.media_manager
+except ImportError:
+    pass
 POLL_INTERVAL = 2
 logger = logging.getLogger('janusmask.orchestrator')
 
