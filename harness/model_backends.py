@@ -85,7 +85,22 @@ class CodexCliBackend:
     def agent_block(self):
         return {'command': self.command, 'args': list(self.args or [])}
 _CLI_KINDS = ('cli', 'codex_cli')
-BACKEND_REGISTRY: Dict[str, BackendSpec] = {'openai': BackendSpec('openai_compat', 'openai', base_url='https://api.openai.com/v1', api_key_env='OPENAI_API_KEY'), 'gemini_api': BackendSpec('openai_compat', 'gemini_api', base_url='https://generativelanguage.googleapis.com/v1beta/openai/', api_key_env='GEMINI_API_KEY'), 'deepseek': BackendSpec('openai_compat', 'deepseek', base_url='https://api.deepseek.com', api_key_env='DEEPSEEK_API_KEY'), 'moonshot': BackendSpec('openai_compat', 'moonshot', base_url='https://api.moonshot.ai/v1', api_key_env='MOONSHOT_API_KEY'), 'zhipu': BackendSpec('openai_compat', 'zhipu', base_url='https://api.z.ai/api/paas/v4', api_key_env='ZHIPU_API_KEY'), 'qwen': BackendSpec('openai_compat', 'qwen', base_url='https://dashscope-intl.aliyuncs.com/compatible-mode/v1', api_key_env='DASHSCOPE_API_KEY'), 'minimax': BackendSpec('openai_compat', 'minimax', base_url='https://api.minimax.io/v1', api_key_env='MINIMAX_API_KEY'), 'anthropic': BackendSpec('anthropic', 'anthropic', api_key_env='ANTHROPIC_API_KEY'), 'claude': BackendSpec('cli', 'claude', command='claude', args=[]), 'gemini': BackendSpec('cli', 'gemini', command='gemini', args=[]), 'antigravity': BackendSpec('cli', 'antigravity', command='antigravity', args=[]), 'codex': BackendSpec('codex_cli', 'codex', command='codex', args=[])}
+BACKEND_REGISTRY: Dict[str, BackendSpec] = {
+    'openai': BackendSpec('openai_compat', 'openai', base_url='https://api.openai.com/v1', api_key_env='OPENAI_API_KEY'),
+    'gemini_api': BackendSpec('openai_compat', 'gemini_api', base_url='https://generativelanguage.googleapis.com/v1beta/openai/', api_key_env='GEMINI_API_KEY'),
+    'deepseek': BackendSpec('openai_compat', 'deepseek', base_url='https://api.deepseek.com', api_key_env='DEEPSEEK_API_KEY'),
+    'moonshot': BackendSpec('openai_compat', 'moonshot', base_url='https://api.moonshot.ai/v1', api_key_env='MOONSHOT_API_KEY'),
+    'zhipu': BackendSpec('openai_compat', 'zhipu', base_url='https://api.z.ai/api/paas/v4', api_key_env='ZHIPU_API_KEY'),
+    'qwen': BackendSpec('openai_compat', 'qwen', base_url='https://dashscope-intl.aliyuncs.com/compatible-mode/v1', api_key_env='DASHSCOPE_API_KEY'),
+    'minimax': BackendSpec('openai_compat', 'minimax', base_url='https://api.minimax.io/v1', api_key_env='MINIMAX_API_KEY'),
+    'anthropic': BackendSpec('anthropic', 'anthropic', api_key_env='ANTHROPIC_API_KEY'),
+    'claude': BackendSpec('cli', 'claude', command='claude', args=[]),
+    'gemini': BackendSpec('cli', 'gemini', command='gemini', args=[]),
+    'antigravity': BackendSpec('cli', 'antigravity', command='antigravity', args=[]),
+    'codex': BackendSpec('codex_cli', 'codex', command='codex', args=[]),
+    'vllm': BackendSpec('openai_compat', 'vllm', base_url='http://localhost:8000/v1', api_key_env='VLLM_API_KEY', model_id='DiffusionGemma-26B-it'),
+    'diffusion_gemma': BackendSpec('openai_compat', 'diffusion_gemma', base_url='http://localhost:8000/v1', api_key_env='VLLM_API_KEY', model_id='DiffusionGemma-26B-it')
+}
 
 def _default_state_dir():
     return Path(os.environ.get('JANUSMASK_STATE_DIR', 'state'))
@@ -127,3 +142,96 @@ def agent_block(provider_id: str) -> dict:
     if spec.kind in _CLI_KINDS:
         return {'command': spec.command, 'args': list(spec.args or [])}
     return {'base_url': spec.base_url, 'model': spec.model_id, 'api_key_env': spec.api_key_env}
+
+VLLM_SERVING_PARAMS = {
+    'model': 'DiffusionGemma-26B-it',
+    'gpu_index': 0,
+    'gpu': 0,
+    'enable_prefix_caching': True,
+    'enable-prefix-caching': True,
+    'apc_enabled': True,
+    'port': 8000,
+    'base_url': 'http://localhost:8000/v1',
+    'api_key': 'mock_key',
+}
+
+def synthesize_inpaint_with_retries(prompt: str, image_path: str, mask_path: str, **kwargs) -> str:
+    """Wraps the OpenAI-compatible vLLM client call for inpainting with exponential backoff retries."""
+    import time
+    from pathlib import Path
+    
+    if not isinstance(prompt, str):
+        raise TypeError("Prompt must be a string.")
+    if not prompt.strip():
+        raise ValueError("Prompt cannot be empty.")
+        
+    if not isinstance(image_path, (str, Path)):
+        raise TypeError("image_path must be a string or Path.")
+    img_path = Path(image_path)
+    if not img_path.is_file():
+        raise ValueError(f"Invalid image path: {image_path}")
+        
+    if not isinstance(mask_path, (str, Path)):
+        raise TypeError("mask_path must be a string or Path.")
+    m_path = Path(mask_path)
+    if not m_path.is_file():
+        raise ValueError(f"Invalid mask path: {mask_path}")
+        
+    base_url = kwargs.pop('base_url', None) or os.environ.get('VLLM_BASE_URL') or 'http://localhost:8000/v1'
+    api_key = kwargs.pop('api_key', None) or os.environ.get('VLLM_API_KEY') or 'mock_key'
+    model = kwargs.pop('model', None) or os.environ.get('VLLM_MODEL_NAME') or 'DiffusionGemma-26B-it'
+    
+    max_retries = kwargs.pop('max_retries', 5)
+    initial_delay = kwargs.pop('initial_delay', 1.0)
+    backoff_factor = kwargs.pop('backoff_factor', 2.0)
+    
+    from openai import OpenAI
+    
+    client = OpenAI(base_url=base_url, api_key=api_key)
+    
+    delay = initial_delay
+    last_exc = None
+    
+    for attempt in range(max_retries + 1):
+        try:
+            with open(image_path, "rb") as img_file, open(mask_path, "rb") as mask_file:
+                response = client.images.edit(
+                    image=img_file,
+                    mask=mask_file,
+                    prompt=prompt,
+                    model=model,
+                    **kwargs
+                )
+            
+            if hasattr(response, 'data') and response.data:
+                item = response.data[0]
+                if hasattr(item, 'url') and item.url:
+                    return item.url
+                if hasattr(item, 'b64_json') and item.b64_json:
+                    return item.b64_json
+                if hasattr(item, 'text') and item.text:
+                    return item.text
+            if hasattr(response, 'choices') and response.choices:
+                return response.choices[0].message.content
+            if isinstance(response, str):
+                return response
+            if isinstance(response, dict):
+                if 'data' in response and response['data']:
+                    item = response['data'][0]
+                    if isinstance(item, dict):
+                        return item.get('url') or item.get('b64_json') or item.get('text') or str(item)
+                if 'url' in response:
+                    return response['url']
+                return str(response)
+            return str(response)
+            
+        except Exception as e:
+            last_exc = e
+            if attempt == max_retries:
+                raise
+            time.sleep(delay)
+            delay *= backoff_factor
+
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("Failed to synthesize inpaint after retries.")
