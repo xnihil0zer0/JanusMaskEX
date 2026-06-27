@@ -14,7 +14,9 @@ Stdlib only.
 from __future__ import annotations
 import os
 from pathlib import Path
-from typing import Callable, List, Tuple
+from typing import Callable
+from typing import List
+from typing import Tuple
 POOL_SIZE = 4
 _SEED_RELS: Tuple[str, ...] = ('.gemini/oauth_creds.json', '.gemini/google_accounts.json', '.gemini/settings.json', '.gemini/trustedFolders.json', '.gemini/state.json', '.gemini/projects.json', '.config/gcloud/application_default_credentials.json', '.gemini/antigravity-cli/history.db')
 
@@ -35,7 +37,7 @@ def agy_seed_plan(home: str) -> List[Tuple[str, str]]:
     """
     return [(os.path.join(home, rel), rel) for rel in _SEED_RELS]
 
-def ensure_seeded(repo_root: str, slot: int, *, home: str, copy: Callable[[str, str], object], exists: Callable[[str], bool], makedirs: Callable[[str], object], isdir: Callable[[str], bool] = os.path.isdir, remove: Callable[[str], object] = os.remove, lexists: Callable[[str], bool] = os.path.lexists) -> List[str]:
+def ensure_seeded(repo_root: str, slot: int, *, home: str, copy: Callable[[str, str], object], exists: Callable[[str], bool], makedirs: Callable[[str], object], isdir: Callable[[str], bool]=os.path.isdir, remove: Callable[[str], object]=os.remove, lexists: Callable[[str], bool]=os.path.lexists) -> List[str]:
     """Idempotently seed ``slot``'s private home from the operator ``home``.
 
     For each planned ``(src, rel)`` pair, copy only when ``src`` exists and the
@@ -51,23 +53,48 @@ def ensure_seeded(repo_root: str, slot: int, *, home: str, copy: Callable[[str, 
             makedirs(os.path.dirname(dst))
             copy(src, dst)
             copied.append(rel)
-
-    config = os.path.join(wh, ".gemini", "config")
-    projects = os.path.join(config, "projects")
-    if lexists(config) and not isdir(config):
+    config = os.path.join(wh, '.gemini', 'config')
+    projects = os.path.join(config, 'projects')
+    if lexists(config) and (not isdir(config)):
         try:
             remove(config)
         except FileNotFoundError:
             pass
     makedirs(projects)
-
     return copied
 
-def allocate_slot(busy, size: int=POOL_SIZE):
-    """Return the lowest free slot in ``range(size)``, or ``None`` when full."""
+def allocate_slot(busy: set[int] | list[int], size: int=POOL_SIZE, allow_home_fallback: bool=False, repo_root: str | None=None) -> int | None:
+    """Return the lowest free slot in ``range(size)``, or ``None`` when full.
+
+    If allow_home_fallback is False and all slots are busy/locked, raises a RuntimeError.
+    """
+    if size <= 0:
+        if not allow_home_fallback:
+            raise RuntimeError('No slot available')
+        return None
     for i in range(size):
-        if i not in busy:
+        if i in busy:
+            continue
+        if repo_root is not None:
+            root = pool_root(repo_root)
+            os.makedirs(root, exist_ok=True)
+            lock_path = root / f'w{i}.lock'
+            if lock_path.exists():
+                if _is_lock_stale(lock_path):
+                    try:
+                        os.remove(lock_path)
+                    except Exception:
+                        continue
+                else:
+                    continue
+            if _acquire_lock(lock_path):
+                return i
+            else:
+                continue
+        else:
             return i
+    if not allow_home_fallback:
+        raise RuntimeError('No slot available')
     return None
 
 class PoolInvariantError(ValueError):
@@ -99,6 +126,7 @@ def assert_pool_invariant(*, enabled: bool, size: int, parallel_cap: int) -> Non
     """
     if enabled and size < parallel_cap:
         raise PoolInvariantError(f'agy pool enabled with size={size} < parallel_cap={parallel_cap}: concurrent workers beyond size would fall back to the shared HOME')
+
 def worker_env(repo_root: str, slot: int, base_env: dict) -> dict:
     """Return a new env dict: ``base_env`` + private HOME + GCA flag.
 
@@ -108,3 +136,80 @@ def worker_env(repo_root: str, slot: int, base_env: dict) -> dict:
     env['HOME'] = str(worker_home(repo_root, slot))
     env['GOOGLE_GENAI_USE_GCA'] = '1'
     return env
+import errno
+import json
+
+def get_process_start_time(pid: int) -> int | None:
+    """Read the starttime field (field 22, which is 20th field after comm name) from /proc/<pid>/stat."""
+    try:
+        with open(f'/proc/{pid}/stat', 'r') as f:
+            content = f.read()
+        rparen_idx = content.rfind(')')
+        if rparen_idx == -1:
+            return None
+        remainder = content[rparen_idx + 1:].strip()
+        fields = remainder.split()
+        if len(fields) < 20:
+            return None
+        return int(fields[19])
+    except (FileNotFoundError, PermissionError, ValueError, IndexError):
+        return None
+
+def _is_pid_alive(pid: int) -> bool:
+    """Check if process pid is alive using signal 0."""
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError as e:
+        return e.errno == errno.EPERM
+
+def _is_lock_stale(lock_path: Path) -> bool:
+    """Return True if lock file is stale or corrupt, False if it is valid and active."""
+    try:
+        if not lock_path.exists():
+            return True
+        with open(lock_path, 'r') as f:
+            content = f.read()
+        lock_data = json.loads(content)
+        if not isinstance(lock_data, dict):
+            return True
+        pid = lock_data.get('pid')
+        if not isinstance(pid, int):
+            return True
+        if not _is_pid_alive(pid):
+            return True
+        start_time = lock_data.get('start_time')
+        if start_time is not None:
+            curr_start = get_process_start_time(pid)
+            if curr_start is not None and curr_start != start_time:
+                return True
+        return False
+    except Exception:
+        return True
+
+def _acquire_lock(lock_path: Path) -> bool:
+    """Atomic creation and writing of the lock file."""
+    fd = None
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        pid = os.getpid()
+        start_time = get_process_start_time(pid)
+        lock_data = json.dumps({'pid': pid, 'start_time': start_time})
+        with os.fdopen(fd, 'w') as f:
+            f.write(lock_data)
+        return True
+    except FileExistsError:
+        return False
+    except Exception:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except Exception:
+                pass
+        try:
+            os.remove(lock_path)
+        except Exception:
+            pass
+        return False
