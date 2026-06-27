@@ -62,6 +62,52 @@ def sandbox_enabled(config: dict | None) -> bool:
     return bool(sb.get("bwrap", False))
 
 
+def cleanup_stale_lockfiles(slot_id: int) -> None:
+    import os
+    import errno
+    lock_file = f'/tmp/.X{100 + slot_id}-lock'
+    socket_file = f'/tmp/.X11-unix/X{100 + slot_id}'
+    process_dead = False
+    try:
+        if not os.path.exists(lock_file):
+            process_dead = True
+        else:
+            try:
+                with open(lock_file, 'r') as f:
+                    content = f.read().strip()
+                if not content:
+                    process_dead = True
+                else:
+                    try:
+                        pid = int(content)
+                        if pid <= 0:
+                            process_dead = True
+                        else:
+                            try:
+                                os.kill(pid, 0)
+                                process_dead = False
+                            except OSError as e:
+                                if e.errno == errno.ESRCH:
+                                    process_dead = True
+                                else:
+                                    process_dead = False
+                    except ValueError:
+                        process_dead = True
+            except OSError:
+                process_dead = True
+    except Exception:
+        process_dead = True
+    if process_dead:
+        try:
+            if os.path.exists(lock_file) or os.path.islink(lock_file):
+                os.remove(lock_file)
+        except OSError:
+            pass
+        try:
+            if os.path.exists(socket_file) or os.path.islink(socket_file):
+                os.remove(socket_file)
+        except OSError:
+            pass
 def build_jail_argv(
     cmd: Sequence[str],
     *,
@@ -106,6 +152,28 @@ def build_jail_argv(
     state_dir = str(Path(state_dir).resolve())
     home = str(Path(home or os.environ.get("HOME", "/tmp")).resolve())  # home-free: allow (jail must bind the operator $HOME so agy ~/.gemini OAuth + ~/.nvm node runtime + ~/.claude resolve; deliberate, documented coupling per AGENT-ISOLATION §8)
 
+    import re
+    # Extract slot_id
+    slot_id: int | None = None
+    slot_env = os.environ.get("JANUSMASK_AGY_SLOT")
+    if slot_env is not None:
+        try:
+            slot_id = int(slot_env)
+        except ValueError:
+            pass
+    if slot_id is None and home:
+        match = re.search(r'/w(\d+)/?$', home)
+        if not match:
+            match = re.search(r'/w(\d+)(?:/|$)', home)
+        if match:
+            try:
+                slot_id = int(match.group(1))
+            except ValueError:
+                pass
+
+    if slot_id is not None:
+        cleanup_stale_lockfiles(slot_id)
+
     # Namespace policy (C6-tuned, empirical): the repo-read-only guarantee comes
     # PURELY from the --ro-bind below, NOT from namespace unsharing (verified: a jail
     # with no --unshare-* still denies a write to the ro-bound repo). On the SYNTHESIS
@@ -134,6 +202,11 @@ def build_jail_argv(
         "--dev", "/dev",
         "--tmpfs", "/tmp",
     ]
+    if os.path.exists("/tmp/.X11-unix"):
+        argv += ["--ro-bind", "/tmp/.X11-unix", "/tmp/.X11-unix"]
+    if slot_id is not None:
+        argv += ["--setenv", "DISPLAY", f":{100 + slot_id}"]
+
     for d in _SYSTEM_RO:
         if os.path.exists(d):
             argv += ["--ro-bind", d, d]
