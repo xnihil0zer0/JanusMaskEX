@@ -125,6 +125,34 @@ def start_xvfb_display(slot_id: int) -> subprocess.Popen:
 
     xvfb_proc.fluxbox_proc = fluxbox_proc
     return xvfb_proc
+def start_screencast(display: str, output_path: str) -> subprocess.Popen:
+    """
+    Exposes start_screencast(display: str, output_path: str) -> subprocess.Popen.
+    Captures async video screencasts using FFmpeg and x11grab.
+    """
+    if not display or not isinstance(display, str) or (not display.strip()) or (':' not in display):
+        raise ValueError('Display argument is empty or malformed.')
+    if not output_path or not isinstance(output_path, str) or (not output_path.strip()):
+        raise ValueError('Output path argument is empty or malformed.')
+    output_dir = os.path.dirname(output_path)
+    if output_dir and (not os.path.isdir(output_dir)):
+        raise FileNotFoundError(f"Output directory '{output_dir}' does not exist.")
+    width, height = (1280, 1024)
+    try:
+        res = subprocess.run(['xdpyinfo', '-display', display], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+        if res.returncode == 0:
+            import re
+            match = re.search('dimensions:\\s+(\\d+)x(\\d+)', res.stdout)
+            if match:
+                w = int(match.group(1))
+                h = int(match.group(2))
+                if w > 0 and h > 0:
+                    width, height = (w, h)
+    except Exception:
+        pass
+    ffmpeg_cmd = ['ffmpeg', '-y', '-f', 'x11grab', '-video_size', f'{width}x{height}', '-i', display, '-movflags', 'empty_moov+omit_tfhd_offset+frag_keyframe+default_base_moof', '-flush_packets', '1', output_path]
+    proc = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return proc
 def verify_port_ready_hmac(port: int, secret_key: bytes, proc: Optional[subprocess.Popen] = None) -> bool:
     """
     Verifies local dev-server port readiness using an HMAC SHA256 challenge-response handshake
