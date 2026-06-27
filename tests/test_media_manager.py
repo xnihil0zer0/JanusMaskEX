@@ -4,10 +4,11 @@ import time
 import socket
 import hmac
 import hashlib
+import json
 from typing import Optional
 from unittest.mock import patch, MagicMock
 import pytest
-from harness.media_manager import start_xvfb_display, verify_port_ready_hmac, start_screencast
+from harness.media_manager import start_xvfb_display, verify_port_ready_hmac, start_screencast, generate_contact_sheet
 
 class FakeProcess:
     """A process fake that is NOT an instance of unittest.mock.Mock to bypass is_mock checks."""
@@ -335,3 +336,253 @@ def test_ffmpeg_crash_resilience_format_flags(tmp_path):
         assert '-flush_packets' in cmd
         flush_idx = cmd.index('-flush_packets')
         assert cmd[flush_idx + 1] == '1'
+
+def test_generate_contact_sheet_interface(tmp_path):
+    with pytest.raises(ValueError, match='Missing or invalid video input path'):
+        generate_contact_sheet(None, 'output.png')
+    with pytest.raises(ValueError, match='Missing or invalid video input path'):
+        generate_contact_sheet('', 'output.png')
+    with pytest.raises(ValueError, match='Missing or invalid video input path'):
+        generate_contact_sheet(123, 'output.png')
+    with pytest.raises(ValueError, match='Missing or invalid output image path'):
+        generate_contact_sheet('video.mp4', None)
+    with pytest.raises(ValueError, match='Missing or invalid output image path'):
+        generate_contact_sheet('video.mp4', '')
+    with pytest.raises(ValueError, match='Missing or invalid output image path'):
+        generate_contact_sheet('video.mp4', 123)
+    non_existent = tmp_path / 'does_not_exist.mp4'
+    with pytest.raises(FileNotFoundError, match='does not exist'):
+        generate_contact_sheet(str(non_existent), 'output.png')
+    video_file = tmp_path / 'video.mp4'
+    video_file.touch()
+    invalid_output = tmp_path / 'no_such_dir' / 'output.png'
+    with pytest.raises(FileNotFoundError, match='does not exist'):
+        generate_contact_sheet(str(video_file), str(invalid_output))
+
+def test_generate_contact_sheet_creates_3x3_grid(tmp_path):
+    video_file = tmp_path / 'video.mp4'
+    video_file.touch()
+    output_file = tmp_path / 'output.png'
+    ffprobe_stdout = json.dumps({'streams': [{'width': 1280, 'height': 1024, 'nb_frames': '90', 'duration': '10.0', 'avg_frame_rate': '9/1'}], 'format': {'duration': '10.0'}})
+    mock_ffprobe_res = MagicMock()
+    mock_ffprobe_res.returncode = 0
+    mock_ffprobe_res.stdout = ffprobe_stdout
+    mock_ffmpeg_res = MagicMock()
+    mock_ffmpeg_res.returncode = 0
+    mock_ffmpeg_res.stdout = ''
+    with patch('subprocess.run') as mock_run:
+        mock_run.side_effect = [mock_ffprobe_res, mock_ffmpeg_res]
+        generate_contact_sheet(str(video_file), str(output_file))
+        assert mock_run.call_count == 2
+        ffprobe_args = mock_run.call_args_list[0][0][0]
+        assert 'ffprobe' in ffprobe_args
+        assert str(video_file) in ffprobe_args
+        ffmpeg_args = mock_run.call_args_list[1][0][0]
+        assert 'ffmpeg' in ffmpeg_args
+        assert '-vf' in ffmpeg_args
+        filter_str = ffmpeg_args[ffmpeg_args.index('-vf') + 1]
+        assert 'tile=3x3' in filter_str
+        assert 'scale=1280:1024' in filter_str
+        assert 'select=not(mod(n,10))' in filter_str
+
+def test_ffmpeg_filter_list_no_backslash_escaping(tmp_path):
+    video_file = tmp_path / 'video.mp4'
+    video_file.touch()
+    output_file = tmp_path / 'output.png'
+    ffprobe_stdout = json.dumps({'streams': [{'width': 640, 'height': 480, 'nb_frames': '90', 'duration': '10.0'}]})
+    mock_ffprobe_res = MagicMock()
+    mock_ffprobe_res.returncode = 0
+    mock_ffprobe_res.stdout = ffprobe_stdout
+    mock_ffmpeg_res = MagicMock()
+    mock_ffmpeg_res.returncode = 0
+    with patch('subprocess.run') as mock_run:
+        mock_run.side_effect = [mock_ffprobe_res, mock_ffmpeg_res]
+        generate_contact_sheet(str(video_file), str(output_file))
+        ffmpeg_args = mock_run.call_args_list[1][0][0]
+        vf_idx = ffmpeg_args.index('-vf')
+        filter_str = ffmpeg_args[vf_idx + 1]
+        assert ',' in filter_str
+        assert '\\,' not in filter_str
+
+def test_generate_contact_sheet_unreadable_file_handling(tmp_path):
+    video_file = tmp_path / 'unreadable.mp4'
+    video_file.touch()
+    output_file = tmp_path / 'output.png'
+    original_open = open
+
+    def mock_open(file, mode='r', *args, **kwargs):
+        if str(file) == str(video_file):
+            raise PermissionError('[Errno 13] Permission denied')
+        return original_open(file, mode, *args, **kwargs)
+    with patch('builtins.open', side_effect=mock_open):
+        with pytest.raises(PermissionError):
+            generate_contact_sheet(str(video_file), str(output_file))
+
+def test_generate_contact_sheet_subprocess_error_handling(tmp_path):
+    video_file = tmp_path / 'video.mp4'
+    video_file.touch()
+    output_file = tmp_path / 'output.png'
+    with patch('subprocess.run') as mock_run:
+        mock_run.side_effect = subprocess.CalledProcessError(returncode=1, cmd=['ffprobe'], stderr='ffprobe mock error output')
+        with pytest.raises(ValueError, match='FFprobe failed to parse video file'):
+            generate_contact_sheet(str(video_file), str(output_file))
+    with patch('subprocess.run') as mock_run:
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd=['ffprobe'], timeout=10, stderr='timeout error')
+        with pytest.raises(subprocess.TimeoutExpired):
+            generate_contact_sheet(str(video_file), str(output_file))
+    ffprobe_stdout = json.dumps({'streams': [{'width': 640, 'height': 480, 'nb_frames': '90', 'duration': '10.0'}]})
+    mock_ffprobe_res = MagicMock()
+    mock_ffprobe_res.returncode = 0
+    mock_ffprobe_res.stdout = ffprobe_stdout
+    with patch('subprocess.run') as mock_run:
+        mock_run.side_effect = [mock_ffprobe_res, subprocess.CalledProcessError(returncode=1, cmd=['ffmpeg'], stderr='ffmpeg mock error output')]
+        with pytest.raises(RuntimeError, match='FFmpeg contact sheet generation failed'):
+            generate_contact_sheet(str(video_file), str(output_file))
+    with patch('subprocess.run') as mock_run:
+        mock_run.side_effect = [mock_ffprobe_res, subprocess.TimeoutExpired(cmd=['ffmpeg'], timeout=30, stderr='ffmpeg timeout')]
+        with pytest.raises(subprocess.TimeoutExpired):
+            generate_contact_sheet(str(video_file), str(output_file))
+
+def test_generate_contact_sheet_calculates_correct_intervals(tmp_path):
+    video_file = tmp_path / 'video.mp4'
+    video_file.touch()
+    output_file = tmp_path / 'output.png'
+    test_cases = [(90, 10.0, 10), (18, 10.0, 2), (9, 10.0, 1), (5, 10.0, 1), (100, 20.0, 11)]
+    for nb_frames, duration, expected_N in test_cases:
+        ffprobe_stdout = json.dumps({'streams': [{'width': 640, 'height': 480, 'nb_frames': str(nb_frames), 'duration': str(duration)}]})
+        mock_ffprobe_res = MagicMock()
+        mock_ffprobe_res.returncode = 0
+        mock_ffprobe_res.stdout = ffprobe_stdout
+        mock_ffmpeg_res = MagicMock()
+        mock_ffmpeg_res.returncode = 0
+        with patch('subprocess.run') as mock_run:
+            mock_run.side_effect = [mock_ffprobe_res, mock_ffmpeg_res]
+            generate_contact_sheet(str(video_file), str(output_file))
+            ffmpeg_args = mock_run.call_args_list[1][0][0]
+            vf_idx = ffmpeg_args.index('-vf')
+            filter_str = ffmpeg_args[vf_idx + 1]
+            assert f'select=not(mod(n,{expected_N}))' in filter_str
+    ffprobe_stdout_fps = json.dumps({'streams': [{'width': 640, 'height': 480, 'nb_frames': 'N/A', 'duration': '10.0', 'avg_frame_rate': '30/1'}], 'format': {'duration': '10.0'}})
+    mock_ffprobe_res = MagicMock()
+    mock_ffprobe_res.returncode = 0
+    mock_ffprobe_res.stdout = ffprobe_stdout_fps
+    mock_ffmpeg_res = MagicMock()
+    mock_ffmpeg_res.returncode = 0
+    with patch('subprocess.run') as mock_run:
+        mock_run.side_effect = [mock_ffprobe_res, mock_ffmpeg_res]
+        generate_contact_sheet(str(video_file), str(output_file))
+        ffmpeg_args = mock_run.call_args_list[1][0][0]
+        vf_idx = ffmpeg_args.index('-vf')
+        filter_str = ffmpeg_args[vf_idx + 1]
+        assert 'select=not(mod(n,33))' in filter_str
+
+def test_media_manager_contact_sheet_integration(tmp_path):
+    video_file = tmp_path / 'input_video.mp4'
+    video_file.touch()
+    output_file = tmp_path / 'output_sheet.png'
+    ffprobe_stdout = json.dumps({'streams': [{'width': 1920, 'height': 1080, 'nb_frames': '180', 'duration': '15.5', 'avg_frame_rate': '24/1'}], 'format': {'duration': '15.5'}})
+    mock_ffprobe_res = MagicMock()
+    mock_ffprobe_res.returncode = 0
+    mock_ffprobe_res.stdout = ffprobe_stdout
+    mock_ffmpeg_res = MagicMock()
+    mock_ffmpeg_res.returncode = 0
+    with patch('subprocess.run') as mock_run:
+        mock_run.side_effect = [mock_ffprobe_res, mock_ffmpeg_res]
+        generate_contact_sheet(str(video_file), str(output_file))
+        assert mock_run.call_count == 2
+        ffprobe_call = mock_run.call_args_list[0][0][0]
+        assert ffprobe_call[0] == 'ffprobe'
+        assert ffprobe_call[-1] == str(video_file)
+        ffmpeg_call = mock_run.call_args_list[1][0][0]
+        assert ffmpeg_call[0] == 'ffmpeg'
+        assert ffmpeg_call[-1] == str(output_file)
+        vf_idx = ffmpeg_call.index('-vf')
+        assert 'tile=3x3' in ffmpeg_call[vf_idx + 1]
+        assert 'scale=1920:1080' in ffmpeg_call[vf_idx + 1]
+        assert 'select=not(mod(n,20))' in ffmpeg_call[vf_idx + 1]
+
+def test_generate_contact_sheet_random_durations(tmp_path):
+    import random
+    video_file = tmp_path / 'video.mp4'
+    video_file.touch()
+    output_file = tmp_path / 'output.png'
+    rng = random.Random(42)
+    for i in range(30):
+        duration = rng.uniform(0.0, 100.0)
+        nb_frames = rng.randint(0, 1000)
+        width = rng.choice([640, 1280, 1920])
+        height = rng.choice([480, 720, 1080])
+        ffprobe_stdout = json.dumps({'streams': [{'width': str(width), 'height': str(height), 'nb_frames': str(nb_frames), 'duration': str(duration)}], 'format': {'duration': str(duration)}})
+        mock_ffprobe_res = MagicMock()
+        mock_ffprobe_res.returncode = 0
+        mock_ffprobe_res.stdout = ffprobe_stdout
+        mock_ffmpeg_res = MagicMock()
+        mock_ffmpeg_res.returncode = 0
+        with patch('subprocess.run') as mock_run:
+            mock_run.side_effect = [mock_ffprobe_res, mock_ffmpeg_res]
+            generate_contact_sheet(str(video_file), str(output_file))
+            is_fallback = nb_frames == 0 or duration < 9.0
+            assert mock_run.call_count == 2
+            ffmpeg_args = mock_run.call_args_list[1][0][0]
+            if is_fallback:
+                assert 'lavfi' in ffmpeg_args
+                assert f'color=c=black:s={width}x={height}' in ffmpeg_args or f'color=c=black:s={width}x{height}' in ffmpeg_args
+                assert '-vf' not in ffmpeg_args
+            else:
+                assert '-vf' in ffmpeg_args
+                vf_idx = ffmpeg_args.index('-vf')
+                filter_str = ffmpeg_args[vf_idx + 1]
+                assert 'tile=3x3' in filter_str
+                assert f'scale={width}:{height}' in filter_str
+                expected_N = max(1, nb_frames // 9)
+                assert f'select=not(mod(n,{expected_N}))' in filter_str
+
+def test_zero_frame_video_fallback_to_black_frame(tmp_path):
+    video_file = tmp_path / 'video.mp4'
+    video_file.touch()
+    output_file = tmp_path / 'output.png'
+    ffprobe_stdout = json.dumps({'streams': [{'width': 1280, 'height': 1024, 'nb_frames': '0', 'duration': '10.0'}]})
+    mock_ffprobe_res = MagicMock()
+    mock_ffprobe_res.returncode = 0
+    mock_ffprobe_res.stdout = ffprobe_stdout
+    mock_ffmpeg_res = MagicMock()
+    mock_ffmpeg_res.returncode = 0
+    with patch('subprocess.run') as mock_run:
+        mock_run.side_effect = [mock_ffprobe_res, mock_ffmpeg_res]
+        generate_contact_sheet(str(video_file), str(output_file))
+        assert mock_run.call_count == 2
+        ffmpeg_args = mock_run.call_args_list[1][0][0]
+        assert 'color=c=black:s=1280x1024' in ffmpeg_args
+    ffprobe_stdout_na = json.dumps({'streams': [{'width': 800, 'height': 600, 'nb_frames': 'N/A', 'duration': '15.0', 'avg_frame_rate': 'N/A'}]})
+    mock_ffprobe_res.stdout = ffprobe_stdout_na
+    with patch('subprocess.run') as mock_run:
+        mock_run.side_effect = [mock_ffprobe_res, mock_ffmpeg_res]
+        generate_contact_sheet(str(video_file), str(output_file))
+        assert mock_run.call_count == 2
+        ffmpeg_args = mock_run.call_args_list[1][0][0]
+        assert 'color=c=black:s=800x600' in ffmpeg_args
+
+def test_short_video_fallback_to_black_frame(tmp_path):
+    video_file = tmp_path / 'video.mp4'
+    video_file.touch()
+    output_file = tmp_path / 'output.png'
+    ffprobe_stdout = json.dumps({'streams': [{'width': 1280, 'height': 1024, 'nb_frames': '200', 'duration': '8.9'}]})
+    mock_ffprobe_res = MagicMock()
+    mock_ffprobe_res.returncode = 0
+    mock_ffprobe_res.stdout = ffprobe_stdout
+    mock_ffmpeg_res = MagicMock()
+    mock_ffmpeg_res.returncode = 0
+    with patch('subprocess.run') as mock_run:
+        mock_run.side_effect = [mock_ffprobe_res, mock_ffmpeg_res]
+        generate_contact_sheet(str(video_file), str(output_file))
+        assert mock_run.call_count == 2
+        ffmpeg_args = mock_run.call_args_list[1][0][0]
+        assert 'color=c=black:s=1280x1024' in ffmpeg_args
+    ffprobe_stdout_zero = json.dumps({'streams': [{'width': 640, 'height': 480, 'nb_frames': '10', 'duration': '0.0'}]})
+    mock_ffprobe_res.stdout = ffprobe_stdout_zero
+    with patch('subprocess.run') as mock_run:
+        mock_run.side_effect = [mock_ffprobe_res, mock_ffmpeg_res]
+        generate_contact_sheet(str(video_file), str(output_file))
+        assert mock_run.call_count == 2
+        ffmpeg_args = mock_run.call_args_list[1][0][0]
+        assert 'color=c=black:s=640x480' in ffmpeg_args
