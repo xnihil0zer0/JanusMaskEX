@@ -87,7 +87,7 @@ autowork:
   wire_up_gate: true
   wire_up_runtime_gate: false
   wire_up_runtime_gate_enforce: false
-  ghei_loop_enabled: false
+  ghei_loop_enabled: true
 batch_execution:
   batch_size_per_worker: 2000
   enabled: true
@@ -213,4 +213,4 @@ autocompiler:
   js: true               # JS differential dispatch (diff_fuzzer fuzz_from_task hook)
 
 # Top-level master gate for the GHEI loop
-ghei_loop_enabled: false
+ghei_loop_enabled: true
