@@ -207,7 +207,7 @@ def collect_dispatchable_tasks(status_records: list[dict], running_task_ids: set
                 for line in f:
                     try:
                         row = json.loads(line)
-                        if isinstance(row, dict) and row.get('phase') == 'accepted' and (row.get('event') == 'auto_commit'):
+                        if isinstance(row, dict) and row.get('phase') == 'accepted':
                             tid = row.get('task_id')
                             if tid:
                                 accepted_ids.add(tid)
@@ -1797,7 +1797,7 @@ def _auto_promote(repo_root: pathlib.Path, state_dir: pathlib.Path, config: dict
                             continue
                         if not isinstance(_ledger_row, dict):
                             continue
-                        if _ledger_row.get('phase') == 'accepted' and _ledger_row.get('event') == 'auto_commit':
+                        if _ledger_row.get('phase') == 'accepted':
                             _acc_tid = _ledger_row.get('task_id')
                             if isinstance(_acc_tid, str) and _acc_tid:
                                 _accepted.add(_acc_tid)
@@ -2345,7 +2345,7 @@ def _reclaim_zombie_briefs(repo_root: pathlib.Path, state_dir: pathlib.Path, run
                                         _row = json.loads(_line)
                                     except Exception:
                                         continue
-                                    if isinstance(_row, dict) and _row.get('phase') == 'accepted' and _row.get('event') == 'auto_commit':
+                                    if isinstance(_row, dict) and _row.get('phase') == 'accepted':
                                         _tid = _row.get('task_id')
                                         if isinstance(_tid, str):
                                             accepted_ids.add(_tid)
