@@ -30,16 +30,22 @@ def _resolve_outbox_artifact(agent_dir: Path, agent: str, filename: str, round_n
     # AGENT-ISOLATION §3.7: outboxes relocated outside the repo; resolve them
     # from the shared workroot, not agent_dir/workdirs (now dead).
     from harness.paths import agent_workroot
-    workdirs_root = agent_workroot() / agent
-    if not workdirs_root.is_dir():
-        return None
-    pattern = f'{agent}-r{round_number}-*/outbox/{filename}'
-    candidates = [p for p in workdirs_root.glob(pattern) if p.is_file()]
+    agents_to_check = [agent]
+    if agent == 'claude':
+        agents_to_check.append('claude_fallback')
+    all_candidates = []
+    for a in agents_to_check:
+        workdirs_root = agent_workroot() / a
+        if not workdirs_root.is_dir():
+            continue
+        pattern = f'{a}-r{round_number}-*/outbox/{filename}'
+        candidates = [p for p in workdirs_root.glob(pattern) if p.is_file()]
+        all_candidates.extend(candidates)
     if spawn_start_epoch is not None:
-        candidates = [p for p in candidates if p.stat().st_mtime >= spawn_start_epoch]
-    if not candidates:
+        all_candidates = [p for p in all_candidates if p.stat().st_mtime >= spawn_start_epoch]
+    if not all_candidates:
         return None
-    return max(candidates, key=lambda p: p.stat().st_mtime)
+    return max(all_candidates, key=lambda p: p.stat().st_mtime)
 
 def _synthesize_wiring_oracle_tokens(draft, working_dir=None):
     """Synthesize a commented wiring-oracle token for module-creating leaves.
@@ -293,7 +299,7 @@ def _planning_prompt(brief: PlanningBrief, mode: str = 'leaf') -> str:
             '----- END BRIEF -----\n'
         )
         return epic_text + brief_block
-    return f'''You are a planning agent. Your task is to draft a plan of JanusMask tasks that implements the planning brief titled "{brief.title}".\n\nScope: {brief.scope}\nNon-goals: {brief.non_goals}\nExpected deliverables: {brief.deliverables}\nRelevant inputs to investigate: {brief.inputs}\n\n----- BRIEF (full markdown body) -----\n{brief.raw_text}\n----- END BRIEF -----\n\nYour plan must directly address the concerns in this brief — do NOT substitute your own unrelated agenda. Each task in the plan must map to a concern or deliverable from the brief; a task that does not trace back to the brief is a bug.\n\nSubmit your plan by writing a single JSON file at:\n    {{OUTBOX_PATH}}/plan_draft.json\nWriting this file IS how you submit; the harness intercepts the Write via a PostToolUse/AfterTool hook, validates the JSON, and persists it for the planner to pick up. The MCP janusmask execute tool is NOT registered in this worker session — only file read/write and read-only exploration tools (Read, Glob, Grep) are available.\n\nIf the PreToolUse hook rejects the Write with a validation error, fix the JSON and Write the same path again — the gate is single-shot only on accepted submissions.\n\nIMPORTANT SCHEMA REQUIREMENTS for plan_draft.json:\nThe file MUST contain a JSON object with a 'tasks' array. Every task in the array MUST be a complete object with the following structure:\n{{\n  "task_id": "...",\n  "title": "...",\n  "meta_task_type": "refactor", // REQUIRED non-empty string. Choose the best fit from the canonical taxonomy: {', '.join(sorted(META_TASK_TYPES))}\n  "priority": "...",\n  "dependencies": [], // Array of task_ids this depends on\n  "files_touched": [],\n  "acceptance_criteria": [],\n  "spec_author": null, // MUST be exactly null (not a string)\n  "estimated_complexity": "...",\n  "verification_command": "...",\n  "spec": {{\n    "objective": "...",\n    "functional_requirements": ["..."], // Minimum 1 requirement\n    "interfaces": "...",\n    "edge_cases": ["..."],\n    "non_goals": ["..."],\n    "implementation_notes": "..."\n  }},\n  "test_spec": {{\n    "unit_tests": [{{"name": "..."}}], // Array of objects. Length MUST be >= len(functional_requirements)\n    "integration_tests": [{{"name": "..."}}], // Array of objects\n    "property_tests": [{{"name": "..."}}], // Array of objects\n    "regression_tests": [{{"name": "..."}}], // Array of objects\n    "minimum_test_count": 10, // MUST be >= 1.5 * len(functional_requirements)\n    "test_data_requirements": "..."\n  }},\n  "token_budget_ratio": {{\n    "implementation_tokens": 100,\n    "test_tokens": 200, // MUST be >= 1.5 * implementation_tokens. If impl is 0, test_tokens must be > 0\n    "note": "..."\n  }},\n  "attribution_metadata": {{\n    "proposed_by": "agent",\n    "reconciled": false,\n    "diff_resolution": ""\n  }}\n}}\n\nMUTATION TARGET (REQUIRED for test_authoring tasks): any task whose meta_task_type is "test_authoring" MUST ALSO carry a top-level "mutation_target" field whose value is the BARE DOTTED MODULE NAME of the module-under-test (e.g. "harness.symbol_ledger" — NOT a path, NOT a filename, NO ".py" suffix, NO slashes). The non-vacuity gate applies the named module's declared mutant and requires the authored test to FAIL against it; a test_authoring task without a valid mutation_target is rejected fail-closed. Omit "mutation_target" for all non-test_authoring tasks.\n\nIf validation fails repeatedly, simplify the DAG and read the gate's rejection reason carefully — bash and arbitrary Python are BLOCKED, so you cannot script schema generation; emit JSON directly that matches the structure above.'''
+    return f'''You are a planning agent. Your task is to draft a plan of JanusMask tasks that implements the planning brief titled "{brief.title}".\n\nScope: {brief.scope}\nNon-goals: {brief.non_goals}\nExpected deliverables: {brief.deliverables}\nRelevant inputs to investigate: {brief.inputs}\n\n----- BRIEF (full markdown body) -----\n{brief.raw_text}\n----- END BRIEF -----\n\nYour plan must directly address the concerns in this brief — do NOT substitute your own unrelated agenda. Each task in the plan must map to a concern or deliverable from the brief; a task that does not trace back to the brief is a bug.\n\nSubmit your plan by writing a single JSON file at:\n    {{OUTBOX_PATH}}/plan_draft.json\nWriting this file IS how you submit; the harness intercepts the Write via a PostToolUse/AfterTool hook, validates the JSON, and persists it for the planner to pick up. The MCP janusmask execute tool is NOT registered in this worker session — only file read/write and read-only exploration tools (Read, Glob, Grep) are available.\n\nIf the PreToolUse hook rejects the Write with a validation error, fix the JSON and Write the same path again — the gate is single-shot only on accepted submissions.\n\nIMPORTANT SCHEMA REQUIREMENTS for plan_draft.json:\nThe file MUST contain a JSON object with a 'tasks' array. Every task in the array MUST be a complete object with the following structure:\n{{\n  "task_id": "...",\n  "title": "...",\n  "meta_task_type": "refactor", // REQUIRED non-empty string. Choose the best fit from the canonical taxonomy: {', '.join(sorted(META_TASK_TYPES))}\n  "priority": "...",\n  "dependencies": [], // Array of task_ids this depends on\n  "files_touched": [],\n  "acceptance_criteria": [],\n  "spec_author": null, // MUST be exactly null (not a string)\n  "estimated_complexity": "...",\n  "verification_command": "...",\n  "spec": {{\n    "objective": "...",\n    "functional_requirements": ["..."], // Minimum 1 requirement\n    "interfaces": "...",\n    "edge_cases": ["..."],\n    "non_goals": ["..."],\n    "implementation_notes": "..."\n  }},\n  "test_spec": {{\n    "unit_tests": [{{"name": "..."}}], // Array of objects. Length MUST be >= len(functional_requirements)\n    "integration_tests": [{{"name": "..."}}], // Array of objects. Length MUST be >= 1 (at least one integration test is required unless the word 'integration' is in non_goals)\n    "property_tests": [{{"name": "..."}}], // Array of objects\n    "regression_tests": [{{"name": "..."}}], // Array of objects. Combined length of property_tests + regression_tests MUST be >= min(2, len(edge_cases)) to cover edge cases\n    "minimum_test_count": 10, // MUST be >= 1.5 * len(functional_requirements)\n    "test_data_requirements": "..."\n  }},\n  "token_budget_ratio": {{\n    "implementation_tokens": 100,\n    "test_tokens": 200, // MUST be >= 1.5 * implementation_tokens. If impl is 0, test_tokens must be > 0\n    "note": "..."\n  }},\n  "attribution_metadata": {{\n    "proposed_by": "agent",\n    "reconciled": false,\n    "diff_resolution": ""\n  }}\n}}\n\nMUTATION TARGET (REQUIRED for test_authoring tasks): any task whose meta_task_type is "test_authoring" MUST ALSO carry a top-level "mutation_target" field whose value is the BARE DOTTED MODULE NAME of the module-under-test (e.g. "harness.symbol_ledger" — NOT a path, NOT a filename, NO ".py" suffix, NO slashes). The non-vacuity gate applies the named module's declared mutant and requires the authored test to FAIL against it; a test_authoring task without a valid mutation_target is rejected fail-closed. Omit "mutation_target" for all non-test_authoring tasks.\n\nIf validation fails repeatedly, simplify the DAG and read the gate's rejection reason carefully — bash and arbitrary Python are BLOCKED, so you cannot script schema generation; emit JSON directly that matches the structure above.'''
 
 from harness.orchestrator import run_agent_phase
 from harness.orchestrator import run_agent_phase
@@ -378,6 +384,20 @@ def run_blind_drafts(brief: PlanningBrief, config: Dict[str, Any], state_dir: Pa
                 else:
                     os.environ['JANUSMASK_MODE'] = _old_env
             cur_draft, cur_status = collect_agent_draft(_agent, _agent_dir, state_dir, time.monotonic() - start_time, timeout, spawn_start_epoch=_retry_start, mode=mode, working_dir=_wd)
+            if _agent == 'claude' and (cur_draft is None or cur_status != 'ok'):
+                logger.warning('re-draft: claude failed to produce a valid draft in retry; running fallback')
+                _old_env = os.environ.get('JANUSMASK_MODE')
+                os.environ['JANUSMASK_MODE'] = 'planning'
+                try:
+                    run_agent_phase('claude_fallback', prompt, derived_config, state_dir, 1, 'planning')
+                except Exception:
+                    logger.warning('re-draft: claude_fallback raised', exc_info=True)
+                finally:
+                    if _old_env is None:
+                        os.environ.pop('JANUSMASK_MODE', None)
+                    else:
+                        os.environ['JANUSMASK_MODE'] = _old_env
+                cur_draft, cur_status = collect_agent_draft(_agent, _agent_dir, state_dir, time.monotonic() - start_time, timeout, spawn_start_epoch=_retry_start, mode=mode, working_dir=_wd)
             if cur_draft is not None and cur_status == 'ok':
                 break
             if cur_status not in _RETRYABLE:

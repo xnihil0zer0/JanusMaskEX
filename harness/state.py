@@ -193,3 +193,63 @@ def save_task_state_atomic(state_path: str, data: dict) -> None:
             raise write_exc
         finally:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
+
+def update_task_backtrack_count(state_path: str) -> int:
+    path = Path(state_path)
+    lock_path = Path(str(state_path) + '.lock')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, 'a') as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            if path.exists():
+                try:
+                    with open(path, 'r') as f:
+                        data = json.load(f)
+                except Exception:
+                    data = {}
+            else:
+                data = {}
+            if not isinstance(data, dict):
+                data = {}
+            
+            count = data.get('backtrack_count', 0) + 1
+            data['backtrack_count'] = count
+            data['retry_count'] = data.get('retry_count', 0) + 1
+            data['backtrack_retry_count'] = data.get('backtrack_retry_count', 0) + 1
+            
+            tmp_path = path.with_name(f'.tmp.{path.name}.{os.getpid()}.{time.time()}')
+            try:
+                with open(tmp_path, 'w') as f:
+                    json.dump(data, f, indent=2)
+                    f.write('\n')
+                    f.flush()
+                    os.fsync(f.fileno())
+                tmp_path.replace(path)
+            except Exception as write_exc:
+                if tmp_path.exists():
+                    try:
+                        tmp_path.unlink()
+                    except OSError:
+                        pass
+                raise write_exc
+            return count
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+
+def get_task_backtrack_count(state_path: str) -> int:
+    path = Path(state_path)
+    lock_path = Path(str(state_path) + '.lock')
+    if not path.exists():
+        return 0
+    with open(lock_path, 'a') as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_SH)
+        try:
+            with open(path, 'r') as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                return 0
+            return data.get('backtrack_count', 0)
+        except Exception:
+            return 0
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)

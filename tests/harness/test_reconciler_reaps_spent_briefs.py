@@ -35,7 +35,7 @@ def _write_ledger(state_dir: Path, accepted_task_ids) -> Path:
     ledger_path = state_dir / 'impl_progress.jsonl'
     with open(ledger_path, 'w', encoding='utf-8') as f:
         for tid in accepted_task_ids:
-            f.write(json.dumps({'task_id': tid, 'phase': 'accepted'}) + '\n')
+            f.write(json.dumps({'task_id': tid, 'phase': 'accepted', 'event': 'auto_commit', 'commit_sha': '1' * 40}) + '\n')
     return ledger_path
 
 def test_reconciler_reaps_spent_briefs_fully_integrated(tmp_path):

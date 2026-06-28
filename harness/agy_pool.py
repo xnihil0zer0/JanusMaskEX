@@ -69,7 +69,7 @@ def allocate_slot(busy: set[int] | list[int], size: int=POOL_SIZE, allow_home_fa
     If allow_home_fallback is False and all slots are busy/locked, raises a RuntimeError.
     """
     if size <= 0:
-        if not allow_home_fallback:
+        if repo_root is not None and not allow_home_fallback:
             raise RuntimeError('No slot available')
         return None
     for i in range(size):
@@ -112,6 +112,18 @@ def cleanup_stale_lockfiles(slot_id: int) -> None:
             pid = int(first_line)
             if not _is_pid_alive(pid):
                 should_remove = True
+            else:
+                # Check if it is actually Xvfb
+                is_xvfb = False
+                try:
+                    with open(f"/proc/{pid}/cmdline", "r") as f_cmd:
+                        cmdline = f_cmd.read()
+                    if "Xvfb" in cmdline:
+                        is_xvfb = True
+                except Exception:
+                    pass
+                if not is_xvfb:
+                    should_remove = True
     except ValueError:
         should_remove = True
     except IOError:

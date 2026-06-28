@@ -332,7 +332,7 @@ def _build_agent_env(agent: str, state_dir: str, round_number: int=1) -> dict[st
     _ENV_ALLOW_EXACT = frozenset(('PATH', 'HOME', 'LANG', 'LANGUAGE', 'LC_ALL', 'TERM', 'SHELL', 'USER', 'LOGNAME', 'TZ', 'TMPDIR', 'PWD', 'DBUS_SESSION_BUS_ADDRESS', 'GOOGLE_GENAI_USE_GCA', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE', 'NODE_EXTRA_CA_CERTS', 'CURL_CA_BUNDLE', 'NO_PROXY', 'no_proxy', 'HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy'))
     _ENV_ALLOW_PREFIXES = ('JANUSMASK_', 'XDG_', 'NVM_', 'NODE_', 'GEMINI_', 'GOOGLE_', 'ANTHROPIC_', 'CLAUDE_', 'LC_')
     base_env = {k: v for k, v in os.environ.items() if k in _ENV_ALLOW_EXACT or any((k.startswith(p) for p in _ENV_ALLOW_PREFIXES))}
-    env: dict[str, str] = {**base_env, 'PYTHONHASHSEED': '0', 'CLAUDE_PROJECT_DIR': str(work_dir), 'JANUSMASK_PROJECT_DIR': str(PROJECT_DIR), 'PYTHONPATH': _pythonpath, 'GEMINI_CLI_TRUST_WORKSPACE': 'true', 'JANUSMASK_AGENT': agent, 'JANUSMASK_STATE_DIR': state_dir, 'JANUSMASK_ROUND': str(round_number), 'JANUSMASK_MODE': mode, 'JANUSMASK_TASK_ID': task_id, 'JANUSMASK_WORK_DIR': str(work_dir)}
+    env: dict[str, str] = {**base_env, 'PYTHONHASHSEED': '0', 'CLAUDE_PROJECT_DIR': str(work_dir), 'JANUSMASK_PROJECT_DIR': str(PROJECT_DIR), 'PYTHONPATH': _pythonpath, 'GEMINI_CLI_TRUST_WORKSPACE': 'true', 'JANUSMASK_AGENT': agent, 'JANUSMASK_STATE_DIR': state_dir, 'JANUSMASK_ROUND': str(round_number), 'JANUSMASK_MODE': mode, 'JANUSMASK_TASK_ID': task_id, 'JANUSMASK_WORK_DIR': str(work_dir), 'LIBGL_ALWAYS_SOFTWARE': '1'}
     if agent == 'gemini':
         env['JANUSMASK_GEMINI_SETTINGS'] = os.environ.get('JANUSMASK_GEMINI_SETTINGS', str(PROJECT_DIR / 'config' / 'gemini_settings.json'))
     env = _apply_agy_pool_env(agent, env)
@@ -380,6 +380,64 @@ def _external_jail_extra_ro(jail_repo_root):
         pass
     return []
 
+def _headless_resume_argv(cmd: list[str], agent: str, config: dict[str, Any], work_dir: str) -> list[str]:
+    """Check the 4 predicates to decide headless warm resume and append --continue.
+    
+    Predicates:
+    - claude_agent: must be 'claude'
+    - resume_flag: headless_resume, headless_continue, or resume workers config flag
+    - pin_cwd_flag: pin_task_cwd or pin_cwd workers config flag
+    - prior_transcript: checks projects dir under CLAUDE_CONFIG_DIR or HOME for a jsonl transcript via exists and listdir
+    """
+    try:
+        import os
+        import re
+        # Check claude_agent predicate
+        if agent != 'claude':
+            return cmd
+
+        workers = config.get('workers', {})
+        # Check resume_flag predicate: headless_resume or headless_continue or resume
+        resume = workers.get('headless_resume') or workers.get('headless_continue') or workers.get('resume') or workers.get('claude_resume')
+        if not resume:
+            return cmd
+
+        # Check pin_cwd_flag predicate: pin_task_cwd or pin_cwd
+        pin_cwd = workers.get('pin_task_cwd') or workers.get('pin_cwd')
+        if not pin_cwd:
+            return cmd
+
+        # Check backend is headless
+        backend = workers.get('claude_backend', 'headless')
+        if backend != 'headless':
+            return cmd
+
+        # Check prior_transcript predicate: projects listdir/exists
+        config_dir = os.environ.get('CLAUDE_CONFIG_DIR')
+        if not config_dir:
+            home = os.environ.get('HOME')
+            if home:
+                config_dir = os.path.join(home, '.claude')
+        if not config_dir:
+            return cmd
+
+        encoded_cwd = re.sub('[^A-Za-z0-9]', '-', str(work_dir))
+        proj_dir = os.path.join(config_dir, 'projects', encoded_cwd)
+
+        if not os.path.exists(proj_dir):
+            return cmd
+
+        files = os.listdir(proj_dir)
+        if not any(f.endswith('.jsonl') for f in files):
+            return cmd
+
+        # Inject --continue flag if not present
+        if '--continue' not in cmd:
+            return cmd + ['--continue']
+    except Exception:
+        pass
+    return cmd
+
 def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: int=1) -> subprocess.Popen:
     """Spawn an agent CLI as a managed subprocess with live output streaming.
 
@@ -422,6 +480,7 @@ def spawn_agent(agent: str, prompt: str, config: dict[str, Any], round_number: i
         logger.error('Error in pre_invocation interceptor: %s', exc, exc_info=True)
     cmd = _build_agent_command(agent, resolved_prompt, config)
     if agent == 'claude':
+        cmd = _headless_resume_argv(cmd, agent, config, env['JANUSMASK_WORK_DIR'])
         _assert_claude_hook_config(cmd)
     from harness import agent_jail
     _dbus_stack = None

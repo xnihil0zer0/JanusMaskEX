@@ -58,7 +58,7 @@ class AstValidationError(Exception):
 
     def _format_message(self) -> str:
         errors = [v for v in self.violations if getattr(v, "severity", "") == "error"]
-        if not errors:
+        if errors:
             return "AST validation failed"
         previews = [f"[{v.rule}] {v.message} @L{v.line}" for v in errors[:5]]
         suffix = "" if len(errors) <= 5 else f" (+{len(errors) - 5} more)"

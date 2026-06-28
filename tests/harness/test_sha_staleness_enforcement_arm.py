@@ -78,7 +78,7 @@ def _accept(state_dir: pathlib.Path, *task_ids: str) -> None:
     ledger = state_dir / 'impl_progress.jsonl'
     with open(ledger, 'a', encoding='utf-8') as f:
         for tid in task_ids:
-            row = {'ts': time.time(), 'phase': 'accepted', 'event': 'auto_commit', 'task_id': tid, 'commit_sha': '0' * 40}
+            row = {'ts': time.time(), 'phase': 'accepted', 'event': 'auto_commit', 'task_id': tid, 'commit_sha': None}
             f.write(json.dumps(row) + '\n')
 
 def _mk_workdir(running: pathlib.Path, task_id: str, agent: str='opus') -> pathlib.Path:

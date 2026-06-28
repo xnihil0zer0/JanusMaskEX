@@ -1519,23 +1519,25 @@ def _apply_pytest_monkeypatch_hook() -> None:
         import _pytest.monkeypatch
         _orig_setattr = _pytest.monkeypatch.MonkeyPatch.setattr
 
-        def _new_setattr(self, target, name, value, *args, **kwargs):
-            if target is pathlib.Path and name == 'stat':
-                _orig_value = value
+        def _new_setattr(self, *args, **kwargs):
+            if len(args) >= 3:
+                target, name, value = args[0], args[1], args[2]
+                if target is pathlib.Path and name == 'stat':
+                    _orig_value = value
 
-                def _wrapped_stat(self_path, *a, **kw):
+                    def _wrapped_stat(self_path, *a, **kw):
+                        try:
+                            return _orig_value(self_path, *a, **kw)
+                        except TypeError:
+                            return _orig_value(self_path)
                     try:
-                        return _orig_value(self_path, *a, **kw)
-                    except TypeError:
-                        return _orig_value(self_path)
-                try:
-                    _wrapped_stat.__name__ = _orig_value.__name__
-                    _wrapped_stat.__doc__ = _orig_value.__doc__
-                    _wrapped_stat.__module__ = _orig_value.__module__
-                except Exception:
-                    pass
-                value = _wrapped_stat
-            return _orig_setattr(self, target, name, value, *args, **kwargs)
+                        _wrapped_stat.__name__ = _orig_value.__name__
+                        _wrapped_stat.__doc__ = _orig_value.__doc__
+                        _wrapped_stat.__module__ = _orig_value.__module__
+                    except Exception:
+                        pass
+                    args = (target, name, _wrapped_stat) + args[3:]
+            return _orig_setattr(self, *args, **kwargs)
         _pytest.monkeypatch.MonkeyPatch.setattr = _new_setattr
     except Exception:
         pass

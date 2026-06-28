@@ -1,5 +1,5 @@
 ---
-working_dir: "/home/xnihil0zer0/JanusMaskJR"
+working_dir: "/home/xnihil0zer0/AI-Data/JanusMaskEX"
 operator_decision_required: false
 auto_approve_requested: true
 required_task_ids:
@@ -133,7 +133,7 @@ non_goals, but the in-scope change is the normalizer sanitize ONLY (do NOT edit 
 staging path or plan_validator in this brief).
 
 # Inputs
-READ these files FIRST in `/home/xnihil0zer0/JanusMaskJR`:
+READ these files FIRST in `/home/xnihil0zer0/AI-Data/JanusMaskEX`:
 
 - `harness/planner/plan_normalizer.py` — the file TASK 2 edits (NOT trust-core).
   VERIFIED current state:

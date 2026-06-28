@@ -1,5 +1,5 @@
 ---
-working_dir: "/home/xnihil0zer0/JanusMaskJR"
+working_dir: "/home/xnihil0zer0/AI-Data/JanusMaskEX"
 priority: P1
 meta_task_type: harness_self_fix
 operator_decision_required: true
@@ -106,7 +106,7 @@ unless `autowork.disk_reaper_battery` is truthy (env override `JM_DISK_REAPER_BA
 mirroring the `JM_WATCHDOG_ENABLED` pattern already in this module).
 
 # Inputs
-READ these files FIRST in `/home/xnihil0zer0/JanusMaskJR`:
+READ these files FIRST in `/home/xnihil0zer0/AI-Data/JanusMaskEX`:
 
 - `harness/state_reconciler.py` — the SINGLE file both tasks touch. VERIFIED current state:
   - `reap_orphaned_workdirs(root, *, now=None, grace=60.0)` at line ~732. Its body ends (lines ~802-806):

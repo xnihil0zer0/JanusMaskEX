@@ -104,6 +104,7 @@ def _set_flag(monkeypatch, blocking: bool) -> None:
     blocking gate can change behavior."""
     monkeypatch.setattr(df, '_onesided_oracle_blocking_enabled', lambda: blocking, raising=False)
     monkeypatch.setattr(df, '_onesided_oracle_enabled', lambda: False, raising=False)
+    monkeypatch.setattr(df, '_onesided_metamorphic_enabled', lambda: False, raising=False)
 
 def _patch_generate_inputs(monkeypatch, inputs, seeds_seen=None, counts_seen=None):
     """Pin the seeded input generator to a controlled, fast input set.

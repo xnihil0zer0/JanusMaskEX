@@ -30,7 +30,7 @@ __all__ = [
 ]
 
 _SEED_NAMES = {'__init__.py', 'conftest.py'}
-_SKIP_DIRS = {'__pycache__', '.git', '.hg', 'state', 'build', 'dist', '.eggs', 'node_modules'}
+_SKIP_DIRS = {'__pycache__', '.git', '.hg', 'state', 'build', 'dist', '.eggs', 'node_modules', 'autocompiler_research', 'scratch_audit'}
 
 
 def _is_test_file(name: str) -> bool:
@@ -38,7 +38,7 @@ def _is_test_file(name: str) -> bool:
 
 
 def _skip_dir(rel_parts: tuple[str, ...]) -> bool:
-    return any(p in _SKIP_DIRS or (p.startswith('.') and p not in ('.', '..')) for p in rel_parts)
+    return any(p in _SKIP_DIRS or p.startswith('_') or (p.startswith('.') and p not in ('.', '..')) for p in rel_parts)
 
 
 def discover_modules(source_root: Path) -> tuple[list[str], list[str], list[str]]:

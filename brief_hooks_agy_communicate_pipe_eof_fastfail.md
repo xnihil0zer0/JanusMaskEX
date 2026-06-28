@@ -1,5 +1,5 @@
 ---
-working_dir: "/home/xnihil0zer0/JanusMaskJR"
+working_dir: "/home/xnihil0zer0/AI-Data/JanusMaskEX"
 required_task_ids:
   - agy-communicate-bounded-capture-oracle
   - agy-communicate-bounded-capture-impl

@@ -1,6 +1,6 @@
 ---
 slug: headless_configdir_seed_creds_daemon
-working_dir: "/home/xnihil0zer0/JanusMaskJR"
+working_dir: "/home/xnihil0zer0/AI-Data/JanusMaskEX"
 complexity_score: medium
 required_task_ids:
   - headless-configdir-seed-creds-daemon-impl
@@ -50,7 +50,7 @@ approve. TWO tasks, ONE flat plan (NOT an epic): one impl + its paired oracle.
 
 # Inputs
 
-LIVE FILE (working_dir = `/home/xnihil0zer0/JanusMaskJR`):
+LIVE FILE (working_dir = `/home/xnihil0zer0/AI-Data/JanusMaskEX`):
 - `harness/autowork_daemon.py` — top-level `_seed_claude_config_dir` (line 1221).
   `shutil` already imported (used at line 248). The claude branch
   `config_dir.mkdir` is at lines 1278-1283; after the mkdir, copy creds into
@@ -74,7 +74,7 @@ orchestrator sibling):
 # Deliverables
 
 TWO tasks, ONE flat plan. Both `priority: high`,
-`working_dir: /home/xnihil0zer0/JanusMaskJR`. `verification_command` is bare.
+`working_dir: /home/xnihil0zer0/AI-Data/JanusMaskEX`. `verification_command` is bare.
 
 ## TASK T1 — `headless-configdir-seed-creds-daemon-impl` (deps: [])
 
@@ -120,6 +120,6 @@ make the creds assertion fail.
 # Required plan shape
 
 TWO tasks, ONE flat plan (NOT an epic). Dep edge: T2 <- T1. `required_task_ids`
-in frontmatter lists both. Both `working_dir: /home/xnihil0zer0/JanusMaskJR`.
+in frontmatter lists both. Both `working_dir: /home/xnihil0zer0/AI-Data/JanusMaskEX`.
 Decision file REQUIRED before T1 can land (trust-core `_NEVER_AUTO_APPROVE`):
 `state/control/decisions/headless-configdir-seed-creds-daemon-impl.json` granting approve.

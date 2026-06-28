@@ -1,5 +1,5 @@
 ---
-working_dir: "/home/xnihil0zer0/JanusMaskJR"
+working_dir: "/home/xnihil0zer0/AI-Data/JanusMaskEX"
 priority: P1
 meta_task_type: harness_self_fix
 operator_decision_required: true

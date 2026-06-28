@@ -1,5 +1,5 @@
 ---
-working_dir: "/home/xnihil0zer0/JanusMaskJR"
+working_dir: "/home/xnihil0zer0/AI-Data/JanusMaskEX"
 required_task_ids:
   - gitignore-scratch-dirs-superseded-oracle
   - gitignore-scratch-dirs-superseded-impl
@@ -13,7 +13,7 @@ interfaces: >
   `_phase_prep/`) plus spent-brief `.superseded` sidecars (e.g.
   `brief_hooks_p11_build_evidence_perphase.md.superseded`). `.gitignore` already
   ignores the factory's OTHER generated trees (`state/`, `logs/`, `_abandoned/`,
-  `_archive/`, `_autowork_archive/`, `.agents/`, `JanusMaskJR_agentwork/`,
+  `_archive/`, `_autowork_archive/`, `.agents/`, `JanusMaskEX_agentwork/`,
   `.testmondata*`) but NOT these. FIX: append the five scratch-dir entries and the
   `*.superseded` pattern to `.gitignore` so they stop appearing as untracked noise.
   This is purely a git-tracking hygiene change (gitignore never deletes or moves a
@@ -57,7 +57,7 @@ tracked:
 `.gitignore` ALREADY ignores the factory's other generated trees — `state/`,
 `logs/`, `_abandoned/`, `_archive/`, `_autowork_archive/` (added by
 `reaper-converge-impl` 38d2527 precisely so the archive destination stops
-appearing as `?? _autowork_archive` noise), `.agents/`, `JanusMaskJR_agentwork/`,
+appearing as `?? _autowork_archive` noise), `.agents/`, `JanusMaskEX_agentwork/`,
 `.testmondata*` — establishing the exact precedent: transient factory output is
 gitignored, not tracked. The five scratch dirs and `*.superseded` were simply
 never added. This brief closes that gap.
@@ -76,7 +76,7 @@ explicit-entry style of `.gitignore`). `*.superseded` is safe as a global glob
 because the suffix is unambiguously dead paperwork.
 
 # Inputs
-READ these files FIRST in `/home/xnihil0zer0/JanusMaskJR`:
+READ these files FIRST in `/home/xnihil0zer0/AI-Data/JanusMaskEX`:
 
 - `.gitignore` — the SINGLE file the impl task edits. VERIFIED current full
   contents (19 lines; the edit must reproduce ALL of them verbatim then append the
@@ -94,7 +94,7 @@ READ these files FIRST in `/home/xnihil0zer0/JanusMaskJR`:
       .agents/
       # AGENT-ISOLATION §3.1: per-agent isolated workdirs live OUTSIDE the repo
       # (<repo>_agentwork sibling) so this entry is belt-and-suspenders only.
-      JanusMaskJR_agentwork/
+      JanusMaskEX_agentwork/
 
       # pytest-testmon impact-selection DB (local, do not commit)
       .testmondata

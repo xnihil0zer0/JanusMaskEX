@@ -8,34 +8,31 @@ import types
 import json
 from pathlib import Path
 import pytest
-if 'harness.orchestrator' not in sys.modules:
-    dummy_orch = types.ModuleType('harness.orchestrator')
-    dummy_orch.load_config = lambda p: {}
-    sys.modules['harness.orchestrator'] = dummy_orch
-if 'harness.depth_validator' not in sys.modules:
-    dummy_depth = types.ModuleType('harness.depth_validator')
-    dummy_depth.check_brief_depth = lambda *args, **kwargs: True
-    sys.modules['harness.depth_validator'] = dummy_depth
-if 'harness.planner.plan_validator' not in sys.modules:
-    dummy_val = types.ModuleType('harness.planner.plan_validator')
-    dummy_val.validate_plan = lambda *args, **kwargs: []
-    sys.modules['harness.planner.plan_validator'] = dummy_val
-if 'harness.planner.plan_normalizer' not in sys.modules:
-    dummy_norm = types.ModuleType('harness.planner.plan_normalizer')
-    dummy_norm.normalize_plan = lambda plan, *args, **kwargs: plan
-    sys.modules['harness.planner.plan_normalizer'] = dummy_norm
-if 'harness.planner.reconciliation' not in sys.modules:
-    dummy_recon = types.ModuleType('harness.planner.reconciliation')
+def _get_or_create_module(name):
+    mod = sys.modules.get(name)
+    if mod is None:
+        mod = types.ModuleType(name)
+        sys.modules[name] = mod
+    return mod
 
+dummy_orch = _get_or_create_module('harness.orchestrator')
+
+dummy_depth = _get_or_create_module('harness.depth_validator')
+
+dummy_val = _get_or_create_module('harness.planner.plan_validator')
+
+dummy_norm = _get_or_create_module('harness.planner.plan_normalizer')
+if not hasattr(dummy_norm, 'normalize_plan'):
+    dummy_norm.normalize_plan = lambda plan, *args, **kwargs: plan
+
+dummy_recon = _get_or_create_module('harness.planner.reconciliation')
+if not hasattr(dummy_recon, 'TrackRecordUnavailable'):
     class TrackRecordUnavailable(Exception):
         pass
     dummy_recon.TrackRecordUnavailable = TrackRecordUnavailable
-    sys.modules['harness.planner.reconciliation'] = dummy_recon
-if 'harness.paths' not in sys.modules:
-    dummy_paths = types.ModuleType('harness.paths')
-    dummy_paths._target_is_self = lambda x: True
-    dummy_paths.PROJECT_ROOT = Path('/home/xnihil0zer0/AI-Data/JanusMaskEX')
-    sys.modules['harness.paths'] = dummy_paths
+
+dummy_paths = _get_or_create_module('harness.paths')
+dummy_paths.PROJECT_ROOT = Path('/home/xnihil0zer0/AI-Data/JanusMaskEX')
 import harness.planner.cli
 from harness.planner.brief_loader import load_brief
 WORKING_DIR = '/home/xnihil0zer0/AI-Data/JanusMaskEX'
@@ -62,7 +59,14 @@ def monkeypatch_cli_stages(monkeypatch, tmp_path):
     monkeypatch.setattr(harness.planner.cli, 'auto_amend_gate', lambda merged_plan, critique_path, config, state_dir: types.SimpleNamespace(amended_plan={'tasks': [{'task_id': 't1'}]}))
     monkeypatch.setattr(harness.planner.cli, 'persist_plan', lambda *args, **kwargs: None)
 
+def apply_thread_mocks(monkeypatch):
+    monkeypatch.setattr(dummy_orch, 'load_config', lambda *args, **kwargs: {})
+    monkeypatch.setattr(dummy_depth, 'check_brief_depth', lambda *args, **kwargs: True)
+    monkeypatch.setattr(dummy_val, 'validate_plan', lambda *args, **kwargs: [])
+    monkeypatch.setattr(dummy_paths, '_target_is_self', lambda x: True)
+
 def test_main_threads_declared_contracts_into_normalize_plan_call(tmp_path, monkeypatch):
+    apply_thread_mocks(monkeypatch)
     monkeypatch.chdir(tmp_path)
     declared_contracts = {'t1': {'entrypoints': ['harness/orchestrator.py'], 'symbols': ['some_fn'], 'runtime_oracle': 'drives some_fn'}}
     brief_path = write_test_brief(tmp_path, integration_contracts=declared_contracts)
@@ -114,6 +118,7 @@ def test_spy_returns_plan_unchanged_so_downstream_stages_unaffected():
     assert res is dummy_plan
 
 def test_main_exits_zero_on_stubbed_happy_path(tmp_path, monkeypatch):
+    apply_thread_mocks(monkeypatch)
     monkeypatch.chdir(tmp_path)
     brief_path = write_test_brief(tmp_path)
     real_brief = load_brief(brief_path)
@@ -131,6 +136,7 @@ def test_main_exits_zero_on_stubbed_happy_path(tmp_path, monkeypatch):
     assert exc_info.value.code == 0
 
 def test_non_contract_main_behavior_unstubbed_paths_unchanged(tmp_path, monkeypatch):
+    apply_thread_mocks(monkeypatch)
     monkeypatch.chdir(tmp_path)
     brief_path = write_test_brief(tmp_path, integration_contracts=None)
     real_brief = load_brief(brief_path)

@@ -1,5 +1,5 @@
 ---
-working_dir: "/home/xnihil0zer0/JanusMaskJR"
+working_dir: "/home/xnihil0zer0/AI-Data/JanusMaskEX"
 operator_decision_required: false
 auto_approve_requested: true
 required_task_ids:
@@ -119,7 +119,7 @@ the NGv2-closure edit-existing pattern (tests/-only oracles over a mature
 213-module codebase) is what exposes the over-broad detection.
 
 # Inputs
-READ these files FIRST in `/home/xnihil0zer0/JanusMaskJR`:
+READ these files FIRST in `/home/xnihil0zer0/AI-Data/JanusMaskEX`:
 
 - `harness/planner/plan_normalizer.py` — the file TASK 2 edits (NOT trust-core;
   NOT in `_NEVER_AUTO_APPROVE`, see harness/orchestrator.py:2651).

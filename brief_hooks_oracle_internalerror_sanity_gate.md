@@ -1,5 +1,5 @@
 ---
-working_dir: "/home/xnihil0zer0/JanusMaskJR"
+working_dir: "/home/xnihil0zer0/AI-Data/JanusMaskEX"
 required_task_ids:
   - oracle-internalerror-sanity-gate-oracle
   - oracle-internalerror-sanity-gate-impl

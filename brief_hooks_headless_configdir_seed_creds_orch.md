@@ -1,6 +1,6 @@
 ---
 slug: headless_configdir_seed_creds_orch
-working_dir: "/home/xnihil0zer0/JanusMaskJR"
+working_dir: "/home/xnihil0zer0/AI-Data/JanusMaskEX"
 complexity_score: medium
 required_task_ids:
   - headless-configdir-seed-creds-orch-impl
@@ -51,7 +51,7 @@ approve. TWO tasks, ONE flat plan (NOT an epic): one impl + its paired oracle.
 
 # Inputs
 
-LIVE FILE (working_dir = `/home/xnihil0zer0/JanusMaskJR`):
+LIVE FILE (working_dir = `/home/xnihil0zer0/AI-Data/JanusMaskEX`):
 - `harness/orchestrator.py` — top-level `_seed_claude_config_dir(agent, work_dir,
   task_id=None)` (line 212). `import shutil` (line 9), `import os`, `from pathlib
   import Path` (line 15) already present. After `config_dir.mkdir(parents=True,
@@ -79,7 +79,7 @@ REUSE (read-only, do NOT edit) — the tested copy logic:
 # Deliverables
 
 TWO tasks, ONE flat plan. Both `priority: high`,
-`working_dir: /home/xnihil0zer0/JanusMaskJR`. `verification_command` is bare.
+`working_dir: /home/xnihil0zer0/AI-Data/JanusMaskEX`. `verification_command` is bare.
 
 ## TASK T1 — `headless-configdir-seed-creds-orch-impl` (deps: [])
 
@@ -127,6 +127,6 @@ assertion 3 fail.
 # Required plan shape
 
 TWO tasks, ONE flat plan (NOT an epic). Dep edge: T2 <- T1. `required_task_ids`
-in frontmatter lists both. Both `working_dir: /home/xnihil0zer0/JanusMaskJR`.
+in frontmatter lists both. Both `working_dir: /home/xnihil0zer0/AI-Data/JanusMaskEX`.
 Decision file REQUIRED before T1 can land (trust-core `_NEVER_AUTO_APPROVE`):
 `state/control/decisions/headless-configdir-seed-creds-orch-impl.json` granting approve.

@@ -138,7 +138,7 @@
       "_debug_stamping_reason": "Task was only proposed by Gemini."
     }
   ],
-  "source_brief_path": "/home/xnihil0zer0/JanusMaskJR/brief_hooks_parallelism_agy_pool_invariant.md",
+  "source_brief_path": "/home/xnihil0zer0/AI-Data/JanusMaskEX/brief_hooks_parallelism_agy_pool_invariant.md",
   "source_brief_sha256": "f054055c22176faf10e03e7e86682ff272b851ab27aebbe5718d44c77116b202",
   "required_task_ids": [
     "agy_pool_size_invariant_guard",

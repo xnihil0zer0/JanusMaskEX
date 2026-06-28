@@ -39,7 +39,7 @@ LOGGER_NAME = 'janusmask.diff_fuzzer'
 _CONFIG_CODE = 'def handle(config: dict):\n    return config\n'
 _CANDIDATES_CODE = 'def run(candidates: list[dict]):\n    return candidates\n'
 _SAMPLE_SIGNATURES = [('def handle(config: dict):\n    return config\n', 'handle'), ('def run(candidates: list[dict]):\n    return candidates\n', 'run'), ('def add(a: int, b: int):\n    return a + b\n', 'add'), ('def tag(name: str):\n    return name\n', 'tag')]
-_EXPECTED_BYPASS = frozenset({'sandbox_infra', 'mcp_server_change', 'config_schema', 'data_model', 'test_unit', 'test_integration', 'test_e2e', 'test_acceptance', 'docs_writing', 'orchestration', 'harness_plumbing', 'planner_tooling', 'hooks_integration', 'validation', 'mcp_plumbing', 'harness_self_fix', 'epic_planning'})
+_EXPECTED_BYPASS = frozenset({'mcp_server_change', 'config_schema', 'test_unit', 'test_integration', 'test_e2e', 'test_acceptance', 'docs_writing', 'hooks_integration', 'mcp_plumbing', 'epic_planning'})
 
 def _gen_inputs(strategy: st.SearchStrategy, count: int=60, seed: int=0) -> list:
     """Draw a list of DISTINCT concrete values from *strategy* deterministically.

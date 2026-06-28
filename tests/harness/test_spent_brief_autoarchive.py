@@ -32,7 +32,7 @@ from harness.state_reconciler import reap_orphaned_workdirs
 
 def _accepted_row(tid):
     """One integration-ledger row marking ``tid`` accepted/auto-committed."""
-    return {'phase': 'accepted', 'event': 'auto_commit', 'task_id': tid}
+    return {'phase': 'accepted', 'event': 'auto_commit', 'task_id': tid, 'commit_sha': '0' * 40}
 
 def _ensure_state(root) -> Path:
     """Create and return ``<root>/state/`` (the ledger + lock directory)."""

@@ -79,7 +79,7 @@ def pipeline_state_dir(tmp_path):
     return tmp_path
 
 def _self_task() -> dict:
-    return {'task_id': 'wire_up_runtime_observe_task', 'specification': 'drive one bypass iteration', 'constraints': {'deterministic': True}, 'meta_task_type': 'validation', 'verification_command': 'pytest tests/test_dummy.py', 'files_touched': [], 'dependencies': []}
+    return {'task_id': 'wire_up_runtime_observe_task', 'specification': 'drive one bypass iteration', 'constraints': {'deterministic': True}, 'meta_task_type': 'test_unit', 'verification_command': 'pytest tests/test_dummy.py', 'files_touched': [], 'dependencies': []}
 
 def _drive_run_pipeline(config, state_dir, task, *, await_side_effect=None):
     """Drive exactly one bypass-branch iteration of run_pipeline spawn-free.

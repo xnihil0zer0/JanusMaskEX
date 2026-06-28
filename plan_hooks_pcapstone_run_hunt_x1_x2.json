@@ -1,0 +1,327 @@
+{
+  "tasks": [
+    {
+      "task_id": "pcapstone-evidence-nonce-impl",
+      "title": "Implement engine fix B (thread buried detonation nonce)",
+      "meta_task_type": "io_adapter",
+      "priority": "high",
+      "dependencies": [
+        "pcapstone-health-guard-impl"
+      ],
+      "files_touched": [
+        "ngv2/conductor_seams.py"
+      ],
+      "acceptance_criteria": [
+        "In ngv2/conductor_seams.py, build_evidence falls back to raw_result.nonce if raw.nonce is missing.",
+        "Preserve the top-level nonce path to prevent regression of existing tests (e.g. X5 oracle).",
+        "Self-contained python -c smoke command passes."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -c \"import ngv2.conductor_seams\"",
+      "spec": {
+        "objective": "Implement engine fix B in ngv2/conductor_seams.py to fall back to raw_result.nonce when parsing detonation evidence.",
+        "functional_requirements": [
+          "Modify build_default_seams.build_evidence to check `raw['raw_result']['nonce']` when `raw['nonce']` is missing or None.",
+          "Preserve the top-level nonce path to prevent regression of existing tests (e.g. X5 oracle).",
+          "Preserve verbatim formatting of build_evidence and build_default_seams, targeting the dotted enclosure build_default_seams.build_evidence in __JANUSMASK_PATCHES__."
+        ],
+        "interfaces": "build_default_seams(session_id, db, run_context, conductor_context) -> dict",
+        "edge_cases": [
+          "Detonation report raw result has nonce nested under raw_result.",
+          "Detonation report raw result has nonce at the top level."
+        ],
+        "non_goals": [
+          "integration: Out of scope: integration with external corpus targets (targets/*), real-network provisioning, or host-network pip. The fixture is a hermetic, stdlib-only, in-repo CWE-78 twin (no real venv build, no network). Never point the oracle at targets/*."
+        ],
+        "implementation_notes": "Apply symbol patch to build_default_seams.build_evidence. Verify nested structure and preserve top-level fallback.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_build_evidence_nested_raw_result_nonce"
+          },
+          {
+            "name": "test_build_evidence_toplevel_nonce"
+          },
+          {
+            "name": "test_build_evidence_missing_nonce"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_regression_build_evidence_x5_compliance"
+          },
+          {
+            "name": "test_regression_build_evidence_empty_raw"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "None."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Edits nested build_evidence closure in conductor seams."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "pcapstone-health-guard-impl",
+      "title": "Implement engine fix A (health-probe path-entry guard)",
+      "meta_task_type": "io_adapter",
+      "priority": "high",
+      "dependencies": [
+        "pcapstone-health-guard-oracle"
+      ],
+      "files_touched": [
+        "ngv2/health_producer.py"
+      ],
+      "acceptance_criteria": [
+        "In ngv2/health_producer.py, verify that produce_health_input checks is_valid_identifier before adding entry_point to modules_to_probe.",
+        "Task 1 oracle runs GREEN after the fix."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/ngv2/test_pcapstone_health_guard.py -q",
+      "spec": {
+        "objective": "Implement engine fix A in ngv2/health_producer.py to prevent path-shaped targets from being probe-imported.",
+        "functional_requirements": [
+          "Modify produce_health_input so that the entry_point is only appended to modules_to_probe if it is a valid identifier (i.e. check `if entry_point and is_valid_identifier(entry_point):` instead of `if entry_point:`).",
+          "Implement the single __JANUSMASK_PATCHES__ SYMBOL recipe with verbatim copy of produce_health_input apart from the change, without target mutations or manifests."
+        ],
+        "interfaces": "produce_health_input(entry_point, is_service, repo_root, language, sandbox_run_fn=None) -> tuple",
+        "edge_cases": [
+          "entry_point is a path-shaped string containing slashes or dots.",
+          "entry_point is a legal identifier string."
+        ],
+        "non_goals": [
+          "integration: Out of scope: integration with external corpus targets (targets/*), real-network provisioning, or host-network pip. The fixture is a hermetic, stdlib-only, in-repo CWE-78 twin (no real venv build, no network). Never point the oracle at targets/*."
+        ],
+        "implementation_notes": "Verify is_valid_identifier helper (~line 65) is in scope. Replace the condition `if entry_point:` with `if entry_point and is_valid_identifier(entry_point):` inside produce_health_input.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_produce_health_input_with_valid_identifier"
+          },
+          {
+            "name": "test_produce_health_input_with_invalid_identifier_path"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_regression_produce_health_input_node"
+          },
+          {
+            "name": "test_regression_produce_health_input_service"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Requires test repository structures."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Implementation edits a single file with one line guard change."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "pcapstone-health-guard-oracle",
+      "title": "Author RED behavioral oracle for engine fix A",
+      "meta_task_type": "test_authoring",
+      "priority": "high",
+      "dependencies": [],
+      "files_touched": [
+        "tests/ngv2/test_pcapstone_health_guard.py"
+      ],
+      "acceptance_criteria": [
+        "RED behavioral oracle is author-implemented under tests/ngv2/test_pcapstone_health_guard.py using importlib to load the module.",
+        "FIX-A GUARD assertion records each command and verifies tmp_repo path is not in the probe commands.",
+        "REAL-JAIL INTEGRATION assertion runs with bwrap and verifies import_ok and classification == 'clean'.",
+        "Regression tests verify that valid identifiers are still probed, and non-jailed path behaves identically.",
+        "Property/edge test verifies dot-separated paths are rejected and dotted module names are accepted."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "medium",
+      "verification_command": "python -m pytest tests/ngv2/test_pcapstone_health_guard.py -q",
+      "mutation_target": "ngv2.health_producer",
+      "spec": {
+        "objective": "Author a RED behavioral oracle for engine fix A (health-probe path-entry guard) under tests/ngv2/test_pcapstone_health_guard.py.",
+        "functional_requirements": [
+          "Import the generated module ngv2.health_producer via importlib (exec/eval/__import__ are AST-banned).",
+          "FIX-A GUARD (bwrap-free): Monkeypatch ngv2.poc_runner_live.build_detonation_jail_argv to a no-op lambda and inject sandbox_run_fn that records argv and returns (0, '', ''). Call produce_health_input with entry_point as tmp_repo path, verify tmp_repo path is NOT probed.",
+          "REAL-JAIL INTEGRATION: Call produce_health_input(entry_point=str(tmp_repo), is_service=False, repo_root=str(tmp_repo), language='python') under skipif not bwrap_available() and verify import_ok is True and classification == 'clean'.",
+          "Regression assertions: verify a valid-identifier entry_point (e.g. 'svc') is still probed, and non-jailed path (e.g. language='node' or is_service=True) is unchanged by the fix.",
+          "Property/edge assertion: verify a path-shaped entry_point containing a dot is rejected (not probed), while a legal dotted module name is accepted."
+        ],
+        "interfaces": "None (test suite addition).",
+        "edge_cases": [
+          "A path-shaped entry_point containing a dot or directory separator must be rejected and not probed.",
+          "Legal dotted module name like pkg.mod must be accepted and probed."
+        ],
+        "non_goals": [
+          "integration: Out of scope: integration with external corpus targets (targets/*), real-network provisioning, or host-network pip. The fixture is a hermetic, stdlib-only, in-repo CWE-78 twin (no real venv build, no network). Never point the oracle at targets/*.",
+          "LLM-driven workers: The LLM-driven ngv2/workers/hunt.py worker is deferred.",
+          "grounding-input adapter: The pattern_scanner-finding -> poc_writer-grounding-input adapter is deferred.",
+          "poc_repair_loop: The genuinely-network-bound ngv2.poc_repair_loop is disabled."
+        ],
+        "implementation_notes": "Author the pytest file tests/ngv2/test_pcapstone_health_guard.py using importlib to load the module, implementing the four assertion groups."
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_import_using_importlib"
+          },
+          {
+            "name": "test_fix_a_guard_bwrap_free"
+          },
+          {
+            "name": "test_real_jail_integration"
+          },
+          {
+            "name": "test_regression_valid_identifier_and_non_jailed"
+          },
+          {
+            "name": "test_property_edge_dot_separated"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_regression_valid_identifier"
+          },
+          {
+            "name": "test_regression_non_jailed_paths"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Requires temporary directory for mock repo."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 100,
+        "test_tokens": 200,
+        "note": "Test authoring task only edits test code."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    },
+    {
+      "task_id": "pcapstone-run-hunt-x1-x2-oracle",
+      "title": "Author CWE-78 twin fixtures and continuous acceptance test",
+      "meta_task_type": "test_acceptance",
+      "priority": "high",
+      "dependencies": [
+        "pcapstone-evidence-nonce-impl"
+      ],
+      "files_touched": [
+        "tests/ngv2/test_pcapstone_run_hunt_x1_x2.py",
+        "tests/ngv2/_pcapstone_fixtures/vuln/svc.py",
+        "tests/ngv2/_pcapstone_fixtures/vuln/.python-version",
+        "tests/ngv2/_pcapstone_fixtures/vuln/requirements.txt",
+        "tests/ngv2/_pcapstone_fixtures/safe/svc.py",
+        "tests/ngv2/_pcapstone_fixtures/safe/.python-version",
+        "tests/ngv2/_pcapstone_fixtures/safe/requirements.txt"
+      ],
+      "acceptance_criteria": [
+        "Author CWE-78 twin fixtures (vuln and safe) and acceptance test tests/ngv2/test_pcapstone_run_hunt_x1_x2.py.",
+        "Drive the real continuous conductor over both twins through the real bwrap jail.",
+        "Assert X1 (VULN twin) advances to awaiting_submission, verdict == 'confirmed', and nonce matches end-to-end.",
+        "Assert X2 (SAFE twin) blocks at detonation_evidence with verdict == 'refuted'."
+      ],
+      "spec_author": null,
+      "estimated_complexity": "high",
+      "verification_command": "python -m pytest tests/ngv2/test_pcapstone_run_hunt_x1_x2.py -q",
+      "spec": {
+        "objective": "Author the CWE-78 twin fixtures (vuln and safe) and the acceptance test suite tests/ngv2/test_pcapstone_run_hunt_x1_x2.py driving the real continuous conductor over both twins through the real bwrap jail.",
+        "functional_requirements": [
+          "CWE-78 twins content definition: vuln/svc.py uses os.system lookup_host (vulnerable); safe/svc.py uses subprocess.run list args (safe); both declare python-version 3.10 and empty requirements.txt.",
+          "Real continuous conductor driver: Drive seams['run_conductor_step'] loop or mock_seams_and_git over both twins copied to tmp_path repositories, with git init + mock_which bwrap -> /usr/bin/bwrap.",
+          "Offline rollup harvest override: Enrich findings with category='command_injection', evidence=['svc.py:5'], target='svc', sink_name='os.system', call_sites=['os.system(\"getent hosts \" + host)'], driving real offline write_poc/run_stage.",
+          "Jailed Detonation verification (Trust Anchor): Assert that the vuln twin advances to awaiting_submission, verifies verdict == 'confirmed', and per-run CSPRNG nonce N is present in stdout, fs-diff, and ev['detonation_nonce']. Assert that the safe twin blocks at detonation_evidence with verdict == 'refuted'."
+        ],
+        "interfaces": "None (test suite addition).",
+        "edge_cases": [
+          "Vulnerable twin execution under the continuous conductor.",
+          "Safe twin execution under the continuous conductor."
+        ],
+        "non_goals": [
+          "integration: Out of scope: integration with external corpus targets (targets/*), real-network provisioning, or host-network pip. The fixture is a hermetic, stdlib-only, in-repo CWE-78 twin (no real venv build, no network). Never point the oracle at targets/*.",
+          "LLM-driven workers: The LLM-driven ngv2/workers/hunt.py worker is deferred.",
+          "grounding-input adapter: The pattern_scanner-finding -> poc_writer-grounding-input adapter is deferred.",
+          "poc_repair_loop: The genuinely-network-bound ngv2.poc_repair_loop is disabled.",
+          "NON-VACUITY INVARIANT: The sink bridge is identical for both twins, so ONLY detonation_evidence (the dynamic detonate arbiter) differs and determines the outcome."
+        ],
+        "implementation_notes": "Use a __JANUSMASK_MANIFEST__ mapping all 7 touched files under tests/ to their respective content. Ensure bwrap path and python binary are resolved.\n\n# CREDENTIAL-NAMING CONSTRAINT (the AST security gate FAILS the build if a variable whose name contains (case-insensitive) \"password\", \"secret\", or \"key\" is assigned a string literal -- it reads as a hardcoded credential even though this is an external clean-room target with no real secret). NEVER bind a string literal to such a variable. Use a neutral name instead (field_name, check_id, label, name, ident, column) or iterate a collection literal / build the mapping from a list of tuples. This applies to dict keys held in a temp var, field labels, and constant identifiers.\n\n# STDLIB-ONLY CONSTRAINT (the verification environment installs NO third-party packages, so importing one fails collection -> the whole build is rolled back and the leaf is parked). Import ONLY the Python standard library. Import NO third-party package: NO pydantic, NO pydantic_settings, NO attrs, NO pyyaml, NO numpy, NO requests, etc. For data models / config use stdlib dataclasses (dataclasses.dataclass), enum.Enum, typing, and plain dict / json instead of pydantic BaseModel / BaseSettings. If the spec mentions pydantic-style validation, re-express it with stdlib dataclasses + manual checks.\n\n# DETERMINISM CONSTRAINT (the AST nondeterminism gate FAILS the build if it sees a wall-clock or nondeterministic source). Do NOT call datetime.now / datetime.utcnow, time.time / time.monotonic, unseeded random, uuid, os.urandom, or secrets to obtain a timestamp / id / randomness. Instead accept any timestamp, seed, or clock as an EXPLICIT parameter with a deterministic default (the oracle injects it, e.g. via now_fn / make_scripted_clock), so the same inputs always produce the same output.\n"
+      },
+      "test_spec": {
+        "unit_tests": [
+          {
+            "name": "test_vuln_twin_confirmed"
+          },
+          {
+            "name": "test_safe_twin_refuted"
+          },
+          {
+            "name": "test_enrichment_findings_format"
+          },
+          {
+            "name": "test_continuous_conductor_traversal"
+          }
+        ],
+        "integration_tests": [],
+        "property_tests": [],
+        "regression_tests": [
+          {
+            "name": "test_regression_seams_spawn_harvest_override"
+          },
+          {
+            "name": "test_regression_bwrap_unstubbed"
+          }
+        ],
+        "minimum_test_count": 10,
+        "test_data_requirements": "Requires bwrap installed on host and mock target repos."
+      },
+      "token_budget_ratio": {
+        "implementation_tokens": 200,
+        "test_tokens": 300,
+        "note": "Bundles CWE-78 twin fixtures and continuous acceptance test."
+      },
+      "attribution_metadata": {
+        "proposed_by": "reconciled",
+        "reconciled": true,
+        "diff_resolution": "reconciled"
+      },
+      "_debug_stamping_reason": "Task was divergent and resolved via reconciliation."
+    }
+  ],
+  "source_brief_path": "/mnt/ai-data/JanusMaskEX/brief_hooks_pcapstone_run_hunt_x1_x2.md",
+  "source_brief_sha256": "31b64b055f61466ab6ca4250cad8cb709c7a8e1ff963133975014cb21961aefb",
+  "working_dir": "/home/xnihil0zer0/NobleGreedv2",
+  "required_task_ids": [
+    "pcapstone-health-guard-oracle",
+    "pcapstone-health-guard-impl",
+    "pcapstone-evidence-nonce-impl",
+    "pcapstone-run-hunt-x1-x2-oracle"
+  ]
+}

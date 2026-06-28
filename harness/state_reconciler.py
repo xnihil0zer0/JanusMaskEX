@@ -980,6 +980,10 @@ def reap_stale_disk(root, *, now=None):
     results = {'workdirs': [], 'ledger_compacted': False, 'logs': [], 'archive': [], 'spent_briefs': []}
     with state_reconcile_lock(state_dir):
         try:
+            results['spent_briefs'] = reap_spent_briefs(root_path)
+        except Exception:
+            results['spent_briefs'] = []
+        try:
             results['workdirs'] = reap_orphaned_workdirs(root_path, now=now)
         except Exception:
             results['workdirs'] = []
@@ -995,10 +999,6 @@ def reap_stale_disk(root, *, now=None):
             results['archive'] = prune_autowork_archive(root_path, now=now)
         except Exception:
             results['archive'] = []
-        try:
-            results['spent_briefs'] = reap_spent_briefs(root_path)
-        except Exception:
-            results['spent_briefs'] = []
     return results
 from harness import target_bootstrap
 

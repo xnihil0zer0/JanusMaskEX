@@ -1,0 +1,205 @@
+{
+  "plan_kind": "epic",
+  "epic": true,
+  "child_briefs": [
+    {
+      "slug": "ghei-agy-slot-locking-and-pool-isolation",
+      "title": "GHEI Agy Slot Locking and Pool Isolation",
+      "scope": "Secure slot allocation under file lock with atomic creation, PID writing, and start-time validation to prevent recycled PID reuse or stale locks from causing a DoS. Disable the home fallback (`allow_home_fallback: false`).",
+      "non_goals": "Do not bind-mount X11 displays, handle Xvfb setup, or configure media/video recording.",
+      "inputs": "Target Repository Codebase: `harness/agy_pool.py`.",
+      "deliverables": "File-lock slot allocation implementation in `harness/agy_pool.py` with PID validation and disabled home fallback.",
+      "dependencies": [],
+      "interfaces": "exposes allocate_slot(busy, size: int) -> int | None",
+      "working_dir": "/mnt/ai-data/JanusMaskEX",
+      "required_task_ids": []
+    },
+    {
+      "slug": "ghei-boundary-deduplicator-and-aligner",
+      "title": "GHEI Boundary Deduplicator and Aligner",
+      "scope": "Align patch indentation to target prefix indentation level before running deduplication. Implement AST-based method/class identifier matching and decorator signature parsing (e.g. `@register_state`) with fallback error recovery to prevent false pops and indent collapses.",
+      "non_goals": "Do not implement adaptive sliding retry windows or comment injection checks.",
+      "inputs": "Target Repository Codebase: `harness/boundary_smoothing.py`.",
+      "deliverables": "AST-based boundary aligner, deduplicator, and decorator parser in `harness/boundary_smoothing.py`.",
+      "dependencies": [],
+      "interfaces": "exposes align_and_deduplicate_patches(source: str, patch: str) -> str",
+      "working_dir": "/mnt/ai-data/JanusMaskEX",
+      "required_task_ids": []
+    },
+    {
+      "slug": "ghei-boundary-sliding-retry",
+      "title": "GHEI Boundary Sliding Retry",
+      "scope": "Implement adaptive sliding retry windows ($\u00b1 \\Delta$ lines) to resolve compile/syntax errors near edit boundaries, protected by semantic anchor verification to block comment injections and formatting false positives.",
+      "non_goals": "Do not implement base indentation alignment or AST method parsing.",
+      "inputs": "Target Repository Codebase: `harness/boundary_smoothing.py`.",
+      "deliverables": "Sliding window edit retry and semantic anchor verification in `harness/boundary_smoothing.py`.",
+      "dependencies": [
+        "ghei-boundary-deduplicator-and-aligner"
+      ],
+      "interfaces": "exposes apply_with_sliding_retry(source: str, patch: str, delta: int) -> str",
+      "working_dir": "/mnt/ai-data/JanusMaskEX",
+      "required_task_ids": []
+    },
+    {
+      "slug": "ghei-contact-sheet-generation",
+      "title": "GHEI Contact Sheet Generation",
+      "scope": "Transcode captured video into a single 3x3 tiled contact sheet to minimize multimodal token footprint, ensuring commas in FFmpeg filter lists are not backslash-escaped, and falling back to a static black warning frame on 0-frame or short video (<9s) edge cases.",
+      "non_goals": "Do not run screencast loops or start framebuffers.",
+      "inputs": "Target Repository Codebase: `harness/media_manager.py`.",
+      "deliverables": "Contact sheet generator with unescaped FFmpeg filter lists and static black frame fallback.",
+      "dependencies": [
+        "ghei-crash-resilient-screencasting"
+      ],
+      "interfaces": "exposes generate_contact_sheet(video_path: str, output_image_path: str) -> None",
+      "working_dir": "/mnt/ai-data/JanusMaskEX",
+      "required_task_ids": []
+    },
+    {
+      "slug": "ghei-crash-resilient-screencasting",
+      "title": "GHEI Crash Resilient Screencasting",
+      "scope": "Capture async video screencasts using fragmented MP4 (`fMP4`) format and packet flushing. Resolve dynamic display resolution bounds via `xdpyinfo` check with fallback to 1280x1024 to avoid FFmpeg startup crash.",
+      "non_goals": "Do not start Xvfb server, run HMAC sweeper, or compile tiled images.",
+      "inputs": "Target Repository Codebase: `harness/media_manager.py`.",
+      "deliverables": "Crash-resilient video recorder using fMP4 and dynamic resolution helper.",
+      "dependencies": [
+        "ghei-virtual-framebuffer-and-port-sweeper"
+      ],
+      "interfaces": "exposes start_screencast(display: str, output_path: str) -> subprocess.Popen",
+      "working_dir": "/mnt/ai-data/JanusMaskEX",
+      "required_task_ids": []
+    },
+    {
+      "slug": "ghei-diffusion-gemma-client",
+      "title": "GHEI Diffusion Gemma Client",
+      "scope": "Set up local vLLM serving parameters for DiffusionGemma-26B-it on GPU0 (RTX 3090) with automatic prefix caching (APC) to reduce prefill latencies and implement the client interface wrapper (`synthesize_inpaint_with_retries`).",
+      "non_goals": "Do not implement boundary deduplication, alignment, or sliding window retries.",
+      "inputs": "Target Repository Codebase: `harness/model_backends.py`.",
+      "deliverables": "Local vLLM serving configurations and the client wrapper `synthesize_inpaint_with_retries`.",
+      "dependencies": [],
+      "interfaces": "exposes synthesize_inpaint_with_retries(prompt: str, image_path: str, mask_path: str, **kwargs) -> str",
+      "working_dir": "/mnt/ai-data/JanusMaskEX",
+      "required_task_ids": []
+    },
+    {
+      "slug": "ghei-e2e-capstone-and-enforce-knob",
+      "title": "GHEI E2E Capstone and Enforce Knob",
+      "scope": "Verify the full GHEI loop end-to-end and configure default-OFF master configuration gates in `harness/config.yaml`.",
+      "non_goals": "This brief authors no code and makes no direct edits to source files (restricted to `epic_planning` decomposition and plan structure generation). Integration of components is out of scope at the epic level (the word `integration` is included here as an excuse to satisfy the integration-test validation checks). We do not activate or run any child brief tasks within this brief itself.",
+      "inputs": "Target Repository Codebase: `harness/config.yaml`, `harness/orchestrator.py`, `harness/media_manager.py`, `harness/state.py`, `harness/grounding.py`, `harness/model_backends.py`, `harness/boundary_smoothing.py`.",
+      "deliverables": "Integration verification of all waves, with default-OFF master configuration gate in `harness/config.yaml`.",
+      "dependencies": [
+        "ghei-sandbox-mounts-and-display-isolation",
+        "ghei-agy-slot-locking-and-pool-isolation",
+        "ghei-grounding-state-and-routing",
+        "ghei-persistent-backtrack-state",
+        "ghei-diffusion-gemma-client",
+        "ghei-boundary-deduplicator-and-aligner",
+        "ghei-boundary-sliding-retry",
+        "ghei-virtual-framebuffer-and-port-sweeper",
+        "ghei-crash-resilient-screencasting",
+        "ghei-contact-sheet-generation"
+      ],
+      "interfaces": "exposes configuration key `ghei_loop_enabled: false` in `harness/config.yaml`.",
+      "working_dir": "/mnt/ai-data/JanusMaskEX",
+      "required_task_ids": []
+    },
+    {
+      "slug": "ghei-grounding-state-and-routing",
+      "title": "GHEI Grounding State and Routing",
+      "scope": "Integrate `ST_GROUNDING` into the FSM, generate signed `grounding.json` bundles with cryptographic signature validation (rejecting key manipulation / alg: none), and route backtracking based on failure severity classification (conceptual mismatch vs implementation defect). Traceback parser reads from the final exception line to classify SyntaxErrors in imported dependencies as conceptual mismatches.",
+      "non_goals": "Do not persist retry counts to disk or configure vLLM parameters.",
+      "inputs": "Target Repository Codebase: `harness/state.py`, `harness/grounding.py`, `harness/orchestrator.py`.",
+      "deliverables": "FSM state routing for `ST_GROUNDING`, cryptographic signature validation for grounding bundles, and exception-severity-based backtracking classification.",
+      "dependencies": [
+        "ghei-sandbox-mounts-and-display-isolation",
+        "ghei-agy-slot-locking-and-pool-isolation"
+      ],
+      "interfaces": "exposes validate_grounding_bundle(path: str, key: str) -> bool and classify_failure_severity(tb: str) -> str",
+      "working_dir": "/mnt/ai-data/JanusMaskEX",
+      "required_task_ids": []
+    },
+    {
+      "slug": "ghei-persistent-backtrack-state",
+      "title": "GHEI Persistent Backtrack State",
+      "scope": "Save active backtracking retry counts inside the task's JSON state file on disk using atomic temp-write-and-rename (in the same directory to prevent EXDEV errors) and flock locks to prevent write corruption under abrupt worker terminations.",
+      "non_goals": "Do not define grounding state verification or parse tracebacks.",
+      "inputs": "Target Repository Codebase: `harness/state.py`, `harness/orchestrator.py`.",
+      "deliverables": "Atomic, flock-locked JSON persistence of backtracking retry counts inside task state files.",
+      "dependencies": [
+        "ghei-grounding-state-and-routing"
+      ],
+      "interfaces": "exposes save_task_state_atomic(state_path: str, data: dict) -> None",
+      "working_dir": "/mnt/ai-data/JanusMaskEX",
+      "required_task_ids": []
+    },
+    {
+      "slug": "ghei-sandbox-mounts-and-display-isolation",
+      "title": "GHEI Sandbox Mounts and Display Isolation",
+      "scope": "Bind-mount `/tmp/.X11-unix` read-only inside the bubblewrap sandbox container, isolate display IDs per slot (`DISPLAY=:${100 + slot_id}`), and clean up stale lock files from dead processes (verified via PID liveness checking) automatically.",
+      "non_goals": "Do not secure slot allocation, disable home fallback, or integrate with state routing/vLLM clients.",
+      "inputs": "Target Repository Codebase: `harness/agent_jail.py`, `harness/agy_pool.py`.",
+      "deliverables": "Updated `build_jail_argv` in `harness/agent_jail.py` to mount `/tmp/.X11-unix` and isolate `DISPLAY`. Added automated cleanup of stale X11 lock files.",
+      "dependencies": [],
+      "interfaces": "exposes cleanup_stale_lockfiles(slot_id: int) -> None",
+      "working_dir": "/mnt/ai-data/JanusMaskEX",
+      "required_task_ids": []
+    },
+    {
+      "slug": "ghei-virtual-framebuffer-and-port-sweeper",
+      "title": "GHEI Virtual Framebuffer and Port Sweeper",
+      "scope": "Start `Xvfb` and `fluxbox` displays. Verify dev-server port readiness via process status checks (`proc.poll() is None`) and HMAC SHA256 challenge-response handshakes to prevent false positive port binds or hijacked ports.",
+      "non_goals": "Do not record async videos or generate contact sheets.",
+      "inputs": "Target Repository Codebase: `harness/media_manager.py`.",
+      "deliverables": "Virtual framebuffer setup and port sweeper with HMAC authentication in `harness/media_manager.py`.",
+      "dependencies": [
+        "ghei-sandbox-mounts-and-display-isolation"
+      ],
+      "interfaces": "exposes start_xvfb_display(slot_id: int) -> subprocess.Popen and verify_port_ready_hmac(port: int, secret_key: bytes) -> bool",
+      "working_dir": "/mnt/ai-data/JanusMaskEX",
+      "required_task_ids": []
+    }
+  ],
+  "child_slugs": [
+    "ghei-agy-slot-locking-and-pool-isolation",
+    "ghei-boundary-deduplicator-and-aligner",
+    "ghei-boundary-sliding-retry",
+    "ghei-contact-sheet-generation",
+    "ghei-crash-resilient-screencasting",
+    "ghei-diffusion-gemma-client",
+    "ghei-e2e-capstone-and-enforce-knob",
+    "ghei-grounding-state-and-routing",
+    "ghei-persistent-backtrack-state",
+    "ghei-sandbox-mounts-and-display-isolation",
+    "ghei-virtual-framebuffer-and-port-sweeper"
+  ],
+  "required_child_slugs": [
+    "ghei-sandbox-mounts-and-display-isolation",
+    "ghei-agy-slot-locking-and-pool-isolation",
+    "ghei-grounding-state-and-routing",
+    "ghei-persistent-backtrack-state",
+    "ghei-diffusion-gemma-client",
+    "ghei-boundary-deduplicator-and-aligner",
+    "ghei-boundary-sliding-retry",
+    "ghei-virtual-framebuffer-and-port-sweeper",
+    "ghei-crash-resilient-screencasting",
+    "ghei-contact-sheet-generation",
+    "ghei-e2e-capstone-and-enforce-knob"
+  ],
+  "epic_slug": "ghei_pipeline_epic",
+  "coverage_check": {
+    "covered": [],
+    "uncovered": [
+      "- Eleven separate child briefs matching the required child slugs registered at the root of the workspace.",
+      "- meta_task_type: epic_planning",
+      "- required_child_slugs MUST match the 11 child slugs exactly.",
+      "- No code tasks are authored at this epic level.",
+      "- The word `integration` is stated in `# Non-Goals` as an integration excuse."
+    ],
+    "ambiguous": [
+      "- An epic plan structure stored in `plan_hooks_ghei_pipeline_epic.json` with `plan_kind: epic`."
+    ]
+  },
+  "source_brief_path": "/mnt/ai-data/JanusMaskEX/brief_hooks_ghei_pipeline_epic.md",
+  "source_brief_sha256": "f802ba31b50bc09d16055f5b7ee365e8f006a893f0e43d44548c9539761c1d93",
+  "working_dir": "/mnt/ai-data/JanusMaskEX"
+}

@@ -1,17 +1,17 @@
 {
-  "verdict": "STALL",
-  "exit": 2,
-  "elapsed": 1721.4,
+  "verdict": "SUCCESS",
+  "exit": 0,
+  "elapsed": 356.5,
   "watched_states": {
-    "pcapstone_run_hunt_x1_x2": "unplanned"
+    "drizzlet_visual_testing_api": "complete"
   },
   "running_live": [
     {
-      "task_id": "selfheal_claude_daemon_inactivity_stuck_297806",
-      "pid": 297806,
-      "age": 736.8,
+      "task_id": "drizzlet-visual-testing-api-oracle",
+      "pid": 889818,
+      "age": 360.2,
       "files_touched": null,
-      "selfheal": true
+      "selfheal": false
     }
   ],
   "planner_live": [],
@@ -19,7 +19,9 @@
   "parallel_evidence": null,
   "fail_counts": {},
   "worker_starts": {},
-  "commits": {},
+  "commits": {
+    "drizzlet-visual-testing-api-oracle": 1
+  },
   "daemon_alive": true,
   "sidecars_now": [
     "accept-staleness-sha-gate-consumer.fallback.patches.json",
@@ -58,21 +60,45 @@
     "difffuzz-w2b-flip-policy.fallback.patches.json",
     "difffuzz-waiver-impl.fallback.patches.json",
     "drive-backup-local-retention-one-impl.fallback.patches.json",
+    "drizzlet-visual-testing-api-impl.fallback.files.json",
     "drop-bogus-smokegate-regression-v2.fallback.files.json",
     "drop-bogus-smokegate-regression.fallback.files.json",
     "drop-bogus-smokegate-regression.files.json",
+    "enable_ghei_loop_gate.fallback.files.json",
+    "ghei_agy_pool_implementation.fallback.patches.json",
+    "ghei_agy_slot_locking_implementation.fallback.files.json",
+    "ghei_boundary_sliding_retry_implementation.fallback.patches.json",
+    "ghei_boundary_smoothing_implementation.fallback.patches.json",
+    "ghei_diffusion_gemma_client_implementation.fallback.patches.json",
+    "ghei_e2e_verification.fallback.patches.json",
+    "ghei_grounding_cryptography_and_severity.fallback.files.json",
+    "ghei_grounding_fsm_integration.fallback.files.json",
+    "ghei_knob_configuration.fallback.files.json",
+    "ghei_knob_configuration.files.json",
+    "ghei_media_manager_contact_sheet_implementation.fallback.patches.json",
+    "ghei_media_manager_virtual_framebuffer_implementation.fallback.patches.json",
+    "ghei_persistent_backtrack_state_implementation.fallback.patches.json",
+    "ghei_sandbox_mounts_and_display_isolation_impl.fallback.patches.json",
+    "ghei_screencasting_implementation.fallback.patches.json",
     "health-jailed-import-impl.fallback.patches.json",
+    "implement-persistent-backtrack-state.fallback.files.json",
     "keep-committed-impl-required-impl.fallback.patches.json",
     "keep-required-oracle-normalize-cli-thread-impl.fallback.patches.json",
     "keep-required-oracle-normalize-core-impl.fallback.patches.json",
     "manifest-drop-undeclared-impl.fallback.patches.json",
     "nested-symbol-patch-onepart-impl.fallback.patches.json",
     "p02-redpair-impl.fallback.patches.json",
+    "p03-mapv-cbs-path-solver-compose.fallback.files.json",
+    "p03-mapv-cbs-path-solver-general-reviewed.fallback.files.json",
+    "p03-mapv-cbs-path-solver-single_element-reviewed.fallback.files.json",
+    "p04-appendage-placement-factory.fallback.patches.json",
     "p11-build-evidence-perphase-impl.fallback.patches.json",
     "p21-c0-fsm-evidence-scaffold.fallback.files.json",
     "p21-cp-detect-producer-impl.fallback.files.json",
     "p22-detonation-target-spec-impl.fallback.patches.json",
     "p31-two-actor-authz-impl.fallback.patches.json",
+    "pcapstone-evidence-nonce-impl.fallback.patches.json",
+    "pcapstone-health-guard-impl.fallback.patches.json",
     "plan-retry-resilience-impl.fallback.patches.json",
     "planner-blind-draft-outbox-per-spawn-impl.fallback.patches.json",
     "planner-blind-draft-outbox-per-spawn-impl.patches.json",
@@ -102,11 +128,5 @@
     "wireup-contract-normalizer-impl.fallback.patches.json",
     "wireup-detonation-prompt-impl.fallback.patches.json",
     "wireup-gate-annotate-impl.fallback.patches.json"
-  ],
-  "reason": "watched_starved",
-  "silent_secs": 0.0,
-  "watched_stall_secs": 737.6,
-  "running_now": [
-    "selfheal_claude_daemon_inactivity_stuck_297806"
   ]
 }

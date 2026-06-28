@@ -1,5 +1,5 @@
 ---
-working_dir: "/home/xnihil0zer0/JanusMaskJR"
+working_dir: "/home/xnihil0zer0/AI-Data/JanusMaskEX"
 required_task_ids:
   - dealllowlist-spent-brief-on-reap-oracle
   - dealllowlist-spent-brief-on-reap-impl
@@ -106,7 +106,7 @@ must NOT remain allowlisted. A LIVE / partially-integrated / epic / unpaired bri
 never reaches the reap branch, so its slug is never touched.
 
 # Inputs
-READ these files FIRST in `/home/xnihil0zer0/JanusMaskJR`:
+READ these files FIRST in `/home/xnihil0zer0/AI-Data/JanusMaskEX`:
 
 - `tools/brief_reaper.py` — the SINGLE file both tasks touch. VERIFIED current
   state (source of truth — do NOT change beyond the two edits below):

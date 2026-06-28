@@ -53,6 +53,10 @@ BYPASS_META_TYPE = _BYPASS_TYPES[0] if _BYPASS_TYPES else 'test_authoring'
 TASK_ONE_SIDED = {'task_id': 'one_sided_scenario', 'meta_task_type': BYPASS_META_TYPE, 'constraints': {'function_signature': 'def target(x: int) -> int'}}
 CONFIG = {'fuzzing': {'function_level_inputs': 25, 'float_tolerance': 1e-09, 'seed': 42}, 'batch_execution': {'enabled': False}}
 
+@pytest.fixture(autouse=True)
+def disable_blocking(monkeypatch):
+    monkeypatch.setattr(diff_fuzzer, '_onesided_oracle_blocking_enabled', lambda: False, raising=False)
+
 def _verdict_of(res: object) -> str | None:
     if isinstance(res, str):
         return res

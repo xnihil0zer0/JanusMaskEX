@@ -21,12 +21,12 @@ DEF_BODY = 'def helper(value):\n    return value + 1'
 def _make_task():
     """Minimal task dict that routes the call into the per-entry patch branch.
 
-    meta_task_type 'harness_self_fix' is a BYPASS_FUZZER_TYPES member, so
+    meta_task_type 'test_unit' is a BYPASS_FUZZER_TYPES member, so
     _validate_submission reaches the __JANUSMASK_PATCHES__ per-entry
     validation branch. No declared_signature is supplied, so no return-type
     contract check runs.
     """
-    return {'meta_task_type': 'harness_self_fix', 'files_touched': ['harness/orchestrator.py'], 'task_id': 'fix_region_patch_incomplete_ast-oracle'}
+    return {'meta_task_type': 'test_unit', 'files_touched': ['harness/orchestrator.py'], 'task_id': 'fix_region_patch_incomplete_ast-oracle'}
 
 def _region_patch_src(code_body):
     """Build a __JANUSMASK_PATCHES__ source with ONE kind='region' entry."""

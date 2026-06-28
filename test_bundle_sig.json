@@ -1,0 +1,1 @@
+{"header": {"alg": "HS256"}, "payload": {"axioms": ["axiom 1"]}, "signature": "fake"}

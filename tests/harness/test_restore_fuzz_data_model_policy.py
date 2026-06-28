@@ -25,7 +25,7 @@ def test_bypass_set_derives_from_policy_dict_generically() -> None:
     assert BYPASS_FUZZER_TYPES == _derive_bypass_set()
 
 def test_representative_pinned_bypassed_types_still_bypassed() -> None:
-    pinned = {'validation', 'orchestration', 'harness_self_fix'}
+    pinned = {'test_unit', 'test_integration', 'hooks_integration'}
     assert pinned <= BYPASS_FUZZER_TYPES
 
 def test_should_bypass_fuzzer_false_for_data_model() -> None:

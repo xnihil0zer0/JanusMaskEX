@@ -85,7 +85,19 @@ def cleanup_stale_lockfiles(slot_id: int) -> None:
                         else:
                             try:
                                 os.kill(pid, 0)
-                                process_dead = False
+                                # Check if it is actually Xvfb
+                                is_xvfb = False
+                                try:
+                                    with open(f"/proc/{pid}/cmdline", "r") as f_cmd:
+                                        cmdline = f_cmd.read()
+                                    if "Xvfb" in cmdline:
+                                        is_xvfb = True
+                                except Exception:
+                                    pass
+                                if not is_xvfb:
+                                    process_dead = True
+                                else:
+                                    process_dead = False
                             except OSError as e:
                                 if e.errno == errno.ESRCH:
                                     process_dead = True
@@ -383,7 +395,7 @@ def build_jail_argv(
     xdg = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
     if os.path.isdir(xdg):
         argv += ["--tmpfs", xdg]
-        for _xdg_sub in ("bus", "keyring"):
+        for _xdg_sub in ("bus", "keyring", "pulse", "pipewire-0"):
             _xp = os.path.join(xdg, _xdg_sub)
             if _xdg_sub == "keyring" and not bind_credentials:
                 continue

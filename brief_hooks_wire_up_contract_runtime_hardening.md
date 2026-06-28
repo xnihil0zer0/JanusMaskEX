@@ -1,5 +1,5 @@
 ---
-working_dir: "/home/xnihil0zer0/JanusMaskJR"
+working_dir: "/home/xnihil0zer0/AI-Data/JanusMaskEX"
 operator_decision_required: true
 auto_approve_requested: true
 required_task_ids:
@@ -283,7 +283,7 @@ sibling-vcmd-without-the-greening-dep defect that false-blocked a prior brief's 
   amended vcmd is GREEN with only TASK 1+TASK 2 applied (no TASK 3).
 
 # Inputs
-READ these FIRST in `/home/xnihil0zer0/JanusMaskJR`:
+READ these FIRST in `/home/xnihil0zer0/AI-Data/JanusMaskEX`:
 - `harness/orchestrator.py` — `_run_wire_up_gate` (def ~2233), the
   `_contract_valid` line (~2309), the `uncovered` line (~2315), the enforce reject
   arm (~2316-2326), the report row (~2327-2331), `_wire_up_runtime_gate_enforce_enabled`

@@ -160,6 +160,7 @@ def test_spawn_source_guards_continue_with_all_three_predicates_and_flows_to_jai
 def test_regression_resume_flag_default_off_keeps_argv_identical_to_head(tmp_path, monkeypatch):
     """Default / missing ``workers.resume_pinned_session`` reads False, so the
     jailed argv carries no --continue (byte-identical to HEAD)."""
+    monkeypatch.setattr('harness.orchestrator.load_config', lambda: {})
     assert tw._resume_pinned_session_enabled() is False
     work_dir, state_dir, env, config, cap, fake_run_worker = _setup_spawn(tmp_path, monkeypatch, name='regdefault')
     _seed_prior_transcript(work_dir)

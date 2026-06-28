@@ -1,5 +1,5 @@
 ---
-working_dir: "/home/xnihil0zer0/JanusMaskJR"
+working_dir: "/home/xnihil0zer0/AI-Data/JanusMaskEX"
 required_task_ids:
   - wire-up-symbol-caller-gate-core-oracle
   - wire-up-symbol-caller-gate-core-impl
@@ -190,7 +190,7 @@ Therefore this brief deliberately does the NARROWEST defensible thing:
     ships report-only/default-OFF first.
 
 # Inputs
-READ these files FIRST in `/home/xnihil0zer0/JanusMaskJR`:
+READ these files FIRST in `/home/xnihil0zer0/AI-Data/JanusMaskEX`:
 
 - `harness/wire_up.py` — the file TASK 2 edits. VERIFIED current state: it is the
   PURE reachability module (stdlib + AST + filesystem only; module docstring says

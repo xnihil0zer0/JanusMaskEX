@@ -24,7 +24,7 @@ from harness.state_reconciler import reap_spent_briefs
 
 def _accepted_row(task_id):
     """A canonical impl_progress ``accepted`` row for ``task_id``."""
-    return {'task_id': task_id, 'phase': 'accepted', 'event': 'accepted', 'ts': '2026-06-20T00:00:00Z'}
+    return {'task_id': task_id, 'phase': 'accepted', 'event': 'auto_commit', 'commit_sha': '1' * 40, 'ts': '2026-06-20T00:00:00Z'}
 
 def _reject_rollback_row(task_id):
     """A later ``reject_rollback`` row that undoes a prior acceptance."""

@@ -22,6 +22,13 @@ from harness.sandbox import sandbox_child_env
 
 
 class TestSandboxChildEnvExternal(unittest.TestCase):
+    def setUp(self):
+        self.patcher = patch('autocompiler.flags.ac_enabled', return_value=False)
+        self.patcher.start()
+
+    def tearDown(self):
+        self.patcher.stop()
+
     def test_external_working_dir_on_pythonpath(self):
         with tempfile.TemporaryDirectory() as ext:
             ext = str(pathlib.Path(ext).resolve())
