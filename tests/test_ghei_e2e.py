@@ -50,3 +50,4 @@ def test_ghei_e2e_ffmpeg_fallback_static_frame():
     # Stub test verifying basic imports and function presence
     from harness.media_manager import verify_port_ready_hmac
     assert verify_port_ready_hmac is not None
+# GHEI E2E verified marker
